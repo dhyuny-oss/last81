@@ -1,0 +1,44 @@
+name: 📈 주가 데이터 자동 업데이트
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+    - cron: '30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-stock-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Python 3.11 설치
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: requests 설치
+        run: pip install requests
+
+      - name: 야후 파이낸스 데이터 수집
+        run: python scripts/fetch_yahoo.py
+
+      - name: 데이터 저장 및 배포
+        run: |
+          git config user.name  "Alpha-Bot"
+          git config user.email "bot@alpha-terminal"
+          git add public/data/stocks.json
+          if git diff --staged --quiet; then
+            echo "변경 없음"
+          else
+            git commit -m "📊 주가 업데이트: $(TZ='Asia/Seoul' date '+%Y-%m-%d %H:%M KST')"
+            git push
+          fi
