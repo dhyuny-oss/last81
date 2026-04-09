@@ -25,7 +25,8 @@ const SIG = {
   HOLD: { bg:"#451a03", color:"#fbbf24", border:"#f59e0b" },
   SELL: { bg:"#450a0a", color:"#f87171", border:"#ef4444" },
 };
-const SECTORS = {
+// 섹터 기준값 — stocks.json에서 동적으로 로드됨 (기본값 폴백용)
+const SECTORS_DEFAULT = {
   Semiconductor:{ roe:24.6, per:28.9, rev:22.1 },
   Technology:   { roe:28.5, per:32.1, rev:18.4 },
   Auto:         { roe: 9.8, per:12.4, rev: 6.3 },
@@ -175,7 +176,12 @@ const css = {
 // ═══════════════════════════════════════════════════════════
 export default function App() {
   // ── 앱 상태 ─────────────────────────────────────────────
-  const [stocks, setStocks]     = useState(INITIAL);
+  const [stocks, setStocks]     = useState(()=>{
+    try {
+      const saved = localStorage.getItem("alpha_stocks");
+      return saved ? JSON.parse(saved) : INITIAL;
+    } catch { return INITIAL; }
+  });
   const [sel, setSel]           = useState("NVDA");
   const [tab, setTab]           = useState("radar");
   const [charts, setCharts]     = useState({});
@@ -187,16 +193,24 @@ export default function App() {
   const [period, setPeriod]     = useState("3M");
 
   // ── 데이터 상태 ──────────────────────────────────────────
-  const [dataStatus, setDataStatus] = useState("loading"); // loading|real|sim
+  const [dataStatus, setDataStatus] = useState("loading");
   const [lastUpdated, setLastUpdated] = useState(null);
   const [indicesData, setIndicesData] = useState({});
+  const [sectorsData, setSectorsData] = useState(SECTORS_DEFAULT); // 섹터 기준값 (동적 로드)
 
   // ── Tab 1 ────────────────────────────────────────────────
   const [rsKey, setRsKey]   = useState("chg1M");
   const [ibVol, setIbVol]   = useState(Math.floor(80+Math.random()*140));
   const [aiText, setAiText] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
-  const SECTOR_RS = [
+  // 섹터 RS 히트맵 — stocks.json sectors에서 실시간 로드, 없으면 기본값
+  const SECTOR_NAME_MAP = {
+    Semiconductor:"반도체", Technology:"IT", Auto:"자동차",
+    Finance:"금융", Consumer:"소비재", Healthcare:"헬스케어",
+    Energy:"에너지", Industrial:"산업재", Bio:"바이오",
+    Cloud:"클라우드", AI:"AI", Nuclear:"원전",
+  };
+  const SECTOR_RS_DEFAULT = [
     {name:"반도체",etf:"SOXX",chg1W:-2.1,chg1M:-7.9,chg3M:-12.1},
     {name:"유틸리티",etf:"XLU",chg1W:+0.8,chg1M:-3.1,chg3M:-4.5},
     {name:"에너지",etf:"XLE",chg1W:+0.3,chg1M:-6.6,chg3M:-8.2},
@@ -207,6 +221,16 @@ export default function App() {
     {name:"바이오",etf:"XBI",chg1W:-1.5,chg1M:-9.2,chg3M:-11.4},
     {name:"클라우드",etf:"SKYY",chg1W:-2.8,chg1M:-22.2,chg3M:-28.1},
   ];
+  // stocks.json sectors 데이터가 있으면 실시간 값 사용
+  const SECTOR_RS = Object.keys(sectorsData).length > Object.keys(SECTORS_DEFAULT).length
+    ? Object.entries(sectorsData).map(([k,v])=>({
+        name: SECTOR_NAME_MAP[k]||k,
+        etf:  v.etf||"",
+        chg1W: v.chg1W||0,
+        chg1M: v.chg1M||0,
+        chg3M: v.chg3M||0,
+      }))
+    : SECTOR_RS_DEFAULT;
   const spyRef={chg1W:-1.8,chg1M:-4.6,chg3M:-5.2};
 
   // ── Tab 2 ────────────────────────────────────────────────
@@ -221,8 +245,12 @@ export default function App() {
   const [checklist, setChecklist] = useState({market:false,sector:false,stock:false,timing:false,risk:false});
 
   // ── Tab 4 ────────────────────────────────────────────────
-  const [positions, setPositions] = useState([]);
-  const [history, setHistory]     = useState([]);
+  const [positions, setPositions] = useState(()=>{
+    try { const s=localStorage.getItem("alpha_positions"); return s?JSON.parse(s):[]; } catch { return []; }
+  });
+  const [history, setHistory]     = useState(()=>{
+    try { const s=localStorage.getItem("alpha_history"); return s?JSON.parse(s):[]; } catch { return []; }
+  });
 
   // ── Tab 5 (IRP) ──────────────────────────────────────────
   const [irpPort, setIrpPort]   = useState([
@@ -235,11 +263,25 @@ export default function App() {
   const [irpYears, setIrpYears] = useState(3);
   const [irpResult, setIrpResult] = useState(null);
   const [irpSearch, setIrpSearch] = useState("");
-  const [investNotes, setInvestNotes] = useState("");
+  const [investNotes, setInvestNotes] = useState(()=>{
+    try { return localStorage.getItem("alpha_notes")||""; } catch { return ""; }
+  });
 
   // ── 추적 기록 ─────────────────────────────────────────────
-  const [tracking, setTracking]   = useState([]);
-  const [closedLog, setClosedLog] = useState([]);
+  const [tracking, setTracking]   = useState(()=>{
+    try { const s=localStorage.getItem("alpha_tracking"); return s?JSON.parse(s):[]; } catch { return []; }
+  });
+  const [closedLog, setClosedLog] = useState(()=>{
+    try { const s=localStorage.getItem("alpha_closed"); return s?JSON.parse(s):[]; } catch { return []; }
+  });
+
+  // 데이터 변경 시 localStorage 자동 저장
+  useEffect(()=>{ try{localStorage.setItem("alpha_stocks",    JSON.stringify(stocks));}    catch{} },[stocks]);
+  useEffect(()=>{ try{localStorage.setItem("alpha_positions", JSON.stringify(positions));} catch{} },[positions]);
+  useEffect(()=>{ try{localStorage.setItem("alpha_history",   JSON.stringify(history));}   catch{} },[history]);
+  useEffect(()=>{ try{localStorage.setItem("alpha_tracking",  JSON.stringify(tracking));}  catch{} },[tracking]);
+  useEffect(()=>{ try{localStorage.setItem("alpha_closed",    JSON.stringify(closedLog));} catch{} },[closedLog]);
+  useEffect(()=>{ try{localStorage.setItem("alpha_notes",     investNotes);}               catch{} },[investNotes]);
 
   // ════════════════════════════════════════════════════════
   // ★ 핵심: stocks.json 에서 실제 데이터 로딩
@@ -253,6 +295,18 @@ export default function App() {
 
         // 지수 데이터 저장
         setIndicesData(indicesJson);
+
+        // 섹터 기준값 업데이트 (자동 계산 데이터)
+        const sectorsJson = json.sectors || {};
+        if (Object.keys(sectorsJson).length > 0) {
+          const merged = { ...SECTORS_DEFAULT };
+          for (const [name, data] of Object.entries(sectorsJson)) {
+            if (data.roe && data.per && data.rev) {
+              merged[name] = { roe: data.roe, per: data.per, rev: data.rev };
+            }
+          }
+          setSectorsData(merged);
+        }
 
         // 종목 데이터 머지
         if (Object.keys(stocksJson).length > 0) {
@@ -441,7 +495,7 @@ export default function App() {
 
   // ── 파생 변수 ─────────────────────────────────────────────
   const selInfo  = stocks.find(s=>s.ticker===sel);
-  const bench    = selInfo ? SECTORS[selInfo.sector] : null;
+  const bench    = selInfo ? (sectorsData[selInfo.sector] || SECTORS_DEFAULT[selInfo.sector]) : null;
   const cd       = charts[sel];
   const lastD    = cd?.data?.at(-1);
   const sliced   = cd?.data?.slice(-PERIOD_DAYS[period])||[];
@@ -464,7 +518,10 @@ export default function App() {
     if((s.liquidity||0)<fLiq) return false;
     if((s.revGrowth||s.rev||0)<fRev) return false;
     return true;
-  }).map(s=>({...s,score:alphaScore(s,charts[s.ticker]?.data)})).sort((a,b)=>b.score-a.score);
+  }).map(s=>({...s,
+    score:alphaScore(s,charts[s.ticker]?.data),
+    _bench: sectorsData[s.sector]||SECTORS_DEFAULT[s.sector]||{roe:15,per:20,rev:10}
+  })).sort((a,b)=>b.score-a.score);
 
   // 지수 RS (실제 데이터 or 기본값)
   const idxRS = {
