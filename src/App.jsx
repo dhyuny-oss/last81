@@ -313,7 +313,7 @@ export default function App() {
     if (!search.trim()) { setSearchRes([]); return; }
     const q = search.toUpperCase(), already = stocks.map(s => s.ticker);
     const res = Object.entries(SEARCH_DB).filter(([t,s])=>!already.includes(t)&&(t.includes(q)||s.label.toUpperCase().includes(q))).map(([t,s])=>({ticker:t,...s}));
-    if (!res.length && q.length >= 2) res.push({ticker:q,label:q,_custom:true});
+    if (!res.length && q.length >= 1) res.push({ticker:q,label:`"${q}" 야후에서 실시간 조회`,_custom:true});
     setSearchRes(res);
   }, [search, stocks]);
 
@@ -343,12 +343,82 @@ export default function App() {
   };
 
   // ── 종목 추가/제거 ────────────────────────────────────────
-  function addStock(item) {
+  // ★ 야후 파이낸스에서 실시간 종목 검색
+  async function fetchTickerFromYahoo(ticker) {
+    const isKR = /^\d{6}$/.test(ticker);
+    // 코스피/코스닥 자동 판별: 둘 다 시도해서 데이터 있는 쪽 사용
+    const getSuffix = async (t) => {
+      // KS(코스피) 먼저 시도, 실패하면 KQ(코스닥)
+      for (const sfx of [".KS", ".KQ"]) {
+        try {
+          const url = `https://query1.finance.yahoo.com/v8/finance/chart/${t+sfx}?interval=1d&range=5d`;
+          const r = await fetch("https://corsproxy.io/?url="+encodeURIComponent(url), {signal:AbortSignal.timeout(5000)});
+          if (!r.ok) continue;
+          const j = await r.json();
+          if (j.chart?.result?.[0]?.meta?.regularMarketPrice) return sfx;
+        } catch {}
+      }
+      return ".KS"; // 기본값
+    };
+    const suffix = isKR ? await getSuffix(ticker) : "";
+    const yTicker = ticker + suffix;
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yTicker}?interval=1d&range=3mo`;
+    const proxies = ["https://corsproxy.io/?url=","https://api.allorigins.win/raw?url="];
+    for (const proxy of proxies) {
+      try {
+        const r = await fetch(proxy+encodeURIComponent(url), {signal:AbortSignal.timeout(8000)});
+        if (!r.ok) continue;
+        const json = await r.json();
+        const result = json.chart?.result?.[0];
+        if (!result) continue;
+        const meta = result.meta;
+        const price = meta.regularMarketPrice || meta.previousClose || 0;
+        if (!price) continue;
+        const prev = meta.chartPreviousClose || meta.previousClose || price;
+        const change = +(price-prev).toFixed(2);
+        const changePct = prev ? +((change/prev)*100).toFixed(2) : 0;
+        const longName = meta.longName || meta.shortName || ticker;
+        const ts = result.timestamp||[], q = result.indicators?.quote?.[0]||{};
+        const candles = ts.map((t,i)=>{
+          const d=new Date(t*1000);
+          return {date:`${d.getMonth()+1}/${d.getDate()}`,close:+(q.close?.[i]||price).toFixed(2),high:+(q.high?.[i]||price).toFixed(2),low:+(q.low?.[i]||price).toFixed(2),volume:q.volume?.[i]||0};
+        }).filter(c=>c.close>0);
+        return {
+          ticker, label:longName, price, change, changePct, candles,
+          sector:"Technology", market:isKR?"🇰🇷":"🇺🇸",
+          roe:0, per:0, rev:0, mktCap:meta.marketCap||0,
+          target:+(price*1.2).toFixed(isKR?0:2),
+          liquidity:2, revGrowth:0,
+          base:+(price*0.88).toFixed(isKR?0:2), vol:0.02, drift:0.001
+        };
+      } catch { continue; }
+    }
+    return null;
+  }
+
+  async function addStock(item) {
     if (stocks.find(s=>s.ticker===item.ticker)){setAddMsg("이미 추가됨");setTimeout(()=>setAddMsg(""),2000);return;}
-    const ns = item._custom ? {ticker:item.ticker,label:item.ticker,sector:"Technology",market:"🇺🇸",price:100,target:120,roe:20,per:25,rev:10,base:90,vol:0.02,drift:0.001,mktCap:50,liquidity:2,revGrowth:10} : item;
-    setStocks(p=>[...p,ns]); setSel(ns.ticker); setTab("sniper");
     setSearch(""); setSearchRes([]); setShowSearch(false);
-    setAddMsg(`✅ ${ns.label} 추가`); setTimeout(()=>setAddMsg(""),2500);
+    if (item._custom) {
+      // 야후에서 실제 데이터 가져오기
+      setAddMsg(`🔍 ${item.ticker} 조회 중...`);
+      const real = await fetchTickerFromYahoo(item.ticker);
+      if (real) {
+        setStocks(p=>[...p,real]);
+        // 차트 빌드
+        if (real.candles && real.candles.length>10) {
+          try { setCharts(prev=>({...prev,[real.ticker]:{data:buildChartData(real.candles),real:true}})); } catch{}
+        }
+        setSel(real.ticker); setTab("sniper");
+        setAddMsg(`✅ ${real.label} (실시간) 추가`);
+      } else {
+        setAddMsg(`❌ ${item.ticker} 조회 실패 — 티커를 확인해주세요`);
+      }
+    } else {
+      setStocks(p=>[...p,item]); setSel(item.ticker); setTab("sniper");
+      setAddMsg(`✅ ${item.label} 추가`);
+    }
+    setTimeout(()=>setAddMsg(""),3000);
   }
   function removeStock(t){setStocks(p=>p.filter(s=>s.ticker!==t));if(sel===t)setSel(stocks[0]?.ticker||"");}
 
@@ -447,9 +517,22 @@ export default function App() {
           {dataStatus==="sim"     && <span style={{fontSize:8,color:C.yellow}}>🟡 시뮬레이션 (GitHub Actions 미실행)</span>}
         </div>
         <div style={{position:"relative",marginLeft:"auto"}}>
-          <input value={search} onChange={e=>{setSearch(e.target.value);setShowSearch(true);}} onFocus={()=>setShowSearch(true)} placeholder="🔍 종목 검색/추가..." style={{background:"rgba(255,255,255,.05)",border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.text,fontSize:10,outline:"none",width:165}}/>
+          <input value={search}
+            onChange={e=>{setSearch(e.target.value);setShowSearch(true);}}
+            onFocus={()=>setShowSearch(true)}
+            onKeyDown={async e=>{
+              if(e.key==="Enter"&&search.trim()){
+                const q=search.trim().toUpperCase();
+                const inDB=[...stocks,...Object.entries(SEARCH_DB).map(([t,sv])=>({ticker:t,...sv}))].find(sv=>sv.ticker===q);
+                if(inDB){addStock(inDB);}
+                else{addStock({ticker:q,label:q,_custom:true});}
+                setShowSearch(false);
+              }
+            }}
+            placeholder="🔍 티커 입력 후 엔터 (예: PFE, IONQ)"
+            style={{background:"rgba(255,255,255,.05)",border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.text,fontSize:10,outline:"none",width:195}}/>
           {showSearch&&searchRes.length>0&&<div style={{position:"absolute",top:"calc(100% + 4px)",left:0,right:0,background:"#0f172a",border:`1px solid ${C.border}`,borderRadius:7,zIndex:200,overflow:"hidden",boxShadow:"0 8px 32px rgba(0,0,0,.8)"}}>
-            {searchRes.map((r,i)=><div key={i} onClick={()=>addStock(r)} style={{padding:"7px 11px",cursor:"pointer",borderBottom:"1px solid rgba(255,255,255,.05)",display:"flex",justifyContent:"space-between"}} onMouseEnter={e=>e.currentTarget.style.background="rgba(56,189,248,.1)"} onMouseLeave={e=>e.currentTarget.style.background=""}><span style={{color:C.text,fontWeight:700}}>{r.label} <span style={{color:C.muted,fontSize:8}}>{r.ticker}</span></span><span style={{color:C.sub,fontSize:8}}>{r.market}</span></div>)}
+            {searchRes.map((r,i)=><div key={i} onClick={()=>addStock(r)} style={{padding:"7px 11px",cursor:"pointer",borderBottom:"1px solid rgba(255,255,255,.05)",display:"flex",justifyContent:"space-between",background:r._custom?"rgba(56,189,248,.06)":""}} onMouseEnter={e=>e.currentTarget.style.background="rgba(56,189,248,.1)"} onMouseLeave={e=>e.currentTarget.style.background=r._custom?"rgba(56,189,248,.06)":""}><span style={{color:r._custom?C.accent:C.text,fontWeight:700}}>{r.label} <span style={{color:C.muted,fontSize:8}}>{r._custom?"":r.ticker}</span></span><span style={{color:r._custom?C.accent:C.sub,fontSize:8}}>{r._custom?"🔍 클릭하여 조회":r.market}</span></div>)}
           </div>}
         </div>
         {addMsg && <span style={{color:C.green,fontSize:9}}>{addMsg}</span>}
