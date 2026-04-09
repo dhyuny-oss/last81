@@ -175,7 +175,10 @@ const css = {
 // ═══════════════════════════════════════════════════════════
 export default function App() {
   // ── 앱 상태 ─────────────────────────────────────────────
-  const [stocks, setStocks]     = useState(INITIAL);
+  const [stocks, setStocks] = useState(()=>{
+    try{const s=localStorage.getItem("at_stocks");return s?JSON.parse(s):INITIAL;}
+    catch{return INITIAL;}
+  });
   const [sel, setSel]           = useState("NVDA");
   const [tab, setTab]           = useState("radar");
   const [charts, setCharts]     = useState({});
@@ -221,8 +224,12 @@ export default function App() {
   const [checklist, setChecklist] = useState({market:false,sector:false,stock:false,timing:false,risk:false});
 
   // ── Tab 4 ────────────────────────────────────────────────
-  const [positions, setPositions] = useState([]);
-  const [history, setHistory]     = useState([]);
+  const [positions, setPositions] = useState(()=>{
+    try{const s=localStorage.getItem("at_positions");return s?JSON.parse(s):[];}catch{return [];}
+  });
+  const [history, setHistory] = useState(()=>{
+    try{const s=localStorage.getItem("at_history");return s?JSON.parse(s):[];}catch{return [];}
+  });
 
   // ── Tab 5 (IRP) ──────────────────────────────────────────
   const [irpPort, setIrpPort]   = useState([
@@ -235,11 +242,17 @@ export default function App() {
   const [irpYears, setIrpYears] = useState(3);
   const [irpResult, setIrpResult] = useState(null);
   const [irpSearch, setIrpSearch] = useState("");
-  const [investNotes, setInvestNotes] = useState("");
+  const [investNotes, setInvestNotes] = useState(()=>{
+    try{return localStorage.getItem("at_notes")||"";}catch{return "";}
+  });
 
   // ── 추적 기록 ─────────────────────────────────────────────
-  const [tracking, setTracking]   = useState([]);
-  const [closedLog, setClosedLog] = useState([]);
+  const [tracking, setTracking] = useState(()=>{
+    try{const s=localStorage.getItem("at_tracking");return s?JSON.parse(s):[];}catch{return [];}
+  });
+  const [closedLog, setClosedLog] = useState(()=>{
+    try{const s=localStorage.getItem("at_closed");return s?JSON.parse(s):[];}catch{return [];}
+  });
 
   // ════════════════════════════════════════════════════════
   // ★ 핵심: stocks.json 에서 실제 데이터 로딩
@@ -286,6 +299,14 @@ export default function App() {
       })
       .catch(() => setDataStatus("sim"));
   }, []);
+
+  // stocks/positions/history 변경시 localStorage 자동 저장
+  useEffect(()=>{try{localStorage.setItem("at_stocks",JSON.stringify(stocks));}catch{}},[stocks]);
+  useEffect(()=>{try{localStorage.setItem("at_positions",JSON.stringify(positions));}catch{}},[positions]);
+  useEffect(()=>{try{localStorage.setItem("at_history",JSON.stringify(history));}catch{}},[history]);
+  useEffect(()=>{try{localStorage.setItem("at_tracking",JSON.stringify(tracking));}catch{}},[tracking]);
+  useEffect(()=>{try{localStorage.setItem("at_closed",JSON.stringify(closedLog));}catch{}},[closedLog]);
+  useEffect(()=>{try{localStorage.setItem("at_notes",investNotes);}catch{}},[investNotes]);
 
   // 시뮬 차트 빌드 (실제 데이터 없는 종목용)
   useEffect(() => {
@@ -343,12 +364,68 @@ export default function App() {
   };
 
   // ── 종목 추가/제거 ────────────────────────────────────────
-  function addStock(item) {
-    if (stocks.find(s=>s.ticker===item.ticker)){setAddMsg("이미 추가됨");setTimeout(()=>setAddMsg(""),2000);return;}
-    const ns = item._custom ? {ticker:item.ticker,label:item.ticker,sector:"Technology",market:"🇺🇸",price:100,target:120,roe:20,per:25,rev:10,base:90,vol:0.02,drift:0.001,mktCap:50,liquidity:2,revGrowth:10} : item;
-    setStocks(p=>[...p,ns]); setSel(ns.ticker); setTab("sniper");
+  async function addStock(item) {
+    if(stocks.find(s=>s.ticker===item.ticker)){setAddMsg("이미 추가됨");setTimeout(()=>setAddMsg(""),2000);return;}
     setSearch(""); setSearchRes([]); setShowSearch(false);
-    setAddMsg(`✅ ${ns.label} 추가`); setTimeout(()=>setAddMsg(""),2500);
+    if(item._custom){
+      setAddMsg(`🔍 ${item.ticker} 조회 중...`);
+      const real = await fetchFromYahoo(item.ticker);
+      if(real){
+        setStocks(p=>[...p,real]);
+        if(real.candles&&real.candles.length>10){
+          try{setCharts(prev=>({...prev,[real.ticker]:{data:buildChartData(real.candles),real:true}}));}catch{}
+        }
+        setSel(real.ticker); setTab("sniper");
+        setAddMsg(`✅ ${real.label} 추가`);
+      } else {
+        setAddMsg(`❌ ${item.ticker} 조회 실패 — 티커 확인`);
+      }
+    } else {
+      setStocks(p=>[...p,item]); setSel(item.ticker); setTab("sniper");
+      setAddMsg(`✅ ${item.label} 추가`);
+    }
+    setTimeout(()=>setAddMsg(""),3000);
+  }
+
+  async function fetchFromYahoo(ticker){
+    const isKR=/^\d{6}$/.test(ticker);
+    const proxies=["https://corsproxy.io/?url=","https://api.allorigins.win/raw?url="];
+    const suffixes=isKR?[".KS",".KQ"]:[""];
+    for(const sfx of suffixes){
+      const yT=ticker+sfx;
+      const url=`https://query1.finance.yahoo.com/v8/finance/chart/${yT}?interval=1d&range=3mo`;
+      for(const px of proxies){
+        try{
+          const r=await fetch(px+encodeURIComponent(url),{signal:AbortSignal.timeout(8000)});
+          if(!r.ok)continue;
+          const json=await r.json();
+          const res=json.chart?.result?.[0];
+          if(!res)continue;
+          const meta=res.meta;
+          const price=parseFloat(meta.regularMarketPrice||meta.previousClose||0);
+          if(!price)continue;
+          const prev=parseFloat(meta.chartPreviousClose||meta.previousClose||price);
+          const ts=res.timestamp||[],q=res.indicators?.quote?.[0]||{};
+          const candles=ts.map((t,i)=>{
+            const d=new Date(t*1000);
+            return{date:`${d.getMonth()+1}/${d.getDate()}`,close:+(q.close?.[i]||price).toFixed(2),high:+(q.high?.[i]||price).toFixed(2),low:+(q.low?.[i]||price).toFixed(2),volume:q.volume?.[i]||0};
+          }).filter(c=>c.close>0);
+          return{
+            ticker, label:meta.longName||meta.shortName||ticker,
+            price, change:+(price-prev).toFixed(2), changePct:+((price-prev)/prev*100).toFixed(2),
+            chg3d:candles.length>3?+((candles.at(-1).close-candles.at(-4).close)/candles.at(-4).close*100).toFixed(2):0,
+            chg5d:candles.length>5?+((candles.at(-1).close-candles.at(-6).close)/candles.at(-6).close*100).toFixed(2):0,
+            sector:"Technology", market:isKR?"🇰🇷":"🇺🇸",
+            roe:0, per:0, rev:0, mktCap:meta.marketCap||0,
+            target:+(price*1.2).toFixed(isKR?0:2),
+            liquidity:2, revGrowth:0,
+            base:+(price*0.88).toFixed(isKR?0:2), vol:0.02, drift:0.001,
+            candles,
+          };
+        }catch{continue;}
+      }
+    }
+    return null;
   }
   function removeStock(t){setStocks(p=>p.filter(s=>s.ticker!==t));if(sel===t)setSel(stocks[0]?.ticker||"");}
 
@@ -447,7 +524,19 @@ export default function App() {
           {dataStatus==="sim"     && <span style={{fontSize:8,color:C.yellow}}>🟡 시뮬레이션 (GitHub Actions 미실행)</span>}
         </div>
         <div style={{position:"relative",marginLeft:"auto"}}>
-          <input value={search} onChange={e=>{setSearch(e.target.value);setShowSearch(true);}} onFocus={()=>setShowSearch(true)} placeholder="🔍 종목 검색/추가..." style={{background:"rgba(255,255,255,.05)",border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.text,fontSize:10,outline:"none",width:165}}/>
+          <input value={search}
+            onChange={e=>{setSearch(e.target.value);setShowSearch(true);}}
+            onFocus={()=>setShowSearch(true)}
+            onKeyDown={e=>{
+              if(e.key==="Enter"&&search.trim()){
+                const q=search.trim().toUpperCase();
+                const found=[...stocks,...Object.entries(SEARCH_DB).map(([t,v])=>({ticker:t,...v}))].find(s=>s.ticker===q);
+                if(found) addStock(found);
+                else addStock({ticker:q,label:q,_custom:true});
+                setShowSearch(false);
+              }
+            }}
+            placeholder="🔍 티커 입력 후 엔터 (예: PFE)" style={{background:"rgba(255,255,255,.05)",border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.text,fontSize:10,outline:"none",width:165}}/>
           {showSearch&&searchRes.length>0&&<div style={{position:"absolute",top:"calc(100% + 4px)",left:0,right:0,background:"#0f172a",border:`1px solid ${C.border}`,borderRadius:7,zIndex:200,overflow:"hidden",boxShadow:"0 8px 32px rgba(0,0,0,.8)"}}>
             {searchRes.map((r,i)=><div key={i} onClick={()=>addStock(r)} style={{padding:"7px 11px",cursor:"pointer",borderBottom:"1px solid rgba(255,255,255,.05)",display:"flex",justifyContent:"space-between"}} onMouseEnter={e=>e.currentTarget.style.background="rgba(56,189,248,.1)"} onMouseLeave={e=>e.currentTarget.style.background=""}><span style={{color:C.text,fontWeight:700}}>{r.label} <span style={{color:C.muted,fontSize:8}}>{r.ticker}</span></span><span style={{color:C.sub,fontSize:8}}>{r.market}</span></div>)}
           </div>}
