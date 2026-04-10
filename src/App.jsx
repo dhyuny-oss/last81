@@ -295,9 +295,14 @@ export default function App() {
   // spyRef는 idxRS.spy 사용으로 대체
 
   // ── Tab 2 ────────────────────────────────────────────────
-  const [fLiq, setFLiq]   = useState(1.0);
-  const [alphaTab, setAlphaTab] = useState("filter"); // filter | pattern | compare
-  const [fRev, setFRev]   = useState(10);
+  const [fLiq, setFLiq]   = useState(0.5);
+  const [alphaTab, setAlphaTab] = useState("filter");
+  const [pool, setPool]           = useState({});
+  const [poolLoaded, setPoolLoaded] = useState(false);
+  const [poolFilter, setPoolFilter] = useState("");
+  const [poolMarket, setPoolMarket] = useState("all"); // all | kr | us
+  const [poolMsg, setPoolMsg]     = useState(""); // filter | pattern | compare
+  const [fRev, setFRev]   = useState(0);
   const [watchlist, setWatchlist] = useState([]);
   const [conds, setConds] = useState({ golden:true, box:false, angle:false, ichi:false, vol:false });
 
@@ -538,6 +543,38 @@ export default function App() {
       };
     } catch(e) {
       console.error("KIS API 실패:", e.message);
+      // 야후 파이낸스 폴백 시도
+      try {
+        const isKR = /^\d{6}$/.test(ticker);
+        const suffixes = isKR ? [".KS",".KQ"] : [""];
+        for (const sfx of suffixes) {
+          const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker+sfx}?interval=1d&range=3mo`;
+          const r = await fetch("https://corsproxy.io/?url="+encodeURIComponent(url), {signal:AbortSignal.timeout(8000)});
+          if (!r.ok) continue;
+          const json = await r.json();
+          const res = json.chart?.result?.[0];
+          if (!res) continue;
+          const meta = res.meta;
+          const price = parseFloat(meta.regularMarketPrice||meta.previousClose||0);
+          if (!price) continue;
+          const prev = parseFloat(meta.chartPreviousClose||meta.previousClose||price);
+          const ts = res.timestamp||[], q = res.indicators?.quote?.[0]||{};
+          const candles = ts.map((t,i)=>{
+            const d = new Date(t*1000);
+            return {date:`${d.getMonth()+1}/${d.getDate()}`,close:+(q.close?.[i]||price).toFixed(2),high:+(q.high?.[i]||price).toFixed(2),low:+(q.low?.[i]||price).toFixed(2),volume:q.volume?.[i]||0};
+          }).filter(c=>c.close>0);
+          return {
+            ticker, label: meta.longName||meta.shortName||ticker,
+            price, change:+(price-prev).toFixed(2), changePct:+((price-prev)/prev*100).toFixed(2),
+            chg3d: candles.length>3?+((candles.at(-1).close-candles.at(-4).close)/candles.at(-4).close*100).toFixed(2):0,
+            chg5d: candles.length>5?+((candles.at(-1).close-candles.at(-6).close)/candles.at(-6).close*100).toFixed(2):0,
+            sector:"Technology", market:isKR?"🇰🇷":"🇺🇸",
+            roe:0, per:0, rev:0, revGrowth:0, mktCap:meta.marketCap||0,
+            target:+(price*1.2).toFixed(isKR?0:2), liquidity:2,
+            base:+(price*0.88).toFixed(isKR?0:2), vol:0.02, drift:0.001, candles,
+          };
+        }
+      } catch {}
       return null;
     }
   }
@@ -621,7 +658,7 @@ export default function App() {
 
   const alphaHits = stocks.filter(s=>{
     if((s.liquidity||0)<fLiq) return false;
-    if((s.revGrowth||s.rev||0)<fRev) return false;
+    if(fRev>0 && (s.revGrowth||s.rev||0)<fRev) return false;
     return true;
   }).map(s=>({...s,score:alphaScore(s,charts[s.ticker]?.data)})).sort((a,b)=>b.score-a.score);
 
@@ -635,7 +672,7 @@ export default function App() {
 
   const ichiStatus = lastD?.aboveCloud?"above":lastD?.nearCloud?"near":"below";
 
-  const TABS=[["radar","📡 시장레이더"],["alpha","🎯 알파헌터"],["sniper","🔭 스나이퍼"],["watch",`👁 라이브워치${positions.length?` (${positions.length})`:""}`],["log","📋 기록"],["strategy","📊 전략가"]];
+  const TABS=[["radar","📡 시장레이더"],["alpha","🎯 알파헌터"],["sniper","🔭 스나이퍼"],["watch",`👁 라이브워치${positions.length?` (${positions.length})`:""}`],["log","📋 기록"],["pool","🗂 종목풀"]];
 
   // ── 스타일 ──────────────────────────────────────────────
   const pageStyle = { minHeight:"100vh", background:C.bg, color:C.text, fontFamily:"'DM Mono','JetBrains Mono',monospace", display:"flex", flexDirection:"column", fontSize:12 };
@@ -735,10 +772,11 @@ export default function App() {
             {[["^GSPC","S&P 500"],["^IXIC","NASDAQ"],["^KS11","KOSPI"]].map(([k,name])=>{
               const d=indicesData[k];
               const pct=d?.changePct??0;
-              return<div key={k} style={{border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 12px",background:C.panel2}}>
-                <div style={{fontSize:9,color:C.muted,marginBottom:3}}>{name} {d?.market==="kr"?"🇰🇷":"🇺🇸"}</div>
-                <div style={{fontSize:20,fontWeight:900,marginBottom:2}}>{d?.price?d.price.toLocaleString("ko-KR",{maximumFractionDigits:2}):"—"}</div>
-                <div style={{color:pct>=0?C.green:C.red,fontWeight:700,fontSize:12}}>{pct>=0?"+":""}{pct.toFixed?.(2)}% {pct>=0?"▲":"▼"}</div>
+              const hasData=d&&d.price>0;
+              return<div key={k} style={{border:`1px solid ${hasData?(pct>=0?"rgba(34,197,94,.3)":"rgba(239,68,68,.3)"):C.border}`,borderRadius:8,padding:"8px 12px",background:C.panel2}}>
+                <div style={{fontSize:9,color:C.muted,marginBottom:3}}>{name} {k.includes("KS")||k.includes("KQ")?"🇰🇷":"🇺🇸"}</div>
+                <div style={{fontSize:20,fontWeight:900,marginBottom:2}}>{hasData?d.price.toLocaleString("ko-KR",{maximumFractionDigits:2}):"—"}</div>
+                <div style={{color:pct>=0?C.green:C.red,fontWeight:700,fontSize:12}}>{hasData?(pct>=0?"+":""+(pct.toFixed?.(2)||0)+"% "+(pct>=0?"▲":"▼")):"데이터 없음"}</div>
               </div>;
             })}
           </div>
@@ -1063,12 +1101,12 @@ export default function App() {
             ))}
           </div>
 
-          {/* R:R + 슬라이더 + 매수버튼 */}
+          {/* R:R + 매수버튼 */}
           <div style={{display:"flex",gap:10,marginBottom:10,alignItems:"flex-start",flexWrap:"wrap"}}>
-            <div style={{...css.panel2,minWidth:120,border:`2px solid ${rrRatio>=2?C.emerald:C.border}`,textAlign:"center"}}>
+            <div style={{...css.panel2,minWidth:100,textAlign:"center"}}>
               <div style={{fontSize:8,color:C.muted}}>손익비 R:R</div>
-              <div style={{fontSize:30,fontWeight:900,color:rrRatio>=2?C.emerald:rrRatio>=1?C.yellow:C.red,lineHeight:1}}>{rrRatio>0?`${rrRatio}:1`:"-"}</div>
-              <div style={{fontSize:8,color:C.muted}}>{rrRatio>=2?"✅ 충족":rrRatio>=1?"⚠ 부족":"❌ 불가"}</div>
+              <div style={{fontSize:26,fontWeight:900,color:rrRatio>=2?C.emerald:rrRatio>=1?C.yellow:C.red,lineHeight:1}}>{rrRatio>0?`${rrRatio}:1`:"-"}</div>
+              <div style={{fontSize:8,color:C.muted}}>{rrRatio>=2?"✅ 충족":rrRatio>=1?"⚠ 부족":"—"}</div>
             </div>
 
             <button disabled={!checkOk} onClick={()=>{
@@ -1110,11 +1148,11 @@ export default function App() {
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
             <div style={{...css.card,padding:"6px 6px 3px",margin:0}}>
               <div style={{fontSize:7,color:C.muted,paddingLeft:6,marginBottom:3}}>MACD</div>
-              <ResponsiveContainer width="100%" height={75}><ComposedChart data={sliced} margin={{left:0,right:4}}><XAxis dataKey="date" tick={false} tickLine={false}/><YAxis tick={{fill:C.muted,fontSize:6}} tickLine={false} width={32} tickFormatter={v=>v.toFixed(1)}/><Tooltip content={<Tip/>}/><ReferenceLine y={0} stroke="rgba(255,255,255,.15)" strokeDasharray="3 3"/><Bar dataKey="hist" shape={<HistBar/>}/><Line type="monotone" dataKey="macd" stroke={C.accent} strokeWidth={1.5} dot={false}/><Line type="monotone" dataKey="signal" stroke="#f59e0b" strokeWidth={1.5} dot={false}/></ComposedChart></ResponsiveContainer>
+              <ResponsiveContainer width="100%" height={100}><ComposedChart data={sliced} margin={{left:0,right:4}}><XAxis dataKey="date" tick={false} tickLine={false}/><YAxis tick={{fill:C.muted,fontSize:6}} tickLine={false} width={32} tickFormatter={v=>v.toFixed(1)}/><Tooltip content={<Tip/>}/><ReferenceLine y={0} stroke="rgba(255,255,255,.15)"/><Bar dataKey="hist" shape={<HistBar/>}/><Line type="monotone" dataKey="macd" stroke={C.accent} strokeWidth={1.5} dot={false}/><Line type="monotone" dataKey="signal" stroke="#f59e0b" strokeWidth={1.5} dot={false}/></ComposedChart></ResponsiveContainer>
             </div>
             <div style={{...css.card,padding:"6px 6px 3px",margin:0}}>
               <div style={{fontSize:7,color:C.muted,paddingLeft:6,marginBottom:3}}>RSI (14)</div>
-              <ResponsiveContainer width="100%" height={75}><ComposedChart data={sliced} margin={{left:0,right:4}}><XAxis dataKey="date" tick={false} tickLine={false}/><YAxis domain={[0,100]} tick={{fill:C.muted,fontSize:6}} tickLine={false} ticks={[30,70]} width={28}/><Tooltip content={<Tip/>}/><ReferenceLine y={70} stroke="rgba(239,68,68,.4)" strokeDasharray="3 2"/><ReferenceLine y={30} stroke="rgba(34,197,94,.4)" strokeDasharray="3 2"/><Area type="monotone" dataKey="rsi" stroke={C.accent} fill="rgba(56,189,248,.07)" strokeWidth={1.5} dot={false}/></ComposedChart></ResponsiveContainer>
+              <ResponsiveContainer width="100%" height={100}><ComposedChart data={sliced} margin={{left:0,right:4}}><XAxis dataKey="date" tick={false} tickLine={false}/><YAxis domain={[0,100]} tick={{fill:C.muted,fontSize:6}} tickLine={false} ticks={[30,70]} width={28}/><Tooltip content={<Tip/>}/><ReferenceLine y={70} stroke="rgba(239,68,68,.2)"/><ReferenceLine y={30} stroke="rgba(34,197,94,.2)"/><Area type="monotone" dataKey="rsi" stroke={C.accent} fill="rgba(56,189,248,.07)" strokeWidth={1.5} dot={false}/></ComposedChart></ResponsiveContainer>
             </div>
           </div>
 
@@ -1366,6 +1404,134 @@ export default function App() {
               </div>
             </div>
           </div>
+        </div>}
+
+      {/* ══ TAB 6: 종목풀 ══ */}
+        {tab==="pool"&&<div style={{padding:"12px 14px"}}>
+          <div style={{fontSize:12,fontWeight:900,color:C.accent,marginBottom:4}}>🗂 종목풀 관리</div>
+          <div style={{fontSize:9,color:C.sub,marginBottom:12}}>코스피200 + 코스닥150 + S&P500 — ★ 눌러 관심종목 추가 · 다음 수집부터 반영</div>
+
+          {/* 컨트롤 */}
+          <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
+            <input
+              value={poolFilter}
+              onChange={e=>setPoolFilter(e.target.value)}
+              placeholder="종목명/티커 검색..."
+              style={{flex:1,minWidth:120,background:"rgba(255,255,255,.05)",border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.text,fontSize:10,outline:"none"}}
+            />
+            {[["all","전체"],["kr","🇰🇷 한국"],["us","🇺🇸 미국"]].map(([v,l])=>(
+              <button key={v} onClick={()=>setPoolMarket(v)} style={{padding:"5px 10px",borderRadius:6,border:`1px solid ${poolMarket===v?C.accent:C.border}`,background:poolMarket===v?"rgba(56,189,248,.15)":"transparent",color:poolMarket===v?C.accent:C.muted,fontSize:9,cursor:"pointer"}}>{l}</button>
+            ))}
+            <button onClick={async()=>{
+              if(poolLoaded) return;
+              setPoolMsg("📦 종목풀 로딩 중...");
+              try {
+                const r = await fetch("/api/watchlist");
+                const data = await r.json();
+                // stocks.json의 pool 데이터도 함께 로드
+                const r2 = await fetch("/data/stocks.json?t="+Date.now());
+                const j2 = await r2.json();
+                setPool(j2.pool || {});
+                setPoolLoaded(true);
+                setPoolMsg(`✅ ${Object.keys(j2.pool||{}).length}개 종목 로드됨`);
+              } catch(e) {
+                setPoolMsg("❌ 로드 실패 — Actions daily 모드 먼저 실행해주세요");
+              }
+              setTimeout(()=>setPoolMsg(""),4000);
+            }} style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${C.accent}`,background:"rgba(56,189,248,.1)",color:C.accent,fontSize:9,cursor:"pointer",fontWeight:700}}>
+              {poolLoaded?"🔄 새로고침":"📦 풀 로드"}
+            </button>
+          </div>
+
+          {poolMsg&&<div style={{fontSize:9,color:C.accent,marginBottom:8,padding:"6px 10px",background:"rgba(56,189,248,.08)",borderRadius:6}}>{poolMsg}</div>}
+
+          {/* 관심종목 현황 */}
+          <div style={css.card}>
+            <div style={{fontSize:10,fontWeight:700,color:C.accent,marginBottom:8}}>⭐ 현재 관심종목 ({stocks.length}개)</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+              {stocks.map(s=>(
+                <div key={s.ticker} style={{display:"flex",alignItems:"center",gap:4,background:"rgba(56,189,248,.08)",border:`1px solid rgba(56,189,248,.2)`,borderRadius:5,padding:"3px 8px"}}>
+                  <span style={{fontSize:9,fontWeight:700,color:C.accent}}>{s.market} {s.label}</span>
+                  <button onClick={async()=>{
+                    try {
+                      await fetch("/api/watchlist",{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({ticker:s.ticker})});
+                      setStocks(p=>p.filter(x=>x.ticker!==s.ticker));
+                      setPoolMsg(`🗑 ${s.label} 제외됨`);
+                    } catch { setPoolMsg("❌ 제외 실패"); }
+                    setTimeout(()=>setPoolMsg(""),3000);
+                  }} style={{background:"none",border:"none",color:"rgba(239,68,68,.6)",cursor:"pointer",fontSize:10,padding:0,lineHeight:1}}>✕</button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 종목풀 목록 */}
+          {!poolLoaded
+            ? <div style={{textAlign:"center",padding:"40px 0",color:C.muted}}>
+                <div style={{fontSize:24,marginBottom:8}}>📦</div>
+                <div style={{fontSize:10}}>위 "풀 로드" 버튼을 눌러주세요</div>
+                <div style={{fontSize:9,color:C.muted,marginTop:4}}>daily Actions 실행 후 사용 가능</div>
+              </div>
+            : (()=>{
+                const filtered = Object.entries(pool).filter(([ticker, info])=>{
+                  if(poolMarket==="kr" && info.market!=="kr") return false;
+                  if(poolMarket==="us" && info.market!=="us") return false;
+                  if(poolFilter) {
+                    const q=poolFilter.toLowerCase();
+                    return ticker.toLowerCase().includes(q)||(info.label||"").toLowerCase().includes(q);
+                  }
+                  return true;
+                });
+                return (
+                  <div>
+                    <div style={{fontSize:9,color:C.muted,marginBottom:8}}>{filtered.length}개 표시 중</div>
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:6}}>
+                      {filtered.slice(0,200).map(([ticker, info])=>{
+                        const inWatch = stocks.find(s=>s.ticker===ticker);
+                        const chg = info.changePct||0;
+                        return (
+                          <div key={ticker} style={{background:C.panel2,border:`1px solid ${inWatch?"rgba(56,189,248,.4)":C.border}`,borderRadius:7,padding:"7px 9px",display:"flex",flexDirection:"column",gap:3}}>
+                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                              <div>
+                                <div style={{fontSize:9,fontWeight:700,color:inWatch?C.accent:C.text}}>{info.label||ticker}</div>
+                                <div style={{fontSize:7,color:C.muted}}>{ticker}</div>
+                              </div>
+                              <button onClick={async()=>{
+                                if(inWatch){
+                                  // 제외
+                                  try {
+                                    await fetch("/api/watchlist",{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({ticker})});
+                                    setStocks(p=>p.filter(x=>x.ticker!==ticker));
+                                    setPoolMsg(`🗑 ${info.label} 제외`);
+                                  } catch { setPoolMsg("❌ 실패"); }
+                                } else {
+                                  // 추가
+                                  try {
+                                    await fetch("/api/watchlist",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ticker,...info})});
+                                    setStocks(p=>[...p,{ticker,...info,...(pool[ticker]||{})}]);
+                                    setPoolMsg(`✅ ${info.label} 추가 (다음 수집부터 반영)`);
+                                  } catch { setPoolMsg("❌ 실패"); }
+                                }
+                                setTimeout(()=>setPoolMsg(""),3000);
+                              }} style={{background:inWatch?"rgba(56,189,248,.15)":"rgba(255,255,255,.04)",border:`1px solid ${inWatch?C.accent:C.border}`,borderRadius:4,padding:"2px 6px",cursor:"pointer",color:inWatch?C.accent:C.muted,fontSize:10,flexShrink:0}}>
+                                {inWatch?"★":"☆"}
+                              </button>
+                            </div>
+                            {info.price>0&&(
+                              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                                <span style={{fontSize:9,color:C.text}}>{info.market==="kr"?"₩":"$"}{(info.price||0).toLocaleString()}</span>
+                                <span style={{fontSize:8,fontWeight:700,color:chg>=0?C.green:C.red}}>{chg>=0?"+":""}{chg.toFixed(1)}%</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {filtered.length>200&&<div style={{textAlign:"center",padding:"10px",fontSize:9,color:C.muted}}>검색으로 범위를 좁혀주세요 ({filtered.length}개 중 200개 표시)</div>}
+                  </div>
+                );
+              })()
+          }
         </div>}
 
       </div>
