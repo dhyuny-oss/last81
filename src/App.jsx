@@ -416,6 +416,22 @@ export default function App() {
       .catch(() => setDataStatus("sim"));
   }, []);
 
+  // 라이브워치 포지션 현재가 + 트레일링 스탑 자동 갱신
+  useEffect(() => {
+    if (!positions.length) return;
+    setPositions(prev => prev.map(pos => {
+      const cur = stocks.find(s => s.ticker === pos.ticker)?.price || pos.current;
+      const newMax = Math.max(pos.max || pos.entry, cur);
+      const pnl = pos.entry > 0 ? +((cur - pos.entry) / pos.entry * 100).toFixed(2) : 0;
+      const isKR = (pos.ticker?.length || 0) > 5;
+      // +10% 이상이면 최고가 기준, 그 전엔 매수가 기준
+      const newTrail = pnl >= 10
+        ? +(newMax * 0.9).toFixed(isKR ? 0 : 2)
+        : +(pos.entry * 0.9).toFixed(isKR ? 0 : 2);
+      return {...pos, current:cur, max:newMax, pnl, trailStop:newTrail};
+    }));
+  }, [stocks]);
+
   // stocks/positions/history 변경시 localStorage 자동 저장
   useEffect(()=>{try{localStorage.setItem("at_stocks",JSON.stringify(stocks));}catch{}},[stocks]);
   useEffect(()=>{try{localStorage.setItem("at_positions",JSON.stringify(positions));}catch{}},[positions]);
@@ -638,7 +654,7 @@ export default function App() {
   const unit     = sel?.length>5 ? "원" : "$";
   const curPrice = selInfo?.price||0;
   const w52H     = lastD?.w52High||0;
-  const stopPrice= w52H>0 ? +(w52H*(1-stopPct/100)).toFixed(unit==="원"?0:2) : 0;
+  const stopPrice= curPrice>0 ? +(curPrice*(1-stopPct/100)).toFixed(unit==="원"?0:2) : 0;
   const atrTgt   = lastD?.atr&&lastD?.ma20 ? +(lastD.ma20+lastD.atr*atrMult).toFixed(unit==="원"?0:2) : 0;
   const consTgt  = consensus[sel]?.data?.targetMean||selInfo?.target||0;
   const rsPremTgt= consTgt ? +(consTgt*1.1).toFixed(unit==="원"?0:2) : 0;
@@ -1133,7 +1149,7 @@ export default function App() {
           <div style={{display:"flex",gap:10,marginBottom:10,alignItems:"flex-start",flexWrap:"wrap"}}>
             <button disabled={!checkOk} onClick={()=>{
               if(!checkOk)return;
-              setPositions(p=>[...p,{id:Date.now(),ticker:sel,label:selInfo.label,market:selInfo.market,entry:curPrice,current:curPrice,max:curPrice,trailPct:stopPct,trailStop:stopPrice,target:consTgt,pnl:0,date:new Date().toLocaleDateString("ko-KR"),entryTime:new Date().toLocaleTimeString("ko-KR"),pyramid:[{level:1,targetPct:3,triggered:false,addRatio:50},{level:2,targetPct:6,triggered:false,addRatio:30},{level:3,targetPct:9,triggered:false,addRatio:20}]}]);
+              setPositions(p=>[...p,{id:Date.now(),ticker:sel,label:selInfo.label,market:selInfo.market,entry:curPrice,current:curPrice,max:curPrice,trailPct:10,trailStop:+(curPrice*0.9).toFixed(unit==="원"?0:2),target:consTgt,pnl:0,date:new Date().toLocaleDateString("ko-KR"),entryTime:new Date().toLocaleTimeString("ko-KR"),pyramid:[{level:1,targetPct:3,triggered:false,addRatio:50},{level:2,targetPct:6,triggered:false,addRatio:30},{level:3,targetPct:9,triggered:false,addRatio:20}]}]);
               setTab("watch");setAddMsg(`📌 ${selInfo.label} 매수 등록`);setTimeout(()=>setAddMsg(""),2500);
             }} style={{background:checkOk?"linear-gradient(135deg,#10b981,#059669)":"rgba(255,255,255,.05)",border:`1px solid ${checkOk?C.emerald:C.border}`,borderRadius:8,padding:"12px 16px",color:checkOk?"#000":C.muted,fontWeight:checkOk?900:400,fontSize:11,cursor:checkOk?"pointer":"not-allowed",alignSelf:"stretch"}}>
               {!checkOk?"☑ 체크리스트 미완":"📈 매수 기록"}
@@ -1161,8 +1177,8 @@ export default function App() {
                 {chartOpts.ichi&&<Area yAxisId="p" type="monotone" dataKey="spanHigh" stroke="rgba(34,197,94,.6)" fill="rgba(34,197,94,.18)" strokeWidth={1.5} dot={false} connectNulls/>}
                 {chartOpts.ichi&&<Area yAxisId="p" type="monotone" dataKey="spanLow" stroke="rgba(239,68,68,.6)" fill="#0d1117" strokeWidth={1.5} dot={false} connectNulls/>}
                 <Bar yAxisId="p" dataKey="close" shape={<CandleBar/>} isAnimationActive={false}/>
-                {chartOpts.st&&["st1Bull","st2Bull","st3Bull"].map((k,i)=><Line key={k} yAxisId="p" type="monotone" dataKey={k} stroke={C.emerald} strokeWidth={2-i*.5} dot={false} connectNulls strokeOpacity={1-.25*i}/>)}
-                {chartOpts.st&&["st1Bear","st2Bear","st3Bear"].map((k,i)=><Line key={k} yAxisId="p" type="monotone" dataKey={k} stroke={C.red} strokeWidth={2-i*.5} dot={false} connectNulls strokeOpacity={1-.25*i}/>)}
+                {chartOpts.st&&["st1Bull","st2Bull","st3Bull"].map((k,i)=><Line key={k} yAxisId="p" type="monotone" dataKey={k} stroke={C.emerald} strokeWidth={2-i*.5} dot={false} connectNulls={false} strokeOpacity={1-.25*i}/>)}
+                {chartOpts.st&&["st1Bear","st2Bear","st3Bear"].map((k,i)=><Line key={k} yAxisId="p" type="monotone" dataKey={k} stroke={C.red} strokeWidth={2-i*.5} dot={false} connectNulls={false} strokeOpacity={1-.25*i}/>)}
                 {consTgt>0&&<ReferenceLine yAxisId="p" y={consTgt} stroke="transparent" label={{value:`▶ ${unit}${consTgt.toLocaleString()}`,fill:C.accent,fontSize:7,position:"insideRight"}}/>}
                 {stopPrice>0&&<ReferenceLine yAxisId="p" y={stopPrice} stroke="transparent" label={{value:`▶ 손절 ${unit}${stopPrice.toLocaleString()}`,fill:C.red,fontSize:7,position:"insideRight"}}/>}
                 <Scatter yAxisId="p" dataKey="buyStrong" fill="#4ade80" shape={<BuyDot dataKey="buyStrong"/>}/>
