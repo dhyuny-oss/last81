@@ -6,8 +6,8 @@ const KIS_BASE_KR = "https://openapi.koreainvestment.com:9443";
 const KIS_BASE_US = "https://openapi.koreainvestment.com:9443";
 
 // 토큰 캐시 (Vercel 서버리스 함수 인스턴스 내 임시 캐시)
-let cachedToken = null;
-let tokenExpiry = null;
+import { getKISToken } from "./token.js";
+
 
 async function getToken() {
   if (cachedToken && tokenExpiry && new Date() < new Date(tokenExpiry)) {
@@ -171,7 +171,7 @@ export default async function handler(req, res) {
   if (!ticker) return res.status(400).json({ error: "ticker 파라미터 필요" });
 
   try {
-    const token = await getToken();
+    const token = await getKISToken();
     const isKR = /^\d{6}$/.test(ticker);
     const result = isKR ? await getKRQuote(ticker, token) : await getUSQuote(ticker, token);
     res.status(200).json(result);
