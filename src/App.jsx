@@ -1177,8 +1177,10 @@ export default function App() {
                 {chartOpts.ichi&&<Area yAxisId="p" type="monotone" dataKey="spanHigh" stroke="rgba(34,197,94,.6)" fill="rgba(34,197,94,.18)" strokeWidth={1.5} dot={false} connectNulls/>}
                 {chartOpts.ichi&&<Area yAxisId="p" type="monotone" dataKey="spanLow" stroke="rgba(239,68,68,.6)" fill="#0d1117" strokeWidth={1.5} dot={false} connectNulls/>}
                 <Bar yAxisId="p" dataKey="close" shape={<CandleBar/>} isAnimationActive={false}/>
-                {chartOpts.st&&["st1Bull","st2Bull","st3Bull"].map((k,i)=><Line key={k} yAxisId="p" type="monotone" dataKey={k} stroke={C.emerald} strokeWidth={2-i*.5} dot={false} connectNulls={false} strokeOpacity={1-.25*i}/>)}
-                {chartOpts.st&&["st1Bear","st2Bear","st3Bear"].map((k,i)=><Line key={k} yAxisId="p" type="monotone" dataKey={k} stroke={C.red} strokeWidth={2-i*.5} dot={false} connectNulls={false} strokeOpacity={1-.25*i}/>)}
+                {chartOpts.st&&(lastD?.allBull
+                  ?["st1Bull","st2Bull","st3Bull"].map((k,i)=><Line key={k} yAxisId="p" type="monotone" dataKey={k} stroke={C.emerald} strokeWidth={2-i*.5} dot={false} connectNulls={false} strokeOpacity={1-.25*i}/>)
+                  :["st1Bear","st2Bear","st3Bear"].map((k,i)=><Line key={k} yAxisId="p" type="monotone" dataKey={k} stroke={C.red} strokeWidth={2-i*.5} dot={false} connectNulls={false} strokeOpacity={1-.25*i}/>)
+                )}
                 {consTgt>0&&<ReferenceLine yAxisId="p" y={consTgt} stroke="transparent" label={{value:`▶ ${unit}${consTgt.toLocaleString()}`,fill:C.accent,fontSize:7,position:"insideRight"}}/>}
                 {stopPrice>0&&<ReferenceLine yAxisId="p" y={stopPrice} stroke="transparent" label={{value:`▶ 손절 ${unit}${stopPrice.toLocaleString()}`,fill:C.red,fontSize:7,position:"insideRight"}}/>}
                 <Scatter yAxisId="p" dataKey="buyStrong" fill="#4ade80" shape={<BuyDot dataKey="buyStrong"/>}/>
