@@ -876,7 +876,7 @@ export default function App() {
                 ? <div style={{textAlign:"center",padding:"30px 0",color:C.muted}}>조건을 완화해 보세요</div>
                 : <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(250px,1fr))",gap:10}}>
                     {alphaHits.map(stock=>{
-                      const b=SECTORS_DEFAULT[stock.sector]||{};
+                      const b=SECTORS[stock.sector]||{};
                       const sg=getQuantSig(stock,b);
                       const ss=SIG[sg];
                       const isGold=(stock.score||0)>=90;
