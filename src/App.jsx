@@ -602,10 +602,15 @@ export default function App() {
             onFocus={()=>setShowSearch(true)}
             onKeyDown={e=>{
               if(e.key==="Enter"&&search.trim()){
-                const q=search.trim().toUpperCase();
-                const found=[...stocks,...Object.entries(SEARCH_DB).map(([t,v])=>({ticker:t,...v}))].find(s=>s.ticker===q);
+                const q=search.trim();
+                const qUp=q.toUpperCase();
+                // 한국어 이름 → 티커 변환
+                const krTicker = KR_NAME_DB[q] || KR_NAME_DB[qUp] ||
+                  Object.entries(KR_NAME_DB).find(([k])=>k.includes(q)||k.toUpperCase().includes(qUp))?.[1];
+                const ticker = krTicker || qUp;
+                const found=[...stocks,...Object.entries(SEARCH_DB).map(([t,v])=>({ticker:t,...v}))].find(s=>s.ticker===ticker);
                 if(found) addStock(found);
-                else addStock({ticker:q,label:q,_custom:true});
+                else addStock({ticker,label:q,_custom:true});
                 setShowSearch(false);
               }
             }}
