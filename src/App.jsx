@@ -1103,12 +1103,6 @@ export default function App() {
 
           {/* R:R + 매수버튼 */}
           <div style={{display:"flex",gap:10,marginBottom:10,alignItems:"flex-start",flexWrap:"wrap"}}>
-            <div style={{...css.panel2,minWidth:100,textAlign:"center"}}>
-              <div style={{fontSize:8,color:C.muted}}>손익비 R:R</div>
-              <div style={{fontSize:26,fontWeight:900,color:rrRatio>=2?C.emerald:rrRatio>=1?C.yellow:C.red,lineHeight:1}}>{rrRatio>0?`${rrRatio}:1`:"-"}</div>
-              <div style={{fontSize:8,color:C.muted}}>{rrRatio>=2?"✅ 충족":rrRatio>=1?"⚠ 부족":"—"}</div>
-            </div>
-
             <button disabled={!checkOk} onClick={()=>{
               if(!checkOk)return;
               setPositions(p=>[...p,{id:Date.now(),ticker:sel,label:selInfo.label,market:selInfo.market,entry:curPrice,current:curPrice,max:curPrice,trailPct:stopPct,trailStop:stopPrice,target:consTgt,pnl:0,date:new Date().toLocaleDateString("ko-KR"),entryTime:new Date().toLocaleTimeString("ko-KR"),pyramid:[{level:1,targetPct:3,triggered:false,addRatio:50},{level:2,targetPct:6,triggered:false,addRatio:30},{level:3,targetPct:9,triggered:false,addRatio:20}]}]);
@@ -1135,25 +1129,23 @@ export default function App() {
                 {["st1Bear","st2Bear","st3Bear"].map((k,i)=><Line key={k} yAxisId="p" type="monotone" dataKey={k} stroke={C.red} strokeWidth={2.5-i*.5} dot={false} connectNulls strokeOpacity={1-.2*i}/>)}
                 
                 <Area yAxisId="p" type="monotone" dataKey="close" stroke="#ffffff" strokeWidth={2.5} fill="rgba(255,255,255,.04)" dot={false}/>
-                {consTgt>0&&<ReferenceLine yAxisId="p" y={consTgt} stroke={C.accent} strokeDasharray="5 3" label={{value:`목표 ${consTgt.toLocaleString()}`,fill:C.accent,fontSize:7,position:"right"}}/>}
-                {stopPrice>0&&<ReferenceLine yAxisId="p" y={stopPrice} stroke={C.red} strokeDasharray="3 3" label={{value:`손절`,fill:C.red,fontSize:7,position:"right"}}/>}
-                {atrTgt>0&&<ReferenceLine yAxisId="p" y={atrTgt} stroke={C.yellow} strokeDasharray="4 2" label={{value:`ATR목표`,fill:C.yellow,fontSize:7,position:"right"}}/>}
+                {consTgt>0&&<ReferenceLine yAxisId="p" y={consTgt} stroke="transparent" label={{value:`▶ ${unit}${consTgt.toLocaleString()}`,fill:C.accent,fontSize:7,position:"insideRight"}}/>}
+                {stopPrice>0&&<ReferenceLine yAxisId="p" y={stopPrice} stroke="transparent" label={{value:`▶ 손절 ${unit}${stopPrice.toLocaleString()}`,fill:C.red,fontSize:7,position:"insideRight"}}/>}
                 <Scatter yAxisId="p" dataKey="buyStrong" fill="#4ade80" shape={<BuyDot dataKey="buyStrong"/>}/>
                 <Scatter yAxisId="p" dataKey="buyNormal" fill="#fbbf24" shape={<BuyDot dataKey="buyNormal"/>}/>
               </ComposedChart>
             </ResponsiveContainer>
           </div>}
 
-          {/* MACD + RSI */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
-            <div style={{...css.card,padding:"6px 6px 3px",margin:0}}>
-              <div style={{fontSize:7,color:C.muted,paddingLeft:6,marginBottom:3}}>MACD</div>
-              <ResponsiveContainer width="100%" height={100}><ComposedChart data={sliced} margin={{left:0,right:4}}><XAxis dataKey="date" tick={false} tickLine={false}/><YAxis tick={{fill:C.muted,fontSize:6}} tickLine={false} width={32} tickFormatter={v=>v.toFixed(1)}/><Tooltip content={<Tip/>}/><ReferenceLine y={0} stroke="rgba(255,255,255,.15)"/><Bar dataKey="hist" shape={<HistBar/>}/><Line type="monotone" dataKey="macd" stroke={C.accent} strokeWidth={1.5} dot={false}/><Line type="monotone" dataKey="signal" stroke="#f59e0b" strokeWidth={1.5} dot={false}/></ComposedChart></ResponsiveContainer>
-            </div>
-            <div style={{...css.card,padding:"6px 6px 3px",margin:0}}>
-              <div style={{fontSize:7,color:C.muted,paddingLeft:6,marginBottom:3}}>RSI (14)</div>
-              <ResponsiveContainer width="100%" height={100}><ComposedChart data={sliced} margin={{left:0,right:4}}><XAxis dataKey="date" tick={false} tickLine={false}/><YAxis domain={[0,100]} tick={{fill:C.muted,fontSize:6}} tickLine={false} ticks={[30,70]} width={28}/><Tooltip content={<Tip/>}/><ReferenceLine y={70} stroke="rgba(239,68,68,.2)"/><ReferenceLine y={30} stroke="rgba(34,197,94,.2)"/><Area type="monotone" dataKey="rsi" stroke={C.accent} fill="rgba(56,189,248,.07)" strokeWidth={1.5} dot={false}/></ComposedChart></ResponsiveContainer>
-            </div>
+          {/* MACD */}
+          <div style={{...css.card,padding:"6px 6px 3px",marginBottom:6}}>
+            <div style={{fontSize:7,color:C.muted,paddingLeft:6,marginBottom:3}}>MACD</div>
+            <ResponsiveContainer width="100%" height={90}><ComposedChart data={sliced} margin={{left:0,right:6}}><XAxis dataKey="date" tick={false} tickLine={false}/><YAxis tick={{fill:C.muted,fontSize:6}} tickLine={false} width={40} tickFormatter={v=>v.toFixed(1)}/><Tooltip content={<Tip/>}/><ReferenceLine y={0} stroke="rgba(255,255,255,.15)"/><Bar dataKey="hist" shape={<HistBar/>}/><Line type="monotone" dataKey="macd" stroke={C.accent} strokeWidth={1.5} dot={false}/><Line type="monotone" dataKey="signal" stroke="#f59e0b" strokeWidth={1.5} dot={false}/></ComposedChart></ResponsiveContainer>
+          </div>
+          {/* RSI */}
+          <div style={{...css.card,padding:"6px 6px 3px",marginBottom:6}}>
+            <div style={{fontSize:7,color:C.muted,paddingLeft:6,marginBottom:3}}>RSI (14)</div>
+            <ResponsiveContainer width="100%" height={90}><ComposedChart data={sliced} margin={{left:0,right:6}}><XAxis dataKey="date" tick={{fill:C.muted,fontSize:6}} tickLine={false} interval={Math.floor(sliced.length/5)||1}/><YAxis domain={[0,100]} tick={{fill:C.muted,fontSize:6}} tickLine={false} ticks={[30,70]} width={40}/><Tooltip content={<Tip/>}/><ReferenceLine y={70} stroke="rgba(239,68,68,.25)"/><ReferenceLine y={30} stroke="rgba(34,197,94,.25)"/><Area type="monotone" dataKey="rsi" stroke={C.accent} fill="rgba(56,189,248,.07)" strokeWidth={1.5} dot={false}/></ComposedChart></ResponsiveContainer>
           </div>
 
           {/* 기간 선택 */}
