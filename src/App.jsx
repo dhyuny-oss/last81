@@ -54,6 +54,64 @@ const SEARCH_DB = {
   "AMD":  { label:"AMD",     sector:"Semiconductor", market:"🇺🇸", price:100.2, target:160,   roe:4.2,  per:44.8, rev:13.7, base:120,  vol:0.032, drift:-0.001, mktCap:163,  liquidity:6.8, revGrowth:14 },
   "AMZN": { label:"Amazon",  sector:"Consumer",      market:"🇺🇸", price:198.4, target:250,   roe:21.6, per:42.1, rev:12.3, base:165,  vol:0.019, drift:0.001,  mktCap:2110, liquidity:2.9, revGrowth:12 },
 };
+
+// 한국어 종목명 → 티커 변환 DB
+const KR_NAME_DB = {
+  // 코스피 대형주
+  "삼성전자":"005930","삼성":"005930",
+  "sk하이닉스":"000660","하이닉스":"000660","SK하이닉스":"000660",
+  "lg에너지솔루션":"373220","LG에너지솔루션":"373220",
+  "삼성바이오로직스":"207940","삼성바이오":"207940",
+  "현대차":"005380","현대자동차":"005380",
+  "기아":"000270","기아차":"000270",
+  "셀트리온":"068270",
+  "kb금융":"105560","KB금융":"105560",
+  "신한지주":"055550","신한":"055550",
+  "하나금융지주":"086790","하나금융":"086790",
+  "포스코홀딩스":"005490","포스코":"005490","POSCO":"005490",
+  "삼성sdi":"006400","삼성SDI":"006400",
+  "lg화학":"051910","LG화학":"051910",
+  "카카오뱅크":"323410",
+  "한국전력":"015760",
+  "삼성물산":"028260",
+  "현대모비스":"012330",
+  "lg전자":"066570","LG전자":"066570",
+  "롯데케미칼":"011170",
+  "sk이노베이션":"096770","SK이노베이션":"096770",
+  "두산에너빌리티":"034020",
+  "한화에어로스페이스":"012450","한화에어로":"012450",
+  "한국항공우주":"047810","KAI":"047810",
+  // 코스닥
+  "카카오":"035720",
+  "naver":"035420","NAVER":"035420","네이버":"035420",
+  "카카오게임즈":"293490",
+  "엔씨소프트":"036570","엔씨":"036570",
+  "넷마블":"251270",
+  "크래프톤":"259960",
+  "펄어비스":"263750",
+  "하이브":"352820","BTS":"352820",
+  "에코프로비엠":"247540","에코프로":"086520",
+  "레인보우로보틱스":"277810",
+  "휴마시스":"205470",
+  "알테오젠":"196170",
+  "리가켐바이오":"141080",
+  "삼천당제약":"000250",
+  // 미국 (한국어 검색용)
+  "엔비디아":"NVDA","NVIDIA":"NVDA",
+  "애플":"AAPL","Apple":"AAPL",
+  "테슬라":"TSLA","Tesla":"TSLA",
+  "마이크로소프트":"MSFT","MS":"MSFT",
+  "메타":"META","페이스북":"META",
+  "구글":"GOOGL","Google":"GOOGL","알파벳":"GOOGL",
+  "아마존":"AMZN","Amazon":"AMZN",
+  "AMD":"AMD",
+  "인텔":"INTC","Intel":"INTC",
+  "팔란티어":"PLTR","Palantir":"PLTR",
+  "아이온큐":"IONQ","IonQ":"IONQ",
+  "화이자":"PFE","Pfizer":"PFE",
+  "넷플릭스":"NFLX","Netflix":"NFLX",
+  "스타벅스":"SBUX","Starbucks":"SBUX",
+};
 const IRP_DB = [
   { ticker:"KODEX 200",    type:"국내주식", vol:0.018, drift:0.0008 },
   { ticker:"TIGER 미국S&P",type:"해외주식", vol:0.022, drift:0.001  },
@@ -332,9 +390,30 @@ export default function App() {
   // 검색
   useEffect(() => {
     if (!search.trim()) { setSearchRes([]); return; }
-    const q = search.toUpperCase(), already = stocks.map(s => s.ticker);
-    const res = Object.entries(SEARCH_DB).filter(([t,s])=>!already.includes(t)&&(t.includes(q)||s.label.toUpperCase().includes(q))).map(([t,s])=>({ticker:t,...s}));
-    if (!res.length && q.length >= 2) res.push({ticker:q,label:q,_custom:true});
+    const q = search.trim();
+    const qUp = q.toUpperCase();
+    const already = stocks.map(s => s.ticker);
+
+    // 한국어 이름 → 티커 변환
+    const krMatch = KR_NAME_DB[q] || KR_NAME_DB[qUp] ||
+      Object.entries(KR_NAME_DB).find(([k])=>k.includes(q)||k.toUpperCase().includes(qUp))?.[1];
+
+    // SEARCH_DB 검색
+    const res = Object.entries(SEARCH_DB)
+      .filter(([t,s])=>!already.includes(t)&&(t.includes(qUp)||s.label.toUpperCase().includes(qUp)))
+      .map(([t,s])=>({ticker:t,...s}));
+
+    // 한국어 매칭 결과 추가
+    if(krMatch && !already.includes(krMatch) && !res.find(r=>r.ticker===krMatch)) {
+      res.unshift({ticker:krMatch, label:`${q} (${krMatch})`, _custom:true});
+    }
+
+    // 직접 입력 티커로 실시간 조회
+    if(!res.length) {
+      const ticker = krMatch || qUp;
+      res.push({ticker, label:`"${q}" 실시간 조회`, _custom:true});
+    }
+
     setSearchRes(res);
   }, [search, stocks]);
 
