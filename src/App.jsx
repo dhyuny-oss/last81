@@ -1435,7 +1435,7 @@ export default function App() {
       {/* ══ TAB 6: 종목풀 ══ */}
         {tab==="pool"&&<div style={{padding:"12px 14px"}}>
           <div style={{fontSize:12,fontWeight:900,color:C.accent,marginBottom:4}}>🗂 종목풀 관리</div>
-          <div style={{fontSize:9,color:C.sub,marginBottom:12}}>코스피200 + 코스닥150 + S&P500 — ★ 눌러 관심종목 추가 · 다음 수집부터 반영</div>
+          <div style={{fontSize:9,color:C.sub,marginBottom:12}}>코스피200 + 나스닥100 + S&P500 — ★ 눌러 관심종목 추가 · 다음 수집부터 반영</div>
 
           {/* 컨트롤 */}
           <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
