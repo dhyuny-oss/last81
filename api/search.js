@@ -4,8 +4,8 @@
 
 const KIS_BASE = "https://openapi.koreainvestment.com:9443";
 
-let cachedToken = null;
-let tokenExpiry = null;
+import { getKISToken } from "./token.js";
+
 
 async function getToken() {
   if (cachedToken && tokenExpiry && new Date() < new Date(tokenExpiry)) return cachedToken;
@@ -118,7 +118,7 @@ export default async function handler(req, res) {
   if (!q || q.trim().length < 1) return res.status(400).json({ error: "검색어 필요" });
 
   try {
-    const token = await getToken();
+    const token = await getKISToken();
     const isKRNum = /^\d+$/.test(q.trim()); // 숫자면 한국 종목코드
     const isKRText = /[가-힣]/.test(q.trim()); // 한글이면 한국 종목명
     const isUS = !isKRNum && !isKRText; // 영문이면 미국 종목
