@@ -243,6 +243,7 @@ export default function App() {
   const [consensus, setConsensus] = useState({});
   const [search, setSearch]     = useState("");
   const [searchRes, setSearchRes] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [addMsg, setAddMsg]     = useState("");
   const [period, setPeriod]     = useState("3M");
@@ -389,32 +390,48 @@ export default function App() {
 
   // 검색
   useEffect(() => {
-    if (!search.trim()) { setSearchRes([]); return; }
+    if (!search.trim()) { setSearchRes([]); setSearchLoading(false); return; }
     const q = search.trim();
-    const qUp = q.toUpperCase();
     const already = stocks.map(s => s.ticker);
 
-    // 한국어 이름 → 티커 변환
-    const krMatch = KR_NAME_DB[q] || KR_NAME_DB[qUp] ||
-      Object.entries(KR_NAME_DB).find(([k])=>k.includes(q)||k.toUpperCase().includes(qUp))?.[1];
+    // 디바운스 300ms
+    const timer = setTimeout(async () => {
+      setSearchLoading(true);
+      try {
+        const r = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+        const data = await r.json();
+        const results = (data.results || [])
+          .filter(item => !already.includes(item.ticker))
+          .slice(0, 8);
 
-    // SEARCH_DB 검색
-    const res = Object.entries(SEARCH_DB)
-      .filter(([t,s])=>!already.includes(t)&&(t.includes(qUp)||s.label.toUpperCase().includes(qUp)))
-      .map(([t,s])=>({ticker:t,...s}));
-
-    // 한국어 매칭 결과 추가
-    if(krMatch && !already.includes(krMatch) && !res.find(r=>r.ticker===krMatch)) {
-      res.unshift({ticker:krMatch, label:`${q} (${krMatch})`, _custom:true});
-    }
-
-    // 직접 입력 티커로 실시간 조회
-    if(!res.length) {
-      const ticker = krMatch || qUp;
-      res.push({ticker, label:`"${q}" 실시간 조회`, _custom:true});
-    }
-
-    setSearchRes(res);
+        // 결과 없으면 직접 입력값으로 조회
+        if (!results.length) {
+          const qUp = q.toUpperCase();
+          const krMatch = KR_NAME_DB[q] || KR_NAME_DB[qUp] ||
+            Object.entries(KR_NAME_DB).find(([k])=>k.includes(q)||k.toUpperCase().includes(qUp))?.[1];
+          const ticker = krMatch || qUp;
+          if (!already.includes(ticker)) {
+            results.push({ticker, label:`"${q}" 실시간 조회`, _custom:true});
+          }
+        }
+        setSearchRes(results);
+      } catch {
+        // API 실패시 로컬 DB만 검색
+        const qUp = q.toUpperCase();
+        const krMatch = KR_NAME_DB[q] || KR_NAME_DB[qUp] ||
+          Object.entries(KR_NAME_DB).find(([k])=>k.includes(q)||k.toUpperCase().includes(qUp))?.[1];
+        const res = [];
+        if (krMatch && !already.includes(krMatch)) {
+          res.push({ticker:krMatch, label:`${q} (${krMatch})`, _custom:true});
+        } else if (!already.includes(qUp)) {
+          res.push({ticker:qUp, label:`"${q}" 실시간 조회`, _custom:true});
+        }
+        setSearchRes(res);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
   }, [search, stocks]);
 
   // ── AI 컨센서스 ──────────────────────────────────────────
@@ -615,8 +632,9 @@ export default function App() {
               }
             }}
             placeholder="🔍 티커 입력 후 엔터 (예: PFE)" style={{background:"rgba(255,255,255,.05)",border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.text,fontSize:10,outline:"none",width:165}}/>
-          {showSearch&&searchRes.length>0&&<div style={{position:"absolute",top:"calc(100% + 4px)",left:0,right:0,background:"#0f172a",border:`1px solid ${C.border}`,borderRadius:7,zIndex:200,overflow:"hidden",boxShadow:"0 8px 32px rgba(0,0,0,.8)"}}>
-            {searchRes.map((r,i)=><div key={i} onClick={()=>addStock(r)} style={{padding:"7px 11px",cursor:"pointer",borderBottom:"1px solid rgba(255,255,255,.05)",display:"flex",justifyContent:"space-between"}} onMouseEnter={e=>e.currentTarget.style.background="rgba(56,189,248,.1)"} onMouseLeave={e=>e.currentTarget.style.background=""}><span style={{color:C.text,fontWeight:700}}>{r.label} <span style={{color:C.muted,fontSize:8}}>{r.ticker}</span></span><span style={{color:C.sub,fontSize:8}}>{r.market}</span></div>)}
+          {(showSearch&&(searchLoading||searchRes.length>0))&&<div style={{position:"absolute",top:"calc(100% + 4px)",left:0,right:0,background:"#0f172a",border:`1px solid ${C.border}`,borderRadius:7,zIndex:200,overflow:"hidden",boxShadow:"0 8px 32px rgba(0,0,0,.8)"}}>
+            {searchLoading&&<div style={{padding:"10px 12px",color:C.muted,fontSize:10}}>🔍 검색 중...</div>}
+            {!searchLoading&&searchRes.map((r,i)=><div key={i} onClick={()=>addStock(r)} style={{padding:"7px 11px",cursor:"pointer",borderBottom:"1px solid rgba(255,255,255,.05)",display:"flex",justifyContent:"space-between"}} onMouseEnter={e=>e.currentTarget.style.background="rgba(56,189,248,.1)"} onMouseLeave={e=>e.currentTarget.style.background=""}><span style={{color:r._custom?C.accent:C.text,fontWeight:700}}>{r.label} <span style={{color:C.muted,fontSize:8}}>{r._custom?"":r.ticker}</span></span><span style={{color:r._custom?C.accent:C.sub,fontSize:8}}>{r.market||"🔍"}</span></div>)}
           </div>}
         </div>
         {addMsg && <span style={{color:C.green,fontSize:9}}>{addMsg}</span>}
