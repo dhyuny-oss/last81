@@ -203,9 +203,12 @@ function buildChartData(candles) {
     const allBull=r1?.trend===1&&r2?.trend===1&&r3.trend===1;
     const bullCount=[r1?.trend===1,r2?.trend===1,r3.trend===1].filter(Boolean).length;
     return{date:candles[ci].date,close:candles[ci].close,volume:candles[ci].volume,
+      open:i>0?data[i-1].close:c.close,
       st1Bull:allBull?r1.st:null,st1Bear:!allBull?r1.st:null,
       st2Bull:allBull?r2.st:null,st2Bear:!allBull?r2.st:null,
       st3Bull:allBull?r3.st:null,st3Bear:!allBull?r3.st:null,
+      bullSignal:allBull&&!prevAllBull?c.close:null,
+      bearSignal:!allBull&&prevAllBull?c.close:null,
       ema50:ema50[ci],rsi:rsi[ci],macd:ml[ci],signal:sl[ci],hist:hist[ci],atr:atr[ci],bullCount,allBull};
   });
   for(let i=1;i<data.length;i++){const c=data[i],p=data[i-1],flip=c.bullCount===3&&p.bullCount<3,mx=c.macd>c.signal&&p.macd<=p.signal;if(flip&&mx)c.buyStrong=c.close;else if(flip)c.buyNormal=c.close;}
@@ -240,6 +243,21 @@ const Tip=({active,payload,label})=>{
   return<div style={{background:"#0a0f1e",border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 12px",fontSize:10}}><div style={{color:C.sub,marginBottom:4,fontWeight:700}}>{label}</div>{payload.filter(p=>p.value!=null).map((p,i)=><div key={i} style={{color:p.color||C.text}}>{p.name}: <b>{typeof p.value==="number"?p.value.toLocaleString(undefined,{maximumFractionDigits:2}):p.value}</b></div>)}</div>;
 };
 const BuyDot=({cx,cy,payload,dataKey})=>{if(!payload[dataKey])return null;const c=dataKey==="buyStrong"?"#4ade80":"#fbbf24",sz=dataKey==="buyStrong"?11:8;return<g><polygon points={`${cx},${cy-sz} ${cx-sz*.8},${cy+sz*.5} ${cx+sz*.8},${cy+sz*.5}`} fill={c} stroke="#000" strokeWidth="1" opacity=".9"/></g>;};
+function CandleBar(props){
+  const {x,y,width,height,close,open} = props;
+  if(!x||!y||!width||!close) return null;
+  const isBull=(close||0)>=(open||close);
+  const color=isBull?"#22c55e":"#ef4444";
+  const cx=x+width/2;
+  const barH=Math.max(Math.abs(height||1),2);
+  return <g>
+    <rect x={x+1} y={y} width={Math.max(width-2,1)} height={barH} fill={color} opacity={0.85}/>
+    <line x1={cx} y1={y-4} x2={cx} y2={y} stroke={color} strokeWidth={1}/>
+    <line x1={cx} y1={y+barH} x2={cx} y2={y+barH+4} stroke={color} strokeWidth={1}/>
+  </g>;
+}
+function BullSignal({cx,cy}){if(!cx||!cy)return null;return <polygon points={`${cx},${cy-9} ${cx-6},${cy+1} ${cx+6},${cy+1}`} fill="#22c55e"/>;}
+function BearSignal({cx,cy}){if(!cx||!cy)return null;return <polygon points={`${cx},${cy+9} ${cx-6},${cy-1} ${cx+6},${cy-1}`} fill="#ef4444"/>;}
 const HistBar=({x,y,width,height,value})=>{if(value==null)return null;const h=Math.abs(height),pos=value>0;return<rect x={x} y={pos?y:y+height-h} width={Math.max(1,width)} height={h} fill={pos?"rgba(34,197,94,.7)":"rgba(239,68,68,.7)"} rx={1}/>;};
 
 // 인라인 스타일 헬퍼
@@ -1134,10 +1152,9 @@ export default function App() {
                 <Bar yAxisId="v" dataKey="volume" fill="rgba(148,163,184,.1)" radius={[1,1,0,0]}/>
                 <Area yAxisId="p" type="monotone" dataKey="spanA" stroke="rgba(34,197,94,.6)" fill="rgba(34,197,94,.15)" strokeWidth={1.5} dot={false} connectNulls/>
                 <Area yAxisId="p" type="monotone" dataKey="spanB" stroke="rgba(239,68,68,.6)" fill="rgba(239,68,68,.12)" strokeWidth={1.5} dot={false} connectNulls/>
-                {["st1Bull","st2Bull","st3Bull"].map((k,i)=><Line key={k} yAxisId="p" type="monotone" dataKey={k} stroke={C.emerald} strokeWidth={2.5-i*.5} dot={false} connectNulls strokeOpacity={1-.2*i}/>)}
-                {["st1Bear","st2Bear","st3Bear"].map((k,i)=><Line key={k} yAxisId="p" type="monotone" dataKey={k} stroke={C.red} strokeWidth={2.5-i*.5} dot={false} connectNulls strokeOpacity={1-.2*i}/>)}
-                
-                <Area yAxisId="p" type="monotone" dataKey="close" stroke="#ffffff" strokeWidth={2.5} fill="rgba(255,255,255,.04)" dot={false}/>
+                <Bar yAxisId="p" dataKey="close" shape={<CandleBar/>} isAnimationActive={false}/>
+                <Scatter yAxisId="p" dataKey="bullSignal" shape={<BullSignal/>} isAnimationActive={false}/>
+                <Scatter yAxisId="p" dataKey="bearSignal" shape={<BearSignal/>} isAnimationActive={false}/>
                 {consTgt>0&&<ReferenceLine yAxisId="p" y={consTgt} stroke="transparent" label={{value:`▶ ${unit}${consTgt.toLocaleString()}`,fill:C.accent,fontSize:7,position:"insideRight"}}/>}
                 {stopPrice>0&&<ReferenceLine yAxisId="p" y={stopPrice} stroke="transparent" label={{value:`▶ 손절 ${unit}${stopPrice.toLocaleString()}`,fill:C.red,fontSize:7,position:"insideRight"}}/>}
                 <Scatter yAxisId="p" dataKey="buyStrong" fill="#4ade80" shape={<BuyDot dataKey="buyStrong"/>}/>
