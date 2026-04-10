@@ -29,6 +29,19 @@ async function getToken() {
   return cachedToken;
 }
 
+async function getKRName(ticker, token) {
+  // 한국 종목명 조회
+  try {
+    const r = await fetch(
+      `${KIS_BASE_KR}/uapi/domestic-stock/v1/quotations/search-stock-info?PRDT_TYPE_CD=300&PDNO=${ticker}`,
+      { headers: { "content-type":"application/json", authorization:`Bearer ${token}`, appkey:process.env.KIS_APP_KEY, appsecret:process.env.KIS_APP_SECRET, tr_id:"CTPF1002R" } }
+    );
+    const d = await r.json();
+    const o = d.output;
+    return o?.prdt_abrv_name || o?.prdt_name || o?.stck_shrn_iscd || null;
+  } catch { return null; }
+}
+
 async function getKRQuote(ticker, token) {
   const r = await fetch(
     `${KIS_BASE_KR}/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code=J&fid_input_iscd=${ticker}`,
@@ -43,9 +56,13 @@ async function getKRQuote(ticker, token) {
     }
   );
   const data = await r.json();
+  // 종목명 병렬 조회
+  const namePromise = getKRName(ticker, token);
   // 한투 API는 output 또는 output1 으로 옴
   const o = data.output || data.output1;
   if (!o || !o.stck_prpr) throw new Error("한국 종목 조회 실패: " + JSON.stringify(data).slice(0,200));
+  // 디버그: 어떤 필드가 있는지 확인
+  console.log("KR output fields:", Object.keys(o));
 
   const price = parseInt(o.stck_prpr);
   const prevClose = parseInt(o.stck_bsop_prpr || o.stck_prpr);
@@ -54,7 +71,7 @@ async function getKRQuote(ticker, token) {
 
   return {
     ticker,
-    label: o.hts_kor_isnm || o.itms_shrt_nm || o.prdt_abrv_name || ticker,
+    label: (await namePromise) || o.hts_kor_isnm || o.itms_shrt_nm || ticker,
     price,
     change,
     changePct,
