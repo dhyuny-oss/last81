@@ -278,7 +278,7 @@ export default function App() {
 
   // ── Tab 1 ────────────────────────────────────────────────
   const [rsKey, setRsKey]   = useState("chg1M");
-  const [ibVol, setIbVol]   = useState(Math.floor(80+Math.random()*140));
+  const [ibVol, setIbVol]   = useState(0);
   const [aiText, setAiText] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const SECTOR_RS = [
@@ -357,6 +357,12 @@ export default function App() {
 
         // 지수 데이터 저장
         setIndicesData(indicesJson);
+
+        // IB 거래량 (daily Actions에서 계산)
+        if (json.ibVol) setIbVol(json.ibVol);
+
+        // IB 거래량 (daily Actions에서 계산)
+        if (json.ibVol) setIbVol(json.ibVol);
 
         // 종목 데이터 머지
         if (Object.keys(stocksJson).length > 0) {
@@ -823,7 +829,7 @@ export default function App() {
                 <div style={{textAlign:"center",marginBottom:10}}><span style={{fontSize:44,fontWeight:900,color:ibVol>=150?C.emerald:ibVol>=100?C.yellow:C.red}}>{ibVol}%</span></div>
                 <div style={{position:"relative",height:12,background:"rgba(255,255,255,.07)",borderRadius:6,overflow:"hidden",marginBottom:8}}><div style={{height:"100%",width:`${Math.min(100,ibVol/3)}%`,background:ibVol>=150?C.emerald:ibVol>=100?C.yellow:C.red,borderRadius:6}}/><div style={{position:"absolute",left:"50%",top:0,width:1,height:"100%",background:"rgba(255,255,255,.3)"}}/></div>
                 <div style={{background:ibVol>=150?"rgba(16,185,129,.1)":"rgba(239,68,68,.08)",border:`1px solid ${ibVol>=150?C.emerald:C.red}`,borderRadius:6,padding:6,fontSize:9,color:ibVol>=150?C.emerald:C.red,fontWeight:700,textAlign:"center",marginBottom:6}}>{ibVol>=150?"✅ 공격 매수 가능":ibVol>=100?"⚠ 관망":"🚫 진입 금지"}</div>
-                <button onClick={()=>setIbVol(Math.floor(60+Math.random()*220))} style={{...css.btn(),width:"100%",fontSize:8}}>🔄 갱신</button>
+                <button onClick={()=>{}} style={{...css.btn(),width:"100%",fontSize:8,opacity:0.5}}>🔄 장 마감 후 자동갱신</button>
               </div>
               <div style={css.card}>
                 <div style={{fontSize:9,fontWeight:700,color:C.accent,marginBottom:5}}>⚡ 오늘 공격성</div>
