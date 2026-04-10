@@ -1,44 +1,66 @@
-name: 📈 주가 데이터 자동 업데이트
+name: 주가 데이터 자동 업데이트
 
 on:
   schedule:
-    - cron: '0 * * * *'
-    - cron: '30 * * * *'
+    # 매 시간 - 관심종목만 (UTC 기준, 한국장 0:00~7:00 UTC)
+        - cron: '0 * * * 1-5'
+    # 하루 1번 - 전체 풀 수집 (한국시간 오후 6시 = UTC 9:00)
+        - cron: '0 9 * * 1-5'
   workflow_dispatch:
-
-permissions:
-  contents: write
+    inputs:
+      mode:
+        description: '수집 모드'
+        required: false
+        default: 'hourly'
+        type: choice
+        options:
+          - hourly
+          - daily
 
 jobs:
-  update-stock-data:
+  fetch:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    permissions:
+      contents: write
 
     steps:
-      - name: 저장소 체크아웃
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v4
 
-      - name: Python 3.11 설치
+      - name: Python 설정
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: requests 설치
-        run: pip install requests
+      - name: 패키지 설치
+        run: pip install requests pandas
 
-      - name: 야후 파이낸스 데이터 수집
+      - name: 수집 모드 결정
+        id: mode
+        run: |
+          HOUR=$(date -u +%H)
+          MINUTE=$(date -u +%M)
+          EVENT="${{ github.event_name }}"
+          INPUT_MODE="${{ github.event.inputs.mode }}"
+          
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$INPUT_MODE" = "daily" ]; then
+            echo "mode=daily" >> $GITHUB_OUTPUT
+          elif [ "$MINUTE" = "00" ] && [ "$HOUR" = "09" ]; then
+            echo "mode=daily" >> $GITHUB_OUTPUT
+          else
+            echo "mode=hourly" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 데이터 수집
+        env:
+          COLLECT_MODE: ${{ steps.mode.outputs.mode }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
         run: python scripts/fetch_yahoo.py
 
-      - name: 데이터 저장 및 배포
+      - name: 변경사항 커밋
         run: |
-          git config user.name  "Alpha-Bot"
-          git config user.email "bot@alpha-terminal"
-          git add public/data/stocks.json
-          if git diff --staged --quiet; then
-            echo "변경 없음"
-          else
-            git commit -m "📊 주가 업데이트: $(TZ='Asia/Seoul' date '+%Y-%m-%d %H:%M KST')"
-            git push
-          fi
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add public/data/
+          git diff --staged --quiet || git commit -m "📊 주가 업데이트: $(date '+%Y-%m-%d %H:%M') (${{ steps.mode.outputs.mode }})"
+          git push
