@@ -4,8 +4,8 @@
 
 const KIS_BASE = "https://openapi.koreainvestment.com:9443";
 
-let cachedToken = null;
-let tokenExpiry = null;
+import { getKISToken } from "./token.js";
+
 
 async function getToken() {
   if (cachedToken && tokenExpiry && new Date() < new Date(tokenExpiry)) return cachedToken;
@@ -106,7 +106,7 @@ export default async function handler(req, res) {
   if (!ticker) return res.status(400).json({ error: "ticker 파라미터 필요" });
 
   try {
-    const token = await getToken();
+    const token = await getKISToken();
     const isKR = /^\d{6}$/.test(ticker);
     const candles = isKR ? await getKRCandles(ticker, token) : await getUSCandles(ticker, token);
     res.status(200).json({ ticker, candles });
