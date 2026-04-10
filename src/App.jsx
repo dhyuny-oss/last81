@@ -203,12 +203,12 @@ function buildChartData(candles) {
     const allBull=r1?.trend===1&&r2?.trend===1&&r3.trend===1;
     const bullCount=[r1?.trend===1,r2?.trend===1,r3.trend===1].filter(Boolean).length;
     return{date:candles[ci].date,close:candles[ci].close,volume:candles[ci].volume,
-      open:i>0?data[i-1].close:c.close,
+      open:ci>0?candles[ci-1].close:candles[ci].close,
       st1Bull:allBull?r1.st:null,st1Bear:!allBull?r1.st:null,
       st2Bull:allBull?r2.st:null,st2Bear:!allBull?r2.st:null,
       st3Bull:allBull?r3.st:null,st3Bear:!allBull?r3.st:null,
-      bullSignal:allBull&&!prevAllBull?c.close:null,
-      bearSignal:!allBull&&prevAllBull?c.close:null,
+      bullSignal:allBull?candles[ci].close:null,
+      bearSignal:!allBull?candles[ci].close:null,
       ema50:ema50[ci],rsi:rsi[ci],macd:ml[ci],signal:sl[ci],hist:hist[ci],atr:atr[ci],bullCount,allBull};
   });
   for(let i=1;i<data.length;i++){const c=data[i],p=data[i-1],flip=c.bullCount===3&&p.bullCount<3,mx=c.macd>c.signal&&p.macd<=p.signal;if(flip&&mx)c.buyStrong=c.close;else if(flip)c.buyNormal=c.close;}
