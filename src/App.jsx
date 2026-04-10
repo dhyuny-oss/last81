@@ -292,7 +292,7 @@ export default function App() {
     {name:"바이오",etf:"XBI",chg1W:-1.5,chg1M:-9.2,chg3M:-11.4},
     {name:"클라우드",etf:"SKYY",chg1W:-2.8,chg1M:-22.2,chg3M:-28.1},
   ];
-  const spyRef={chg1W:-1.8,chg1M:-4.6,chg3M:-5.2};
+  // spyRef는 idxRS.spy 사용으로 대체
 
   // ── Tab 2 ────────────────────────────────────────────────
   const [fLiq, setFLiq]   = useState(1.0);
@@ -764,7 +764,7 @@ export default function App() {
               </div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:4}}>
                 {[...SECTOR_RS].sort((a,b)=>b[rsKey]-a[rsKey]).map((sec,i)=>{
-                  const v=sec[rsKey],ref=spyRef[rsKey]||-4.6,excess=+(v-ref).toFixed(1),isTop=i<3;
+                  const v=sec[rsKey],ref=(rsKey==="chg1W"?idxRS.spy.chg3d:rsKey==="chg1M"?-4.6:-5.2)||-4.6,excess=+(v-ref).toFixed(1),isTop=i<3;
                   const bg=excess>=0?`rgba(16,185,129,${.15+Math.min(.65,excess/15)})`:excess>-5?`rgba(250,204,21,${.1+Math.abs(excess)/20})`:`rgba(239,68,68,${.1+Math.min(.6,Math.abs(excess)/20)})`;
                   return<div key={sec.etf} style={{background:bg,borderRadius:6,padding:"5px 6px",border:isTop?`1px solid ${C.emerald}`:"1px solid rgba(255,255,255,.05)",boxShadow:isTop?`0 0 8px rgba(16,185,129,.35)`:""}}>
                     <div style={{fontSize:8,fontWeight:700,color:isTop?C.emerald:C.text}}>{sec.name}</div>
@@ -872,7 +872,7 @@ export default function App() {
               ? <div style={{textAlign:"center",padding:"30px 0",color:C.muted}}>조건을 완화해 보세요</div>
               : <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(250px,1fr))",gap:10}}>
                 {alphaHits.map(stock=>{
-                  const b=sectorsData[stock.sector]||SECTORS_DEFAULT[stock.sector]||{};
+                  const b=SECTORS_DEFAULT[stock.sector]||{};
                   const sg=getQuantSig(stock,b),ss=SIG[sg],isGold=stock.score>=90;
                   const inWatch=watchlist.find(w=>w.ticker===stock.ticker);
                   const cd=charts[stock.ticker]?.data;
