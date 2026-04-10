@@ -833,15 +833,15 @@ export default function App() {
             </div>
           </div>
 
-          {/* 서브탭 */}
+          {/* 서브탭 버튼 */}
           <div style={{display:"flex",gap:4,marginBottom:12}}>
             {[["filter","🔍 수급필터"],["pattern","📐 패턴감지"],["compare","⚖️ 비교뷰"]].map(([k,l])=>(
               <button key={k} onClick={()=>setAlphaTab(k)} style={{flex:1,padding:"7px 0",borderRadius:7,border:`1px solid ${alphaTab===k?C.accent:C.border}`,background:alphaTab===k?"rgba(56,189,248,.15)":"rgba(255,255,255,.03)",color:alphaTab===k?C.accent:C.muted,fontWeight:alphaTab===k?700:400,fontSize:10,cursor:"pointer"}}>{l}</button>
             ))}
           </div>
 
-          {/* ── 수급필터 ── */}
-          {alphaTab==="filter"&&<>
+          {/* 수급필터 */}
+          {alphaTab==="filter"&&<div>
             <div style={css.card}>
               <div style={{fontSize:11,fontWeight:700,color:C.accent,marginBottom:8}}>🔒 기본 조건 (잡주 차단)</div>
               <div style={{fontSize:9,color:C.sub,marginBottom:10}}>시총 미국$10B↑/한국1조↑ · 거래대금 상위 20%</div>
@@ -859,7 +859,14 @@ export default function App() {
               </div>
               <div style={{fontSize:9,color:C.muted,marginBottom:6,fontWeight:700}}>고정 조건</div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
-                {[["golden","✅ 골드크로스","최근 3일 5일선이 20일선 상향 돌파"],["box","📦 박스권 돌파","횡보 후 저항선 돌파"],["angle","📐 상승각도 증가","모멘텀 가속 중"],["ichi","☁️ 일목구름 접근","구름대 5% 이내"],["vol","📊 거래량 급증","20일평균 200%↑"],["vcp","⚡ VCP 패턴","거래량 수축+고점 근접"]].map(([k,name,desc])=>(
+                {[
+                  ["golden","✅ 골드크로스","최근 3일 5일선이 20일선 상향 돌파"],
+                  ["box","📦 박스권 돌파","횡보 후 저항선 돌파"],
+                  ["angle","📐 상승각도 증가","모멘텀 가속 중"],
+                  ["ichi","☁️ 일목구름 접근","구름대 5% 이내"],
+                  ["vol","📊 거래량 급증","20일평균 200%↑"],
+                  ["vcp","⚡ VCP 패턴","거래량 수축+고점 근접"]
+                ].map(([k,name,desc])=>(
                   <button key={k} onClick={()=>setConds(c=>({...c,[k]:!c[k]}))} style={{borderRadius:6,padding:"6px 8px",cursor:"pointer",textAlign:"left",border:`1px solid ${conds[k]?"rgba(16,185,129,.5)":"rgba(255,255,255,.1)"}`,background:conds[k]?"rgba(16,185,129,.1)":"rgba(255,255,255,.04)",color:conds[k]?C.emerald:C.muted}}>
                     <span style={{fontWeight:700,display:"block",fontSize:9}}>{conds[k]?"🟢 ":"⬜ "}{name}</span>
                     <span style={{fontSize:8,color:conds[k]?"rgba(16,185,129,.7)":C.muted,lineHeight:1.3,display:"block"}}>{desc}</span>
@@ -871,49 +878,76 @@ export default function App() {
             {alphaHits.length===0
               ? <div style={{textAlign:"center",padding:"30px 0",color:C.muted}}>조건을 완화해 보세요</div>
               : <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(250px,1fr))",gap:10}}>
-                {alphaHits.map(stock=>{
-                  const b=SECTORS_DEFAULT[stock.sector]||{};
-                  const sg=getQuantSig(stock,b),ss=SIG[sg],isGold=stock.score>=90;
-                  const inWatch=watchlist.find(w=>w.ticker===stock.ticker);
-                  const cd=charts[stock.ticker]?.data;
-                  const ichiSt=cd?.at(-1);
-                  const iSt=ichiSt?.aboveCloud?"above":ichiSt?.nearCloud?"near":"below";
-                  const hasVCP=detectVCP(cd);
-                  const hasW=detectWPattern(cd);
-                  return<div key={stock.ticker} onClick={()=>{setSel(stock.ticker);setTab("sniper");}} style={{background:C.panel,border:`2px solid ${isGold?"#f59e0b":ss.border}`,borderRadius:10,padding:12,cursor:"pointer",transition:"all .2s"}}>
-                    {isGold&&<div style={{fontSize:7,color:"#f59e0b",marginBottom:4,fontWeight:900}}>✨ GOLD</div>}
-                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:7}}>
-                      <div><div style={{fontWeight:900,fontSize:12}}>{stock.market} {stock.label}</div><div style={{fontSize:8,color:C.muted}}>{stock.sector}</div></div>
-                      <div style={{textAlign:"right"}}><span style={{...SIG[sg],borderRadius:4,padding:"1px 6px",fontWeight:900,fontSize:10,border:`1px solid ${ss.border}`}}>{sg}</span><div style={{fontSize:13,fontWeight:900,color:isGold?"#f59e0b":C.accent,marginTop:2}}>{stock.score}점</div></div>
-                    </div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4,marginBottom:6}}>
-                      {[{l:"수급",v:`${stock.liquidity||"-"}x`,g:(stock.liquidity||0)>=fLiq},{l:"매출↑",v:`${stock.revGrowth||stock.rev||0}%`,g:(stock.revGrowth||stock.rev||0)>=fRev},{l:"ROE",v:`${stock.roe}%`,g:stock.roe>(b.roe||15)}].map((m,i)=><div key={i} style={{background:"rgba(0,0,0,.4)",borderRadius:4,padding:"3px 5px",textAlign:"center"}}><div style={{fontSize:7,color:C.muted}}>{m.l}</div><div style={{fontSize:10,fontWeight:700,color:m.g?C.green:C.red}}>{m.v}</div></div>)}
-                    </div>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"rgba(0,0,0,.3)",borderRadius:6,padding:"4px 7px",marginBottom:6}}>
-                      <div style={{textAlign:"center"}}><div style={{fontSize:7,color:C.muted}}>3일</div><div style={{fontSize:11,fontWeight:700,color:(stock.chg3d||0)>=0?C.green:C.red}}>{(stock.chg3d||0)>=0?"+":""}{(stock.chg3d||0).toFixed?.(1)||0}%</div></div>
-                      <div style={{width:1,height:18,background:"rgba(255,255,255,.1)"}}/>
-                      <div style={{textAlign:"center"}}><div style={{fontSize:7,color:C.muted}}>5일</div><div style={{fontSize:11,fontWeight:700,color:(stock.chg5d||0)>=0?C.green:C.red}}>{(stock.chg5d||0)>=0?"+":""}{(stock.chg5d||0).toFixed?.(1)||0}%</div></div>
-                      <div style={{width:1,height:18,background:"rgba(255,255,255,.1)"}}/>
-                      <span style={{fontSize:8,fontWeight:700,color:iSt==="above"?C.emerald:iSt==="near"?C.yellow:C.red}}>{iSt==="above"?"구름위":iSt==="near"?"접근":"아래"}</span>
-                      <div style={{display:"flex",gap:2}}>
-                        {hasVCP&&<span style={{fontSize:7,background:"rgba(56,189,248,.15)",color:C.accent,borderRadius:3,padding:"1px 4px"}}>VCP</span>}
-                        {hasW&&<span style={{fontSize:7,background:"rgba(34,197,94,.15)",color:C.green,borderRadius:3,padding:"1px 4px"}}>W</span>}
+                  {alphaHits.map(stock=>{
+                    const b=SECTORS_DEFAULT[stock.sector]||{};
+                    const sg=getQuantSig(stock,b);
+                    const ss=SIG[sg];
+                    const isGold=stock.score>=90;
+                    const inWatch=watchlist.find(w=>w.ticker===stock.ticker);
+                    const cd=charts[stock.ticker]?.data;
+                    const lastD=cd?.at(-1);
+                    const iSt=lastD?.aboveCloud?"above":lastD?.nearCloud?"near":"below";
+                    const hasVCP=detectVCP(cd);
+                    const hasW=detectWPattern(cd);
+                    const ichiColor=iSt==="above"?C.emerald:iSt==="near"?C.yellow:"#f87171";
+                    const ichiText=iSt==="above"?"구름위":iSt==="near"?"접근":"아래";
+                    return (
+                      <div key={stock.ticker} onClick={()=>{setSel(stock.ticker);setTab("sniper");}} style={{background:C.panel,border:`2px solid ${isGold?"#f59e0b":ss.border}`,borderRadius:10,padding:12,cursor:"pointer",transition:"all .2s"}}>
+                        {isGold&&<div style={{fontSize:7,color:"#f59e0b",marginBottom:4,fontWeight:900}}>✨ GOLD</div>}
+                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:7}}>
+                          <div>
+                            <div style={{fontWeight:900,fontSize:12}}>{stock.market} {stock.label}</div>
+                            <div style={{fontSize:8,color:C.muted}}>{stock.sector}</div>
+                          </div>
+                          <div style={{textAlign:"right"}}>
+                            <span style={{background:ss.bg,color:ss.color,border:`1px solid ${ss.border}`,borderRadius:4,padding:"1px 6px",fontWeight:900,fontSize:10}}>{sg}</span>
+                            <div style={{fontSize:13,fontWeight:900,color:isGold?"#f59e0b":C.accent,marginTop:2}}>{stock.score}점</div>
+                          </div>
+                        </div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4,marginBottom:6}}>
+                          {[
+                            {l:"수급",v:`${stock.liquidity||"-"}x`,g:(stock.liquidity||0)>=fLiq},
+                            {l:"매출↑",v:`${stock.revGrowth||stock.rev||0}%`,g:(stock.revGrowth||stock.rev||0)>=fRev},
+                            {l:"ROE",v:`${stock.roe}%`,g:stock.roe>(b.roe||15)}
+                          ].map((m,i)=>(
+                            <div key={i} style={{background:"rgba(0,0,0,.4)",borderRadius:4,padding:"3px 5px",textAlign:"center"}}>
+                              <div style={{fontSize:7,color:C.muted}}>{m.l}</div>
+                              <div style={{fontSize:10,fontWeight:700,color:m.g?C.green:C.red}}>{m.v}</div>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"rgba(0,0,0,.3)",borderRadius:6,padding:"4px 7px",marginBottom:6}}>
+                          <div style={{textAlign:"center"}}>
+                            <div style={{fontSize:7,color:C.muted}}>3일</div>
+                            <div style={{fontSize:11,fontWeight:700,color:(stock.chg3d||0)>=0?C.green:C.red}}>{(stock.chg3d||0)>=0?"+":""}{(stock.chg3d||0).toFixed?.(1)||0}%</div>
+                          </div>
+                          <div style={{width:1,height:18,background:"rgba(255,255,255,.1)"}}/>
+                          <div style={{textAlign:"center"}}>
+                            <div style={{fontSize:7,color:C.muted}}>5일</div>
+                            <div style={{fontSize:11,fontWeight:700,color:(stock.chg5d||0)>=0?C.green:C.red}}>{(stock.chg5d||0)>=0?"+":""}{(stock.chg5d||0).toFixed?.(1)||0}%</div>
+                          </div>
+                          <div style={{width:1,height:18,background:"rgba(255,255,255,.1)"}}/>
+                          <span style={{fontSize:8,fontWeight:700,color:ichiColor}}>{ichiText}</span>
+                          <div style={{display:"flex",gap:2}}>
+                            {hasVCP&&<span style={{fontSize:7,background:"rgba(56,189,248,.15)",color:C.accent,borderRadius:3,padding:"1px 4px"}}>VCP</span>}
+                            {hasW&&<span style={{fontSize:7,background:"rgba(34,197,94,.15)",color:C.green,borderRadius:3,padding:"1px 4px"}}>W</span>}
+                          </div>
+                        </div>
+                        <div style={{display:"flex",gap:4}}>
+                          <div style={{flex:1,fontSize:8,color:C.muted}}>탭하여 차트 →</div>
+                          <button onClick={e=>{e.stopPropagation();if(inWatch)setWatchlist(w=>w.filter(x=>x.ticker!==stock.ticker));else setWatchlist(w=>[...w,{...stock}]);}} style={{background:inWatch?"rgba(167,139,250,.15)":"rgba(255,255,255,.04)",border:`1px solid ${inWatch?C.purple:C.border}`,color:inWatch?C.purple:C.muted,borderRadius:5,padding:"3px 8px",cursor:"pointer",fontSize:9}}>{inWatch?"★":"☆"}</button>
+                        </div>
                       </div>
-                    </div>
-                    <div style={{display:"flex",gap:4}}>
-                      <div style={{flex:1,fontSize:8,color:C.muted}}>탭하여 차트 →</div>
-                      <button onClick={e=>{e.stopPropagation();if(inWatch)setWatchlist(w=>w.filter(x=>x.ticker!==stock.ticker));else setWatchlist(w=>[...w,{...stock}]);}} style={{background:inWatch?"rgba(167,139,250,.15)":"rgba(255,255,255,.04)",border:`1px solid ${inWatch?C.purple:C.border}`,color:inWatch?C.purple:C.muted,borderRadius:5,padding:"3px 8px",cursor:"pointer",fontSize:9}}>{inWatch?"★":"☆"}</button>
-                    </div>
-                  </div>;
-                })}
-              </div>
+                    );
+                  })}
+                </div>
             }
-          </>}
+          </div>}
 
-          {/* ── 패턴감지 ── */}
+          {/* 패턴감지 */}
           {alphaTab==="pattern"&&<div style={css.card}>
             <div style={{fontSize:11,fontWeight:700,color:C.accent,marginBottom:4}}>📐 VCP / W패턴 감지</div>
-            <div style={{fontSize:9,color:C.sub,marginBottom:12}}>추가된 종목에서 패턴 자동 탐지 · 클릭하면 스나이퍼로 이동</div>
+            <div style={{fontSize:9,color:C.sub,marginBottom:12}}>추가된 종목에서 패턴 자동 탐지</div>
             {stocks.filter(s=>detectVCP(charts[s.ticker]?.data)||detectWPattern(charts[s.ticker]?.data)).length===0
               ? <div style={{textAlign:"center",padding:"30px 0",color:C.muted}}>감지된 패턴 없음 — 종목을 더 추가해보세요</div>
               : stocks.map(stock=>{
@@ -921,62 +955,71 @@ export default function App() {
                   const hasVCP=detectVCP(cd);
                   const hasW=detectWPattern(cd);
                   if(!hasVCP&&!hasW) return null;
-                  return<div key={stock.ticker} onClick={()=>{setSel(stock.ticker);setTab("sniper");}} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 11px",borderRadius:8,background:C.panel2,border:`1px solid ${C.border}`,marginBottom:6,cursor:"pointer"}} onMouseEnter={e=>e.currentTarget.style.borderColor=C.accent} onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
-                    <div style={{flex:1}}>
-                      <div style={{fontWeight:700,fontSize:11}}>{stock.market} {stock.label}</div>
-                      <div style={{fontSize:8,color:C.muted,marginTop:2}}>{(stock.chg3d||0)>=0?"+":""}{(stock.chg3d||0).toFixed(1)}% 3일 · {(stock.chg5d||0)>=0?"+":""}{(stock.chg5d||0).toFixed(1)}% 5일 · {stock.price?.toLocaleString()}원/달러</div>
+                  return (
+                    <div key={stock.ticker} onClick={()=>{setSel(stock.ticker);setTab("sniper");}} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 11px",borderRadius:8,background:C.panel2,border:`1px solid ${C.border}`,marginBottom:6,cursor:"pointer"}}>
+                      <div style={{flex:1}}>
+                        <div style={{fontWeight:700,fontSize:11}}>{stock.market} {stock.label}</div>
+                        <div style={{fontSize:8,color:C.muted,marginTop:2}}>{(stock.chg3d||0)>=0?"+":""}{(stock.chg3d||0).toFixed(1)}% 3일 · {(stock.chg5d||0)>=0?"+":""}{(stock.chg5d||0).toFixed(1)}% 5일</div>
+                      </div>
+                      <div style={{display:"flex",gap:4}}>
+                        {hasVCP&&<span style={{fontSize:9,fontWeight:700,padding:"3px 8px",borderRadius:5,background:"rgba(56,189,248,.15)",color:C.accent,border:`1px solid ${C.accent}`}}>⚡ VCP</span>}
+                        {hasW&&<span style={{fontSize:9,fontWeight:700,padding:"3px 8px",borderRadius:5,background:"rgba(34,197,94,.15)",color:C.green,border:`1px solid ${C.green}`}}>W 패턴</span>}
+                      </div>
                     </div>
-                    <div style={{display:"flex",gap:4}}>
-                      {hasVCP&&<span style={{fontSize:9,fontWeight:700,padding:"3px 8px",borderRadius:5,background:"rgba(56,189,248,.15)",color:C.accent,border:`1px solid ${C.accent}`}}>⚡ VCP</span>}
-                      {hasW&&<span style={{fontSize:9,fontWeight:700,padding:"3px 8px",borderRadius:5,background:"rgba(34,197,94,.15)",color:C.green,border:`1px solid ${C.green}`}}>W 패턴</span>}
-                    </div>
-                  </div>;
+                  );
                 }).filter(Boolean)
             }
           </div>}
 
-          {/* ── 비교뷰 ── */}
+          {/* 비교뷰 */}
           {alphaTab==="compare"&&<div style={css.card}>
             <div style={{fontSize:11,fontWeight:700,color:C.accent,marginBottom:4}}>⚖️ 관심종목 RS강도 비교</div>
-            <div style={{fontSize:9,color:C.sub,marginBottom:10}}>★ 관심종목을 RS강도 기준 내림차순으로 비교합니다</div>
+            <div style={{fontSize:9,color:C.sub,marginBottom:10}}>★ 관심종목을 RS강도 기준으로 비교합니다</div>
             {watchlist.length===0
-              ? <div style={{textAlign:"center",padding:"30px 0",color:C.muted}}><div style={{fontSize:24,marginBottom:6}}>☆</div>수급필터 탭에서 ★ 눌러 관심종목 추가</div>
+              ? <div style={{textAlign:"center",padding:"30px 0",color:C.muted}}>
+                  <div style={{fontSize:24,marginBottom:6}}>☆</div>
+                  수급필터 탭에서 ★ 눌러 관심종목 추가
+                </div>
               : <div style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,minWidth:480}}>
-                  <thead><tr style={{background:"rgba(255,255,255,.04)"}}>
-                    {["종목","현재가","3일","5일","vs SPY","수급","RS","패턴","일목"].map(h=>(
-                      <th key={h} style={{padding:"6px 8px",textAlign:"left",color:C.muted,fontSize:8,fontWeight:700,borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap"}}>{h}</th>
-                    ))}
-                  </tr></thead>
-                  <tbody>
-                    {[...watchlist].sort((a,b)=>((b.chg5d||0)-idxRS.spy.chg5d)-((a.chg5d||0)-idxRS.spy.chg5d)).map((stock,i)=>{
-                      const vs5d=+((stock.chg5d||0)-idxRS.spy.chg5d).toFixed(1);
-                      const cd=charts[stock.ticker]?.data;
-                      const last=cd?.at(-1);
-                      const iSt=last?.aboveCloud?"above":last?.nearCloud?"near":"below";
-                      const hasVCP=detectVCP(cd);
-                      const hasW=detectWPattern(cd);
-                      const isKR=(stock.ticker?.length||0)>5;
-                      return<tr key={stock.ticker} onClick={()=>{setSel(stock.ticker);setTab("sniper");}} style={{borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer",background:i===0?"rgba(56,189,248,.05)":""}}>
-                        <td style={{padding:"6px 8px",fontWeight:700,whiteSpace:"nowrap"}}>{stock.market} {stock.label}</td>
-                        <td style={{padding:"6px 8px",whiteSpace:"nowrap"}}>{isKR?"₩":"$"}{(stock.price||0).toLocaleString()}</td>
-                        <td style={{padding:"6px 8px",color:(stock.chg3d||0)>=0?C.green:C.red,fontWeight:700}}>{(stock.chg3d||0)>=0?"+":""}{(stock.chg3d||0).toFixed(1)}%</td>
-                        <td style={{padding:"6px 8px",color:(stock.chg5d||0)>=0?C.green:C.red,fontWeight:700}}>{(stock.chg5d||0)>=0?"+":""}{(stock.chg5d||0).toFixed(1)}%</td>
-                        <td style={{padding:"6px 8px",color:vs5d>=0?C.emerald:C.red,fontWeight:700}}>{vs5d>=0?"+":""}{vs5d}%p</td>
-                        <td style={{padding:"6px 8px",color:(stock.liquidity||0)>=2?C.green:C.muted}}>{stock.liquidity||"-"}x</td>
-                        <td style={{padding:"6px 8px"}}><span style={{fontSize:9,fontWeight:700,color:vs5d>3?C.emerald:vs5d>0?C.yellow:C.red}}>{vs5d>3?"매우강":vs5d>0?"보통":"약세"}</span></td>
-                        <td style={{padding:"6px 8px"}}>
-                          {hasVCP&&<span style={{fontSize:7,background:"rgba(56,189,248,.12)",color:C.accent,borderRadius:3,padding:"1px 4px",marginRight:2}}>VCP</span>}
-                          {hasW&&<span style={{fontSize:7,background:"rgba(34,197,94,.12)",color:C.green,borderRadius:3,padding:"1px 4px"}}>W</span>}
-                          {!hasVCP&&!hasW&&<span style={{color:C.muted}}>—</span>}
-                        </td>
-                        <td style={{padding:"6px 8px"}}><span style={{fontSize:9,fontWeight:700,color:iSt==="above"?C.emerald:iSt==="near"?C.yellow:C.red}}>{iSt==="above"?"구름위":iSt==="near"?"접근":"아래"}</span></td>
-                      </tr>;
-                    })}
-                  </tbody>
-                </table>
-                <div style={{fontSize:8,color:C.muted,marginTop:6,textAlign:"right"}}>vs SPY 5일 기준 RS강도 내림차순</div>
-              </div>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,minWidth:480}}>
+                    <thead>
+                      <tr style={{background:"rgba(255,255,255,.04)"}}>
+                        {["종목","현재가","3일","5일","vs SPY","수급","RS","패턴","일목"].map(h=>(
+                          <th key={h} style={{padding:"6px 8px",textAlign:"left",color:C.muted,fontSize:8,fontWeight:700,borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap"}}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...watchlist].sort((a,b)=>((b.chg5d||0)-idxRS.spy.chg5d)-((a.chg5d||0)-idxRS.spy.chg5d)).map((stock,i)=>{
+                        const vs5d=+((stock.chg5d||0)-idxRS.spy.chg5d).toFixed(1);
+                        const cd=charts[stock.ticker]?.data;
+                        const lastD=cd?.at(-1);
+                        const iSt=lastD?.aboveCloud?"above":lastD?.nearCloud?"near":"below";
+                        const hasVCP=detectVCP(cd);
+                        const hasW=detectWPattern(cd);
+                        const isKR=(stock.ticker?.length||0)>5;
+                        return (
+                          <tr key={stock.ticker} onClick={()=>{setSel(stock.ticker);setTab("sniper");}} style={{borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer",background:i===0?"rgba(56,189,248,.05)":""}}>
+                            <td style={{padding:"6px 8px",fontWeight:700,whiteSpace:"nowrap"}}>{stock.market} {stock.label}</td>
+                            <td style={{padding:"6px 8px",whiteSpace:"nowrap"}}>{isKR?"₩":"$"}{(stock.price||0).toLocaleString()}</td>
+                            <td style={{padding:"6px 8px",color:(stock.chg3d||0)>=0?C.green:C.red,fontWeight:700}}>{(stock.chg3d||0)>=0?"+":""}{(stock.chg3d||0).toFixed(1)}%</td>
+                            <td style={{padding:"6px 8px",color:(stock.chg5d||0)>=0?C.green:C.red,fontWeight:700}}>{(stock.chg5d||0)>=0?"+":""}{(stock.chg5d||0).toFixed(1)}%</td>
+                            <td style={{padding:"6px 8px",color:vs5d>=0?C.emerald:C.red,fontWeight:700}}>{vs5d>=0?"+":""}{vs5d}%p</td>
+                            <td style={{padding:"6px 8px",color:(stock.liquidity||0)>=2?C.green:C.muted}}>{stock.liquidity||"-"}x</td>
+                            <td style={{padding:"6px 8px"}}><span style={{fontSize:9,fontWeight:700,color:vs5d>3?C.emerald:vs5d>0?C.yellow:C.red}}>{vs5d>3?"매우강":vs5d>0?"보통":"약세"}</span></td>
+                            <td style={{padding:"6px 8px"}}>
+                              {hasVCP&&<span style={{fontSize:7,background:"rgba(56,189,248,.12)",color:C.accent,borderRadius:3,padding:"1px 4px",marginRight:2}}>VCP</span>}
+                              {hasW&&<span style={{fontSize:7,background:"rgba(34,197,94,.12)",color:C.green,borderRadius:3,padding:"1px 4px"}}>W</span>}
+                              {!hasVCP&&!hasW&&<span style={{color:C.muted}}>—</span>}
+                            </td>
+                            <td style={{padding:"6px 8px"}}><span style={{fontSize:9,fontWeight:700,color:iSt==="above"?C.emerald:iSt==="near"?C.yellow:"#f87171"}}>{iSt==="above"?"구름위":iSt==="near"?"접근":"아래"}</span></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  <div style={{fontSize:8,color:C.muted,marginTop:6,textAlign:"right"}}>vs SPY 5일 기준 RS강도 내림차순</div>
+                </div>
             }
           </div>}
 
