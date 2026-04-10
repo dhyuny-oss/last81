@@ -315,6 +315,7 @@ export default function App() {
   // ── Tab 2 ────────────────────────────────────────────────
   const [fLiq, setFLiq]   = useState(0.5);
   const [alphaTab, setAlphaTab]   = useState("filter");
+  const [chartOpts, setChartOpts] = useState({ichi:true, st:true});
   const [alphaHitsRemote, setAlphaHitsRemote] = useState([]);
   const [alphaLoaded, setAlphaLoaded] = useState(false);
   const [alphaUpdatedAt, setAlphaUpdatedAt] = useState(null);
@@ -1141,7 +1142,14 @@ export default function App() {
 
           {/* 차트 */}
           {sliced.length>0&&<div style={{background:lastD?.allBull?"rgba(16,185,129,.04)":"rgba(239,68,68,.03)",border:`1px solid ${lastD?.allBull?C.emerald:C.border}`,borderRadius:10,padding:"8px 6px 4px",marginBottom:6}}>
-            <div style={{fontSize:8,color:C.muted,paddingLeft:8,marginBottom:4}}>Triple ST · 일목구름 · {lastD?.allBull?"🟢 매수배경":"🔴 비매수배경"} {cd?.real?"(실제 데이터)":"(시뮬레이션)"}</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingLeft:8,paddingRight:8,marginBottom:6}}>
+              <div style={{fontSize:8,color:C.muted}}>{lastD?.allBull?"🟢 매수배경":"🔴 비매수배경"} {cd?.real?"(실제)":"(시뮬)"}</div>
+              <div style={{display:"flex",gap:4}}>
+                {[["ichi","일목구름"],["st","슈퍼트랜드"]].map(([k,l])=>(
+                  <button key={k} onClick={()=>setChartOpts(o=>({...o,[k]:!o[k]}))} style={{fontSize:8,padding:"2px 7px",borderRadius:4,border:`1px solid ${chartOpts[k]?"rgba(56,189,248,.5)":"rgba(255,255,255,.15)"}`,background:chartOpts[k]?"rgba(56,189,248,.12)":"transparent",color:chartOpts[k]?C.accent:C.muted,cursor:"pointer"}}>{chartOpts[k]?"✓":""} {l}</button>
+                ))}
+              </div>
+            </div>
             <ResponsiveContainer width="100%" height={270}>
               <ComposedChart data={sliced} margin={{left:0,right:6}}>
                 <CartesianGrid stroke="rgba(255,255,255,.03)"/>
@@ -1150,11 +1158,11 @@ export default function App() {
                 <YAxis yAxisId="v" orientation="right" hide domain={[0,dm=>dm*5]}/>
                 <Tooltip content={<Tip/>}/>
                 <Bar yAxisId="v" dataKey="volume" fill="rgba(148,163,184,.1)" radius={[1,1,0,0]}/>
-                <Area yAxisId="p" type="monotone" dataKey="spanA" stroke="rgba(34,197,94,.6)" fill="rgba(34,197,94,.15)" strokeWidth={1.5} dot={false} connectNulls/>
-                <Area yAxisId="p" type="monotone" dataKey="spanB" stroke="rgba(239,68,68,.6)" fill="rgba(239,68,68,.12)" strokeWidth={1.5} dot={false} connectNulls/>
+                {chartOpts.ichi&&<Area yAxisId="p" type="monotone" dataKey="spanA" stroke="rgba(34,197,94,.6)" fill="rgba(34,197,94,.15)" strokeWidth={1.5} dot={false} connectNulls/>}
+                {chartOpts.ichi&&<Area yAxisId="p" type="monotone" dataKey="spanB" stroke="rgba(239,68,68,.6)" fill="rgba(239,68,68,.12)" strokeWidth={1.5} dot={false} connectNulls/>}
                 <Bar yAxisId="p" dataKey="close" shape={<CandleBar/>} isAnimationActive={false}/>
-                <Scatter yAxisId="p" dataKey="bullSignal" shape={<BullSignal/>} isAnimationActive={false}/>
-                <Scatter yAxisId="p" dataKey="bearSignal" shape={<BearSignal/>} isAnimationActive={false}/>
+                {chartOpts.st&&<Scatter yAxisId="p" dataKey="bullSignal" shape={<BullSignal/>} isAnimationActive={false}/>}
+                {chartOpts.st&&<Scatter yAxisId="p" dataKey="bearSignal" shape={<BearSignal/>} isAnimationActive={false}/>}
                 {consTgt>0&&<ReferenceLine yAxisId="p" y={consTgt} stroke="transparent" label={{value:`▶ ${unit}${consTgt.toLocaleString()}`,fill:C.accent,fontSize:7,position:"insideRight"}}/>}
                 {stopPrice>0&&<ReferenceLine yAxisId="p" y={stopPrice} stroke="transparent" label={{value:`▶ 손절 ${unit}${stopPrice.toLocaleString()}`,fill:C.red,fontSize:7,position:"insideRight"}}/>}
                 <Scatter yAxisId="p" dataKey="buyStrong" fill="#4ade80" shape={<BuyDot dataKey="buyStrong"/>}/>
