@@ -296,7 +296,10 @@ export default function App() {
 
   // ── Tab 2 ────────────────────────────────────────────────
   const [fLiq, setFLiq]   = useState(0.5);
-  const [alphaTab, setAlphaTab] = useState("filter");
+  const [alphaTab, setAlphaTab]   = useState("filter");
+  const [alphaHitsRemote, setAlphaHitsRemote] = useState([]);
+  const [alphaLoaded, setAlphaLoaded] = useState(false);
+  const [alphaUpdatedAt, setAlphaUpdatedAt] = useState(null);
   const [pool, setPool]           = useState({});
   const [poolLoaded, setPoolLoaded] = useState(false);
   const [poolFilter, setPoolFilter] = useState("");
@@ -895,7 +898,7 @@ export default function App() {
                 <div style={{fontSize:9,color:C.muted,marginBottom:6,fontWeight:700}}>고정 조건</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
                   {[
-                    ["golden","✅ 골드크로스","최근 3일 5일선 20일선 상향 돌파"],
+                    ["golden","✅ 골드크로스","3일선이 10일선 상향 돌파 (최근 3일 내)"],
                     ["box","📦 박스권 돌파","횡보 후 저항선 돌파"],
                     ["angle","📐 상승각도 증가","모멘텀 가속"],
                     ["ichi","☁️ 일목구름 접근","구름대 5% 이내"],
@@ -985,7 +988,7 @@ export default function App() {
           {alphaTab==="pattern"&&(
             <div style={css.card}>
               <div style={{fontSize:11,fontWeight:700,color:C.accent,marginBottom:4}}>📐 VCP / W패턴 감지</div>
-              <div style={{fontSize:9,color:C.sub,marginBottom:12}}>추가된 종목에서 패턴 자동 탐지</div>
+
               {stocks.filter(s=>{
                 const cd=charts[s.ticker]?.data;
                 return detectVCP(cd)||detectWPattern(cd);
