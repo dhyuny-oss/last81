@@ -244,16 +244,32 @@ const Tip=({active,payload,label})=>{
 };
 const BuyDot=({cx,cy,payload,dataKey})=>{if(!payload[dataKey])return null;const c=dataKey==="buyStrong"?"#4ade80":"#fbbf24",sz=dataKey==="buyStrong"?11:8;return<g><polygon points={`${cx},${cy-sz} ${cx-sz*.8},${cy+sz*.5} ${cx+sz*.8},${cy+sz*.5}`} fill={c} stroke="#000" strokeWidth="1" opacity=".9"/></g>;};
 function CandleBar(props){
-  const {x,y,width,height,close,open} = props;
-  if(!x||!y||!width||!close) return null;
-  const isBull=(close||0)>=(open||close);
-  const color=isBull?"#22c55e":"#ef4444";
-  const cx=x+width/2;
-  const barH=Math.max(Math.abs(height||1),2);
+  const {x,y,width,height,value,background,close,open,high,low} = props;
+  if(!x||!y==null||!width||value==null) return null;
+  // recharts Bar: y=픽셀top, height=픽셀높이 (value→0 범위)
+  // 전체 차트 높이에서 open/close 비율로 캔들 위치 계산
+  const chartH = background?.height||270;
+  const chartY = background?.y||0;
+  const yMax = background?.y||0;
+  const totalH = background?.height||270;
+  
+  // close와 open의 픽셀 차이를 height 비례로 계산
+  const closeVal = close||value||0;
+  const openVal = open||closeVal;
+  const isBull = closeVal >= openVal;
+  const color = isBull?"#22c55e":"#ef4444";
+  const cx = x+width/2;
+  
+  // open과 close의 차이 비율로 봉 높이 계산
+  const priceDiff = Math.abs(closeVal - openVal);
+  const priceRange = closeVal > 0 ? priceDiff/closeVal : 0;
+  const candleH = Math.max(Math.round(totalH * priceRange), 2);
+  const candleY = isBull ? y : y + height - candleH;
+  
   return <g>
-    <rect x={x+1} y={y} width={Math.max(width-2,1)} height={barH} fill={color} opacity={0.85}/>
-    <line x1={cx} y1={y-4} x2={cx} y2={y} stroke={color} strokeWidth={1}/>
-    <line x1={cx} y1={y+barH} x2={cx} y2={y+barH+4} stroke={color} strokeWidth={1}/>
+    <rect x={x+1} y={candleY} width={Math.max(width-2,2)} height={candleH} fill={color} opacity={0.85} rx={1}/>
+    <line x1={cx} y1={candleY-3} x2={cx} y2={candleY} stroke={color} strokeWidth={1}/>
+    <line x1={cx} y1={candleY+candleH} x2={cx} y2={candleY+candleH+3} stroke={color} strokeWidth={1}/>
   </g>;
 }
 function BullSignal({cx,cy}){if(!cx||!cy)return null;return <polygon points={`${cx},${cy-9} ${cx-6},${cy+1} ${cx+6},${cy+1}`} fill="#22c55e"/>;}
