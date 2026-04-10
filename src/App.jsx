@@ -388,44 +388,38 @@ export default function App() {
   }
 
   async function fetchFromYahoo(ticker){
-    const isKR=/^\d{6}$/.test(ticker);
-    const proxies=["https://corsproxy.io/?url=","https://api.allorigins.win/raw?url="];
-    const suffixes=isKR?[".KS",".KQ"]:[""];
-    for(const sfx of suffixes){
-      const yT=ticker+sfx;
-      const url=`https://query1.finance.yahoo.com/v8/finance/chart/${yT}?interval=1d&range=3mo`;
-      for(const px of proxies){
-        try{
-          const r=await fetch(px+encodeURIComponent(url),{signal:AbortSignal.timeout(8000)});
-          if(!r.ok)continue;
-          const json=await r.json();
-          const res=json.chart?.result?.[0];
-          if(!res)continue;
-          const meta=res.meta;
-          const price=parseFloat(meta.regularMarketPrice||meta.previousClose||0);
-          if(!price)continue;
-          const prev=parseFloat(meta.chartPreviousClose||meta.previousClose||price);
-          const ts=res.timestamp||[],q=res.indicators?.quote?.[0]||{};
-          const candles=ts.map((t,i)=>{
-            const d=new Date(t*1000);
-            return{date:`${d.getMonth()+1}/${d.getDate()}`,close:+(q.close?.[i]||price).toFixed(2),high:+(q.high?.[i]||price).toFixed(2),low:+(q.low?.[i]||price).toFixed(2),volume:q.volume?.[i]||0};
-          }).filter(c=>c.close>0);
-          return{
-            ticker, label:meta.longName||meta.shortName||ticker,
-            price, change:+(price-prev).toFixed(2), changePct:+((price-prev)/prev*100).toFixed(2),
-            chg3d:candles.length>3?+((candles.at(-1).close-candles.at(-4).close)/candles.at(-4).close*100).toFixed(2):0,
-            chg5d:candles.length>5?+((candles.at(-1).close-candles.at(-6).close)/candles.at(-6).close*100).toFixed(2):0,
-            sector:"Technology", market:isKR?"🇰🇷":"🇺🇸",
-            roe:0, per:0, rev:0, mktCap:meta.marketCap||0,
-            target:+(price*1.2).toFixed(isKR?0:2),
-            liquidity:2, revGrowth:0,
-            base:+(price*0.88).toFixed(isKR?0:2), vol:0.02, drift:0.001,
-            candles,
-          };
-        }catch{continue;}
-      }
+    // 한국투자증권 API로 조회 (Vercel 서버 경유 → CORS 없음)
+    try {
+      // 1. 현재가 조회
+      const qRes = await fetch(`/api/quote?ticker=${ticker}`);
+      if(!qRes.ok) throw new Error("quote 실패");
+      const qData = await qRes.json();
+      if(qData.error) throw new Error(qData.error);
+
+      // 2. 캔들 데이터 조회
+      let candles = [];
+      try {
+        const cRes = await fetch(`/api/candles?ticker=${ticker}`);
+        if(cRes.ok){
+          const cData = await cRes.json();
+          candles = cData.candles || [];
+        }
+      } catch {}
+
+      const price = qData.price || 0;
+      const isKR = /^\d{6}$/.test(ticker);
+      return {
+        ...qData,
+        chg3d: candles.length>3 ? +((candles.at(-1).close-candles.at(-4).close)/candles.at(-4).close*100).toFixed(2) : 0,
+        chg5d: candles.length>5 ? +((candles.at(-1).close-candles.at(-6).close)/candles.at(-6).close*100).toFixed(2) : 0,
+        candles,
+        base: isKR ? Math.round(price*0.88) : +(price*0.88).toFixed(2),
+        vol: 0.02, drift: 0.001,
+      };
+    } catch(e) {
+      console.error("KIS API 실패:", e.message);
+      return null;
     }
-    return null;
   }
   function removeStock(t){setStocks(p=>p.filter(s=>s.ticker!==t));if(sel===t)setSel(stocks[0]?.ticker||"");}
 
