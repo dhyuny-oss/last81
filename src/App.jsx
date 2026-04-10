@@ -220,7 +220,7 @@ function buildChartData(candles) {
   last.w52Near=last.close>=w52H*0.95;last.w52DistPct=+((last.close-w52H)/w52H*100).toFixed(1);
   const highs=candles.map(c=>c.high),lows=candles.map(c=>c.low);
   const midV=(arr,s,e)=>(Math.max(...arr.slice(s,e))+Math.min(...arr.slice(s,e)))/2;
-  data.forEach((d,ii)=>{const cii=ii+off;if(cii>=25){const t=midV(highs,cii-8,cii+1),k=midV(highs,cii-25,cii+1);d.spanA=+((t+k)/2).toFixed(2);}d.spanB=cii>=51?+midV(highs,cii-51,cii+1).toFixed(2):null;});
+  data.forEach((d,ii)=>{const cii=ii+off;if(cii>=25){const t=midV(highs,cii-8,cii+1),k=midV(highs,cii-25,cii+1);d.spanA=+((t+k)/2).toFixed(2);}d.spanB=cii>=51?+midV(highs,cii-51,cii+1).toFixed(2):null;if(d.spanA&&d.spanB){d.spanHigh=Math.max(d.spanA,d.spanB);d.spanLow=Math.min(d.spanA,d.spanB);}});
   const lp=last;const ct=lp.spanA&&lp.spanB?Math.max(lp.spanA,lp.spanB):null;
   lp.aboveCloud=ct&&lp.close>ct;lp.nearCloud=ct&&!lp.aboveCloud&&lp.close>=ct*0.97;lp.inCloud=ct&&lp.close<=ct&&lp.spanB&&lp.close>=lp.spanB;
   return data;
@@ -1158,11 +1158,11 @@ export default function App() {
                 <YAxis yAxisId="v" orientation="right" hide domain={[0,dm=>dm*5]}/>
                 <Tooltip content={<Tip/>}/>
                 <Bar yAxisId="v" dataKey="volume" fill="rgba(148,163,184,.1)" radius={[1,1,0,0]}/>
-                {chartOpts.ichi&&<Area yAxisId="p" type="monotone" dataKey="spanA" stroke="rgba(34,197,94,.6)" fill="rgba(34,197,94,.15)" strokeWidth={1.5} dot={false} connectNulls/>}
-                {chartOpts.ichi&&<Area yAxisId="p" type="monotone" dataKey="spanB" stroke="rgba(239,68,68,.6)" fill="rgba(239,68,68,.12)" strokeWidth={1.5} dot={false} connectNulls/>}
+                {chartOpts.ichi&&<Area yAxisId="p" type="monotone" dataKey="spanHigh" stroke="rgba(34,197,94,.6)" fill="rgba(34,197,94,.18)" strokeWidth={1.5} dot={false} connectNulls/>}
+                {chartOpts.ichi&&<Area yAxisId="p" type="monotone" dataKey="spanLow" stroke="rgba(239,68,68,.6)" fill="#0d1117" strokeWidth={1.5} dot={false} connectNulls/>}
                 <Bar yAxisId="p" dataKey="close" shape={<CandleBar/>} isAnimationActive={false}/>
-                {chartOpts.st&&<Scatter yAxisId="p" dataKey="bullSignal" shape={<BullSignal/>} isAnimationActive={false}/>}
-                {chartOpts.st&&<Scatter yAxisId="p" dataKey="bearSignal" shape={<BearSignal/>} isAnimationActive={false}/>}
+                {chartOpts.st&&["st1Bull","st2Bull","st3Bull"].map((k,i)=><Line key={k} yAxisId="p" type="monotone" dataKey={k} stroke={C.emerald} strokeWidth={2-i*.5} dot={false} connectNulls strokeOpacity={1-.25*i}/>)}
+                {chartOpts.st&&["st1Bear","st2Bear","st3Bear"].map((k,i)=><Line key={k} yAxisId="p" type="monotone" dataKey={k} stroke={C.red} strokeWidth={2-i*.5} dot={false} connectNulls strokeOpacity={1-.25*i}/>)}
                 {consTgt>0&&<ReferenceLine yAxisId="p" y={consTgt} stroke="transparent" label={{value:`▶ ${unit}${consTgt.toLocaleString()}`,fill:C.accent,fontSize:7,position:"insideRight"}}/>}
                 {stopPrice>0&&<ReferenceLine yAxisId="p" y={stopPrice} stroke="transparent" label={{value:`▶ 손절 ${unit}${stopPrice.toLocaleString()}`,fill:C.red,fontSize:7,position:"insideRight"}}/>}
                 <Scatter yAxisId="p" dataKey="buyStrong" fill="#4ade80" shape={<BuyDot dataKey="buyStrong"/>}/>
