@@ -148,6 +148,15 @@ def calc_ema(closes, period):
         ema.append(ema[-1] * (1 - k) + c * k)
     return ema
 
+def calc_vol_ratio(candles):
+    """5일 평균 거래량 / 20일 평균 거래량 × 100 (실제 거래대금비율)"""
+    vols = [c["volume"] for c in candles if c.get("volume", 0) > 0]
+    if len(vols) < 5:
+        return 100
+    avg5  = sum(vols[-5:]) / 5
+    avg20 = sum(vols[-20:]) / min(len(vols), 20)
+    return round(avg5 / avg20 * 100, 1) if avg20 > 0 else 100
+
 # ── 기술적 지표 기반 알파 스캔 ────────────────────────────
 def alpha_scan(ticker, info, candles, fundamentals):
     """종목이 알파 조건에 맞는지 체크 → 점수 반환"""
@@ -403,6 +412,10 @@ def main():
                 price     = float(meta.get("regularMarketPrice") or candles[-1]["close"])
                 prev      = float(meta.get("chartPreviousClose") or meta.get("previousClose") or price)
                 changePct = round((price-prev)/prev*100, 2) if prev else 0
+                mktCap    = float(meta.get("marketCap") or 0)
+                # 시총 단위: 미국=$B, 한국=억원
+                isKR = info.get("market") == "kr"
+                mktCapNorm = round(mktCap / 1e8, 1) if isKR else round(mktCap / 1e9, 2)
 
                 stock_data = {
                     **{k:v for k,v in info.items() if k!="suffix"},
@@ -410,6 +423,8 @@ def main():
                     "changePct":changePct,
                     "chg3d":calc_change(candles,3),
                     "chg5d":calc_change(candles,5),
+                    "volRatio":calc_vol_ratio(candles),
+                    "mktCap":mktCapNorm,
                     "updatedAt":now_str,
                 }
 
@@ -464,10 +479,15 @@ def main():
                 price     = float(meta.get("regularMarketPrice") or candles[-1]["close"])
                 prev      = float(meta.get("chartPreviousClose") or meta.get("previousClose") or price)
                 changePct = round((price-prev)/prev*100,2) if prev else 0
+                mktCap    = float(meta.get("marketCap") or 0)
+                isKR      = info.get("market") == "kr"
+                mktCapNorm = round(mktCap/1e8,1) if isKR else round(mktCap/1e9,2)
                 output["stocks"][ticker] = {
                     **{k:v for k,v in info.items() if k!="suffix"},
                     "ticker":ticker,"price":price,"changePct":changePct,
                     "chg3d":calc_change(candles,3),"chg5d":calc_change(candles,5),
+                    "volRatio":calc_vol_ratio(candles),
+                    "mktCap":mktCapNorm,
                     "candles":candles,"updatedAt":now_str,
                 }
                 print(f"  {ticker} ✅")
@@ -493,6 +513,7 @@ def main():
                     **{k:v for k,v in (output["stocks"].get(ticker,info)).items()},
                     "price":price,"changePct":changePct,
                     "chg3d":calc_change(candles,3),"chg5d":calc_change(candles,5),
+                    "volRatio":calc_vol_ratio(candles),
                     "candles":candles,"updatedAt":now_str,
                 }
                 print(f"  {ticker} ✅ {price:,.2f} ({changePct:+.2f}%)")
@@ -537,8 +558,7 @@ def main():
         print("  ⚠️ IB 거래량 계산 실패 - 기존값 유지")
 
     # ── 섹터 ETF 수집 ─────────────────────────────────────
-    print("
-📊 섹터 ETF 수집 중...")
+    print("\n📊 섹터 ETF 수집 중...")
     sectors_data = {}
 
     for etf_ticker, etf_info in US_SECTOR_ETFS.items():
@@ -590,8 +610,7 @@ def main():
     output["sectors"] = sectors_data
 
     # ── 상승/하락 비율 계산 ────────────────────────────────
-    print("
-📈 상승/하락 비율 계산...")
+    print("\n📈 상승/하락 비율 계산...")
     kr_up = kr_down = us_up = us_down = 0
     for ticker, stock in pool_data.items():
         chg = stock.get("changePct", 0)
@@ -622,8 +641,7 @@ def main():
     print(f"  🇺🇸 미국: 상승 {us_up} / 하락 {us_down} ({output['breadth']['us']['upPct']}%)")
 
     # ── IB 거래량 계산 (대형주 거래량 비율) ──────────────
-    print("
-📊 IB 거래량 계산 중...")
+    print("\n📊 IB 거래량 계산 중...")
     ib_tickers = ["005930.KS","000660.KS","005380.KS","NVDA","AAPL","MSFT","META","TSLA","AMZN","GOOGL"]
     total_ratio = []
     for ib_t in ib_tickers:
