@@ -1173,90 +1173,67 @@ export default function App() {
             </div>
             {alphaHits.length===0
               ?<div style={{textAlign:"center",padding:"30px 0",color:C.muted}}>조건을 완화하거나 종목을 추가해보세요</div>
-              :(()=>{
-                const krHits = alphaHits.filter(s=>(s.market||"").includes("🇰🇷")||(s.ticker?.length||0)>5);
-                const usHits = alphaHits.filter(s=>!((s.market||"").includes("🇰🇷")||(s.ticker?.length||0)>5));
-                const TableSection = ({hits, label, flag}) => hits.length===0?null:<>
-                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6,marginTop:label==="한국"?0:14}}>
-                    <span style={{fontSize:10,fontWeight:700,color:C.text}}>{flag} {label}</span>
-                    <span style={{fontSize:9,color:C.muted,background:"#f1f0ff",borderRadius:4,padding:"1px 7px",border:"1px solid rgba(99,102,241,.2)"}}>{hits.length}개</span>
+              :<div>
+                {[["🇰🇷","한국",alphaHits.filter(s=>(s.market||"").includes("🇰🇷")||(s.ticker?.length||0)>5)],
+                  ["🇺🇸","미국",alphaHits.filter(s=>!((s.market||"").includes("🇰🇷")||(s.ticker?.length||0)>5))]
+                ].map(([flag,label,hits])=>hits.length===0?null:(
+                  <div key={label} style={{marginBottom:16}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+                      <span style={{fontSize:10,fontWeight:700,color:C.text}}>{flag} {label}</span>
+                      <span style={{fontSize:9,color:C.muted,background:"#f1f0ff",borderRadius:4,padding:"1px 7px",border:"1px solid rgba(99,102,241,.2)"}}>{hits.length}개</span>
+                    </div>
+                    <div style={{overflowX:"auto"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,minWidth:520}}>
+                      <thead>
+                        <tr style={{background:"#f5f3ff",borderBottom:"2px solid rgba(99,102,241,.15)"}}>
+                          {["종목","점수","RS","거래량%","3일","5일","일목","ST","진입등급",""].map(h=>(
+                            <th key={h} style={{padding:"6px 8px",textAlign:"left",color:"#6d28d9",fontSize:8,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {hits.map((stock,i)=>{
+                          const cdc=charts[stock.ticker]?.data;
+                          const lD=cdc?.at(-1);
+                          const iSt=lD?.aboveCloud?"above":lD?.nearCloud?"near":"below";
+                          const stC=[lD?.st1Bull,lD?.st2Bull,lD?.st3Bull].filter(v=>v!=null).length;
+                          const es=calcEntryScore(cdc,vixVal,oppScore);
+                          const isGold=(stock.score||0)>=85;
+                          const inW=watchlist.find(w=>w.ticker===stock.ticker);
+                          return(
+                            <tr key={stock.ticker} style={{background:isGold?"#fffbeb":i%2===0?"#ffffff":"#faf9ff",borderBottom:"1px solid rgba(99,102,241,.07)",cursor:"pointer"}}
+                              onClick={()=>{setSel(stock.ticker);setTab("sniper");}}>
+                              <td style={{padding:"7px 8px"}}>
+                                <div style={{fontWeight:700,fontSize:10,color:C.text}}>{isGold?"✨ ":""}{stock.label}</div>
+                                <div style={{fontSize:7,color:C.muted}}>{stock.ticker}</div>
+                              </td>
+                              <td style={{padding:"7px 8px"}}><span style={{fontWeight:800,fontSize:11,color:isGold?"#d97706":C.accent}}>{stock.score}pt</span></td>
+                              <td style={{padding:"7px 8px",fontWeight:700,color:(stock.rs||0)>=3?"#059669":(stock.rs||0)>=0?"#4f46e5":"#dc2626"}}>{(stock.rs||0)>=0?"+":""}{(stock.rs||0).toFixed(1)}</td>
+                              <td style={{padding:"7px 8px",color:(stock.volRatio||100)>=150?"#059669":(stock.volRatio||100)>=80?"#64748b":"#dc2626",fontWeight:600}}>{stock.volRatio||"-"}%</td>
+                              <td style={{padding:"7px 8px",fontWeight:700,color:(stock.chg3d||0)>=0?"#059669":"#dc2626"}}>{(stock.chg3d||0)>=0?"+":""}{(stock.chg3d||0).toFixed(1)}%</td>
+                              <td style={{padding:"7px 8px",fontWeight:700,color:(stock.chg5d||0)>=0?"#059669":"#dc2626"}}>{(stock.chg5d||0)>=0?"+":""}{(stock.chg5d||0).toFixed(1)}%</td>
+                              <td style={{padding:"7px 8px"}}>
+                                <span style={{fontSize:8,fontWeight:700,padding:"2px 5px",borderRadius:4,background:iSt==="above"?"#dcfce7":iSt==="near"?"#fef3c7":"#fee2e2",color:iSt==="above"?"#15803d":iSt==="near"?"#92400e":"#991b1b"}}>{iSt==="above"?"구름위":iSt==="near"?"접근":"아래"}</span>
+                              </td>
+                              <td style={{padding:"7px 8px"}}><span style={{fontWeight:700,color:stC===3?"#059669":stC>=2?"#d97706":"#9ca3af"}}>{stC}/3</span></td>
+                              <td style={{padding:"7px 8px"}}>
+                                <span style={{fontSize:9,fontWeight:800,padding:"2px 6px",borderRadius:4,background:es.grade==="S"?"#fef3c7":es.grade==="A"?"#dcfce7":es.grade==="B"?"#dbeafe":"#f1f5f9",color:es.grade==="S"?"#92400e":es.grade==="A"?"#15803d":es.grade==="B"?"#1d4ed8":"#64748b"}}>{es.grade}</span>
+                              </td>
+                              <td style={{padding:"7px 6px"}} onClick={e=>e.stopPropagation()}>
+                                <div style={{display:"flex",gap:3}}>
+                                  <button onClick={()=>{setTracking(p=>[...p,{id:Date.now(),ticker:stock.ticker,label:stock.label,market:stock.market,basePrice:stock.price||0,addedDate:new Date().toLocaleDateString("ko-KR"),foundScore:stock.score,foundSignals:stock.signals,foundRS:stock.rs,oppScoreAt:oppScore}]);setTab("track");setTrackTab("watch");}} style={{background:"#f0fdf4",border:"1px solid #bbf7d0",color:"#15803d",borderRadius:5,padding:"3px 7px",cursor:"pointer",fontSize:8,fontWeight:700}}>추적</button>
+                                  <button onClick={()=>{inW?setWatchlist(w=>w.filter(x=>x.ticker!==stock.ticker)):setWatchlist(w=>[...w,{...stock}]);}} style={{background:inW?"#ede9fe":"#f8fafc",border:`1px solid ${inW?"#c4b5fd":"rgba(99,102,241,.2)"}`,color:inW?"#7c3aed":"#9ca3af",borderRadius:5,padding:"3px 7px",cursor:"pointer",fontSize:10}}>{inW?"★":"☆"}</button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    </div>
                   </div>
-                  <div style={{overflowX:"auto",marginBottom:4}}>
-                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,minWidth:520}}>
-                    <thead>
-                      <tr style={{background:"#f5f3ff",borderBottom:"2px solid rgba(99,102,241,.15)"}}>
-                        {["종목","점수","RS","거래량%","3일","5일","일목","ST","진입등급",""].map(h=>(
-                          <th key={h} style={{padding:"6px 8px",textAlign:"left",color:"#6d28d9",fontSize:8,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {hits.map((stock,i)=>{
-                        const cdc=charts[stock.ticker]?.data;
-                        const lD=cdc?.at(-1);
-                        const sg=getStockSig(cdc);
-                        const iSt=lD?.aboveCloud?"above":lD?.nearCloud?"near":"below";
-                        const stC=[lD?.st1Bull,lD?.st2Bull,lD?.st3Bull].filter(v=>v!=null).length;
-                        const es=calcEntryScore(cdc,vixVal,oppScore);
-                        const isGold=(stock.score||0)>=85;
-                        const inW=watchlist.find(w=>w.ticker===stock.ticker);
-                        return(
-                          <tr key={stock.ticker} style={{background:isGold?"#fffbeb":i%2===0?"#ffffff":"#faf9ff",borderBottom:"1px solid rgba(99,102,241,.07)",cursor:"pointer"}}
-                            onClick={()=>{setSel(stock.ticker);setTab("sniper");}}>
-                            <td style={{padding:"7px 8px"}}>
-                              <div style={{fontWeight:700,fontSize:10,color:C.text}}>{isGold?"✨ ":""}{stock.label}</div>
-                              <div style={{fontSize:7,color:C.muted}}>{stock.ticker}</div>
-                            </td>
-                            <td style={{padding:"7px 8px"}}>
-                              <span style={{fontWeight:800,fontSize:11,color:isGold?"#d97706":C.accent}}>{stock.score}pt</span>
-                            </td>
-                            <td style={{padding:"7px 8px",fontWeight:700,color:(stock.rs||0)>=3?"#059669":(stock.rs||0)>=0?"#4f46e5":"#dc2626"}}>
-                              {(stock.rs||0)>=0?"+":""}{(stock.rs||0).toFixed(1)}
-                            </td>
-                            <td style={{padding:"7px 8px",color:(stock.volRatio||100)>=150?"#059669":(stock.volRatio||100)>=80?"#64748b":"#dc2626",fontWeight:600}}>
-                              {stock.volRatio||"-"}%
-                            </td>
-                            <td style={{padding:"7px 8px",fontWeight:700,color:(stock.chg3d||0)>=0?"#059669":"#dc2626"}}>
-                              {(stock.chg3d||0)>=0?"+":""}{(stock.chg3d||0).toFixed(1)}%
-                            </td>
-                            <td style={{padding:"7px 8px",fontWeight:700,color:(stock.chg5d||0)>=0?"#059669":"#dc2626"}}>
-                              {(stock.chg5d||0)>=0?"+":""}{(stock.chg5d||0).toFixed(1)}%
-                            </td>
-                            <td style={{padding:"7px 8px"}}>
-                              <span style={{fontSize:8,fontWeight:700,padding:"2px 5px",borderRadius:4,
-                                background:iSt==="above"?"#dcfce7":iSt==="near"?"#fef3c7":"#fee2e2",
-                                color:iSt==="above"?"#15803d":iSt==="near"?"#92400e":"#991b1b"}}>
-                                {iSt==="above"?"구름위":iSt==="near"?"접근":"아래"}
-                              </span>
-                            </td>
-                            <td style={{padding:"7px 8px"}}>
-                              <span style={{fontWeight:700,color:stC===3?"#059669":stC>=2?"#d97706":"#9ca3af"}}>{stC}/3</span>
-                            </td>
-                            <td style={{padding:"7px 8px"}}>
-                              <span style={{fontSize:9,fontWeight:800,padding:"2px 6px",borderRadius:4,
-                                background:es.grade==="S"?"#fef3c7":es.grade==="A"?"#dcfce7":es.grade==="B"?"#dbeafe":"#f1f5f9",
-                                color:es.grade==="S"?"#92400e":es.grade==="A"?"#15803d":es.grade==="B"?"#1d4ed8":"#64748b"}}>
-                                {es.grade}
-                              </span>
-                            </td>
-                            <td style={{padding:"7px 6px"}} onClick={e=>e.stopPropagation()}>
-                              <div style={{display:"flex",gap:3}}>
-                                <button onClick={()=>{setTracking(p=>[...p,{id:Date.now(),ticker:stock.ticker,label:stock.label,market:stock.market,basePrice:stock.price||0,addedDate:new Date().toLocaleDateString("ko-KR"),foundScore:stock.score,foundSignals:stock.signals,foundRS:stock.rs,oppScoreAt:oppScore}]);setTab("track");setTrackTab("watch");}} style={{background:"#f0fdf4",border:"1px solid #bbf7d0",color:"#15803d",borderRadius:5,padding:"3px 7px",cursor:"pointer",fontSize:8,fontWeight:700}}>추적</button>
-                                <button onClick={()=>{inW?setWatchlist(w=>w.filter(x=>x.ticker!==stock.ticker)):setWatchlist(w=>[...w,{...stock}]);}} style={{background:inW?"#ede9fe":"#f8fafc",border:`1px solid ${inW?"#c4b5fd":"rgba(99,102,241,.2)"}`,color:inW?"#7c3aed":"#9ca3af",borderRadius:5,padding:"3px 7px",cursor:"pointer",fontSize:10}}>{inW?"★":"☆"}</button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                  </div>
-                </>;
-                return <div>
-                  <TableSection hits={krHits} label="한국" flag="🇰🇷"/>
-                  <TableSection hits={usHits} label="미국" flag="🇺🇸"/>
-                </div>;
-              })()
+                ))}
+              </div>
             }
           </div>}
 
@@ -1517,7 +1494,8 @@ export default function App() {
 
           {/* ── 하단 지표 패널 ── */}
           {(()=>{
-            const [subTab, setSubTab] = [chartOpts.subTab||"adx", (v)=>setChartOpts(o=>({...o,subTab:v}))];
+            const subTab = chartOpts.subTab||"adx";
+            const setSubTab = (v)=>setChartOpts(o=>({...o,subTab:v}));
 
             // MACD
             const MACDPanel = (
