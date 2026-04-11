@@ -2,18 +2,19 @@ name: 주가 데이터 자동 업데이트
 
 on:
   schedule:
-    - cron: '0 * * * 1-5'      # 매 시간 - 관심종목만
-    - cron: '0 9 * * 1-5'      # 한국시간 오후 6시 - 전체 풀 수집
+    - cron: '0 * * * 1-5'
+    - cron: '0 9 * * 1-5'
   workflow_dispatch:
     inputs:
       mode:
-        description: '수집 모드'
+        description: '수집 모드 (daily=전체풀, hourly=관심종목, quarterly=분기재무)'
         required: false
         default: 'daily'
         type: choice
         options:
           - daily
           - hourly
+          - quarterly
 
 jobs:
   fetch:
@@ -40,7 +41,9 @@ jobs:
           EVENT="${{ github.event_name }}"
           INPUT_MODE="${{ github.event.inputs.mode }}"
 
-          if [ "$EVENT" = "workflow_dispatch" ] && [ "$INPUT_MODE" = "daily" ]; then
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$INPUT_MODE" = "quarterly" ]; then
+            echo "mode=quarterly" >> $GITHUB_OUTPUT
+          elif [ "$EVENT" = "workflow_dispatch" ] && [ "$INPUT_MODE" = "daily" ]; then
             echo "mode=daily" >> $GITHUB_OUTPUT
           elif [ "$MINUTE" = "00" ] && [ "$HOUR" = "09" ]; then
             echo "mode=daily" >> $GITHUB_OUTPUT
