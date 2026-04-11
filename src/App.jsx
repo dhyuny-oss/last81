@@ -1,7 +1,6 @@
 /**
- * Alpha Terminal v3.4 — App.jsx
- * 데이터: GitHub Actions → /public/data/stocks.json → Yahoo Finance (1시간 갱신)
- * 신규: 5번 진입평점 / 9번 추적탭통합 / 12번 불타기+트레일링 / 13번 포지션사이징 / 10번 성적분석+AI
+ * Vega v1.0 — App.jsx
+ * 리디자인: 다크 네이비 / 만원단위 / AI분석 API경유 / 성적리셋 / quarterly모드
  */
 import { useState, useEffect, useCallback } from "react";
 import {
@@ -14,16 +13,17 @@ import {
 // 1. 색상 & 상수
 // ═══════════════════════════════════════════════════════════
 const C = {
-  bg:"#000", panel:"#09090f", panel2:"#0e0e18",
-  border:"rgba(56,189,248,.18)", accent:"#38bdf8",
-  green:"#22c55e", red:"#ef4444", yellow:"#facc15",
+  bg:"#070c16", panel:"rgba(11,18,35,.92)", panel2:"rgba(15,23,42,.85)",
+  border:"rgba(96,165,250,.14)", accent:"#60a5fa",
+  green:"#34d399", red:"#f87171", yellow:"#fbbf24",
   emerald:"#10b981", purple:"#a78bfa",
-  muted:"#64748b", text:"#f0f4f8", sub:"#94a3b8", ema:"#fb923c",
+  muted:"#64748b", text:"#f0f6ff", sub:"#94a3b8", ema:"#fb923c",
+  glass:"rgba(255,255,255,.03)",
 };
 const SIG = {
-  BUY:  { bg:"#14532d", color:"#4ade80", border:"#22c55e" },
-  HOLD: { bg:"#451a03", color:"#fbbf24", border:"#f59e0b" },
-  SELL: { bg:"#450a0a", color:"#f87171", border:"#ef4444" },
+  BUY:  { bg:"rgba(16,185,129,.15)", color:"#34d399", border:"rgba(52,211,153,.45)" },
+  HOLD: { bg:"rgba(251,191,36,.1)",  color:"#fbbf24", border:"rgba(251,191,36,.4)"  },
+  SELL: { bg:"rgba(248,113,113,.1)", color:"#f87171", border:"rgba(248,113,113,.4)" },
 };
 const PERIOD_DAYS = { "1M":22, "3M":66, "6M":130, "1Y":252, "ALL":9999 };
 const INITIAL = [];
@@ -324,11 +324,25 @@ const Tip=({active,payload,label})=>{
 const BuyDot=({cx,cy,payload,dataKey})=>{if(!payload[dataKey])return null;const c=dataKey==="buyStrong"?"#4ade80":"#fbbf24",sz=dataKey==="buyStrong"?11:8;return<g><polygon points={`${cx},${cy-sz} ${cx-sz*.8},${cy+sz*.5} ${cx+sz*.8},${cy+sz*.5}`} fill={c} stroke="#000" strokeWidth="1" opacity=".9"/></g>;};
 const HistBar=({x,y,width,height,value})=>{if(value==null)return null;const h=Math.abs(height),pos=value>0;return<rect x={x} y={pos?y:y+height-h} width={Math.max(1,width)} height={h} fill={pos?"rgba(34,197,94,.7)":"rgba(239,68,68,.7)"} rx={1}/>;};
 
+// ── 가격 포맷 (한국: 만원단위, 미국: 그대로) ─────────────
+function fmtKRW(v) {
+  if (!v && v !== 0) return "—";
+  if (v >= 100000000) return `${(v/100000000).toFixed(1)}억`;
+  if (v >= 10000)     return `${(v/10000).toFixed(v>=100000?0:1)}만`;
+  return v.toLocaleString("ko-KR");
+}
+function fmtPrice(v, isKR) {
+  if (!v && v !== 0) return "—";
+  if (isKR) return fmtKRW(v);
+  if (v >= 10000) return v.toLocaleString("en",{maximumFractionDigits:0});
+  return v.toFixed(2);
+}
+
 const css = {
-  card: { background:C.panel, border:`1px solid ${C.border}`, borderRadius:10, padding:12, marginBottom:10 },
-  panel2: { background:C.panel2, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 10px" },
-  sig: (type) => ({ ...SIG[type], borderRadius:4, padding:"1px 7px", fontWeight:900, fontSize:10, display:"inline-block", border:`1px solid ${SIG[type]?.border||C.border}` }),
-  btn: (on=false) => ({ borderRadius:6, padding:"5px 11px", cursor:"pointer", fontWeight:700, fontSize:10, border:`1px solid ${on?C.accent:C.border}`, background:on?"rgba(56,189,248,.2)":"rgba(255,255,255,.04)", color:on?C.accent:C.muted }),
+  card: { background:"rgba(11,18,35,.85)", border:`1px solid ${C.border}`, borderRadius:14, padding:14, marginBottom:10, backdropFilter:"blur(6px)" },
+  panel2: { background:"rgba(15,23,42,.75)", border:`1px solid ${C.border}`, borderRadius:10, padding:"8px 12px" },
+  sig: (type) => ({ ...SIG[type], borderRadius:6, padding:"2px 8px", fontWeight:700, fontSize:10, display:"inline-block", border:`1px solid ${SIG[type]?.border||C.border}` }),
+  btn: (on=false) => ({ borderRadius:8, padding:"5px 12px", cursor:"pointer", fontWeight:600, fontSize:10, border:`1px solid ${on?C.accent:C.border}`, background:on?"rgba(96,165,250,.15)":"rgba(255,255,255,.03)", color:on?C.accent:C.muted }),
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -359,8 +373,7 @@ export default function App() {
   const [ibVol, setIbVol]   = useState(0);
 
   // ── 알파헌터 ────────────────────────────────────────────
-  const [fVolRatio, setFVolRatio] = useState(60); // 7번: 실제 거래대금비율 필터 (60% = 20일 평균의 60% 이상)
-  const [fRev, setFRev]         = useState(0);
+  const [fVolRatio, setFVolRatio] = useState(60);
   const [alphaTab, setAlphaTab] = useState("filter");
   const [chartOpts, setChartOpts] = useState({ichi:true, st:true, avwap:true});
   const [alphaHitsRemote, setAlphaHitsRemote] = useState([]);
@@ -529,7 +542,7 @@ export default function App() {
     const isKR=market==="🇰🇷";
     const prompt=`${label}(${ticker}) 최신 애널리스트 컨센서스를 검색해 JSON만 출력:\n{"targetMean":숫자,"targetHigh":숫자,"targetLow":숫자,"buyCount":숫자,"holdCount":숫자,"sellCount":숫자,"consensus":"Strong Buy|Buy|Hold|Sell","summary":"한국어50자","updatedAt":"YYYY-MM"}\n목표주가:${isKR?"원":"달러"}`;
     try{
-      const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:300,tools:[{type:"web_search_20250305",name:"web_search"}],messages:[{role:"user",content:prompt}]})});
+      const r=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt,tools:[{type:"web_search_20250305",name:"web_search"}],max_tokens:300})});
       const j=await r.json();
       const txt=j.content.filter(b=>b.type==="text").map(b=>b.text).join("").replace(/```json|```/g,"").trim();
       setConsensus(p=>({...p,[ticker]:{data:JSON.parse(txt),loading:false}}));
@@ -563,7 +576,7 @@ export default function App() {
 신호별 승률: ${JSON.stringify(Object.entries(summary.bySignal).slice(0,5).map(([k,v])=>({신호:k,승률:+(v.wins/v.count*100).toFixed(0)+"%",평균:+(v.totalPnl/v.count).toFixed(1)+"%"})))}
 개선점 3가지를 구체적으로 제안해줘.`;
     try{
-      const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:400,messages:[{role:"user",content:prompt}]})});
+      const r=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt,max_tokens:400})});
       const j=await r.json();
       setAiAnalysis(j.content?.[0]?.text||"분석 실패");
     }catch{setAiAnalysis("❌ AI 분석 실패 — API 연결 확인");}
@@ -678,7 +691,6 @@ export default function App() {
     const minCap=isKR?5000:5;
     if((s.mktCap||0)>0&&(s.mktCap||0)<minCap)return false;
     if((s.volRatio||100)<fVolRatio)return false;
-    if(fRev>0&&(s.revGrowth||s.rev||0)<fRev)return false;
     return true;
   }).map(s=>{
     const r=alphaScore(s,charts[s.ticker]?.data,idxRS);
@@ -691,9 +703,9 @@ export default function App() {
   const currentExposure = positions.length;
   const overPositions   = currentExposure>=riskSettings.maxPositions;
 
-  const TABS=[["radar","📡 시장레이더"],["alpha","🎯 알파헌터"],["sniper","🔭 스나이퍼"],["track",`📊 추적 (${tracking.length+positions.length})`],["pool","🗂 종목풀"]];
+  const TABS=[["radar","🌐 Market"],["alpha","🔍 Discover"],["sniper","📊 Chart"],["track",`📁 Portfolio (${tracking.length+positions.length})`],["pool","🗃 Universe"]];
 
-  const pageStyle={minHeight:"100vh",background:C.bg,color:C.text,fontFamily:"'DM Mono','JetBrains Mono',monospace",display:"flex",flexDirection:"column",fontSize:12};
+  const pageStyle={minHeight:"100vh",background:"linear-gradient(135deg,#070c16 0%,#0a1428 50%,#070c16 100%)",color:C.text,fontFamily:"'DM Mono','JetBrains Mono',monospace",display:"flex",flexDirection:"column",fontSize:12};
 
   const RSBar=()=>(
     <div style={{background:C.panel2,border:`1px solid ${C.border}`,borderRadius:9,padding:"10px 14px",marginBottom:12}}>
@@ -726,9 +738,9 @@ export default function App() {
       `}</style>
 
       {/* ── 헤더 ─────────────────────────────────── */}
-      <div style={{borderBottom:`1px solid ${C.border}`,padding:"9px 14px",background:"rgba(0,0,0,.97)",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",position:"sticky",top:0,zIndex:50}}>
+      <div style={{borderBottom:`1px solid ${C.border}`,padding:"9px 14px",background:"rgba(7,12,22,.97)",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",position:"sticky",top:0,zIndex:50,backdropFilter:"blur(12px)"}}>
         <div>
-          <div style={{fontSize:13,fontWeight:900,color:C.accent,letterSpacing:2}}>⚡ ALPHA TERMINAL <span style={{fontSize:9,color:C.muted,letterSpacing:1}}>v3.4</span></div>
+          <div style={{fontSize:14,fontWeight:900,color:C.accent,letterSpacing:3}}>✦ VEGA <span style={{fontSize:9,color:C.muted,letterSpacing:1,fontWeight:400}}>v1.0</span></div>
           <div style={{fontSize:8,color:C.muted}}>Triple ST · Ichimoku · Entry Score · Risk Mgmt</div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:5}}>
@@ -930,14 +942,10 @@ export default function App() {
           {alphaTab==="filter"&&<div>
             <div style={css.card}>
               <div style={{fontSize:11,fontWeight:700,color:C.accent,marginBottom:4}}>🔒 허들: 미국 $5B↑ / 한국 5000억↑</div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:10}}>
+              <div style={{display:"grid",gridTemplateColumns:"1fr",gap:12,marginBottom:10}}>
                 <div>
                   <div style={{fontSize:9,color:C.muted,marginBottom:2}}>거래대금비율 <span style={{color:C.accent,fontWeight:700}}>{fVolRatio}%</span> 이상 <span style={{fontSize:7,color:C.muted}}>(20일 평균 대비)</span></div>
                   <input type="range" min="0" max="300" step="10" value={fVolRatio} onChange={e=>setFVolRatio(+e.target.value)} style={{width:"100%",accentColor:C.accent}}/>
-                </div>
-                <div>
-                  <div style={{fontSize:9,color:C.muted,marginBottom:2}}>매출성장 <span style={{color:C.green,fontWeight:700}}>{fRev}%</span> 이상</div>
-                  <input type="range" min="0" max="100" step="5" value={fRev} onChange={e=>setFRev(+e.target.value)} style={{width:"100%",accentColor:C.green}}/>
                 </div>
               </div>
               <div style={{fontSize:10,color:C.accent,fontWeight:700}}>🎯 {alphaHits.length}개 통과</div>
@@ -1076,7 +1084,7 @@ export default function App() {
           <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
             <div style={{fontWeight:900,fontSize:15}}>{selInfo.market} {selInfo.label}</div>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
-              <span style={{fontWeight:900,fontSize:17}}>{unit}{curPrice.toLocaleString(undefined,{maximumFractionDigits:2})}</span>
+              <span style={{fontWeight:900,fontSize:17}}>{isKRSel?fmtKRW(curPrice):curPrice.toLocaleString(undefined,{maximumFractionDigits:2})}{unit}</span>
               {selInfo.changePct!=null&&<span style={{fontSize:11,fontWeight:700,color:selInfo.changePct>=0?C.green:C.red}}>{selInfo.changePct>=0?"+":""}{selInfo.changePct?.toFixed?.(2)}%</span>}
               {cd?.real&&<span style={{fontSize:7,background:"rgba(34,197,94,.15)",color:C.green,border:"1px solid rgba(34,197,94,.3)",borderRadius:3,padding:"1px 4px"}}>실시간</span>}
             </div>
@@ -1129,7 +1137,7 @@ export default function App() {
             {[{l:"🏦 목표가",v:consTgt,c:C.accent,d:"컨센서스"},{l:"🎯 R:R 비율",v:rrRatio>0?`${rrRatio}:1`:"—",c:rrRatio>=2?C.emerald:rrRatio>=1?C.yellow:C.red,d:rrRatio>=2?"양호":(rrRatio>=1?"주의":"불리"),raw:true},{l:"🛑 손절가",v:stopPrice,c:C.red,d:`현재가 -${stopPct}%`}].map((t,i)=>(
               <div key={i} style={{...css.panel2}}>
                 <div style={{fontSize:8,color:C.muted,marginBottom:3}}>{t.l}</div>
-                <div style={{fontSize:14,fontWeight:900,color:t.c}}>{t.raw?t.v:(t.v>0?`${unit}${t.v.toLocaleString()}`:"-")}</div>
+                <div style={{fontSize:14,fontWeight:900,color:t.c}}>{t.raw?t.v:(t.v>0?fmtPrice(t.v,isKRSel)+unit:"-")}</div>
                 <div style={{fontSize:7,color:C.muted}}>{t.d}</div>
               </div>
             ))}
@@ -1139,7 +1147,7 @@ export default function App() {
           <div style={{...css.panel2,marginBottom:10}}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
               <span style={{fontSize:9,color:C.muted}}>손절가 설정</span>
-              <span style={{fontSize:9,fontWeight:700,color:C.red}}>-{stopPct}% → {unit}{stopPrice.toLocaleString()}</span>
+              <span style={{fontSize:9,fontWeight:700,color:C.red}}>-{stopPct}% → {fmtPrice(stopPrice,isKRSel)}{unit}</span>
             </div>
             <input type="range" min="3" max="20" value={stopPct} onChange={e=>setStopPct(+e.target.value)} style={{width:"100%",accentColor:C.red}}/>
           </div>
@@ -1152,7 +1160,7 @@ export default function App() {
               {["1차","2차","3차","4차"].map((lbl,i)=>(
                 <div key={i} style={{background:"rgba(0,0,0,.4)",borderRadius:5,padding:"5px 7px",textAlign:"center"}}>
                   <div style={{fontSize:7,color:C.muted}}>{lbl} (25%)</div>
-                  <div style={{fontSize:10,fontWeight:700,color:C.accent}}>₩{pyramidAmts[i].toLocaleString()}</div>
+                  <div style={{fontSize:10,fontWeight:700,color:C.accent}}>₩{fmtKRW(pyramidAmts[i])}</div>
                 </div>
               ))}
             </div>
@@ -1345,7 +1353,7 @@ export default function App() {
                       </div>
                       <div style={{textAlign:"right"}}>
                         <div style={{fontSize:20,fontWeight:900,color:chg>=0?C.green:C.red}}>{chg>=0?"+":""}{chg}%</div>
-                        <div style={{fontSize:9,color:C.sub}}>{isKR?"₩":"$"}{cur.toLocaleString()}</div>
+                        <div style={{fontSize:9,color:C.sub}}>{isKR?"₩":"$"}{isKR?fmtKRW(cur):cur.toLocaleString()}</div>
                       </div>
                     </div>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6,marginBottom:8}}>
@@ -1425,7 +1433,7 @@ export default function App() {
                     <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
                       <div>
                         <div style={{fontWeight:900,fontSize:12}}>{pos.market} {pos.label}</div>
-                        <div style={{fontSize:9,color:C.muted}}>진입 {u}{pos.entry.toLocaleString()} · {pos.date}</div>
+                        <div style={{fontSize:9,color:C.muted}}>진입 {u==="원"?fmtKRW(pos.entry):pos.entry.toLocaleString()}{u} · {pos.date}</div>
                         <div style={{display:"flex",gap:5,marginTop:3}}>
                           {pos.foundGrade&&<span style={{fontSize:7,background:`${entryGradeColor}18`,color:entryGradeColor,border:`1px solid ${entryGradeColor}`,borderRadius:3,padding:"1px 4px"}}>진입 {pos.foundGrade}등급</span>}
                           {pos.trailMode&&<span style={{fontSize:7,background:"rgba(250,204,21,.12)",color:C.yellow,border:`1px solid rgba(250,204,21,.3)`,borderRadius:3,padding:"1px 4px"}}>🔄 트레일링 모드</span>}
@@ -1434,7 +1442,7 @@ export default function App() {
                       <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
                         <div style={{textAlign:"right"}}>
                           <div style={{fontSize:22,fontWeight:900,color:pnl>=0?C.green:C.red}}>{pnl>=0?"+":""}{pnl.toFixed?.(2)||0}%</div>
-                          <div style={{fontSize:9,color:C.sub}}>{u}{cur.toLocaleString()}</div>
+                          <div style={{fontSize:9,color:C.sub}}>{u}{u==="원"?fmtKRW(cur):cur.toLocaleString()}</div>
                           <div style={{fontSize:8,color:rs>=0?C.emerald:C.red}}>RS {rs>=0?"+":""}{rs.toFixed(1)}%p</div>
                         </div>
                         <button onClick={()=>{
@@ -1454,8 +1462,8 @@ export default function App() {
                         return<div key={i} style={{flex:1,borderRadius:7,padding:"6px 8px",border:`1px solid ${lv.triggered?"rgba(34,197,94,.4)":"rgba(255,255,255,.08)"}`,background:lv.triggered?"rgba(34,197,94,.06)":C.panel2,textAlign:"center"}}>
                           <div style={{fontSize:7,color:lv.triggered?C.green:C.muted,fontWeight:700,marginBottom:2}}>{lv.triggered?"✅":"⏳"} {lv.label}</div>
                           <div style={{fontSize:9,fontWeight:700,color:lv.triggered?C.green:C.sub}}>{lv.note}</div>
-                          <div style={{fontSize:7,color:C.muted}}>{u}{targetPx.toLocaleString()}</div>
-                          <div style={{fontSize:7,color:C.accent}}>₩{(pyramidAmts[i]||0).toLocaleString()}</div>
+                          <div style={{fontSize:7,color:C.muted}}>{u}{u==="원"?fmtKRW(targetPx):targetPx.toLocaleString()}</div>
+                          <div style={{fontSize:7,color:C.accent}}>₩{fmtKRW(pyramidAmts[i]||0)}</div>
                         </div>;
                       })}
                     </div>
@@ -1465,12 +1473,12 @@ export default function App() {
                       <div style={{background:"rgba(239,68,68,.07)",border:"1px solid rgba(239,68,68,.25)",borderRadius:7,padding:"7px 10px"}}>
                         <div style={{fontSize:8,color:C.red,fontWeight:700}}>🛑 초기 손절 (-{trailSettings.initialStopPct}%)</div>
                         <div style={{fontSize:7,color:C.muted,marginBottom:3}}>매수가 기준 · +{trailSettings.switchPct}% 전까지</div>
-                        <div style={{fontSize:16,fontWeight:900,color:C.red}}>{u}{(pos.entry*(1-trailSettings.initialStopPct/100)).toFixed(pos.ticker.length>5?0:2).toLocaleString?.()}</div>
+                        <div style={{fontSize:16,fontWeight:900,color:C.red}}>{u}{u==="원"?fmtKRW(pos.entry*(1-trailSettings.initialStopPct/100)):(pos.entry*(1-trailSettings.initialStopPct/100)).toFixed(2)}</div>
                       </div>
                       <div style={{background:pos.trailMode?"rgba(250,204,21,.1)":"rgba(255,255,255,.03)",border:`1px solid ${pos.trailMode?"rgba(250,204,21,.4)":"rgba(255,255,255,.1)"}`,borderRadius:7,padding:"7px 10px"}}>
                         <div style={{fontSize:8,color:C.yellow,fontWeight:700}}>🔄 트레일링 (고점-{trailSettings.trailPct}%)</div>
                         <div style={{fontSize:7,color:C.muted,marginBottom:3}}>고점 {u}{pos.max?.toLocaleString()} {pos.trailMode?"·활성":"· 비활성"}</div>
-                        <div style={{fontSize:16,fontWeight:900,color:pos.trailMode?C.yellow:C.muted}}>{u}{trailStop.toLocaleString()}</div>
+                        <div style={{fontSize:16,fontWeight:900,color:pos.trailMode?C.yellow:C.muted}}>{u}{u==="원"?fmtKRW(trailStop):trailStop.toLocaleString()}</div>
                       </div>
                     </div>
 
@@ -1522,8 +1530,10 @@ export default function App() {
             }
           </div>}
 
-          {/* 10번: 성적분석 */}
           {trackTab==="stats"&&<div>
+            {closedLog.length>0&&<div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+              <button onClick={()=>{if(window.confirm("성적 기록을 모두 초기화하시겠어요? 되돌릴 수 없습니다.")){setClosedLog([]);setAiAnalysis(null);}}} style={{...css.btn(),fontSize:9,color:C.red,borderColor:"rgba(248,113,113,.4)"}}>🗑 성적 초기화</button>
+            </div>}
             {/* 요약 통계 */}
             {closedLog.length>0?<>
               <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10,marginBottom:12}}>
