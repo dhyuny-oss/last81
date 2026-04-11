@@ -1964,7 +1964,7 @@ export default function App() {
           </div>
           {!poolLoaded
             ?<div style={{textAlign:"center",padding:"40px 0",color:C.muted}}><div style={{fontSize:24,marginBottom:8}}>📦</div><div style={{fontSize:10}}>위 "풀 로드" 버튼을 눌러주세요</div></div>
-            :(()=>{
+            :<div>{(()=>{
               const filtered=Object.entries(pool).filter(([ticker,info])=>{
                 if(poolMarket==="kr"&&info.market!=="kr")return false;
                 if(poolMarket==="us"&&info.market!=="us")return false;
@@ -1999,7 +1999,7 @@ export default function App() {
                 {filtered.length>200&&<div style={{textAlign:"center",padding:"10px",fontSize:9,color:C.muted}}>검색으로 범위를 좁혀주세요 ({filtered.length}개 중 200개 표시)</div>}
               </div>;
             })()
-          }
+          }</div>}
         </div>}
 
       </div>
