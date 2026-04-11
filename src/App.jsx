@@ -951,7 +951,7 @@ export default function App() {
             placeholder="🔍 티커 입력 후 엔터" style={{background:"rgba(255,255,255,.05)",border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.text,fontSize:10,outline:"none",width:165}}/>
           {(showSearch&&(searchLoading||searchRes.length>0))&&<div style={{position:"absolute",top:"calc(100% + 4px)",left:0,right:0,background:"#0f172a",border:`1px solid ${C.border}`,borderRadius:7,zIndex:200,overflow:"hidden",boxShadow:"0 8px 32px rgba(0,0,0,.8)"}}>
             {searchLoading&&<div style={{padding:"10px 12px",color:C.muted,fontSize:10}}>🔍 검색 중...</div>}
-            {!searchLoading&&searchRes.map((r,i)=><div key={i} onClick={()=>addStock(r)} style={{padding:"7px 11px",cursor:"pointer",borderBottom:"1px solid rgba(99,102,241,.08)",display:"flex",justifyContent:"space-between"}} onMouseEnter={e=>e.currentTarget.style.background="#ede9fe"} onMouseLeave={e=>e.currentTarget.style.background=""}><span style={{color:r._custom?C.accent:C.text,fontWeight:700}}>{r.label} <span style={{color:C.muted,fontSize:8}}>{r._custom?"":r.ticker}</span></span><span style={{color:r._custom?C.accent:C.sub,fontSize:8}}>{r.market||"🔍"}</span></div>)}
+            {!searchLoading&&searchRes.map((r,i)=><div key={i} onClick={()=>addStock(r)} style={{padding:"7px 11px",cursor:"pointer",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between"}} onMouseEnter={e=>e.currentTarget.style.background="rgba(56,189,248,.1)"} onMouseLeave={e=>e.currentTarget.style.background=""}><span style={{color:r._custom?C.accent:C.text,fontWeight:700}}>{r.label} <span style={{color:C.muted,fontSize:8}}>{r._custom?"":r.ticker}</span></span><span style={{color:r._custom?C.accent:C.sub,fontSize:8}}>{r.market||"🔍"}</span></div>)}
           </div>}
         </div>
         {addMsg&&<span style={{color:C.green,fontSize:9}}>{addMsg}</span>}
@@ -1249,11 +1249,11 @@ export default function App() {
                               </td>
                               <td style={{padding:"7px 8px"}}><span style={{fontWeight:700,color:stC===3?"#059669":stC>=2?"#d97706":"#9ca3af"}}>{stC}/3</span></td>
                               <td style={{padding:"7px 8px"}}>
-                                <span style={{fontSize:9,fontWeight:800,padding:"2px 6px",borderRadius:4,background:es.grade==="S"?"#fef3c7":es.grade==="A"?"#dcfce7":es.grade==="B"?"#dbeafe":"#f1f5f9",color:es.grade==="S"?"#92400e":es.grade==="A"?"#15803d":es.grade==="B"?"#1d4ed8":"#64748b"}}>{es.grade}</span>
+                                <span style={{fontSize:9,fontWeight:800,padding:"2px 6px",borderRadius:4,background:es.grade==="S"?"rgba(251,191,36,.2)":es.grade==="A"?"rgba(16,185,129,.2)":es.grade==="B"?"rgba(56,189,248,.2)":"#f1f5f9",color:es.grade==="S"?"#92400e":es.grade==="A"?"#15803d":es.grade==="B"?C.accent:C.muted}}>{es.grade}</span>
                               </td>
                               <td style={{padding:"7px 6px"}} onClick={e=>e.stopPropagation()}>
                                 <div style={{display:"flex",gap:3}}>
-                                  <button onClick={()=>{setTracking(p=>[...p,{id:Date.now(),ticker:stock.ticker,label:stock.label,market:stock.market,basePrice:stock.price||0,addedDate:new Date().toLocaleDateString("ko-KR"),foundScore:stock.score,foundSignals:stock.signals,foundRS:stock.rs,oppScoreAt:oppScore}]);setTab("track");setTrackTab("watch");}} style={{background:"rgba(16,185,129,.08)",border:"1px solid #bbf7d0",color:"#15803d",borderRadius:5,padding:"3px 7px",cursor:"pointer",fontSize:8,fontWeight:700}}>추적</button>
+                                  <button onClick={()=>{setTracking(p=>[...p,{id:Date.now(),ticker:stock.ticker,label:stock.label,market:stock.market,basePrice:stock.price||0,addedDate:new Date().toLocaleDateString("ko-KR"),foundScore:stock.score,foundSignals:stock.signals,foundRS:stock.rs,oppScoreAt:oppScore}]);setTab("track");setTrackTab("watch");}} style={{background:"rgba(16,185,129,.08)",border:"1px solid #bbf7d0",color:C.emerald,borderRadius:5,padding:"3px 7px",cursor:"pointer",fontSize:8,fontWeight:700}}>추적</button>
                                   <button onClick={()=>{inW?setWatchlist(w=>w.filter(x=>x.ticker!==stock.ticker)):setWatchlist(w=>[...w,{...stock}]);}} style={{background:inW?"rgba(56,189,248,.15)":"rgba(255,255,255,.04)",border:`1px solid ${inW?"#c4b5fd":"rgba(99,102,241,.2)"}`,color:inW?"#7c3aed":"#9ca3af",borderRadius:5,padding:"3px 7px",cursor:"pointer",fontSize:10}}>{inW?"★":"☆"}</button>
                                 </div>
                               </td>
@@ -1405,17 +1405,17 @@ export default function App() {
           </div>
 
           {/* 목표가 섹션 */}
-          <div style={{background:"linear-gradient(135deg,rgba(99,102,241,.2),rgba(124,58,237,.2))",border:"1px solid #c4b5fd",borderRadius:12,padding:14,marginBottom:10}}>
-            <div style={{fontSize:10,fontWeight:700,color:"#4f46e5",marginBottom:10}}>🎯 목표가 분석</div>
+          <div style={{background:"rgba(99,102,241,.12)",border:"1px solid #c4b5fd",borderRadius:12,padding:14,marginBottom:10}}>
+            <div style={{fontSize:10,fontWeight:700,color:C.accent,marginBottom:10}}>🎯 목표가 분석</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
               {/* R:R 2:1 */}
-              <div style={{background:C.panel2,borderRadius:7,padding:"7px 9px",border:`1px solid ${C.border}`}}>
+              <div style={{background:C.panel2,borderRadius:7,padding:"8px 10px",border:`1px solid ${C.border}`}}>
                 <div style={{fontSize:8,color:C.purple,fontWeight:600,marginBottom:2}}>R:R 2:1 목표</div>
-                <div style={{fontSize:15,fontWeight:800,color:"#4f46e5"}}>{rrTarget2>0?fmtPrice(rrTarget2,isKRSel)+unit:"—"}</div>
+                <div style={{fontSize:15,fontWeight:800,color:C.accent}}>{rrTarget2>0?fmtPrice(rrTarget2,isKRSel)+unit:"—"}</div>
                 <div style={{fontSize:7,color:"#8b5cf6"}}>손절기준 2배 수익</div>
               </div>
               {/* R:R 3:1 */}
-              <div style={{background:C.panel2,borderRadius:7,padding:"7px 9px",border:`1px solid ${C.border}`}}>
+              <div style={{background:C.panel2,borderRadius:7,padding:"8px 10px",border:`1px solid ${C.border}`}}>
                 <div style={{fontSize:8,color:C.purple,fontWeight:600,marginBottom:2}}>R:R 3:1 목표</div>
                 <div style={{fontSize:15,fontWeight:800,color:C.purple}}>{rrTarget3>0?fmtPrice(rrTarget3,isKRSel)+unit:"—"}</div>
                 <div style={{fontSize:7,color:"#8b5cf6"}}>손절기준 3배 수익</div>
@@ -1427,7 +1427,7 @@ export default function App() {
                 <div style={{fontSize:7,color:"#64748b"}}>현재가 대비 {w52High>0?`${((w52High-curPrice)/curPrice*100).toFixed(1)}%`:"—"}</div>
               </div>
               {/* 매물대 1차 저항 */}
-              <div style={{background:C.panel2,borderRadius:7,padding:"8px 10px",border:`1px solid rgba(251,146,60,.3)`}}>
+              <div style={{background:C.panel2,borderRadius:7,padding:"8px 10px",border:`1px solid rgba(251,146,60,.4)`}}>
                 <div style={{fontSize:8,color:"#c2410c",fontWeight:600,marginBottom:2}}>📊 매물대 저항</div>
                 <div style={{fontSize:13,fontWeight:800,color:"#ea580c"}}>
                   {resist1>0?fmtPrice(resist1,isKRSel)+unit:"데이터 부족"}
@@ -1497,7 +1497,7 @@ export default function App() {
                 <span style={{fontSize:10,fontWeight:800,color:"#dc2626"}}>{fmtPrice(stopPrice,isKRSel)}{unit}</span>
                 <span style={{fontSize:7,color:C.muted,marginLeft:2}}>-{stopPct}%</span>
               </div>}
-              {lastD?.ma200&&<div style={{display:"flex",alignItems:"center",gap:4,background:lastD.aboveMa200?"rgba(16,185,129,.12)":"rgba(251,191,36,.12)",border:`1px solid ${lastD.aboveMa200?"#bbf7d0":"#fde68a"}`,borderRadius:6,padding:"3px 10px"}}>
+              {lastD?.ma200&&<div style={{display:"flex",alignItems:"center",gap:4,background:lastD.aboveMa200?"rgba(16,185,129,.12)":"rgba(251,191,36,.1)",border:`1px solid ${lastD.aboveMa200?"#bbf7d0":"#fde68a"}`,borderRadius:6,padding:"3px 10px"}}>
                 <span style={{fontSize:8,color:lastD.aboveMa200?"#15803d":"#92400e",fontWeight:600}}>200일 {lastD.aboveMa200?"↑위":"↓아래"}</span>
                 <span style={{fontSize:9,fontWeight:700,color:C.purple,marginLeft:2}}>{fmtPrice(lastD.ma200,isKRSel)}{unit}</span>
               </div>}
