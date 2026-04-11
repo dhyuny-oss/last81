@@ -13,13 +13,40 @@ MODE = os.environ.get("COLLECT_MODE", "hourly")
 
 # ── 글로벌 지수 ───────────────────────────────────────────
 INDICES = {
-    "^GSPC": {"label":"S&P 500",  "market":"us"},
-    "^IXIC": {"label":"NASDAQ",   "market":"us"},
-    "^KS11": {"label":"KOSPI",    "market":"kr"},
-    "^KQ11": {"label":"KOSDAQ",   "market":"kr"},
-    "^N225": {"label":"닛케이",   "market":"jp"},
-    "^SSEC": {"label":"상해종합", "market":"cn"},
-    "^VIX":  {"label":"VIX",      "market":"us"},
+    "^GSPC":  {"label":"S&P 500",    "market":"us", "type":"index"},
+    "^IXIC":  {"label":"NASDAQ",     "market":"us", "type":"index"},
+    "^KS11":  {"label":"KOSPI",      "market":"kr", "type":"index"},
+    "^VIX":   {"label":"VIX",        "market":"us", "type":"fear"},
+    "KRW=X":  {"label":"USD/KRW",    "market":"fx",  "type":"fx"},
+    "^TNX":   {"label":"미국10Y금리","market":"us", "type":"rate"},
+    "GC=F":   {"label":"금",         "market":"us", "type":"commodity"},
+    "CL=F":   {"label":"유가",       "market":"us", "type":"commodity"},
+}
+
+# 미국 섹터 ETF
+US_SECTOR_ETFS = {
+    "XLK":  {"label":"IT",      "members":["AAPL","MSFT","NVDA","AVGO","CRM"]},
+    "XLF":  {"label":"금융",    "members":["JPM","BAC","WFC","GS","MS"]},
+    "XLE":  {"label":"에너지",  "members":["XOM","CVX","COP","EOG","SLB"]},
+    "XLV":  {"label":"헬스케어","members":["JNJ","UNH","LLY","ABBV","MRK"]},
+    "XLY":  {"label":"소비재",  "members":["AMZN","TSLA","HD","MCD","NKE"]},
+    "XLP":  {"label":"필수소비","members":["PG","KO","PEP","WMT","COST"]},
+    "XLI":  {"label":"산업재",  "members":["GE","HON","CAT","UPS","RTX"]},
+    "XLB":  {"label":"소재",    "members":["LIN","APD","SHW","FCX","NEM"]},
+    "SOXX": {"label":"반도체",  "members":["NVDA","AMD","INTC","AVGO","QCOM"]},
+    "XBI":  {"label":"바이오",  "members":["MRNA","BNTX","REGN","VRTX","GILD"]},
+}
+
+# 한국 섹터 ETF
+KR_SECTOR_ETFS = {
+    "091160.KS": {"label":"반도체",  "members":["005930","000660","000990","058470"]},
+    "305720.KS": {"label":"2차전지", "members":["006400","051910","373220","247540"]},
+    "244580.KS": {"label":"바이오",  "members":["068270","207940","326030","091990"]},
+    "091170.KS": {"label":"금융",    "members":["105560","055550","086790","316140"]},
+    "091180.KS": {"label":"자동차",  "members":["005380","000270","012330","011210"]},
+    "266360.KS": {"label":"IT",      "members":["035420","035720","259960","263750"]},
+    "138230.KS": {"label":"철강",    "members":["005490","004020","010060","002220"]},
+    "034830.KS": {"label":"건설",    "members":["000720","010140","047040","000210"]},
 }
 
 # ── 기본 관심종목 폴백 ────────────────────────────────────
@@ -508,6 +535,91 @@ def main():
     else:
         output["ibVol"] = output.get("ibVol", 100)
         print("  ⚠️ IB 거래량 계산 실패 - 기존값 유지")
+
+    # ── 섹터 ETF 수집 ─────────────────────────────────────
+    print("
+📊 섹터 ETF 수집 중...")
+    sectors_data = {}
+
+    for etf_ticker, etf_info in US_SECTOR_ETFS.items():
+        raw = fetch_yahoo(etf_ticker, range_="1mo")
+        if not raw:
+            continue
+        try:
+            candles, meta = parse_candles(raw)
+            price = float(meta.get("regularMarketPrice") or candles[-1]["close"])
+            prev  = float(meta.get("chartPreviousClose") or price)
+            chg1d = round((price-prev)/prev*100, 2) if prev else 0
+            sectors_data[etf_ticker] = {
+                **etf_info,
+                "etf": etf_ticker,
+                "market": "us",
+                "price": price,
+                "chg1d": chg1d,
+                "chg1W": calc_change(candles, 5),
+                "chg1M": calc_change(candles, 21),
+            }
+            print(f"  {etf_info['label']:8s} ({etf_ticker}) ✅ {chg1d:+.2f}%")
+        except Exception as e:
+            print(f"  {etf_ticker} ❌ {e}")
+        time.sleep(0.3)
+
+    for etf_ticker, etf_info in KR_SECTOR_ETFS.items():
+        raw = fetch_yahoo(etf_ticker, range_="1mo")
+        if not raw:
+            continue
+        try:
+            candles, meta = parse_candles(raw)
+            price = float(meta.get("regularMarketPrice") or candles[-1]["close"])
+            prev  = float(meta.get("chartPreviousClose") or price)
+            chg1d = round((price-prev)/prev*100, 2) if prev else 0
+            sectors_data[etf_ticker] = {
+                **etf_info,
+                "etf": etf_ticker,
+                "market": "kr",
+                "price": price,
+                "chg1d": chg1d,
+                "chg1W": calc_change(candles, 5),
+                "chg1M": calc_change(candles, 21),
+            }
+            print(f"  {etf_info['label']:8s} ({etf_ticker}) ✅ {chg1d:+.2f}%")
+        except Exception as e:
+            print(f"  {etf_ticker} ❌ {e}")
+        time.sleep(0.3)
+
+    output["sectors"] = sectors_data
+
+    # ── 상승/하락 비율 계산 ────────────────────────────────
+    print("
+📈 상승/하락 비율 계산...")
+    kr_up = kr_down = us_up = us_down = 0
+    for ticker, stock in pool_data.items():
+        chg = stock.get("changePct", 0)
+        mkt = stock.get("market", "")
+        if mkt == "kr":
+            if chg >= 0: kr_up += 1
+            else: kr_down += 1
+        elif mkt == "us":
+            if chg >= 0: us_up += 1
+            else: us_down += 1
+
+    kr_total = kr_up + kr_down
+    us_total = us_up + us_down
+    output["breadth"] = {
+        "kr": {
+            "up": kr_up, "down": kr_down,
+            "total": kr_total,
+            "upPct": round(kr_up/kr_total*100, 1) if kr_total else 0
+        },
+        "us": {
+            "up": us_up, "down": us_down,
+            "total": us_total,
+            "upPct": round(us_up/us_total*100, 1) if us_total else 0
+        },
+        "updatedAt": now_str,
+    }
+    print(f"  🇰🇷 한국: 상승 {kr_up} / 하락 {kr_down} ({output['breadth']['kr']['upPct']}%)")
+    print(f"  🇺🇸 미국: 상승 {us_up} / 하락 {us_down} ({output['breadth']['us']['upPct']}%)")
 
     # ── IB 거래량 계산 (대형주 거래량 비율) ──────────────
     print("
