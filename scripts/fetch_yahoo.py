@@ -525,8 +525,10 @@ def main():
     print("\n📊 IB 거래량 계산 중...")
     ib_tickers = ["005930", "000660", "005380", "035420", "AAPL", "MSFT", "NVDA", "META", "TSLA", "AMZN"]
     vol_ratios = []
+    # pool_data는 daily 모드에서만 존재 → hourly는 output["stocks"] 사용
+    _pool = pool_data if MODE == "daily" else {}
     for ib_tick in ib_tickers:
-        info = pool_data.get(ib_tick) or output["stocks"].get(ib_tick)
+        info = _pool.get(ib_tick) or output["stocks"].get(ib_tick)
         if not info:
             continue
         suffix = ".KS" if ib_tick.isdigit() and ib_tick in ["005930","000660","005380","035420"] else ""
@@ -609,10 +611,10 @@ def main():
 
     output["sectors"] = sectors_data
 
-    # ── 상승/하락 비율 계산 ────────────────────────────────
+    # ── 상승/하락 비율 계산 (daily 모드에서만 의미있음) ───────
     print("\n📈 상승/하락 비율 계산...")
     kr_up = kr_down = us_up = us_down = 0
-    for ticker, stock in pool_data.items():
+    for ticker, stock in _pool.items():
         chg = stock.get("changePct", 0)
         mkt = stock.get("market", "")
         if mkt == "kr":
@@ -639,34 +641,6 @@ def main():
     }
     print(f"  🇰🇷 한국: 상승 {kr_up} / 하락 {kr_down} ({output['breadth']['kr']['upPct']}%)")
     print(f"  🇺🇸 미국: 상승 {us_up} / 하락 {us_down} ({output['breadth']['us']['upPct']}%)")
-
-    # ── IB 거래량 계산 (대형주 거래량 비율) ──────────────
-    print("\n📊 IB 거래량 계산 중...")
-    ib_tickers = ["005930.KS","000660.KS","005380.KS","NVDA","AAPL","MSFT","META","TSLA","AMZN","GOOGL"]
-    total_ratio = []
-    for ib_t in ib_tickers:
-        try:
-            # 5일 일봉으로 거래량 비율 계산
-            raw5 = fetch_yahoo(ib_t, range_="1mo", interval="1d")
-            if not raw5:
-                continue
-            candles5, _ = parse_candles(raw5)
-            if len(candles5) < 5:
-                continue
-            vols = [c["volume"] for c in candles5 if c["volume"] > 0]
-            if len(vols) < 5:
-                continue
-            avg20 = sum(vols[-20:]) / len(vols[-20:]) if len(vols) >= 20 else sum(vols) / len(vols)
-            today_vol = vols[-1]
-            ratio = round(today_vol / avg20 * 100, 1) if avg20 > 0 else 100
-            total_ratio.append(ratio)
-        except:
-            pass
-        time.sleep(0.3)
-
-    ib_vol = round(sum(total_ratio) / len(total_ratio), 1) if total_ratio else 100
-    output["ibVol"] = ib_vol
-    print(f"  IB 거래량: {ib_vol}% ({'공격 진입' if ib_vol >= 150 else '관망'})")
 
     # ── 저장 ─────────────────────────────────────────────
     path = "public/data/stocks.json"
