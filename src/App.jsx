@@ -1029,67 +1029,59 @@ export default function App() {
 
           <div style={{...css.card,marginBottom:12}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                <div style={{fontSize:11,fontWeight:700,color:C.text}}>📊 섹터 RS 히트맵</div>
-                <select value={rsKey} onChange={e=>setRsKey(e.target.value)} style={{background:"rgba(255,255,255,.04)",border:"1px solid rgba(99,102,241,.18)",borderRadius:6,padding:"3px 8px",color:C.text,fontSize:9,cursor:"pointer"}}>
+                <div style={{fontSize:11,fontWeight:700,color:C.accent}}>📊 섹터 RS 히트맵</div>
+                <select value={rsKey} onChange={e=>setRsKey(e.target.value)} style={{background:"rgba(255,255,255,.05)",border:`1px solid ${C.border}`,borderRadius:5,padding:"2px 6px",color:C.text,fontSize:9}}>
                   <option value="chg1W">1주</option><option value="chg1M">1개월</option>
                 </select>
               </div>
-              {/* 미국 섹터 — S&P 비교 */}
-              {(()=>{
-                const usSectors=[...SECTOR_RS].filter(s=>s.market==="us").sort((a,b)=>b[rsKey]-a[rsKey]);
-                if(!usSectors.length)return null;
-                const spRef=rsKey==="chg1W"?(idxRS.spy?.chg3d||0):(idxRS.spy?.chg5d||0);
-                return<div style={{marginBottom:10}}>
-                  <div style={{fontSize:9,fontWeight:700,color:C.muted,marginBottom:5}}>🇺🇸 미국 vs S&P500</div>
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:3}}>
-                    {usSectors.map((sec,i)=>{
-                      const v=sec[rsKey],excess=+(v-spRef).toFixed(1),isTop=i<2;
-                      const bg=excess>=3?"#dcfce7":excess>=0?"#f0fdf4":excess>-3?"#fef9c3":"#fee2e2";
-                      const tc=excess>=3?"#15803d":excess>=0?"#166534":excess>-3?"#92400e":"#991b1b";
-                      return<div key={sec.etf} onClick={()=>setSelectedSector(selectedSector===sec.etf?null:sec.etf)} style={{background:bg,borderRadius:6,padding:"5px 6px",border:selectedSector===sec.etf?"2px solid #3b82f6":isTop?"1px solid #86efac":"1px solid transparent",cursor:"pointer",textAlign:"center"}}>
-                        <div style={{fontSize:8,fontWeight:600,color:C.sub,marginBottom:1}}>{sec.name}</div>
-                        <div style={{fontSize:12,fontWeight:800,color:tc}}>{v>=0?"+":""}{v}%</div>
-                        <div style={{fontSize:7,color:excess>=0?"#15803d":"#991b1b"}}>vs SP {excess>=0?"+":""}{excess}</div>
-                      </div>;
-                    })}
-                  </div>
-                </div>;
-              })()}
+              {/* 미국 섹터 — S&P500 비교 */}
+              {[...SECTOR_RS].filter(s=>s.market==="us").sort((a,b)=>b[rsKey]-a[rsKey]).length>0&&<div style={{marginBottom:12}}>
+                <div style={{fontSize:9,fontWeight:700,color:C.muted,marginBottom:5}}>🇺🇸 미국 vs S&P500</div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:3}}>
+                  {[...SECTOR_RS].filter(s=>s.market==="us").sort((a,b)=>b[rsKey]-a[rsKey]).map((sec,i)=>{
+                    const v=sec[rsKey]||0;
+                    const ref=rsKey==="chg1W"?(idxRS.spy?.chg3d||0):(idxRS.spy?.chg5d||0);
+                    const excess=+(v-ref).toFixed(1);
+                    const bg=excess>=3?"rgba(16,185,129,.4)":excess>=0?"rgba(16,185,129,.2)":excess>-3?"rgba(250,204,21,.2)":"rgba(239,68,68,.3)";
+                    return<div key={sec.etf} onClick={()=>setSelectedSector(selectedSector===sec.etf?null:sec.etf)} style={{background:bg,borderRadius:6,padding:"5px 6px",border:selectedSector===sec.etf?`2px solid ${C.accent}`:i<2?`1px solid ${C.emerald}`:"1px solid rgba(255,255,255,.05)",cursor:"pointer",textAlign:"center"}}>
+                      <div style={{fontSize:8,fontWeight:600,color:C.sub,marginBottom:1}}>{sec.name}</div>
+                      <div style={{fontSize:12,fontWeight:800,color:v>=0?C.green:C.red}}>{v>=0?"+":""}{v}%</div>
+                      <div style={{fontSize:7,color:excess>=0?C.emerald:C.red}}>vs SP {excess>=0?"+":""}{excess}</div>
+                    </div>;
+                  })}
+                </div>
+              </div>}
               {/* 한국 섹터 — 코스피 비교 */}
-              {(()=>{
-                const krSectors=[...SECTOR_RS].filter(s=>s.market==="kr").sort((a,b)=>b[rsKey]-a[rsKey]);
-                if(!krSectors.length)return null;
-                const ksRef=rsKey==="chg1W"?(idxRS.kospi?.chg3d||0):(idxRS.kospi?.chg5d||0);
-                return<div>
-                  <div style={{fontSize:9,fontWeight:700,color:C.muted,marginBottom:5}}>🇰🇷 한국 vs KOSPI</div>
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:3}}>
-                    {krSectors.map((sec,i)=>{
-                      const v=sec[rsKey],excess=+(v-ksRef).toFixed(1),isTop=i<2;
-                      const bg=excess>=3?"#dcfce7":excess>=0?"#f0fdf4":excess>-3?"#fef9c3":"#fee2e2";
-                      const tc=excess>=3?"#15803d":excess>=0?"#166534":excess>-3?"#92400e":"#991b1b";
-                      return<div key={sec.etf} onClick={()=>setSelectedSector(selectedSector===sec.etf?null:sec.etf)} style={{background:bg,borderRadius:6,padding:"5px 6px",border:selectedSector===sec.etf?"2px solid #3b82f6":isTop?"1px solid #86efac":"1px solid transparent",cursor:"pointer",textAlign:"center"}}>
-                        <div style={{fontSize:8,fontWeight:600,color:C.sub,marginBottom:1}}>{sec.name}</div>
-                        <div style={{fontSize:12,fontWeight:800,color:tc}}>{v>=0?"+":""}{v}%</div>
-                        <div style={{fontSize:7,color:excess>=0?"#15803d":"#991b1b"}}>vs KS {excess>=0?"+":""}{excess}</div>
-                      </div>;
-                    })}
-                  </div>
-                </div>;
-              })()}
+              {[...SECTOR_RS].filter(s=>s.market==="kr").sort((a,b)=>b[rsKey]-a[rsKey]).length>0&&<div style={{marginBottom:8}}>
+                <div style={{fontSize:9,fontWeight:700,color:C.muted,marginBottom:5}}>🇰🇷 한국 vs KOSPI</div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:3}}>
+                  {[...SECTOR_RS].filter(s=>s.market==="kr").sort((a,b)=>b[rsKey]-a[rsKey]).map((sec,i)=>{
+                    const v=sec[rsKey]||0;
+                    const ref=rsKey==="chg1W"?(idxRS.kospi?.chg3d||0):(idxRS.kospi?.chg5d||0);
+                    const excess=+(v-ref).toFixed(1);
+                    const bg=excess>=3?"rgba(16,185,129,.4)":excess>=0?"rgba(16,185,129,.2)":excess>-3?"rgba(250,204,21,.2)":"rgba(239,68,68,.3)";
+                    return<div key={sec.etf} onClick={()=>setSelectedSector(selectedSector===sec.etf?null:sec.etf)} style={{background:bg,borderRadius:6,padding:"5px 6px",border:selectedSector===sec.etf?`2px solid ${C.accent}`:i<2?`1px solid ${C.emerald}`:"1px solid rgba(255,255,255,.05)",cursor:"pointer",textAlign:"center"}}>
+                      <div style={{fontSize:8,fontWeight:600,color:C.sub,marginBottom:1}}>{sec.name}</div>
+                      <div style={{fontSize:12,fontWeight:800,color:v>=0?C.green:C.red}}>{v>=0?"+":""}{v}%</div>
+                      <div style={{fontSize:7,color:excess>=0?C.emerald:C.red}}>vs KS {excess>=0?"+":""}{excess}</div>
+                    </div>;
+                  })}
+                </div>
+              </div>}
               {/* 선택된 섹터 구성종목 */}
               {selectedSector&&(()=>{
                 const sec=SECTOR_RS.find(s=>s.etf===selectedSector);
                 if(!sec||!sec.members?.length)return null;
-                return<div style={{marginTop:10,background:"rgba(56,189,248,.1)",border:"1px solid #bfdbfe",borderRadius:8,padding:"8px 10px"}}>
+                return<div style={{marginTop:8,background:"rgba(56,189,248,.06)",border:`1px solid rgba(56,189,248,.2)`,borderRadius:7,padding:"8px 10px"}}>
                   <div style={{fontSize:9,fontWeight:700,color:C.accent,marginBottom:6}}>{sec.name} 구성종목</div>
                   <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
                     {sec.members.map(ticker=>{
                       const s=stocks.find(x=>x.ticker===ticker);
                       const inWatch=watchlist.find(w=>w.ticker===ticker);
-                      return<div key={ticker} style={{background:C.panel2,borderRadius:5,padding:"4px 8px",display:"flex",gap:6,alignItems:"center"}}>
-                        <span style={{fontSize:9,fontWeight:700,color:C.text}}>{s?.label||ticker}</span>
+                      return<div key={ticker} style={{background:"rgba(255,255,255,.05)",borderRadius:5,padding:"4px 8px",display:"flex",gap:6,alignItems:"center"}}>
+                        <span style={{fontSize:9,fontWeight:700}}>{s?.label||ticker}</span>
                         {s?.changePct!=null&&<span style={{fontSize:8,color:(s.changePct||0)>=0?C.green:C.red}}>{(s.changePct||0)>=0?"+":""}{(s.changePct||0).toFixed(1)}%</span>}
-                        <button onClick={e=>{e.stopPropagation();inWatch?setWatchlist(w=>w.filter(x=>x.ticker!==ticker)):setWatchlist(w=>[...w,{...(s||{ticker,label:ticker})}]);}} style={{background:"none",border:"none",color:inWatch?"#3b82f6":C.muted,cursor:"pointer",fontSize:11,padding:0}}>{inWatch?"★":"☆"}</button>
+                        <button onClick={e=>{e.stopPropagation();inWatch?setWatchlist(w=>w.filter(x=>x.ticker!==ticker)):setWatchlist(w=>[...w,{...(s||{ticker,label:ticker})}]);}} style={{background:"none",border:"none",color:inWatch?C.accent:C.muted,cursor:"pointer",fontSize:10,padding:0}}>{inWatch?"★":"☆"}</button>
                       </div>;
                     })}
                   </div>
