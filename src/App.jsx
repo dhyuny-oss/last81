@@ -1718,7 +1718,7 @@ export default function App() {
                       {t.foundSignals.map(sig=><span key={sig} style={{fontSize:7,padding:"2px 6px",borderRadius:3,background:"rgba(56,189,248,.12)",color:C.accent}}>{sig}</span>)}
                     </div>}
                     <div style={{display:"flex",gap:6}}>
-                      <button onClick={()=>{setSel(t.ticker);setTab("sniper");}} style={{flex:1,background:""#eff6ff",border:`1px solid ${C.accent}`,color:C.accent,borderRadius:6,padding:"6px 0",cursor:"pointer",fontSize:9,fontWeight:700}}>📈 스나이퍼</button>
+                      <button onClick={()=>{setSel(t.ticker);setTab("sniper");}} style={{flex:1,background:"#eff6ff",border:`1px solid ${C.accent}`,color:C.accent,borderRadius:6,padding:"6px 0",cursor:"pointer",fontSize:9,fontWeight:700}}>📈 스나이퍼</button>
                       <button onClick={()=>{
                         setPositions(p=>[...p,{id:Date.now(),ticker:t.ticker,label:t.label,market:t.market,entry:cur,current:cur,max:cur,trailStop:+(cur*(1-trailSettings.initialStopPct/100)).toFixed(isKR?0:2),trailMode:false,target:0,pnl:0,date:new Date().toLocaleDateString("ko-KR"),entryTime:new Date().toLocaleTimeString("ko-KR"),foundScore:t.foundScore,foundSignals:t.foundSignals,foundRS:t.foundRS,oppScoreAt:t.oppScoreAt,pyramid:[{level:1,targetPct:5,triggered:false},{level:2,targetPct:10,triggered:false},{level:3,targetPct:15,triggered:false}]}]);
                         setTracking(p=>p.filter((_,j)=>j!==i));
@@ -1986,7 +1986,7 @@ export default function App() {
                 setPoolMsg(`✅ ${Object.keys(j2.pool||{}).length}개 종목 로드됨`);
               }catch{setPoolMsg("❌ 로드 실패 — Actions daily 먼저 실행");}
               setTimeout(()=>setPoolMsg(""),4000);
-            }} style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${C.accent}`,background:""#eff6ff",color:C.accent,fontSize:9,cursor:"pointer",fontWeight:700}}>
+            }} style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${C.accent}`,background:"#eff6ff",color:C.accent,fontSize:9,cursor:"pointer",fontWeight:700}}>
               {poolLoaded?"🔄 새로고침":"📦 풀 로드"}
             </button>
           </div>
