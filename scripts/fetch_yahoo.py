@@ -333,7 +333,7 @@ def load_watchlist():
 
 def main():
     now_str = datetime.now(timezone.utc).isoformat()
-    print(f"\n=== Alpha Terminal [{MODE.upper()}] {datetime.now().strftime('%Y-%m-%d %H:%M')} ===\n")
+    print(f"\n=== Vega [{MODE.upper()}] {datetime.now().strftime('%Y-%m-%d %H:%M')} ===\n")
     os.makedirs("public/data", exist_ok=True)
 
     # 기존 데이터 로드
@@ -378,6 +378,55 @@ def main():
         except Exception as e:
             print(f"❌ {e}")
         time.sleep(0.5)
+
+    if MODE == "quarterly":
+        # ── QUARTERLY: 전체 풀 재무데이터만 수집 ─────────────
+        print("\n📊 분기 재무데이터 수집 시작...")
+        print("   코스피200 + 나스닥100 + S&P500 매출성장률 수집\n")
+        pool = {}
+        pool.update(get_kospi200())
+        pool.update(get_nasdaq100())
+        pool.update(get_sp500())
+        print(f"  총 {len(pool)}개 종목")
+
+        fundamentals_data = {}
+        success = 0
+        for i, (ticker, info) in enumerate(pool.items()):
+            if info.get("market") != "us":
+                # 한국주식은 야후 재무 정확도 낮음 - 스킵
+                continue
+            print(f"  [{i+1}] {ticker:8s}... ", end="", flush=True)
+            try:
+                fund = fetch_fundamentals(ticker)
+                if fund:
+                    fundamentals_data[ticker] = {
+                        **fund,
+                        "label": info.get("label", ticker),
+                        "sector": info.get("sector", ""),
+                        "market": info.get("market", "us"),
+                        "updatedAt": now_str,
+                    }
+                    print(f"✅ ROE:{fund.get('roe',0)}% 매출성장:{fund.get('revGrowth',0)}%")
+                    success += 1
+                else:
+                    print("⚠ 데이터없음")
+            except Exception as e:
+                print(f"❌ {e}")
+            time.sleep(0.5)
+
+        # fundamentals.json 저장
+        fund_path = "public/data/fundamentals.json"
+        with open(fund_path, "w", encoding="utf-8") as f:
+            json.dump({
+                "data": fundamentals_data,
+                "count": success,
+                "quarter": datetime.now().strftime("%Y-Q") + str((datetime.now().month-1)//3+1),
+                "updatedAt": now_str,
+            }, f, ensure_ascii=False, separators=(",",":"))
+
+        print(f"\n✅ 분기 재무 수집 완료: {success}개 ({os.path.getsize(fund_path)/1024:.1f}KB)\n")
+        # 저장 후 종료 (stocks.json 변경 없음)
+        return
 
     if MODE == "daily":
         # ── DAILY: 전체 풀 수집 + 알파 스캔 ─────────────
