@@ -51,16 +51,6 @@ const KR_NAME_DB = {
   "아이온큐":"IONQ","IonQ":"IONQ","화이자":"PFE","Pfizer":"PFE","넷플릭스":"NFLX","Netflix":"NFLX",
 };
 
-const IRP_DB = [
-  { ticker:"KODEX 200",    type:"국내주식", vol:0.018, drift:0.0008 },
-  { ticker:"TIGER 미국S&P",type:"해외주식", vol:0.022, drift:0.001  },
-  { ticker:"KODEX 나스닥", type:"해외주식", vol:0.028, drift:0.0012 },
-  { ticker:"KODEX 국채3년",type:"채권",     vol:0.004, drift:0.0002 },
-  { ticker:"TIGER 리츠",   type:"리츠",     vol:0.015, drift:0.0006 },
-  { ticker:"KODEX 골드",   type:"원자재",   vol:0.012, drift:0.0003 },
-  { ticker:"현금성자산",   type:"현금",     vol:0.001, drift:0.00015},
-];
-const typeCol = { 국내주식:C.accent, 해외주식:C.green, 채권:C.yellow, 리츠:C.purple, 원자재:"#fb923c", 현금:C.sub };
 
 // ═══════════════════════════════════════════════════════════
 // 1b. Opportunity Score
@@ -378,12 +368,12 @@ function alphaScore(s, chartData, idxRS) {
 // ═══════════════════════════════════════════════════════════
 // 3. 서브컴포넌트
 // ═══════════════════════════════════════════════════════════
-const Tip=({active,payload,label})=>{
+function Tip({active,payload,label}){
   if(!active||!payload?.length)return null;
   return<div style={{background:"#0a0f1e",border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 12px",fontSize:10}}><div style={{color:C.sub,marginBottom:4,fontWeight:700}}>{label}</div>{payload.filter(p=>p.value!=null).map((p,i)=><div key={i} style={{color:p.color||C.text}}>{p.name}: <b>{typeof p.value==="number"?p.value.toLocaleString(undefined,{maximumFractionDigits:2}):p.value}</b></div>)}</div>;
-};
-const BuyDot=({cx,cy,payload,dataKey})=>{if(!payload[dataKey])return null;const c=dataKey==="buyStrong"?"#4ade80":"#fbbf24",sz=dataKey==="buyStrong"?11:8;return<g><polygon points={`${cx},${cy-sz} ${cx-sz*.8},${cy+sz*.5} ${cx+sz*.8},${cy+sz*.5}`} fill={c} stroke="#000" strokeWidth="1" opacity=".9"/></g>;};
-const HistBar=({x,y,width,height,value})=>{if(value==null)return null;const h=Math.abs(height),pos=value>0;return<rect x={x} y={pos?y:y+height-h} width={Math.max(1,width)} height={h} fill={pos?"rgba(34,197,94,.7)":"rgba(239,68,68,.7)"} rx={1}/>;};
+}
+function BuyDot({cx,cy,payload,dataKey}){if(!payload?.[dataKey])return null;const c=dataKey==="buyStrong"?"#4ade80":"#fbbf24",sz=dataKey==="buyStrong"?11:8;return<g><polygon points={`${cx},${cy-sz} ${cx-sz*.8},${cy+sz*.5} ${cx+sz*.8},${cy+sz*.5}`} fill={c} stroke="#000" strokeWidth="1" opacity=".9"/></g>;}
+function HistBar({x,y,width,height,value}){if(value==null)return null;const h=Math.abs(height),pos=value>0;return<rect x={x} y={pos?y:y+height-h} width={Math.max(1,width)} height={h} fill={pos?"rgba(34,197,94,.7)":"rgba(239,68,68,.7)"} rx={1}/>;}
 
 // ── 가격 포맷 (한국: 만원단위, 미국: 그대로) ─────────────
 function fmtKRW(v) {
@@ -402,7 +392,6 @@ function fmtPrice(v, isKR) {
 const css = {
   card: { background:"rgba(11,18,35,.85)", border:`1px solid ${C.border}`, borderRadius:14, padding:14, marginBottom:10, backdropFilter:"blur(6px)" },
   panel2: { background:"rgba(15,23,42,.75)", border:`1px solid ${C.border}`, borderRadius:10, padding:"8px 12px" },
-  sig: (type) => ({ ...SIG[type], borderRadius:6, padding:"2px 8px", fontWeight:700, fontSize:10, display:"inline-block", border:`1px solid ${SIG[type]?.border||C.border}` }),
   btn: (on=false) => ({ borderRadius:8, padding:"5px 12px", cursor:"pointer", fontWeight:600, fontSize:10, border:`1px solid ${on?C.accent:C.border}`, background:on?"rgba(96,165,250,.15)":"rgba(255,255,255,.03)", color:on?C.accent:C.muted }),
 };
 
@@ -448,7 +437,6 @@ export default function App() {
   const [poolMarket, setPoolMarket] = useState("all");
   const [poolMsg, setPoolMsg]   = useState("");
   const [watchlist, setWatchlist] = useState([]);
-  const [conds, setConds]       = useState({ golden:true, box:false, angle:false, ichi:false, vol:false });
 
   // ── 스나이퍼 ────────────────────────────────────────────
   const [stopPct, setStopPct]   = useState(10);
@@ -479,15 +467,6 @@ export default function App() {
 
   // ── 기타 ────────────────────────────────────────────────
   const [investNotes, setInvestNotes] = useState(()=>{try{return localStorage.getItem("at_notes")||"";}catch{return "";}});
-  const [irpPort, setIrpPort] = useState([
-    {ticker:"KODEX 200",type:"국내주식",weight:30,vol:0.018,drift:0.0008},
-    {ticker:"TIGER 미국S&P",type:"해외주식",weight:25,vol:0.022,drift:0.001},
-    {ticker:"KODEX 국채3년",type:"채권",weight:25,vol:0.004,drift:0.0002},
-    {ticker:"TIGER 리츠",type:"리츠",weight:10,vol:0.015,drift:0.0006},
-    {ticker:"KODEX 골드",type:"원자재",weight:10,vol:0.012,drift:0.0003},
-  ]);
-  const [irpYears, setIrpYears]   = useState(3);
-  const [irpResult, setIrpResult] = useState(null);
 
   // ════════════════════════════════════════════════════════
   // ★ 데이터 로딩
@@ -539,7 +518,7 @@ export default function App() {
       });
       return{...pos,current:cur,max:newMax,pnl,trailStop:newTrail,trailMode:pnl>=ts.switchPct,pyramid:updatedPyramid};
     }));
-  },[stocks]);
+  },[stocks,trailSettings]);
 
   // localStorage 저장
   useEffect(()=>{try{localStorage.setItem("at_stocks",JSON.stringify(stocks));}catch{}},[stocks]);
@@ -700,23 +679,6 @@ export default function App() {
   }
   function removeStock(t){setStocks(p=>p.filter(s=>s.ticker!==t));if(sel===t)setSel(stocks[0]?.ticker||"");}
 
-  // IRP 백테스트
-  function runIrp(){
-    const totalW=irpPort.reduce((a,s)=>a+s.weight,0);if(!totalW)return;
-    setTimeout(()=>{
-      const days=irpYears*252;
-      const series=irpPort.map(s=>{let p=1;const pts=[1];for(let i=0;i<days;i++){p*=(1+(Math.random()-.47)*s.vol+s.drift);if(i%21===0)pts.push(+p.toFixed(4));}return{...s,weight:s.weight/totalW,pts};});
-      const pts=series[0].pts.map((_,i)=>series.reduce((sum,s)=>sum+s.pts[i]*s.weight,0));
-      const totalRet=pts.at(-1)-1,annRet=Math.pow(pts.at(-1),1/irpYears)-1;
-      let peak=pts[0],mdd=0;pts.forEach(v=>{if(v>peak)peak=v;const dd=(v-peak)/peak;if(dd<mdd)mdd=dd;});
-      const rets=pts.slice(1).map((v,i)=>v/pts[i]-1),avg=rets.reduce((a,b)=>a+b,0)/rets.length;
-      const std=Math.sqrt(rets.reduce((a,b)=>a+(b-avg)**2,0)/rets.length)*Math.sqrt(252);
-      const mn=Math.min(...pts),span=Math.max(...pts)-mn||.01;
-      const coords=pts.map((v,i)=>`${(i/(pts.length-1)*300).toFixed(1)},${(80-(v-mn)/span*70).toFixed(1)}`).join(" ");
-      setIrpResult({totalRet,annRet,mdd,sharpe:(annRet-.035)/std,years:irpYears,coords,up:pts.at(-1)>=pts[0]});
-    },400);
-  }
-
   // ── 파생 변수 ─────────────────────────────────────────────
   const SECTOR_RS=Object.entries(sectorsData).map(([etf,d])=>({name:d.label||etf,etf,market:d.market||"us",chg1W:d.chg1W||0,chg1M:d.chg1M||0,chg1d:d.chg1d||0,members:d.members||[]}));
   const selInfo  = stocks.find(s=>s.ticker===sel);
@@ -727,15 +689,15 @@ export default function App() {
   const finalSig = tstSig.sig==="N/A"?"HOLD":tstSig.sig;
   const fs       = SIG[finalSig]||SIG.HOLD;
   const unit     = sel?.length>5?"원":"$";
+  const isKRSel  = (sel?.length||0)>5;
   const curPrice = selInfo?.price||0;
-  const stopPrice= curPrice>0?+(curPrice*(1-stopPct/100)).toFixed(unit==="원"?0:2):0;
+  const stopPrice= curPrice>0?+(curPrice*(1-stopPct/100)).toFixed(isKRSel?0:2):0;
   const w52High  = charts[sel]?.data?.at(-1)?.w52High||0;
   const rrTarget2= stopPrice>0&&curPrice>stopPrice?+(curPrice+(curPrice-stopPrice)*2).toFixed(isKRSel?0:2):0;
   const rrTarget3= stopPrice>0&&curPrice>stopPrice?+(curPrice+(curPrice-stopPrice)*3).toFixed(isKRSel?0:2):0;
   const consTgt  = rrTarget2||w52High||consensus[sel]?.data?.targetMean||selInfo?.target||0;
   const rrRatio  = stopPrice>0&&consTgt>0&&curPrice>stopPrice?+((consTgt-curPrice)/(curPrice-stopPrice)).toFixed(1):0;
   const checkOk  = Object.values(checklist).every(Boolean);
-  const isKRSel  = (sel?.length||0)>5;
 
   const vixVal      = parseFloat(indicesData["^VIX"]?.price||20);
   const spChg3d     = indicesData["^GSPC"]?.chg3d??0;
@@ -793,7 +755,7 @@ export default function App() {
 
   const pageStyle={minHeight:"100vh",background:"linear-gradient(135deg,#070c16 0%,#0a1428 50%,#070c16 100%)",color:C.text,fontFamily:"'DM Mono','JetBrains Mono',monospace",display:"flex",flexDirection:"column",fontSize:12};
 
-  const RSBar=()=>(
+  function RSBar(){return(
     <div style={{background:C.panel2,border:`1px solid ${C.border}`,borderRadius:9,padding:"10px 14px",marginBottom:12}}>
       <div style={{fontSize:9,fontWeight:700,color:C.muted,marginBottom:7}}>📊 지수 RS 기준선</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
@@ -809,7 +771,7 @@ export default function App() {
         ))}
       </div>
     </div>
-  );
+  );}
 
   return (
     <div style={pageStyle}>
@@ -1451,7 +1413,7 @@ export default function App() {
               {[
                 {l:"RSI",v:lastD?.rsi?.toFixed(0)||"-",c:lastD?.rsi>70?C.red:lastD?.rsi<30?C.green:C.text,d:lastD?.rsi>70?"⚠과매수":lastD?.rsi<30?"🎯과매도":"정상"},
                 {l:"MACD",v:lastD?.macd>lastD?.signal?"크로스↑":"크로스↓",c:lastD?.macd>lastD?.signal?C.green:C.red,d:lastD?.hist>0?"양봉":"음봉"},
-                {l:"거래량",v:`${selInfo._volRatio||"-"}%`,c:(selInfo._volRatio||0)>=150?C.green:(selInfo._volRatio||0)>=100?C.yellow:C.muted,d:(selInfo._volRatio||0)>=150?"급증":(selInfo._volRatio||0)>=100?"증가":"보통"},
+                {l:"거래량",v:`${selInfo?.volRatio||selInfo?._volRatio||"-"}%`,c:(selInfo?.volRatio||selInfo?._volRatio||0)>=150?C.green:(selInfo?.volRatio||selInfo?._volRatio||0)>=100?C.yellow:C.muted,d:(selInfo?.volRatio||selInfo?._volRatio||0)>=150?"급증":(selInfo?.volRatio||selInfo?._volRatio||0)>=100?"증가":"보통"},
                 {l:"RS강도",v:`${((selInfo.chg5d||0)-idxRS.spy.chg5d).toFixed(1)}%p`,c:((selInfo.chg5d||0)-idxRS.spy.chg5d)>3?C.emerald:((selInfo.chg5d||0)-idxRS.spy.chg5d)>0?C.yellow:C.red,d:((selInfo.chg5d||0)-idxRS.spy.chg5d)>3?"매우강":"보통"},
               ].map((m,i)=>(
                 <div key={i} style={{background:C.panel2,borderRadius:7,padding:"8px 10px",textAlign:"center"}}>
@@ -1597,7 +1559,7 @@ export default function App() {
                         <div style={{fontWeight:900,fontSize:12}}>{pos.market} {pos.label}</div>
                         <div style={{fontSize:9,color:C.muted}}>진입 {u==="원"?fmtKRW(pos.entry):pos.entry.toLocaleString()}{u} · {pos.date}</div>
                         <div style={{display:"flex",gap:5,marginTop:3}}>
-                          {pos.foundGrade&&<span style={{fontSize:7,background:`${entryGradeColor}18`,color:entryGradeColor,border:`1px solid ${entryGradeColor}`,borderRadius:3,padding:"1px 4px"}}>진입 {pos.foundGrade}등급</span>}
+                          {pos.foundGrade&&(()=>{const gc={S:C.emerald,A:C.green,B:C.yellow,C:"#fb923c",D:C.red}[pos.foundGrade]||C.muted;return<span style={{fontSize:7,background:`${gc}18`,color:gc,border:`1px solid ${gc}`,borderRadius:3,padding:"1px 4px"}}>진입 {pos.foundGrade}등급</span>;})()}
                           {pos.trailMode&&<span style={{fontSize:7,background:"rgba(250,204,21,.12)",color:C.yellow,border:`1px solid rgba(250,204,21,.3)`,borderRadius:3,padding:"1px 4px"}}>🔄 트레일링 모드</span>}
                         </div>
                       </div>
