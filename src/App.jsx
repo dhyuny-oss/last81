@@ -1,5 +1,6 @@
 /**
- * Vega v1.0 — App.jsx
+ * Vega v2.1 — App.jsx
+ * 추가: 에쿼티커브 / 매매일지 / CSV내보내기 / 불타기룰(30/30/25/15)
  * 리디자인: 다크 네이비 / 만원단위 / AI분석 API경유 / 성적리셋 / quarterly모드
  */
 import { useState, useEffect, useCallback } from "react";
@@ -27,6 +28,14 @@ const SIG = {
 };
 const PERIOD_DAYS = { "1M":22, "3M":66, "6M":130, "1Y":252, "ALL":9999 };
 const INITIAL = [];
+
+// ★ v2.1: 불타기 룰 (30/30/25/15 — 빠른 손절 전제)
+const PYRAMID_RULES = [
+  { pct: 30, label: "1차 정찰", targetPct: 0 },
+  { pct: 30, label: "2차 확인", targetPct: 3 },
+  { pct: 25, label: "3차 추세", targetPct: 5 },
+  { pct: 15, label: "4차 가속", targetPct: 8 },
+];
 
 const SEARCH_DB = {
   "GOOGL":{ label:"Google",  sector:"Technology",    market:"🇺🇸", price:175.8, target:210,   roe:29.4, per:22.1, rev:14.8, base:145,  vol:0.017, drift:0.0011, mktCap:2190, liquidity:3.2, revGrowth:15 },
@@ -372,6 +381,48 @@ function alphaScore(s, chartData, idxRS) {
 }
 
 // ═══════════════════════════════════════════════════════════
+// 2b. ★ v2.1: CSV 내보내기 유틸
+// ═══════════════════════════════════════════════════════════
+function exportCSV(closedLog) {
+  if (!closedLog?.length) return;
+  const headers = ["종목","티커","진입가","청산가","손익%","진입일","청산일","보유일수","청산사유","신호"];
+  const rows = closedLog.map(h => [
+    h.label||"", h.ticker||"", h.entry||h.basePrice||"", h.exitPrice||h.current||"",
+    h.pnl||h.finalPnl||"", h.addedDate||h.date||"", h.exitDate||"",
+    h.holdDays||"", h.reason||"", (h.foundSignals||[]).join("+")
+  ]);
+  const csv = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(",")).join("\n");
+  const BOM = "\uFEFF";
+  const blob = new Blob([BOM + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href = url;
+  a.download = `vega_trades_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click(); URL.revokeObjectURL(url);
+}
+
+// ═══════════════════════════════════════════════════════════
+// 2c. ★ v2.1: 에쿼티 커브 데이터 생성
+// ═══════════════════════════════════════════════════════════
+function buildEquityCurve(closedLog, initialCapital=10000000) {
+  if (!closedLog?.length) return [];
+  const sorted = [...closedLog].sort((a,b) => new Date(a.exitDate||a.addedDate||0) - new Date(b.exitDate||b.addedDate||0));
+  let equity = initialCapital;
+  return sorted.map((h, i) => {
+    const pnlPct = parseFloat(h.pnl || h.finalPnl || 0);
+    const tradeAmt = equity * 0.1;
+    equity += tradeAmt * (pnlPct / 100);
+    return {
+      idx: i + 1,
+      date: h.exitDate || `#${i+1}`,
+      equity: Math.round(equity),
+      pnlPct: +pnlPct.toFixed(2),
+      label: h.label || h.ticker || "",
+      cumPnl: +(((equity - initialCapital) / initialCapital) * 100).toFixed(2),
+    };
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
 // 3. 서브컴포넌트
 // ═══════════════════════════════════════════════════════════
 function Tip({active,payload,label}){
@@ -463,8 +514,8 @@ export default function App() {
 
   // ── 12번: 불타기 + 트레일링컷 설정 ──────────────────────
   const [trailSettings, setTrailSettings] = useState(()=>{
-    try{const s=localStorage.getItem("at_trail");return s?JSON.parse(s):{initialStopPct:10,trailPct:8,switchPct:10};}
-    catch{return{initialStopPct:10,trailPct:8,switchPct:10};}
+    try{const s=localStorage.getItem("at_trail");return s?JSON.parse(s):{initialStopPct:10,trailPct:8,switchPct:10,timeCutDays:14,timeCutPct:3};}
+    catch{return{initialStopPct:10,trailPct:8,switchPct:10,timeCutDays:14,timeCutPct:3};}
   });
 
   // ── 9번: 통합 추적 탭 ───────────────────────────────────
@@ -479,6 +530,10 @@ export default function App() {
 
   // ── 기타 ────────────────────────────────────────────────
   const [investNotes, setInvestNotes] = useState(()=>{try{return localStorage.getItem("at_notes")||"";}catch{return "";}});
+
+  // ── ★ v2.1: 매매 일지 ──────────────────────────────────
+  const [tradeJournal, setTradeJournal] = useState(()=>{try{const s=localStorage.getItem("at_journal");return s?JSON.parse(s):[];}catch{return [];}});
+  const [journalDraft, setJournalDraft] = useState({ticker:"",type:"진입",reason:"",emotion:"보통",note:""});
 
   // ════════════════════════════════════════════════════════
   // ★ 데이터 로딩
@@ -528,7 +583,13 @@ export default function App() {
         }
         return lv;
       });
-      return{...pos,current:cur,max:newMax,pnl,trailStop:newTrail,trailMode:pnl>=ts.switchPct,pyramid:updatedPyramid};
+      // ★ v2.1: 타임컷 판정 (박스권 감지)
+      const entryDate=pos.date||pos.entryDate;
+      const daysHeld=entryDate?Math.round((Date.now()-new Date(entryDate).getTime())/86400000):0;
+      const absPnl=Math.abs(pnl);
+      const isTimeCut=daysHeld>=ts.timeCutDays&&absPnl<=(ts.timeCutPct||3);
+      const timeCutInfo={daysHeld,isTimeCut,absPnl};
+      return{...pos,current:cur,max:newMax,pnl,trailStop:newTrail,trailMode:pnl>=ts.switchPct,pyramid:updatedPyramid,timeCutInfo};
     }));
   },[stocks,trailSettings]);
 
@@ -540,6 +601,7 @@ export default function App() {
   useEffect(()=>{try{localStorage.setItem("at_notes",investNotes);}catch{}},[investNotes]);
   useEffect(()=>{try{localStorage.setItem("at_risk",JSON.stringify(riskSettings));}catch{}},[riskSettings]);
   useEffect(()=>{try{localStorage.setItem("at_trail",JSON.stringify(trailSettings));}catch{}},[trailSettings]);
+  useEffect(()=>{try{localStorage.setItem("at_journal",JSON.stringify(tradeJournal));}catch{}},[tradeJournal]);
 
   // 시뮬 차트 빌드
   useEffect(()=>{
@@ -638,6 +700,20 @@ export default function App() {
     }catch{setAiAnalysis("❌ AI 분석 실패 — API 연결 확인");}
     finally{setAiLoading(false);}
   },[closedLog]);
+
+  // ★ v2.1: 매매 일지 추가
+  function addJournalEntry() {
+    if (!journalDraft.ticker && !journalDraft.note) return;
+    const entry = {
+      id: Date.now(),
+      date: new Date().toLocaleDateString("ko-KR"),
+      time: new Date().toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit"}),
+      ...journalDraft,
+      ticker: journalDraft.ticker || sel || "",
+    };
+    setTradeJournal(prev => [entry, ...prev]);
+    setJournalDraft({ticker:"",type:"진입",reason:"",emotion:"보통",note:""});
+  }
 
   // 종목 추가
   async function addStock(item){
@@ -848,9 +924,12 @@ export default function App() {
 
   // 13번: 권장 매수금액 계산
   const perStockMax = riskSettings.totalCapital*(riskSettings.maxWeightPct/100);
-  const pyramidAmts = [0.25,0.25,0.25,0.25].map(r=>Math.round(perStockMax*r));
+  const pyramidAmts = PYRAMID_RULES.map(r=>Math.round(perStockMax*r.pct/100));
   const currentExposure = positions.length;
   const overPositions   = currentExposure>=riskSettings.maxPositions;
+
+  // ★ v2.1: 에쿼티 커브 데이터
+  const equityCurveData = buildEquityCurve(closedLog, riskSettings.totalCapital);
 
   const TABS=[["radar","🌐 시장"],["alpha","🔍 발굴"],["sniper","📊 차트"],["track",`📁 추적 (${tracking.length+positions.length})`],["pool","🗃 종목풀"]];
 
@@ -890,7 +969,7 @@ export default function App() {
       {/* ── 헤더 ─────────────────────────────────── */}
       <div style={{borderBottom:`1px solid ${C.border}`,padding:"10px 16px",background:"#0d1526",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",position:"sticky",top:0,zIndex:50}}>
         <div>
-          <div style={{fontSize:15,fontWeight:900,color:C.accent,letterSpacing:3}}>✦ VEGA <span style={{fontSize:10,color:C.muted,letterSpacing:1,fontWeight:400}}>v2.0</span></div>
+          <div style={{fontSize:15,fontWeight:900,color:C.accent,letterSpacing:3}}>✦ VEGA <span style={{fontSize:10,color:C.muted,letterSpacing:1,fontWeight:400}}>v2.1</span></div>
           <div style={{fontSize:9,color:C.muted}}>추세추종 · RS랭킹 · 백테스트</div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:5}}>
@@ -937,9 +1016,37 @@ export default function App() {
               <div style={{fontSize:10,fontWeight:700,color:C.emerald,textAlign:"center"}}>+{trailSettings.switchPct}% 이상</div>
             </div>
           </div>
+          {/* ★ v2.1: 타임컷 설정 */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
+            <div>
+              <div style={{fontSize:9,color:C.muted,marginBottom:4}}>⏰ 타임컷 기간 (일)</div>
+              <input type="range" min="5" max="30" value={trailSettings.timeCutDays||14} onChange={e=>setTrailSettings(p=>({...p,timeCutDays:+e.target.value}))} style={{width:"100%",accentColor:"#fb923c"}}/>
+              <div style={{fontSize:10,fontWeight:700,color:"#fb923c",textAlign:"center"}}>{trailSettings.timeCutDays||14}일</div>
+            </div>
+            <div>
+              <div style={{fontSize:9,color:C.muted,marginBottom:4}}>⏰ 박스권 판정 범위 (±%)</div>
+              <input type="range" min="1" max="8" step="0.5" value={trailSettings.timeCutPct||3} onChange={e=>setTrailSettings(p=>({...p,timeCutPct:+e.target.value}))} style={{width:"100%",accentColor:"#fb923c"}}/>
+              <div style={{fontSize:10,fontWeight:700,color:"#fb923c",textAlign:"center"}}>±{trailSettings.timeCutPct||3}%</div>
+            </div>
+          </div>
+          <div style={{fontSize:8,color:C.muted,marginTop:6}}>💡 보유 {trailSettings.timeCutDays||14}일 경과 후 손익 ±{trailSettings.timeCutPct||3}% 이내면 타임컷 경고</div>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10}}>
             <div style={{fontSize:8,color:C.muted}}>종목당 최대 투자: ₩{perStockMax.toLocaleString()} · 1차 25%: ₩{pyramidAmts[0].toLocaleString()}</div>
             <button onClick={()=>setShowRiskPanel(false)} style={{...css.btn(),fontSize:9}}>닫기</button>
+          </div>
+          {/* ★ v2.1: 불타기 룰 표시 */}
+          <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
+            <div style={{fontSize:9,fontWeight:700,color:C.purple,marginBottom:6}}>📐 불타기 룰 (30/30/25/15)</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4}}>
+              {PYRAMID_RULES.map((r,i)=>(
+                <div key={i} style={{background:"rgba(167,139,250,.08)",border:`1px solid rgba(167,139,250,.2)`,borderRadius:6,padding:"5px",textAlign:"center"}}>
+                  <div style={{fontSize:8,color:C.purple,fontWeight:700}}>{r.label}</div>
+                  <div style={{fontSize:13,fontWeight:900,color:C.text}}>{r.pct}%</div>
+                  <div style={{fontSize:7,color:C.muted}}>{r.targetPct>0?`평단+${r.targetPct}%시`:"진입시"}</div>
+                  <div style={{fontSize:8,color:C.accent}}>₩{pyramidAmts[i]?.toLocaleString()}</div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>}
         <div style={{position:"relative",marginLeft:"auto"}}>
@@ -1657,8 +1764,8 @@ export default function App() {
           <div style={{fontSize:12,fontWeight:900,color:C.accent,marginBottom:10}}>📊 추적 탭</div>
 
           {/* 4 서브탭 */}
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4,marginBottom:14}}>
-            {[["watch",`👁 관찰중 (${tracking.length})`],["hold",`💼 보유중 (${positions.length})`],["closed",`✅ 청산완료 (${closedLog.length})`],["stats","📈 성적분석"]].map(([k,l])=>(
+          <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:4,marginBottom:14}}>
+            {[["watch",`👁 관찰중 (${tracking.length})`],["hold",`💼 보유중 (${positions.length})`],["closed",`✅ 청산 (${closedLog.length})`],["stats","📈 성적분석"],["journal","📝 일지"]].map(([k,l])=>(
               <button key={k} onClick={()=>setTrackTab(k)} style={{padding:"8px 4px",borderRadius:7,border:`1px solid ${trackTab===k?C.accent:C.border}`,background:trackTab===k?"rgba(56,189,248,.15)":"rgba(255,255,255,.03)",color:trackTab===k?C.accent:C.muted,fontWeight:trackTab===k?700:400,fontSize:9,cursor:"pointer"}}>{l}</button>
             ))}
           </div>
@@ -1745,6 +1852,7 @@ export default function App() {
               <span style={{fontSize:8,color:C.red}}>초기손절 -{trailSettings.initialStopPct}%</span>
               <span style={{fontSize:8,color:C.yellow}}>│ 트레일링 고점-{trailSettings.trailPct}%</span>
               <span style={{fontSize:8,color:C.emerald}}>│ +{trailSettings.switchPct}% 달성 시 전환</span>
+              <span style={{fontSize:8,color:"#fb923c"}}>│ ⏰ 타임컷 {trailSettings.timeCutDays||14}일/±{trailSettings.timeCutPct||3}%</span>
               <button onClick={()=>setShowRiskPanel(true)} style={{...css.btn(),fontSize:7,padding:"1px 6px",marginLeft:"auto"}}>변경</button>
             </div>
             {overPositions&&<div style={{background:"rgba(239,68,68,.08)",border:`1px solid rgba(239,68,68,.3)`,borderRadius:7,padding:"6px 10px",marginBottom:10,fontSize:9,color:C.red,fontWeight:700}}>⚠ 최대 종목수 초과 ({positions.length}/{riskSettings.maxPositions}) — 일부 포지션 청산 고려</div>}
@@ -1763,9 +1871,21 @@ export default function App() {
                   const volDrop=posVolRatio<50;
                   // 불타기 알림
                   const pendingPyramid=(pos.pyramid||[]).filter(lv=>lv.triggered&&!lv.notified);
-                  return<div key={pos.id} style={{...css.card,border:`2px solid ${near?"rgba(239,68,68,.8)":volDrop?"rgba(250,204,21,.6)":pos.trailMode?"rgba(250,204,21,.5)":C.border}`,animation:near?"ap 2s infinite":""}}>
+                  // ★ v2.1: 타임컷 판정
+                  const tc=pos.timeCutInfo||{};
+                  const isTimeCut=tc.isTimeCut;
+                  return<div key={pos.id} style={{...css.card,border:`2px solid ${near?"rgba(239,68,68,.8)":isTimeCut?"rgba(251,146,60,.7)":volDrop?"rgba(250,204,21,.6)":pos.trailMode?"rgba(250,204,21,.5)":C.border}`,animation:near?"ap 2s infinite":""}}>
                     {near&&<div style={{background:"rgba(239,68,68,.15)",borderRadius:5,padding:"4px 8px",fontSize:8,color:C.red,fontWeight:700,marginBottom:8}}>🚨 손절선 근접 ({stopDist.toFixed(1)}%) — 즉시 확인!</div>}
-                    {volDrop&&!near&&<div style={{background:"rgba(250,204,21,.1)",borderRadius:5,padding:"4px 8px",fontSize:8,color:C.yellow,fontWeight:700,marginBottom:8}}>⚠️ 거래량 급감 ({posVolRatio}% / 20일평균) — 모멘텀 약화 주의</div>}
+                    {isTimeCut&&!near&&<div style={{background:"rgba(251,146,60,.12)",border:"1px solid rgba(251,146,60,.4)",borderRadius:5,padding:"6px 10px",fontSize:8,color:"#fb923c",fontWeight:700,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <span>⏰ 타임컷 경고 — {tc.daysHeld}일 보유, 손익 ±{tc.absPnl?.toFixed(1)}% (박스권 {trailSettings.timeCutDays}일/{trailSettings.timeCutPct}% 기준)</span>
+                      <button onClick={()=>{
+                        if(window.confirm(`${pos.label}: ${tc.daysHeld}일간 ±${tc.absPnl?.toFixed(1)}% 정체. 타임컷 청산하시겠습니까?`)){
+                          setClosedLog(h=>[{...pos,exitPrice:cur,exitDate:new Date().toLocaleDateString("ko-KR"),finalPnl:pnl,reason:"타임컷",phase:"hold"},...h]);
+                          setPositions(p=>p.filter(x=>x.id!==pos.id));
+                        }
+                      }} style={{background:"rgba(251,146,60,.2)",border:"1px solid #fb923c",color:"#fb923c",borderRadius:4,padding:"2px 8px",cursor:"pointer",fontSize:8,fontWeight:700,flexShrink:0}}>⏰ 타임컷 청산</button>
+                    </div>}
+                    {volDrop&&!near&&!isTimeCut&&<div style={{background:"rgba(250,204,21,.1)",borderRadius:5,padding:"4px 8px",fontSize:8,color:C.yellow,fontWeight:700,marginBottom:8}}>⚠️ 거래량 급감 ({posVolRatio}% / 20일평균) — 모멘텀 약화 주의</div>}
                     {/* 불타기 알림 */}
                     {pendingPyramid.map(lv=>(
                       <div key={lv.level} style={{background:"rgba(16,185,129,.12)",border:`1px solid ${C.emerald}`,borderRadius:5,padding:"4px 8px",fontSize:8,color:C.emerald,fontWeight:700,marginBottom:6}}>
@@ -1775,7 +1895,7 @@ export default function App() {
                     <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
                       <div>
                         <div style={{fontWeight:900,fontSize:12}}>{pos.market} {pos.label}</div>
-                        <div style={{fontSize:9,color:C.muted}}>진입 {u==="원"?fmtKRW(pos.entry):pos.entry.toLocaleString()}{u} · {pos.date}</div>
+                        <div style={{fontSize:9,color:C.muted}}>진입 {u==="원"?fmtKRW(pos.entry):pos.entry.toLocaleString()}{u} · {pos.date} <span style={{color:(pos.timeCutInfo?.daysHeld||0)>=(trailSettings.timeCutDays||14)?"#fb923c":C.muted}}>({pos.timeCutInfo?.daysHeld||0}일째)</span></div>
                         <div style={{display:"flex",gap:5,marginTop:3}}>
                           {pos.foundGrade&&(()=>{const gc={S:C.emerald,A:C.green,B:C.yellow,C:"#fb923c",D:C.red}[pos.foundGrade]||C.muted;return<span style={{fontSize:7,background:`${gc}18`,color:gc,border:`1px solid ${gc}`,borderRadius:3,padding:"1px 4px"}}>진입 {pos.foundGrade}등급</span>;})()}
                           {pos.trailMode&&<span style={{fontSize:7,background:"rgba(250,204,21,.12)",color:C.yellow,border:`1px solid rgba(250,204,21,.3)`,borderRadius:3,padding:"1px 4px"}}>🔄 트레일링 모드</span>}
@@ -1843,6 +1963,11 @@ export default function App() {
 
           {/* 청산완료 */}
           {trackTab==="closed"&&<div>
+            {/* ★ v2.1: CSV 내보내기 + 초기화 */}
+            {closedLog.length>0&&<div style={{display:"flex",gap:6,marginBottom:10}}>
+              <button onClick={()=>exportCSV(closedLog)} style={{...css.btn(),fontSize:9,borderColor:C.emerald,color:C.emerald}}>📥 CSV 내보내기</button>
+              <button onClick={()=>{if(window.confirm("모든 청산 기록을 삭제하시겠습니까?"))setClosedLog([]);}} style={{...css.btn(),fontSize:9,borderColor:C.red,color:C.red}}>🗑 초기화</button>
+            </div>}
             <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:12}}>
               {[{l:"총 거래",v:closedLog.length},{l:"승률",v:closedLog.length?`${((closedLog.filter(h=>parseFloat(h.pnl||h.finalPnl)>0).length/closedLog.length)*100).toFixed(0)}%`:"—"},{l:"평균 손익",v:closedLog.length?`${(closedLog.reduce((a,h)=>a+parseFloat(h.pnl||h.finalPnl||0),0)/closedLog.length).toFixed(1)}%`:"—"},{l:"누적 손익",v:closedLog.length?`${closedLog.reduce((a,h)=>a+parseFloat(h.pnl||h.finalPnl||0),0).toFixed(1)}%`:"—"}].map(({l,v})=>(
                 <div key={l} style={{...css.panel2,textAlign:"center"}}><div style={{fontSize:8,color:C.muted}}>{l}</div><div style={{fontSize:18,fontWeight:900}}>{v}</div></div>
@@ -1878,6 +2003,33 @@ export default function App() {
             </div>}
             {/* 요약 통계 */}
             {closedLog.length>0?<>
+              {/* ★ v2.1: 에쿼티 커브 */}
+              {equityCurveData.length>1&&<div style={css.card}>
+                <div style={{fontSize:10,fontWeight:700,color:C.emerald,marginBottom:8}}>📈 에쿼티 커브 (누적 수익률)</div>
+                <ResponsiveContainer width="100%" height={150}>
+                  <ComposedChart data={equityCurveData} margin={{left:0,right:6}}>
+                    <CartesianGrid stroke="rgba(255,255,255,.06)"/>
+                    <XAxis dataKey="idx" tick={{fill:C.muted,fontSize:7}} tickLine={false}/>
+                    <YAxis tick={{fill:C.muted,fontSize:7}} tickLine={false} width={45} tickFormatter={v=>`${v>=0?"+":""}${v}%`}/>
+                    <Tooltip content={({active,payload})=>{
+                      if(!active||!payload?.length)return null;
+                      const d2=payload[0]?.payload;
+                      return<div style={{background:"#0a0f1e",border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 12px",fontSize:10}}>
+                        <div style={{color:C.sub,fontWeight:700}}>#{d2.idx} {d2.label}</div>
+                        <div style={{color:d2.cumPnl>=0?C.green:C.red,fontWeight:900}}>누적: {d2.cumPnl>=0?"+":""}{d2.cumPnl}%</div>
+                        <div style={{color:C.muted}}>자산: ₩{d2.equity?.toLocaleString()}</div>
+                      </div>;
+                    }}/>
+                    <ReferenceLine y={0} stroke="rgba(255,255,255,.2)"/>
+                    <Area type="monotone" dataKey="cumPnl" stroke={C.emerald} fill="rgba(16,185,129,.1)" strokeWidth={2} dot={false}/>
+                    <Line type="monotone" dataKey="cumPnl" stroke={C.emerald} strokeWidth={2} dot={{fill:C.emerald,r:2}}/>
+                  </ComposedChart>
+                </ResponsiveContainer>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:8,color:C.muted,marginTop:4}}>
+                  <span>초기: ₩{riskSettings.totalCapital.toLocaleString()}</span>
+                  <span style={{color:(equityCurveData.at(-1)?.cumPnl||0)>=0?C.green:C.red,fontWeight:700}}>현재: ₩{(equityCurveData.at(-1)?.equity||riskSettings.totalCapital).toLocaleString()} ({(equityCurveData.at(-1)?.cumPnl||0)>=0?"+":""}{equityCurveData.at(-1)?.cumPnl||0}%)</span>
+                </div>
+              </div>}
               <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10,marginBottom:12}}>
                 {/* 조건별 승률 */}
                 <div style={css.card}>
@@ -2032,6 +2184,67 @@ export default function App() {
               <div style={{fontSize:28,marginBottom:8}}>📊</div>
               <div>청산된 거래가 없습니다.<br/>보유중 탭에서 포지션을 청산하면 분석이 표시됩니다.</div>
             </div>}
+          </div>}
+
+          {/* ★ v2.1: 매매 일지 탭 */}
+          {trackTab==="journal"&&<div>
+            <div style={css.card}>
+              <div style={{fontSize:10,fontWeight:700,color:C.purple,marginBottom:10}}>📝 매매 일지 작성</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
+                <div>
+                  <div style={{fontSize:8,color:C.muted,marginBottom:3}}>종목</div>
+                  <input value={journalDraft.ticker} onChange={e=>setJournalDraft(p=>({...p,ticker:e.target.value}))} placeholder={sel||"티커"} style={{width:"100%",background:"rgba(255,255,255,.05)",border:`1px solid ${C.border}`,borderRadius:5,padding:"5px 8px",color:C.text,fontSize:10,outline:"none"}}/>
+                </div>
+                <div>
+                  <div style={{fontSize:8,color:C.muted,marginBottom:3}}>유형</div>
+                  <select value={journalDraft.type} onChange={e=>setJournalDraft(p=>({...p,type:e.target.value}))} style={{width:"100%",background:"rgba(255,255,255,.05)",border:`1px solid ${C.border}`,borderRadius:5,padding:"5px",color:C.text,fontSize:10}}>
+                    {["진입","추가매수","일부청산","전량청산","관찰","반성"].map(t2=><option key={t2} value={t2}>{t2}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div style={{fontSize:8,color:C.muted,marginBottom:3}}>감정상태</div>
+                  <select value={journalDraft.emotion} onChange={e=>setJournalDraft(p=>({...p,emotion:e.target.value}))} style={{width:"100%",background:"rgba(255,255,255,.05)",border:`1px solid ${C.border}`,borderRadius:5,padding:"5px",color:C.text,fontSize:10}}>
+                    {["차분","자신감","불안","FOMO","욕심","보통"].map(em=><option key={em} value={em}>{em}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{marginBottom:8}}>
+                <div style={{fontSize:8,color:C.muted,marginBottom:3}}>사유 / 근거</div>
+                <input value={journalDraft.reason} onChange={e=>setJournalDraft(p=>({...p,reason:e.target.value}))} placeholder="예: ST3/3 전환 + 거래량 급증, 섹터 RS 상위" style={{width:"100%",background:"rgba(255,255,255,.05)",border:`1px solid ${C.border}`,borderRadius:5,padding:"5px 8px",color:C.text,fontSize:10,outline:"none"}}/>
+              </div>
+              <div style={{marginBottom:8}}>
+                <div style={{fontSize:8,color:C.muted,marginBottom:3}}>메모</div>
+                <textarea rows="2" value={journalDraft.note} onChange={e=>setJournalDraft(p=>({...p,note:e.target.value}))} placeholder="추가 메모..." style={{width:"100%",background:"rgba(255,255,255,.03)",border:`1px solid ${C.border}`,borderRadius:5,padding:"5px 8px",color:C.text,fontSize:10,outline:"none",resize:"vertical"}}/>
+              </div>
+              <button onClick={addJournalEntry} style={{width:"100%",background:"linear-gradient(135deg,#a78bfa,#7c3aed)",border:"none",borderRadius:8,padding:"8px",color:"#fff",fontWeight:700,fontSize:10,cursor:"pointer"}}>✏️ 일지 저장</button>
+            </div>
+            {tradeJournal.length>0&&<div style={{display:"flex",gap:6,marginBottom:8}}>
+              <button onClick={()=>{
+                const hd=["날짜","시간","종목","유형","감정","사유","메모"];
+                const rw=tradeJournal.map(j=>[j.date,j.time,j.ticker,j.type,j.emotion,j.reason,j.note]);
+                const csv2=[hd,...rw].map(r=>r.map(v=>`"${(v||"").replace(/"/g,'""')}"`).join(",")).join("\n");
+                const blob=new Blob(["\uFEFF"+csv2],{type:"text/csv;charset=utf-8;"});
+                const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=`vega_journal_${new Date().toISOString().slice(0,10)}.csv`;a.click();URL.revokeObjectURL(url);
+              }} style={{...css.btn(),fontSize:9,borderColor:C.emerald,color:C.emerald}}>📥 일지 CSV</button>
+              <span style={{fontSize:8,color:C.muted,alignSelf:"center"}}>{tradeJournal.length}건 기록</span>
+            </div>}
+            {tradeJournal.map(j=>{
+              const emotionColor=j.emotion==="차분"?C.emerald:j.emotion==="자신감"?C.green:j.emotion==="불안"?C.yellow:j.emotion==="FOMO"?C.red:j.emotion==="욕심"?C.red:C.muted;
+              return<div key={j.id} style={{...css.card,padding:"10px 14px"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                  <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                    <span style={{fontSize:8,color:C.muted}}>{j.date} {j.time}</span>
+                    <span style={{fontSize:9,fontWeight:700,color:C.accent}}>{j.ticker}</span>
+                    <span style={{fontSize:8,padding:"1px 6px",borderRadius:4,background:j.type==="진입"?"rgba(16,185,129,.12)":j.type.includes("청산")?"rgba(239,68,68,.12)":"rgba(56,189,248,.08)",color:j.type==="진입"?C.emerald:j.type.includes("청산")?C.red:C.accent}}>{j.type}</span>
+                    <span style={{fontSize:8,padding:"1px 6px",borderRadius:4,background:`${emotionColor}18`,color:emotionColor}}>{j.emotion}</span>
+                  </div>
+                  <button onClick={()=>setTradeJournal(p=>p.filter(x=>x.id!==j.id))} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:10}}>✕</button>
+                </div>
+                {j.reason&&<div style={{fontSize:9,color:C.text,marginBottom:2}}>📌 {j.reason}</div>}
+                {j.note&&<div style={{fontSize:9,color:C.sub}}>{j.note}</div>}
+              </div>;
+            })}
+            {tradeJournal.length===0&&<div style={{textAlign:"center",padding:"30px",color:C.muted}}><div style={{fontSize:24,marginBottom:8}}>📝</div>매매 일지를 작성하면 패턴 파악에 도움이 됩니다</div>}
           </div>}
         </div>}
 
