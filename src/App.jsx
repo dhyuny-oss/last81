@@ -775,6 +775,14 @@ export default function App() {
     return{...s,score:r.score,signals:r.signals,rs:r.rs,volRatio:r.volRatio,stCount,cloudSt};
   }).filter(s=>s&&s.score>0).sort((a,b)=>b.score-a.score);
 
+  // pool 필터링 (IIFE 대신 변수로)
+  const poolFiltered = Object.entries(pool).filter(([ticker,info])=>{
+    if(poolMarket==="kr"&&info.market!=="kr")return false;
+    if(poolMarket==="us"&&info.market!=="us")return false;
+    if(poolFilter){const q=poolFilter.toLowerCase();return ticker.toLowerCase().includes(q)||(info.label||"").toLowerCase().includes(q);}
+    return true;
+  });
+
   // 13번: 권장 매수금액 계산
   const perStockMax = riskSettings.totalCapital*(riskSettings.maxWeightPct/100);
   const pyramidAmts = [0.25,0.25,0.25,0.25].map(r=>Math.round(perStockMax*r));
@@ -1818,45 +1826,34 @@ export default function App() {
           </div>
           {!poolLoaded
             ?<div style={{textAlign:"center",padding:"40px 0",color:C.muted}}><div style={{fontSize:24,marginBottom:8}}>📦</div><div style={{fontSize:10}}>위 "풀 로드" 버튼을 눌러주세요</div></div>
-            :<div>{(()=>{
-              const filtered=Object.entries(pool).filter(([ticker,info])=>{
-                if(poolMarket==="kr"&&info.market!=="kr")return false;
-                if(poolMarket==="us"&&info.market!=="us")return false;
-                if(poolFilter){const q=poolFilter.toLowerCase();return ticker.toLowerCase().includes(q)||(info.label||"").toLowerCase().includes(q);}
-                return true;
-              });
-              return<div>
-                <div style={{fontSize:9,color:C.muted,marginBottom:8}}>{filtered.length}개 표시 중</div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:6}}>
-                  {filtered.slice(0,200).map(([ticker,info])=>{
-                    const inWatch=stocks.find(s=>s.ticker===ticker);
-                    const chg=info.changePct||0;
-                    return<div key={ticker} style={{background:C.panel2,border:`1px solid ${inWatch?"rgba(56,189,248,.4)":C.border}`,borderRadius:7,padding:"7px 9px"}}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-                        <div>
-                          <div style={{fontSize:9,fontWeight:700,color:inWatch?C.accent:C.text}}>{info.label||ticker}</div>
-                          <div style={{fontSize:7,color:C.muted}}>{ticker}</div>
-                        </div>
-                        <button onClick={async()=>{
-                          if(inWatch){removeStock(ticker);}
-                          else{try{await fetch("/api/watchlist",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ticker,...info})});setStocks(p=>[...p,{ticker,...info,...(pool[ticker]||{})}]);setPoolMsg(`✅ ${info.label} 추가`);}catch{setPoolMsg("❌ 실패");}}
-                          setTimeout(()=>setPoolMsg(""),3000);
-                        }} style={{background:inWatch?"rgba(56,189,248,.15)":"rgba(255,255,255,.04)",border:`1px solid ${inWatch?C.accent:C.border}`,borderRadius:4,padding:"2px 6px",cursor:"pointer",color:inWatch?C.accent:C.muted,fontSize:10,flexShrink:0}}>{inWatch?"★":"☆"}</button>
+            :<div>
+              <div style={{fontSize:9,color:C.muted,marginBottom:8}}>{poolFiltered.length}개 표시 중</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:6}}>
+                {poolFiltered.slice(0,200).map(([ticker,info])=>{
+                  const inWatch=stocks.find(s=>s.ticker===ticker);
+                  const chg=info.changePct||0;
+                  return<div key={ticker} style={{background:C.panel2,border:`1px solid ${inWatch?"rgba(56,189,248,.4)":C.border}`,borderRadius:7,padding:"7px 9px"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                      <div>
+                        <div style={{fontSize:9,fontWeight:700,color:inWatch?C.accent:C.text}}>{info.label||ticker}</div>
+                        <div style={{fontSize:7,color:C.muted}}>{ticker}</div>
                       </div>
-                      {info.price>0&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4}}>
-                        <span style={{fontSize:9}}>{info.market==="kr"?"₩":"$"}{(info.price||0).toLocaleString()}</span>
-                        <span style={{fontSize:8,fontWeight:700,color:chg>=0?C.green:C.red}}>{chg>=0?"+":""}{chg.toFixed(1)}%</span>
-                      </div>}
-                    </div>;
-                  })}
-                </div>
-                {filtered.length>200&&<div style={{textAlign:"center",padding:"10px",fontSize:9,color:C.muted}}>검색으로 범위를 좁혀주세요 ({filtered.length}개 중 200개 표시)</div>}
-              </div>;
-            })()}
-          </div>
-        </div>
+                      <button onClick={async()=>{
+                        if(inWatch){removeStock(ticker);}
+                        else{try{await fetch("/api/watchlist",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ticker,...info})});setStocks(p=>[...p,{ticker,...info,...(pool[ticker]||{})}]);setPoolMsg(`✅ ${info.label} 추가`);}catch{setPoolMsg("❌ 실패");}}
+                        setTimeout(()=>setPoolMsg(""),3000);
+                      }} style={{background:inWatch?"rgba(56,189,248,.15)":"rgba(255,255,255,.04)",border:`1px solid ${inWatch?C.accent:C.border}`,borderRadius:4,padding:"2px 6px",cursor:"pointer",color:inWatch?C.accent:C.muted,fontSize:10,flexShrink:0}}>{inWatch?"★":"☆"}</button>
+                    </div>
+                    {info.price>0&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4}}>
+                      <span style={{fontSize:9}}>{info.market==="kr"?"₩":"$"}{(info.price||0).toLocaleString()}</span>
+                      <span style={{fontSize:8,fontWeight:700,color:chg>=0?C.green:C.red}}>{chg>=0?"+":""}{chg.toFixed(1)}%</span>
+                    </div>}
+                  </div>;
+                })}
+              </div>
+              {poolFiltered.length>200&&<div style={{textAlign:"center",padding:"10px",fontSize:9,color:C.muted}}>검색으로 범위를 좁혀주세요 ({poolFiltered.length}개 중 200개 표시)</div>}
+            </div>}
         </div>}
-      </div>}
 
       </div>
     </div>
