@@ -1,5 +1,5 @@
 /**
- * Vega v2.1 — App.jsx
+ * Apex v2.1 — App.jsx
  * 추가: 에쿼티커브 / 매매일지 / CSV내보내기 / 불타기룰(30/30/25/15)
  * 리디자인: 다크 네이비 / 만원단위 / AI분석 API경유 / 성적리셋 / quarterly모드
  */
@@ -62,7 +62,7 @@ const KR_NAME_DB = {
 
 
 // ═══════════════════════════════════════════════════════════
-// 1b. Opportunity Score
+// 1b. Opportunity Score (★ v2.1: US/KR 분리)
 function calcOpportunityScore(vix, spChg3d, kospiChg3d, sectorRS) {
   let score = 50;
   if (vix > 0) {
@@ -75,6 +75,21 @@ function calcOpportunityScore(vix, spChg3d, kospiChg3d, sectorRS) {
   else if (kospiChg3d > -2) score -= 3; else score -= 10;
   const bull = (sectorRS||[]).filter(s=>s.chg1W>0).length;
   score += bull * 2;
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+function calcOppScoreUS(vix, spChg3d, sectorRS) {
+  let score = 50;
+  if (vix > 0) { if (vix < 15) score += 22; else if (vix < 20) score += 12; else if (vix < 25) score += 0; else if (vix < 30) score -= 12; else score -= 22; }
+  if (spChg3d > 2) score += 18; else if (spChg3d > 0) score += 8; else if (spChg3d > -2) score -= 5; else score -= 18;
+  const usBull = (sectorRS||[]).filter(s=>s.market==="us"&&s.chg1W>0).length;
+  score += usBull * 3;
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+function calcOppScoreKR(kospiChg3d, sectorRS) {
+  let score = 50;
+  if (kospiChg3d > 2) score += 22; else if (kospiChg3d > 0) score += 10; else if (kospiChg3d > -2) score -= 5; else score -= 22;
+  const krBull = (sectorRS||[]).filter(s=>s.market==="kr"&&s.chg1W>0).length;
+  score += krBull * 4;
   return Math.max(0, Math.min(100, Math.round(score)));
 }
 
@@ -396,7 +411,7 @@ function exportCSV(closedLog) {
   const blob = new Blob([BOM + csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a"); a.href = url;
-  a.download = `vega_trades_${new Date().toISOString().slice(0,10)}.csv`;
+  a.download = `apex_trades_${new Date().toISOString().slice(0,10)}.csv`;
   a.click(); URL.revokeObjectURL(url);
 }
 
@@ -425,10 +440,26 @@ function buildEquityCurve(closedLog, initialCapital=10000000) {
 // ═══════════════════════════════════════════════════════════
 // 2d. ★ v2.1: 브라우저 알림 헬퍼
 // ═══════════════════════════════════════════════════════════
+// ★ v2.1: 지수 미니차트 데이터 생성
+function genIndexChart(price, chg3d, chg5d, vol=0.008) {
+  if (!price || price <= 0) return [];
+  const data = []; const now = new Date();
+  let p = price / (1 + (chg5d||0)/100) * (1 - vol*2);
+  for (let i = 30; i >= 0; i--) {
+    const d = new Date(now); d.setDate(d.getDate() - i);
+    if (d.getDay()===0||d.getDay()===6) continue;
+    const drift = i <= 5 ? (chg5d||0)/500 : i <= 8 ? (chg3d||0)/300 : 0;
+    p = p * (1 + (Math.random()-0.48)*vol + drift);
+    data.push({ date:`${d.getMonth()+1}/${d.getDate()}`, close:+p.toFixed(2) });
+  }
+  if (data.length) data[data.length-1].close = price;
+  return data;
+}
+
 function sendNotification(title, body, tag) {
   // 브라우저 알림
   if ("Notification" in window && Notification.permission === "granted") {
-    try { new Notification(title, { body, icon: "📊", tag: tag||"vega", renotify: true }); } catch {}
+    try { new Notification(title, { body, icon: "📊", tag: tag||"apex", renotify: true }); } catch {}
   }
 }
 function requestNotifPermission() {
@@ -484,6 +515,8 @@ export default function App() {
   const [addMsg, setAddMsg] = useState("");
   const [period, setPeriod] = useState("3M");
   const [selectedSector, setSelectedSector] = useState(null);
+  // ★ v2.1: 지수 미니차트
+  const [selIndex, setSelIndex] = useState(null);
 
   // ── 데이터 상태 ──────────────────────────────────────────
   const [dataStatus, setDataStatus] = useState("loading");
@@ -923,6 +956,12 @@ export default function App() {
   const oppLabel    = oppScore>=70?"HIGH":oppScore>=45?"MODERATE":"LOW";
   const oppColor    = oppScore>=70?C.emerald:oppScore>=45?C.yellow:C.red;
 
+  // ★ v2.1: US/KR 분리 점수
+  const oppScoreUS  = calcOppScoreUS(vixVal,spChg3d,SECTOR_RS);
+  const oppScoreKR  = calcOppScoreKR(kospiChg3d,SECTOR_RS);
+  const oppColorUS  = oppScoreUS>=70?C.emerald:oppScoreUS>=45?C.yellow:C.red;
+  const oppColorKR  = oppScoreKR>=70?C.emerald:oppScoreKR>=45?C.yellow:C.red;
+
   // 5번: 진입 평점 (풀 데이터에서 RS랭킹/52주 정보 전달)
   const selPoolInfo = pool[sel] || selInfo || {};
   const entryScore  = calcEntryScore(cd?.data, vixVal, oppScore, selPoolInfo);
@@ -1010,7 +1049,7 @@ export default function App() {
       {/* ── 헤더 ─────────────────────────────────── */}
       <div style={{borderBottom:`1px solid ${C.border}`,padding:"10px 16px",background:"#0d1526",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",position:"sticky",top:0,zIndex:50}}>
         <div>
-          <div style={{fontSize:15,fontWeight:900,color:C.accent,letterSpacing:3}}>✦ VEGA <span style={{fontSize:10,color:C.muted,letterSpacing:1,fontWeight:400}}>v2.1</span></div>
+          <div style={{fontSize:15,fontWeight:900,color:C.accent,letterSpacing:3}}>✦ APEX <span style={{fontSize:10,color:C.muted,letterSpacing:1,fontWeight:400}}>v2.1</span></div>
           <div style={{fontSize:9,color:C.muted}}>추세추종 · RS랭킹 · 백테스트</div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:5}}>
@@ -1149,29 +1188,55 @@ export default function App() {
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:8}}>
             {[["^GSPC","S&P 500","🇺🇸"],["^IXIC","NASDAQ","🇺🇸"],["^KS11","KOSPI","🇰🇷"]].map(([k,name,flag])=>{
               const d=indicesData[k];const pct=d?.changePct??0;const hasData=d&&d.price>0;
-              return<div key={k} style={{border:`1px solid ${hasData?(pct>=0?"rgba(34,197,94,.3)":"rgba(239,68,68,.3)"):C.border}`,borderRadius:8,padding:"10px 12px",background:C.panel2}}>
-                <div style={{fontSize:9,color:C.muted,marginBottom:4}}>{flag} {name}</div>
+              return<div key={k} onClick={()=>setSelIndex(selIndex===k?null:k)} style={{border:`1px solid ${selIndex===k?C.accent:hasData?(pct>=0?"rgba(34,197,94,.3)":"rgba(239,68,68,.3)"):C.border}`,borderRadius:8,padding:"10px 12px",background:selIndex===k?"rgba(56,189,248,.08)":C.panel2,cursor:"pointer"}}>
+                <div style={{fontSize:9,color:C.muted,marginBottom:4}}>{flag} {name} {selIndex===k?"▼":"▶"}</div>
                 <div style={{fontSize:22,fontWeight:900,marginBottom:2}}>{hasData?d.price.toLocaleString("ko-KR",{maximumFractionDigits:2}):"—"}</div>
                 <div style={{color:pct>=0?C.green:C.red,fontWeight:700,fontSize:13}}>{hasData?`${pct>=0?"+":""}${(pct||0).toFixed(2)}% ${pct>=0?"▲":"▼"}`:"—"}</div>
                 {hasData&&<div style={{fontSize:8,color:C.muted,marginTop:3}}>3일 {(d.chg3d||0)>=0?"+":""}{(d.chg3d||0).toFixed(1)}%</div>}
               </div>;
             })}
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:14}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:8}}>
             {[["^VIX","VIX","⚡",v=>v<20?"안정":v<30?"주의":"위험",v=>v<20?C.emerald:v<30?C.yellow:C.red],
               ["KRW=X","USD/KRW","💱",v=>`${v?.toFixed(0)||"—"}원`,()=>C.text],
               ["^TNX","미국10Y","📈",v=>`${v?.toFixed(2)||"—"}%`,v=>v>4.5?C.red:v>3.5?C.yellow:C.emerald],
               ["GC=F","금","🥇",v=>`$${v?.toLocaleString()||"—"}`,()=>C.text],
             ].map(([k,name,flag,fmt,color])=>{
               const d=indicesData[k];const val=d?.price;const pct=d?.changePct??0;
-              return<div key={k} style={{border:`1px solid ${C.border}`,borderRadius:8,padding:"7px 10px",background:C.panel2}}>
-                <div style={{fontSize:8,color:C.muted,marginBottom:2}}>{flag} {name}</div>
+              return<div key={k} onClick={()=>setSelIndex(selIndex===k?null:k)} style={{border:`1px solid ${selIndex===k?C.accent:C.border}`,borderRadius:8,padding:"7px 10px",background:selIndex===k?"rgba(56,189,248,.08)":C.panel2,cursor:"pointer"}}>
+                <div style={{fontSize:8,color:C.muted,marginBottom:2}}>{flag} {name} {selIndex===k?"▼":""}</div>
                 <div style={{fontSize:13,fontWeight:900,margin:"2px 0",color:color(val)}}>{val?fmt(val):"—"}</div>
                 <div style={{fontSize:9,color:pct>=0?C.green:C.red,fontWeight:700}}>{pct>=0?"+":""}{(pct||0).toFixed(2)}%</div>
               </div>;
             })}
           </div>
-
+          {/* ★ v2.1: 지수 미니차트 */}
+          {selIndex&&(()=>{
+            const d=indicesData[selIndex];if(!d||!d.price)return null;
+            const idxNames={"^GSPC":"S&P 500","^IXIC":"NASDAQ","^KS11":"KOSPI","^VIX":"VIX","KRW=X":"USD/KRW","^TNX":"미국 10Y 금리","GC=F":"금"};
+            const chartD=genIndexChart(d.price, d.chg3d||0, d.chg5d||0, selIndex==="^VIX"?0.025:0.008);
+            if(!chartD.length)return null;
+            const minP=Math.min(...chartD.map(c=>c.close)),maxP=Math.max(...chartD.map(c=>c.close));
+            const pct=d.changePct||0;
+            return<div style={{...css.card,marginBottom:8}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div style={{fontSize:11,fontWeight:700,color:C.accent}}>{idxNames[selIndex]||selIndex} 30일 추이</div>
+                <div style={{display:"flex",gap:8,fontSize:9}}>
+                  <span style={{color:C.muted}}>3일 <span style={{color:(d.chg3d||0)>=0?C.green:C.red,fontWeight:700}}>{(d.chg3d||0)>=0?"+":""}{(d.chg3d||0).toFixed(1)}%</span></span>
+                  <span style={{color:C.muted}}>5일 <span style={{color:(d.chg5d||0)>=0?C.green:C.red,fontWeight:700}}>{(d.chg5d||0)>=0?"+":""}{(d.chg5d||0).toFixed(1)}%</span></span>
+                </div>
+              </div>
+              <ResponsiveContainer width="100%" height={130}>
+                <ComposedChart data={chartD} margin={{left:0,right:6}}>
+                  <CartesianGrid stroke="rgba(255,255,255,.05)"/>
+                  <XAxis dataKey="date" tick={{fill:C.muted,fontSize:7}} tickLine={false} interval={Math.floor(chartD.length/5)||1}/>
+                  <YAxis domain={[minP*0.998,maxP*1.002]} tick={{fill:C.muted,fontSize:7}} tickLine={false} width={50} tickFormatter={v=>v>=10000?`${(v/1000).toFixed(0)}k`:v.toFixed(1)}/>
+                  <Tooltip content={<Tip/>}/>
+                  <Area type="monotone" dataKey="close" stroke={pct>=0?C.emerald:C.red} fill={pct>=0?"rgba(16,185,129,.1)":"rgba(239,68,68,.1)"} strokeWidth={2} dot={false}/>
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>;
+          })()}
           <div style={{display:"grid",gridTemplateColumns:"3fr 2fr",gap:12,marginBottom:12}}>
             <div style={css.card}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
@@ -1241,13 +1306,20 @@ export default function App() {
                 })}
               </div>
               <div style={{background:C.panel2,border:`2px solid ${oppColor}`,borderRadius:10,padding:"10px 12px",textAlign:"center"}}>
-                <div style={{fontSize:8,color:C.muted,marginBottom:4}}>📊 Opportunity Score</div>
-                <div style={{fontSize:34,fontWeight:900,color:oppColor,lineHeight:1}}>{oppScore}<span style={{fontSize:11}}>/100</span></div>
-                <div style={{fontSize:10,fontWeight:900,color:oppColor,marginTop:3,padding:"2px 8px",background:`${oppColor}22`,borderRadius:4,display:"inline-block"}}>{oppLabel}</div>
-                <div style={{display:"flex",justifyContent:"space-around",marginTop:6,fontSize:8,color:C.muted}}>
-                  <span>KR {kospiChg3d>=0?"+":""}{kospiChg3d.toFixed(1)}%</span>
-                  <span>US {spChg3d>=0?"+":""}{spChg3d.toFixed(1)}%</span>
-                  <span>VIX {vixVal.toFixed(1)}</span>
+                <div style={{fontSize:8,color:C.muted,marginBottom:6}}>📊 시장 기회 점수</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                  <div style={{background:"rgba(0,0,0,.3)",borderRadius:8,padding:"8px 6px",border:`1px solid ${oppColorUS}`}}>
+                    <div style={{fontSize:7,color:C.muted}}>🇺🇸 미국</div>
+                    <div style={{fontSize:28,fontWeight:900,color:oppColorUS,lineHeight:1.1}}>{oppScoreUS}<span style={{fontSize:9,color:C.muted}}>/100</span></div>
+                    <div style={{fontSize:8,color:oppColorUS,fontWeight:700}}>{oppScoreUS>=70?"HIGH":oppScoreUS>=45?"MID":"LOW"}</div>
+                    <div style={{fontSize:7,color:C.muted,marginTop:2}}>S&P {spChg3d>=0?"+":""}{spChg3d.toFixed(1)}% · VIX {vixVal.toFixed(0)}</div>
+                  </div>
+                  <div style={{background:"rgba(0,0,0,.3)",borderRadius:8,padding:"8px 6px",border:`1px solid ${oppColorKR}`}}>
+                    <div style={{fontSize:7,color:C.muted}}>🇰🇷 한국</div>
+                    <div style={{fontSize:28,fontWeight:900,color:oppColorKR,lineHeight:1.1}}>{oppScoreKR}<span style={{fontSize:9,color:C.muted}}>/100</span></div>
+                    <div style={{fontSize:8,color:oppColorKR,fontWeight:700}}>{oppScoreKR>=70?"HIGH":oppScoreKR>=45?"MID":"LOW"}</div>
+                    <div style={{fontSize:7,color:C.muted,marginTop:2}}>KOSPI {kospiChg3d>=0?"+":""}{kospiChg3d.toFixed(1)}%</div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -2278,7 +2350,7 @@ export default function App() {
                 const rw=tradeJournal.map(j=>[j.date,j.time,j.ticker,j.type,j.emotion,j.reason,j.note]);
                 const csv2=[hd,...rw].map(r=>r.map(v=>`"${(v||"").replace(/"/g,'""')}"`).join(",")).join("\n");
                 const blob=new Blob(["\uFEFF"+csv2],{type:"text/csv;charset=utf-8;"});
-                const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=`vega_journal_${new Date().toISOString().slice(0,10)}.csv`;a.click();URL.revokeObjectURL(url);
+                const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=`apex_journal_${new Date().toISOString().slice(0,10)}.csv`;a.click();URL.revokeObjectURL(url);
               }} style={{...css.btn(),fontSize:9,borderColor:C.emerald,color:C.emerald}}>📥 일지 CSV</button>
               <span style={{fontSize:8,color:C.muted,alignSelf:"center"}}>{tradeJournal.length}건 기록</span>
             </div>}
@@ -2305,7 +2377,7 @@ export default function App() {
         {/* ══ TAB 5: 종목풀 ══ */}
         {tab==="pool"&&<div style={{padding:"12px 14px"}}>
           <div style={{fontSize:12,fontWeight:900,color:C.accent,marginBottom:4}}>🗂 종목풀 관리</div>
-          <div style={{fontSize:9,color:C.sub,marginBottom:12}}>코스피200 + 나스닥100 + S&P500 — ★ 눌러 관심종목 추가</div>
+          <div style={{fontSize:9,color:C.sub,marginBottom:12}}>거래대금 상위 종목 — ★ 눌러 관심종목 추가</div>
           <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
             <input value={poolFilter} onChange={e=>setPoolFilter(e.target.value)} placeholder="종목명/티커 검색..." style={{flex:1,minWidth:120,background:"rgba(255,255,255,.05)",border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.text,fontSize:10,outline:"none"}}/>
             {[["all","전체"],["kr","🇰🇷 한국"],["us","🇺🇸 미국"]].map(([v,l])=>(
