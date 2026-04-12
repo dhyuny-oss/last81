@@ -2,7 +2,9 @@ name: 주가 데이터 자동 업데이트
 
 on:
   schedule:
-    - cron: '0 * * * 1-5'
+    # 평일 매 시간 (9시 제외) → hourly
+    - cron: '0 0-8,10-23 * * 1-5'
+    # 평일 9시 UTC (한국 18시) → daily
     - cron: '0 9 * * 1-5'
   workflow_dispatch:
     inputs:
@@ -19,6 +21,7 @@ on:
 jobs:
   fetch:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
 
@@ -31,31 +34,33 @@ jobs:
           python-version: '3.11'
 
       - name: 패키지 설치
-        run: pip install requests pandas
+        run: pip install requests
 
       - name: 수집 모드 결정
         id: mode
         run: |
-          HOUR=$(date -u +%H)
-          MINUTE=$(date -u +%M)
           EVENT="${{ github.event_name }}"
           INPUT_MODE="${{ github.event.inputs.mode }}"
 
-          if [ "$EVENT" = "workflow_dispatch" ] && [ "$INPUT_MODE" = "quarterly" ]; then
-            echo "mode=quarterly" >> $GITHUB_OUTPUT
-          elif [ "$EVENT" = "workflow_dispatch" ] && [ "$INPUT_MODE" = "daily" ]; then
-            echo "mode=daily" >> $GITHUB_OUTPUT
-          elif [ "$MINUTE" = "00" ] && [ "$HOUR" = "09" ]; then
-            echo "mode=daily" >> $GITHUB_OUTPUT
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            echo "mode=${INPUT_MODE:-daily}" >> $GITHUB_OUTPUT
+          elif [ "$EVENT" = "schedule" ]; then
+            HOUR=$(date -u +%H)
+            if [ "$HOUR" = "09" ]; then
+              echo "mode=daily" >> $GITHUB_OUTPUT
+            else
+              echo "mode=hourly" >> $GITHUB_OUTPUT
+            fi
           else
             echo "mode=hourly" >> $GITHUB_OUTPUT
           fi
 
+      - name: 모드 확인
+        run: echo "🔧 수집 모드 = ${{ steps.mode.outputs.mode }}"
+
       - name: 데이터 수집
         env:
           COLLECT_MODE: ${{ steps.mode.outputs.mode }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
         run: python scripts/fetch_yahoo.py
 
       - name: 변경사항 커밋
@@ -63,5 +68,10 @@ jobs:
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
           git add public/data/
-          git diff --staged --quiet || git commit -m "📊 주가 업데이트: $(date '+%Y-%m-%d %H:%M') (${{ steps.mode.outputs.mode }})"
-          git push
+          if git diff --staged --quiet; then
+            echo "📭 변경사항 없음 — 커밋 생략"
+          else
+            SIZE=$(du -sh public/data/stocks.json | cut -f1)
+            git commit -m "📊 주가 업데이트: $(date -u '+%Y-%m-%d %H:%M') UTC (${{ steps.mode.outputs.mode }}, ${SIZE})"
+            git push
+          fi
