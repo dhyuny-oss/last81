@@ -423,6 +423,21 @@ function buildEquityCurve(closedLog, initialCapital=10000000) {
 }
 
 // ═══════════════════════════════════════════════════════════
+// 2d. ★ v2.1: 브라우저 알림 헬퍼
+// ═══════════════════════════════════════════════════════════
+function sendNotification(title, body, tag) {
+  // 브라우저 알림
+  if ("Notification" in window && Notification.permission === "granted") {
+    try { new Notification(title, { body, icon: "📊", tag: tag||"vega", renotify: true }); } catch {}
+  }
+}
+function requestNotifPermission() {
+  if ("Notification" in window && Notification.permission === "default") {
+    Notification.requestPermission();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
 // 3. 서브컴포넌트
 // ═══════════════════════════════════════════════════════════
 function Tip({active,payload,label}){
@@ -535,9 +550,15 @@ export default function App() {
   const [tradeJournal, setTradeJournal] = useState(()=>{try{const s=localStorage.getItem("at_journal");return s?JSON.parse(s):[];}catch{return [];}});
   const [journalDraft, setJournalDraft] = useState({ticker:"",type:"진입",reason:"",emotion:"보통",note:""});
 
+  // ── ★ v2.1: 알림 시스템 ──────────────────────────────────
+  const [alerts, setAlerts] = useState([]);
+
   // ════════════════════════════════════════════════════════
   // ★ 데이터 로딩
   // ════════════════════════════════════════════════════════
+  // 알림 권한 요청
+  useEffect(()=>{requestNotifPermission();},[]);
+
   useEffect(()=>{
     fetch("/data/stocks.json")
       .then(r=>{if(!r.ok)throw new Error("no data");return r.json();})
@@ -579,10 +600,30 @@ export default function App() {
       const pyramid=pos.pyramid||[];
       const updatedPyramid=pyramid.map(lv=>{
         if(!lv.triggered&&pnl>=lv.targetPct){
+          // ★ v2.1: 브라우저 알림 발사
+          const msg=`${pos.label} +${pnl.toFixed(1)}% → ${lv.level||lv.step||""}차 불타기 목표 도달!`;
+          sendNotification("🔥 불타기 알림", msg, `pyramid-${pos.id}-${lv.level||lv.step}`);
+          setAlerts(a=>[{id:Date.now(),type:"pyramid",msg,ticker:pos.ticker,time:new Date().toLocaleTimeString("ko-KR")},...a].slice(0,20));
           return{...lv,triggered:true,triggeredAt:new Date().toLocaleTimeString("ko-KR")};
         }
         return lv;
       });
+      // ★ v2.1: 매도 목표가 도달 알림
+      const target=pos.target||0;
+      if(target>0&&cur>=target&&!pos._targetAlerted){
+        const msg2=`${pos.label} 목표가 도달! 현재 ${cur.toLocaleString()} ≥ 목표 ${target.toLocaleString()} (+${pnl.toFixed(1)}%)`;
+        sendNotification("🎯 목표가 도달", msg2, `target-${pos.id}`);
+        setAlerts(a=>[{id:Date.now(),type:"target",msg:msg2,ticker:pos.ticker,time:new Date().toLocaleTimeString("ko-KR")},...a].slice(0,20));
+        pos._targetAlerted=true;
+      }
+      // ★ v2.1: 손절선 근접 알림 (5% 이내)
+      const trailDist=pos.trailStop>0?((cur-newTrail)/cur*100):99;
+      if(trailDist<2&&!pos._stopAlerted){
+        const msg3=`${pos.label} 손절선 근접! 현재가-손절가 ${trailDist.toFixed(1)}%`;
+        sendNotification("🚨 손절선 근접", msg3, `stop-${pos.id}`);
+        setAlerts(a=>[{id:Date.now(),type:"stop",msg:msg3,ticker:pos.ticker,time:new Date().toLocaleTimeString("ko-KR")},...a].slice(0,20));
+        pos._stopAlerted=true;
+      }else if(trailDist>=5){pos._stopAlerted=false;}
       // ★ v2.1: 타임컷 판정 (박스권 감지)
       const entryDate=pos.date||pos.entryDate;
       const daysHeld=entryDate?Math.round((Date.now()-new Date(entryDate).getTime())/86400000):0;
@@ -1085,6 +1126,19 @@ export default function App() {
           </div>;
         })}
       </div>
+
+      {/* ── ★ v2.1: 알림 배너 ─────────────────────── */}
+      {alerts.length>0&&<div style={{background:"#0d1526",borderBottom:`1px solid ${C.border}`,padding:"0 12px",maxHeight:80,overflowY:"auto"}}>
+        {alerts.slice(0,3).map(a=>(
+          <div key={a.id} style={{display:"flex",alignItems:"center",gap:8,padding:"4px 0",borderBottom:"1px solid rgba(255,255,255,.03)",animation:"pulse 2s ease-in-out 3"}}>
+            <span style={{fontSize:10}}>{a.type==="pyramid"?"🔥":a.type==="target"?"🎯":a.type==="stop"?"🚨":"⏰"}</span>
+            <span style={{fontSize:9,color:a.type==="stop"?C.red:a.type==="pyramid"?C.emerald:a.type==="target"?C.accent:"#fb923c",flex:1,fontWeight:600}}>{a.msg}</span>
+            <span style={{fontSize:7,color:C.muted}}>{a.time}</span>
+            <button onClick={()=>setAlerts(p=>p.filter(x=>x.id!==a.id))} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:9,padding:0}}>✕</button>
+          </div>
+        ))}
+        {alerts.length>3&&<div style={{fontSize:8,color:C.muted,textAlign:"center",padding:2,cursor:"pointer"}} onClick={()=>setAlerts([])}>+{alerts.length-3}개 더 · 모두 지우기</div>}
+      </div>}
 
       {/* ── 콘텐츠 ───────────────────────────────── */}
       <div style={{flex:1,overflow:"auto"}} onClick={()=>setShowSearch(false)}>
