@@ -13,12 +13,12 @@ import {
 // 1. 색상 & 상수
 // ═══════════════════════════════════════════════════════════
 const C = {
-  bg:"#070c16", panel:"rgba(11,18,35,.92)", panel2:"rgba(15,23,42,.85)",
-  border:"rgba(96,165,250,.14)", accent:"#60a5fa",
+  bg:"#0b1120", panel:"#111827", panel2:"#1a2332",
+  border:"rgba(96,165,250,.18)", accent:"#60a5fa",
   green:"#34d399", red:"#f87171", yellow:"#fbbf24",
   emerald:"#10b981", purple:"#a78bfa",
-  muted:"#64748b", text:"#f0f6ff", sub:"#94a3b8", ema:"#fb923c",
-  glass:"rgba(255,255,255,.03)",
+  muted:"#6b7280", text:"#e8edf5", sub:"#9ca3af", ema:"#fb923c",
+  glass:"rgba(255,255,255,.04)",
 };
 const SIG = {
   BUY:  { bg:"rgba(16,185,129,.15)", color:"#34d399", border:"rgba(52,211,153,.45)" },
@@ -396,9 +396,9 @@ function fmtPrice(v, isKR) {
 }
 
 const css = {
-  card: { background:"rgba(11,18,35,.85)", border:`1px solid ${C.border}`, borderRadius:14, padding:14, marginBottom:10, backdropFilter:"blur(6px)" },
-  panel2: { background:"rgba(15,23,42,.75)", border:`1px solid ${C.border}`, borderRadius:10, padding:"8px 12px" },
-  btn: (on=false) => ({ borderRadius:8, padding:"5px 12px", cursor:"pointer", fontWeight:600, fontSize:10, border:`1px solid ${on?C.accent:C.border}`, background:on?"rgba(96,165,250,.15)":"rgba(255,255,255,.03)", color:on?C.accent:C.muted }),
+  card: { background:"#111827", border:`1px solid rgba(96,165,250,.15)`, borderRadius:12, padding:16, marginBottom:14 },
+  panel2: { background:"#1a2332", border:`1px solid rgba(96,165,250,.12)`, borderRadius:10, padding:"10px 14px" },
+  btn: (on=false) => ({ borderRadius:8, padding:"6px 14px", cursor:"pointer", fontWeight:600, fontSize:11, border:`1px solid ${on?C.accent:C.border}`, background:on?"rgba(96,165,250,.15)":"rgba(255,255,255,.04)", color:on?C.accent:C.muted }),
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -450,7 +450,7 @@ export default function App() {
   const [btTargetPct, setBtTargetPct] = useState(20);
   const [btResult, setBtResult] = useState(null);
 
-  // ── 스나이퍼 ────────────────────────────────────────────
+  // ── 차트 진입 ────────────────────────────────────────────
   const [stopPct, setStopPct]   = useState(10);
   const [checklist, setChecklist] = useState({market:false,sector:false,stock:false,timing:false,risk:false});
 
@@ -852,9 +852,9 @@ export default function App() {
   const currentExposure = positions.length;
   const overPositions   = currentExposure>=riskSettings.maxPositions;
 
-  const TABS=[["radar","🌐 Market"],["alpha","🔍 Discover"],["sniper","📊 Chart"],["track",`📁 추적 (${tracking.length+positions.length})`],["pool","🗃 풀"]];
+  const TABS=[["radar","🌐 시장"],["alpha","🔍 발굴"],["sniper","📊 차트"],["track",`📁 추적 (${tracking.length+positions.length})`],["pool","🗃 종목풀"]];
 
-  const pageStyle={minHeight:"100vh",background:"linear-gradient(135deg,#070c16 0%,#0a1428 50%,#070c16 100%)",color:C.text,fontFamily:"'DM Mono','JetBrains Mono',monospace",display:"flex",flexDirection:"column",fontSize:12};
+  const pageStyle={minHeight:"100vh",background:"linear-gradient(180deg,#0b1120 0%,#0d1526 100%)",color:C.text,fontFamily:"'DM Mono','JetBrains Mono',monospace",display:"flex",flexDirection:"column",fontSize:12};
 
   function RSBar(){return(
     <div style={{background:C.panel2,border:`1px solid ${C.border}`,borderRadius:9,padding:"10px 14px",marginBottom:12}}>
@@ -881,16 +881,17 @@ export default function App() {
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
         @keyframes ap{0%,100%{border-color:rgba(239,68,68,.8)}50%{border-color:rgba(239,68,68,.2)}}
         *{box-sizing:border-box}
-        ::-webkit-scrollbar{width:4px;height:4px}
-        ::-webkit-scrollbar-thumb{background:rgba(56,189,248,.2);border-radius:2px}
+        ::-webkit-scrollbar{width:5px;height:5px}
+        ::-webkit-scrollbar-thumb{background:rgba(96,165,250,.25);border-radius:3px}
+        ::-webkit-scrollbar-track{background:transparent}
         input,select,textarea,button{font-family:inherit}
       `}</style>
 
       {/* ── 헤더 ─────────────────────────────────── */}
-      <div style={{borderBottom:`1px solid ${C.border}`,padding:"9px 14px",background:"rgba(7,12,22,.97)",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",position:"sticky",top:0,zIndex:50,backdropFilter:"blur(12px)"}}>
+      <div style={{borderBottom:`1px solid ${C.border}`,padding:"10px 16px",background:"#0d1526",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",position:"sticky",top:0,zIndex:50}}>
         <div>
-          <div style={{fontSize:14,fontWeight:900,color:C.accent,letterSpacing:3}}>✦ VEGA <span style={{fontSize:9,color:C.muted,letterSpacing:1,fontWeight:400}}>v1.0</span></div>
-          <div style={{fontSize:8,color:C.muted}}>Triple ST · Ichimoku · Entry Score · Risk Mgmt</div>
+          <div style={{fontSize:15,fontWeight:900,color:C.accent,letterSpacing:3}}>✦ VEGA <span style={{fontSize:10,color:C.muted,letterSpacing:1,fontWeight:400}}>v2.0</span></div>
+          <div style={{fontSize:9,color:C.muted}}>추세추종 · RS랭킹 · 백테스트</div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:5}}>
           {dataStatus==="loading"&&<div style={{display:"flex",gap:2,alignItems:"center",color:C.accent,fontSize:8}}>{[0,1,2].map(i=><div key={i} style={{width:3,height:3,borderRadius:"50%",background:C.accent,animation:`bounce 1s ${i*.2}s infinite`}}/>)}로딩중</div>}
@@ -957,20 +958,23 @@ export default function App() {
       </div>
 
       {/* ── 종목바 ───────────────────────────────── */}
-      <div style={{display:"flex",gap:3,padding:"4px 10px",overflowX:"auto",borderBottom:`1px solid ${C.border}`,background:"rgba(0,0,0,.3)",alignItems:"center",flexShrink:0}}>
-        <span style={{color:C.muted,fontSize:8,flexShrink:0}}>{stocks.length}종목</span>
+      <div style={{display:"flex",gap:4,padding:"5px 12px",overflowX:"auto",borderBottom:`1px solid ${C.border}`,background:"#0d1526",alignItems:"center",flexShrink:0}}>
+        <span style={{color:C.muted,fontSize:9,flexShrink:0}}>{stocks.length}종목</span>
         {stocks.map(stk=>{
           const sg=getStockSig(charts[stk.ticker]?.data);
           const ss=SIG[sg]||SIG.HOLD;
+          const cd2=charts[stk.ticker]?.data;
+          const isFlip=cd2&&cd2.length>=2&&cd2.at(-1)?.bullCount===3&&cd2.at(-2)?.bullCount<3;
           return<div key={stk.ticker} style={{flexShrink:0,display:"flex"}}>
-            <button onClick={()=>{setSel(stk.ticker);setTab("sniper");}} style={{background:sel===stk.ticker?"rgba(56,189,248,.18)":"transparent",border:`1px solid ${sel===stk.ticker?C.accent:C.border}`,borderRadius:"4px 0 0 4px",padding:"2px 5px",cursor:"pointer",display:"flex",flexDirection:"column"}}>
-              <div style={{display:"flex",gap:2,alignItems:"center"}}>
-                <span style={{color:sel===stk.ticker?C.accent:C.text,fontSize:9,fontWeight:700}}>{stk.label}</span>
-                <span style={{...ss,borderRadius:3,padding:"0 3px",fontWeight:900,fontSize:7,display:"inline-block"}}>{sg[0]}</span>
+            <button onClick={()=>{setSel(stk.ticker);setTab("sniper");}} style={{background:sel===stk.ticker?"rgba(56,189,248,.18)":"transparent",border:`1px solid ${sel===stk.ticker?C.accent:C.border}`,borderRadius:"5px 0 0 5px",padding:"3px 6px",cursor:"pointer",display:"flex",flexDirection:"column"}}>
+              <div style={{display:"flex",gap:3,alignItems:"center"}}>
+                {isFlip&&<span style={{fontSize:7}}>🚀</span>}
+                <span style={{color:sel===stk.ticker?C.accent:C.text,fontSize:10,fontWeight:700}}>{stk.label}</span>
+                <span style={{...ss,borderRadius:3,padding:"0 4px",fontWeight:900,fontSize:8,display:"inline-block"}}>{sg[0]}</span>
               </div>
-              {stk.changePct!=null&&<span style={{fontSize:7,color:stk.changePct>=0?C.green:C.red}}>{stk.changePct>=0?"+":""}{stk.changePct?.toFixed?.(1)}%</span>}
+              {stk.changePct!=null&&<span style={{fontSize:8,color:stk.changePct>=0?C.green:C.red}}>{stk.changePct>=0?"+":""}{stk.changePct?.toFixed?.(1)}%</span>}
             </button>
-            <button onClick={()=>removeStock(stk.ticker)} style={{background:"rgba(239,68,68,.06)",border:`1px solid ${C.border}`,borderLeft:"none",borderRadius:"0 4px 4px 0",padding:"2px 4px",cursor:"pointer",color:C.muted,fontSize:8}}>✕</button>
+            <button onClick={()=>removeStock(stk.ticker)} style={{background:"rgba(239,68,68,.06)",border:`1px solid ${C.border}`,borderLeft:"none",borderRadius:"0 5px 5px 0",padding:"2px 5px",cursor:"pointer",color:C.muted,fontSize:9}}>✕</button>
           </div>;
         })}
       </div>
@@ -1042,11 +1046,13 @@ export default function App() {
                   <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
                     {(sec.members||[]).map(ticker=>{
                       const s=stocks.find(x=>x.ticker===ticker);
+                      const pInfo=pool[ticker]||{};
+                      const label=s?.label||pInfo.label||Object.entries(KR_NAME_DB).find(([k,v])=>v===ticker)?.[0]||ticker;
                       const inWatch=watchlist.find(w=>w.ticker===ticker);
                       return<div key={ticker} style={{background:"rgba(255,255,255,.05)",borderRadius:5,padding:"4px 8px",display:"flex",gap:6,alignItems:"center"}}>
-                        <span style={{fontSize:9,fontWeight:700}}>{s?.label||ticker}</span>
-                        {s?.changePct!=null&&<span style={{fontSize:8,color:(s.changePct||0)>=0?C.green:C.red}}>{(s.changePct||0)>=0?"+":""}{(s.changePct||0).toFixed(1)}%</span>}
-                        <button onClick={e=>{e.stopPropagation();inWatch?setWatchlist(w=>w.filter(x=>x.ticker!==ticker)):setWatchlist(w=>[...w,s||{ticker,label:ticker}]);}} style={{background:"none",border:"none",color:inWatch?C.accent:C.muted,cursor:"pointer",fontSize:10,padding:0}}>{inWatch?"★":"☆"}</button>
+                        <span style={{fontSize:10,fontWeight:700}}>{label}</span>
+                        {s?.changePct!=null&&<span style={{fontSize:9,color:(s.changePct||0)>=0?C.green:C.red}}>{(s.changePct||0)>=0?"+":""}{(s.changePct||0).toFixed(1)}%</span>}
+                        <button onClick={e=>{e.stopPropagation();if(inWatch){setWatchlist(w=>w.filter(x=>x.ticker!==ticker));setAddMsg(`☆ ${label} 제거`);}else{setWatchlist(w=>[...w,s||{ticker,label}]);setAddMsg(`★ ${label} 관심 추가`);}setTimeout(()=>setAddMsg(""),2000);}} style={{background:"none",border:"none",color:inWatch?C.accent:C.muted,cursor:"pointer",fontSize:11,padding:0}}>{inWatch?"★":"☆"}</button>
                       </div>;
                     })}
                   </div>
@@ -1162,7 +1168,7 @@ export default function App() {
                         <tbody>
                           {hits.map((stock,i)=>{
                             const cdc=charts[stock.ticker]?.data;
-                            const lD=cdc?.at(-1);
+                            const lD=cdc?.at(-1);const prevD=cdc?.at(-2);
                             const iSt=lD?.aboveCloud?"above":lD?.nearCloud?"near":"below";
                             const stC=[lD?.st1Bull,lD?.st2Bull,lD?.st3Bull].filter(v=>v!=null).length;
                             const es=calcEntryScore(cdc,vixVal,oppScore,pool[stock.ticker]||stock);
@@ -1171,12 +1177,13 @@ export default function App() {
                             const pInfo=pool[stock.ticker]||{};
                             const rsPct=pInfo.rsPctRank||0;
                             const isBreakout=pInfo.w52Breakout;
+                            const isFlip=lD?.bullCount===3&&prevD?.bullCount<3;
                             return(
-                              <tr key={stock.ticker} style={{background:isBreakout?"rgba(251,191,36,.12)":isGold?"rgba(251,191,36,.08)":i%2===0?C.panel:C.panel2,borderBottom:`1px solid ${C.border}`,cursor:"pointer"}}
+                              <tr key={stock.ticker} style={{background:isFlip?"rgba(16,185,129,.1)":isBreakout?"rgba(251,191,36,.1)":isGold?"rgba(251,191,36,.06)":i%2===0?C.panel:C.panel2,borderBottom:`1px solid ${C.border}`,cursor:"pointer"}}
                                 onClick={()=>{setSel(stock.ticker);setTab("sniper");}}>
                                 <td style={{padding:"7px 8px"}}>
-                                  <div style={{fontWeight:700,fontSize:10}}>{isBreakout?"🔥 ":isGold?"✨ ":""}{stock.label}</div>
-                                  <div style={{fontSize:7,color:C.muted}}>{stock.ticker}{isBreakout?" 신고가돌파":""}</div>
+                                  <div style={{fontWeight:700,fontSize:11}}>{isFlip?"🚀 ":isBreakout?"🔥 ":isGold?"✨ ":""}{stock.label}</div>
+                                  <div style={{fontSize:8,color:C.muted}}>{stock.ticker}{isFlip?" ST돌파":isBreakout?" 신고가":""}</div>
                                 </td>
                                 <td style={{padding:"7px 8px"}}><span style={{fontWeight:800,fontSize:11,color:isGold?"#d97706":C.accent}}>{stock.score}pt</span></td>
                                 <td style={{padding:"7px 8px"}}><span style={{fontWeight:700,fontSize:10,color:rsPct>=80?C.emerald:rsPct>=60?C.accent:C.muted}}>{rsPct>=80?"상위"+Math.round(100-rsPct)+"%":rsPct>=60?"중상":rsPct>0?"중하":"—"}</span></td>
@@ -1335,7 +1342,7 @@ export default function App() {
           </div>}
         </div>}
 
-        {/* ══ TAB 3: 스나이퍼 ══ */}
+        {/* ══ TAB 3: 차트 ══ */}
         {tab==="sniper"&&selInfo&&<div style={{padding:"12px 14px"}}>
           <RSBar/>
           <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
@@ -1389,19 +1396,22 @@ export default function App() {
             </div>
           </div>
 
-          {/* 목표가 / 손절가 */}
+          {/* 목표가 / 손절가 + 수익 추정 */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:8}}>
             <div style={{background:"rgba(56,189,248,.08)",border:`1px solid rgba(56,189,248,.3)`,borderRadius:8,padding:"9px 10px",textAlign:"center"}}>
-              <div style={{fontSize:7,color:C.muted,marginBottom:2}}>R:R 2:1 목표</div>
+              <div style={{fontSize:8,color:C.muted,marginBottom:2}}>R:R 2:1 목표</div>
               <div style={{fontSize:14,fontWeight:800,color:C.accent}}>{rrTarget2>0?`${fmtPrice(rrTarget2,isKRSel)}${unit}`:"—"}</div>
+              {rrTarget2>0&&curPrice>0&&<div style={{fontSize:9,color:C.green,marginTop:2}}>+{((rrTarget2-curPrice)/curPrice*100).toFixed(1)}% · ₩{fmtKRW(Math.round(pyramidAmts[0]*((rrTarget2-curPrice)/curPrice)))}</div>}
             </div>
             <div style={{background:"rgba(167,139,250,.08)",border:"1px solid rgba(167,139,250,.3)",borderRadius:8,padding:"9px 10px",textAlign:"center"}}>
-              <div style={{fontSize:7,color:C.muted,marginBottom:2}}>R:R 3:1 목표</div>
+              <div style={{fontSize:8,color:C.muted,marginBottom:2}}>R:R 3:1 목표</div>
               <div style={{fontSize:14,fontWeight:800,color:C.purple}}>{rrTarget3>0?`${fmtPrice(rrTarget3,isKRSel)}${unit}`:"—"}</div>
+              {rrTarget3>0&&curPrice>0&&<div style={{fontSize:9,color:C.green,marginTop:2}}>+{((rrTarget3-curPrice)/curPrice*100).toFixed(1)}% · ₩{fmtKRW(Math.round(pyramidAmts[0]*((rrTarget3-curPrice)/curPrice)))}</div>}
             </div>
             <div style={{background:"rgba(16,185,129,.08)",border:`1px solid rgba(16,185,129,.3)`,borderRadius:8,padding:"9px 10px",textAlign:"center"}}>
-              <div style={{fontSize:7,color:C.muted,marginBottom:2}}>52주 고점</div>
+              <div style={{fontSize:8,color:C.muted,marginBottom:2}}>52주 고점</div>
               <div style={{fontSize:14,fontWeight:800,color:C.emerald}}>{w52High>0?`${fmtPrice(w52High,isKRSel)}${unit}`:"—"}</div>
+              {w52High>0&&curPrice>0&&<div style={{fontSize:9,color:w52High>curPrice?C.green:C.yellow,marginTop:2}}>{w52High>curPrice?`+${((w52High-curPrice)/curPrice*100).toFixed(1)}%`:"돌파중"}</div>}
             </div>
           </div>
           {curPrice>0&&charts[sel]?.data?.length>0&&findResistanceLevels(charts[sel].data.map(d=>({high:d.close*1.005,close:d.close})),curPrice).length>0&&<div style={{background:"rgba(251,146,60,.06)",border:"1px solid rgba(251,146,60,.25)",borderRadius:8,padding:"9px 12px",marginBottom:8}}>
@@ -1464,18 +1474,22 @@ export default function App() {
             📈 매수 등록 → 추적 탭으로 이동
           </button>
 
-          {/* 차트 */}
-          {sliced.length>0&&<div style={{background:lastD?.allBull?"rgba(16,185,129,.04)":"rgba(239,68,68,.03)",border:`1px solid ${lastD?.allBull?C.emerald:C.border}`,borderRadius:10,padding:"8px 6px 4px",marginBottom:6}}>
+          {/* 기간 선택 + 차트 */}
+          {sliced.length>0&&<>
+          <div style={{display:"flex",gap:4,justifyContent:"center",marginBottom:6}}>
+            {["1M","3M","6M","1Y","ALL"].map(p=><button key={p} onClick={()=>setPeriod(p)} style={{...css.btn(period===p),fontSize:9,padding:"4px 10px"}}>{p}</button>)}
+          </div>
+          <div style={{background:lastD?.allBull?"rgba(16,185,129,.05)":"rgba(239,68,68,.04)",border:`1px solid ${lastD?.allBull?"rgba(16,185,129,.3)":C.border}`,borderRadius:10,padding:"8px 6px 4px",marginBottom:8}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingLeft:8,paddingRight:8,marginBottom:6}}>
-              <div style={{fontSize:8,color:C.muted}}>{lastD?.allBull?"🟢 매수배경":"🔴 비매수배경"} {cd?.real?"(실제)":"(시뮬)"}</div>
+              <div style={{fontSize:9,color:C.muted}}>{lastD?.allBull?"🟢 매수배경":"🔴 비매수배경"} {cd?.real?"(실제)":"(시뮬)"}</div>
               <div style={{display:"flex",gap:4}}>
                 {[["ichi","일목"],["st","ST"],["avwap","AVWAP"],["adx","ADX"],["obv","OBV"]].map(([k,l])=>(
-                  <button key={k} onClick={()=>setChartOpts(o=>({...o,[k]:!o[k]}))} style={{fontSize:8,padding:"2px 6px",borderRadius:4,border:`1px solid ${chartOpts[k]?"rgba(56,189,248,.5)":"rgba(255,255,255,.15)"}`,background:chartOpts[k]?"rgba(56,189,248,.12)":"transparent",color:chartOpts[k]?C.accent:C.muted,cursor:"pointer"}}>{chartOpts[k]?"✓":""} {l}</button>
+                  <button key={k} onClick={()=>setChartOpts(o=>({...o,[k]:!o[k]}))} style={{fontSize:8,padding:"3px 7px",borderRadius:4,border:`1px solid ${chartOpts[k]?"rgba(56,189,248,.5)":"rgba(255,255,255,.15)"}`,background:chartOpts[k]?"rgba(56,189,248,.12)":"transparent",color:chartOpts[k]?C.accent:C.muted,cursor:"pointer"}}>{chartOpts[k]?"✓":""} {l}</button>
                 ))}
               </div>
             </div>
             <ResponsiveContainer width="100%" height={270}>
-              <ComposedChart data={sliced} margin={{left:0,right:6}}>
+              <ComposedChart data={sliced} syncId="stockChart" margin={{left:0,right:6}}>
                 <CartesianGrid stroke="rgba(255,255,255,.03)"/>
                 <XAxis dataKey="date" tick={{fill:C.muted,fontSize:7}} tickLine={false} interval={Math.floor(sliced.length/5)||1}/>
                 <YAxis yAxisId="p" tick={{fill:C.muted,fontSize:7}} tickLine={false} domain={["auto","auto"]} tickFormatter={v=>unit==="원"?`${(v/1000).toFixed(0)}k`:v.toFixed(0)} width={40}/>
@@ -1498,13 +1512,13 @@ export default function App() {
                 <Scatter yAxisId="p" dataKey="buyNormal" fill="#fbbf24" shape={<BuyDot dataKey="buyNormal"/>}/>
               </ComposedChart>
             </ResponsiveContainer>
-          </div>}
+          </div>
 
           {/* MACD */}
           <div style={{...css.card,padding:"6px 6px 3px",marginBottom:6}}>
-            <div style={{fontSize:7,color:C.muted,paddingLeft:6,marginBottom:3}}>MACD</div>
+            <div style={{fontSize:8,color:C.muted,paddingLeft:6,marginBottom:3}}>MACD</div>
             <ResponsiveContainer width="100%" height={80}>
-              <ComposedChart data={sliced} margin={{left:0,right:6}}>
+              <ComposedChart data={sliced} syncId="stockChart" margin={{left:0,right:6}}>
                 <XAxis dataKey="date" tick={false} tickLine={false}/>
                 <YAxis tick={{fill:C.muted,fontSize:6}} tickLine={false} width={40} tickFormatter={v=>v.toFixed(1)}/>
                 <Tooltip content={<Tip/>}/>
@@ -1518,9 +1532,9 @@ export default function App() {
 
           {/* RSI */}
           <div style={{...css.card,padding:"6px 6px 3px",marginBottom:6}}>
-            <div style={{fontSize:7,color:C.muted,paddingLeft:6,marginBottom:3}}>RSI (14) — 현재 {lastD?.rsi?.toFixed(0)||"—"}</div>
+            <div style={{fontSize:8,color:C.muted,paddingLeft:6,marginBottom:3}}>RSI (14) — 현재 {lastD?.rsi?.toFixed(0)||"—"}</div>
             <ResponsiveContainer width="100%" height={80}>
-              <ComposedChart data={sliced} margin={{left:0,right:6}}>
+              <ComposedChart data={sliced} syncId="stockChart" margin={{left:0,right:6}}>
                 <XAxis dataKey="date" tick={{fill:C.muted,fontSize:6}} tickLine={false} interval={Math.floor(sliced.length/5)||1}/>
                 <YAxis domain={[0,100]} tick={{fill:C.muted,fontSize:6}} tickLine={false} ticks={[30,70]} width={40}/>
                 <Tooltip content={<Tip/>}/>
@@ -1595,11 +1609,7 @@ export default function App() {
               <span>🟡 압축중</span><span>🔴 해제</span><span>⚪ 없음</span>
             </div>
           </div>
-
-          {/* 기간 */}
-          <div style={{display:"flex",gap:3,justifyContent:"center",marginBottom:10}}>
-            {["1M","3M","6M","1Y","ALL"].map(p=><button key={p} onClick={()=>setPeriod(p)} style={{...css.btn(period===p),fontSize:8,padding:"2px 8px"}}>{p}</button>)}
-          </div>
+          </>}
 
           {/* 보조지표 4개 */}
           <div style={{...css.card,marginBottom:10}}>
@@ -1697,7 +1707,7 @@ export default function App() {
                       {t.foundSignals.map(sig=><span key={sig} style={{fontSize:7,padding:"2px 6px",borderRadius:3,background:"rgba(56,189,248,.12)",color:C.accent}}>{sig}</span>)}
                     </div>}
                     <div style={{display:"flex",gap:6}}>
-                      <button onClick={()=>{setSel(t.ticker);setTab("sniper");}} style={{flex:1,background:"rgba(56,189,248,.1)",border:`1px solid ${C.accent}`,color:C.accent,borderRadius:6,padding:"6px 0",cursor:"pointer",fontSize:9,fontWeight:700}}>📈 스나이퍼</button>
+                      <button onClick={()=>{setSel(t.ticker);setTab("sniper");}} style={{flex:1,background:"rgba(56,189,248,.1)",border:`1px solid ${C.accent}`,color:C.accent,borderRadius:6,padding:"6px 0",cursor:"pointer",fontSize:9,fontWeight:700}}>📈 차트 보기</button>
                       <button onClick={()=>{
                         const cdc=charts[t.ticker]?.data;const lD=cdc?.at(-1);const pInfo=pool[t.ticker]||{};
                         const snap={
@@ -1739,7 +1749,7 @@ export default function App() {
             </div>
             {overPositions&&<div style={{background:"rgba(239,68,68,.08)",border:`1px solid rgba(239,68,68,.3)`,borderRadius:7,padding:"6px 10px",marginBottom:10,fontSize:9,color:C.red,fontWeight:700}}>⚠ 최대 종목수 초과 ({positions.length}/{riskSettings.maxPositions}) — 일부 포지션 청산 고려</div>}
             {positions.length===0
-              ?<div style={{textAlign:"center",padding:"40px 0",color:C.muted}}><div style={{fontSize:28,marginBottom:8}}>💼</div><div>스나이퍼에서 "매수 등록" 또는 관찰중에서 "매수 전환"</div></div>
+              ?<div style={{textAlign:"center",padding:"40px 0",color:C.muted}}><div style={{fontSize:28,marginBottom:8}}>💼</div><div>차트에서 "매수 등록" 또는 관찰중에서 "매수 전환"</div></div>
               :<div style={{display:"flex",flexDirection:"column",gap:12}}>
                 {positions.map(pos=>{
                   const cur=pos.current,pnl=pos.pnl||0,trailStop=pos.trailStop;
