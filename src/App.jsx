@@ -398,6 +398,43 @@ function alphaScore(s, chartData, idxRS) {
 // ═══════════════════════════════════════════════════════════
 // 2b. ★ v2.1: CSV 내보내기 유틸
 // ═══════════════════════════════════════════════════════════
+
+// ★ v2.1: 피보나치 되돌림 계산
+function calcFibonacci(candles, lookback=60) {
+  if (!candles||candles.length<10) return null;
+  const slice = candles.slice(-Math.min(lookback,candles.length));
+  const high = Math.max(...slice.map(c=>c.high||c.close));
+  const low = Math.min(...slice.map(c=>c.low||c.close));
+  const range = high - low;
+  if (range <= 0) return null;
+  return {
+    high: +high.toFixed(2), low: +low.toFixed(2),
+    fib236: +(high - range*0.236).toFixed(2),
+    fib382: +(high - range*0.382).toFixed(2),
+    fib500: +(high - range*0.500).toFixed(2),
+    fib618: +(high - range*0.618).toFixed(2),
+    fib786: +(high - range*0.786).toFixed(2),
+  };
+}
+
+// ★ v2.1: 거래대금 계산 (volume × close)
+function calcTurnover(candles) {
+  if (!candles||!candles.length) return 0;
+  const last = candles[candles.length-1];
+  return (last.volume||0) * (last.close||0);
+}
+function fmtTurnover(v, isKR) {
+  if (!v) return "—";
+  if (isKR) {
+    if (v >= 1e12) return `${(v/1e12).toFixed(1)}조`;
+    if (v >= 1e8) return `${(v/1e8).toFixed(0)}억`;
+    return `${(v/1e6).toFixed(0)}백만`;
+  }
+  if (v >= 1e9) return `${(v/1e9).toFixed(1)}B`;
+  if (v >= 1e6) return `${(v/1e6).toFixed(0)}M`;
+  return `${(v/1e3).toFixed(0)}K`;
+}
+
 function exportCSV(closedLog) {
   if (!closedLog?.length) return;
   const headers = ["종목","티커","진입가","청산가","손익%","진입일","청산일","보유일수","청산사유","신호"];
@@ -550,7 +587,7 @@ export default function App() {
   const [btResult, setBtResult] = useState(null);
 
   // ── 차트 진입 ────────────────────────────────────────────
-  const [stopPct, setStopPct]   = useState(10);
+  const [stopPct, setStopPct]   = useState(()=>{ try{const s=localStorage.getItem("at_trail");return s?JSON.parse(s).initialStopPct||10:10;}catch{return 10;} });
   const [checklist, setChecklist] = useState({market:false,sector:false,stock:false,timing:false,risk:false});
 
   // ── 13번: 포지션 사이징 & 리스크 관리 ────────────────────
@@ -979,6 +1016,12 @@ export default function App() {
   const selPoolInfo = pool[sel] || selInfo || {};
   const entryScore  = calcEntryScore(cd?.data, vixVal, oppScore, selPoolInfo);
   const entryGradeColor = {S:C.emerald,A:C.green,B:C.yellow,C:"#fb923c",D:C.red}[entryScore.grade]||C.muted;
+
+  // ★ v2.1: 피보나치 + ATR 일변동폭 + 거래대금
+  const fibLevels = cd?.data ? calcFibonacci(cd.data.map(d=>({high:d.close*1.005,low:d.close*0.995,close:d.close}))) : null;
+  const atrDaily = lastD?.atr && curPrice>0 ? +((lastD.atr/curPrice)*100).toFixed(2) : null;
+  const atrDaysToTarget = atrDaily>0 && consTgt>curPrice ? Math.ceil(((consTgt-curPrice)/curPrice*100)/atrDaily) : null;
+  const selTurnover = cd?.data?.length ? calcTurnover(cd.data.map(d=>({volume:d.volume,close:d.close}))) : 0;
 
   const idxRS = {
     spy:  {chg3d:indicesData["^GSPC"]?.chg3d??-1.6,chg5d:indicesData["^GSPC"]?.chg5d??-2.0},
@@ -1562,9 +1605,9 @@ export default function App() {
             {watchlist.length===0
               ?<div style={{textAlign:"center",padding:"30px 0",color:C.muted}}>히트맵 ★ 눌러 추가</div>
               :<div style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,minWidth:480}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,minWidth:560}}>
                   <thead><tr style={{background:"rgba(255,255,255,.04)"}}>
-                    {["종목","현재가","3일","5일","vs시장","거래량","일목"].map(h=>(
+                    {["종목","현재가","3일","5일","vs시장","거래량","일목","등급"].map(h=>(
                       <th key={h} style={{padding:"6px 8px",textAlign:"left",color:C.muted,fontSize:8,fontWeight:700,borderBottom:`1px solid ${C.border}`}}>{h}</th>
                     ))}
                   </tr></thead>
@@ -1573,6 +1616,7 @@ export default function App() {
                       const cdc=charts[stock.ticker]?.data;const lD=cdc?.at(-1);
                       const iSt=lD?.aboveCloud?"above":lD?.nearCloud?"near":"below";
                       const isKR=(stock.ticker?.length||0)>5;
+                      const es2=calcEntryScore(cdc,vixVal,oppScore,pool[stock.ticker]||stock);
                       return(
                         <tr key={stock.ticker} onClick={()=>{setSel(stock.ticker);setTab("sniper");}} style={{borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer"}}>
                           <td style={{padding:"6px 8px",fontWeight:700}}>{stock.market} {stock.label}</td>
@@ -1582,6 +1626,7 @@ export default function App() {
                           <td style={{padding:"6px 8px",color:(stock.rs||0)>=0?C.emerald:C.red,fontWeight:700}}>{(stock.rs||0)>=0?"+":""}{(stock.rs||0).toFixed(1)}%p</td>
                           <td style={{padding:"6px 8px",color:(stock.volRatio||100)>=150?C.green:C.muted}}>{stock.volRatio||"-"}%</td>
                           <td style={{padding:"6px 8px"}}><span style={{fontSize:9,fontWeight:700,color:iSt==="above"?C.emerald:iSt==="near"?C.yellow:"#f87171"}}>{iSt==="above"?"구름위":iSt==="near"?"접근":"아래"}</span></td>
+                          <td style={{padding:"6px 8px"}}><span style={{fontSize:9,fontWeight:800,color:es2.grade==="S"?C.emerald:es2.grade==="A"?C.green:es2.grade==="B"?C.yellow:C.muted}}>{es2.grade}</span></td>
                         </tr>
                       );
                     })}
@@ -1676,28 +1721,90 @@ export default function App() {
             </div>
           </div>}
 
-          {/* 손절가 슬라이더 */}
+          {/* ★ v2.1: 피보나치 되돌림 */}
+          {fibLevels&&<div style={{background:"rgba(167,139,250,.06)",border:"1px solid rgba(167,139,250,.25)",borderRadius:8,padding:"9px 12px",marginBottom:8}}>
+            <div style={{fontSize:8,fontWeight:700,color:C.purple,marginBottom:5}}>📐 피보나치 되돌림 (60일)</div>
+            <div style={{display:"flex",gap:4}}>
+              {[["고점",fibLevels.high,C.green],["38.2%",fibLevels.fib382,C.accent],["50%",fibLevels.fib500,C.yellow],["61.8%",fibLevels.fib618,C.purple],["저점",fibLevels.low,C.red]].map(([lbl,price,col])=>(
+                <div key={lbl} style={{flex:1,textAlign:"center",padding:"3px 0",borderRadius:4,background:curPrice>=price*0.99&&curPrice<=price*1.01?`${col}22`:"transparent",border:curPrice>=price*0.99&&curPrice<=price*1.01?`1px solid ${col}`:"1px solid transparent"}}>
+                  <div style={{fontSize:7,color:C.muted}}>{lbl}</div>
+                  <div style={{fontSize:10,fontWeight:700,color:col}}>{unit}{fmtPrice(price,isKRSel)}</div>
+                  <div style={{fontSize:7,color:price>curPrice?C.green:C.red}}>{price>curPrice?"+":""}{((price-curPrice)/curPrice*100).toFixed(1)}%</div>
+                </div>
+              ))}
+            </div>
+          </div>}
+
+          {/* 손절가 슬라이더 (리스크설정 연동) */}
           <div style={{...css.panel2,marginBottom:10}}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-              <span style={{fontSize:9,color:C.muted}}>손절가 설정</span>
+              <span style={{fontSize:9,color:C.muted}}>손절가 설정 (리스크 기본: -{trailSettings.initialStopPct}%)</span>
               <span style={{fontSize:9,fontWeight:700,color:C.red}}>-{stopPct}% → {unit}{fmtPrice(stopPrice,isKRSel)}</span>
             </div>
             <input type="range" min="3" max="20" value={stopPct} onChange={e=>setStopPct(+e.target.value)} style={{width:"100%",accentColor:C.red}}/>
           </div>
 
-          {/* 13번: 권장 매수금액 */}
-          {perStockMax>0&&<div style={{background:"rgba(56,189,248,.06)",border:`1px solid rgba(56,189,248,.2)`,borderRadius:8,padding:"8px 12px",marginBottom:10}}>
-            <div style={{fontSize:9,fontWeight:700,color:C.accent,marginBottom:6}}>💰 권장 매수금액 (총 {unit==="₩"?"₩":"$"}{fmtKRW(riskSettings.totalCapital)} 기준)</div>
-            {overPositions&&<div style={{fontSize:8,color:C.red,marginBottom:4}}>⚠ 최대 종목수 초과 ({currentExposure}/{riskSettings.maxPositions})</div>}
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4}}>
-              {["1차","2차","3차","4차"].map((lbl,i)=>(
-                <div key={i} style={{background:"rgba(0,0,0,.4)",borderRadius:5,padding:"5px 7px",textAlign:"center"}}>
-                  <div style={{fontSize:7,color:C.muted}}>{lbl} (25%)</div>
-                  <div style={{fontSize:10,fontWeight:700,color:C.accent}}>₩{fmtKRW(pyramidAmts[i])}</div>
-                </div>
-              ))}
+          {/* ★ v2.1: 매수 시뮬레이터 (풀세트) */}
+          {perStockMax>0&&<div style={{...css.card,border:`1px solid ${C.accent}`,marginBottom:10}}>
+            <div style={{fontSize:10,fontWeight:700,color:C.accent,marginBottom:8}}>🧮 매수 시뮬레이터</div>
+            {overPositions&&<div style={{fontSize:8,color:C.red,marginBottom:6}}>⚠ 최대 종목수 초과 ({currentExposure}/{riskSettings.maxPositions})</div>}
+
+            {/* ATR 일변동폭 */}
+            {atrDaily&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:8}}>
+              <div style={{background:"rgba(0,0,0,.3)",borderRadius:6,padding:"6px",textAlign:"center"}}>
+                <div style={{fontSize:7,color:C.muted}}>ATR 일변동폭</div>
+                <div style={{fontSize:14,fontWeight:900,color:C.accent}}>±{atrDaily}%</div>
+                <div style={{fontSize:7,color:C.muted}}>하루 평균 움직임</div>
+              </div>
+              <div style={{background:"rgba(0,0,0,.3)",borderRadius:6,padding:"6px",textAlign:"center"}}>
+                <div style={{fontSize:7,color:C.muted}}>거래대금</div>
+                <div style={{fontSize:14,fontWeight:900,color:C.text}}>{fmtTurnover(selTurnover,isKRSel)}</div>
+                <div style={{fontSize:7,color:C.muted}}>금일 추정</div>
+              </div>
+              <div style={{background:"rgba(0,0,0,.3)",borderRadius:6,padding:"6px",textAlign:"center"}}>
+                <div style={{fontSize:7,color:C.muted}}>목표 도달 예상</div>
+                <div style={{fontSize:14,fontWeight:900,color:atrDaysToTarget?C.emerald:C.muted}}>{atrDaysToTarget?`~${atrDaysToTarget}일`:"—"}</div>
+                <div style={{fontSize:7,color:C.muted}}>ATR 기준 추정</div>
+              </div>
+            </div>}
+
+            {/* 단계별 매수 시뮬 */}
+            <div style={{fontSize:8,fontWeight:700,color:C.purple,marginBottom:6}}>📐 분할매수 시뮬레이션 (₩{fmtKRW(perStockMax)} 기준)</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4,marginBottom:8}}>
+              {PYRAMID_RULES.map((r,i)=>{
+                const amt=pyramidAmts[i];
+                const shares=curPrice>0?Math.floor(amt/curPrice):0;
+                const triggerPrice=i===0?curPrice:+(curPrice*(1+r.targetPct/100)).toFixed(isKRSel?0:2);
+                const pnlAtTarget=consTgt>0&&triggerPrice>0?+((consTgt-triggerPrice)/triggerPrice*100).toFixed(1):null;
+                return <div key={i} style={{background:"rgba(167,139,250,.06)",border:`1px solid rgba(167,139,250,.2)`,borderRadius:6,padding:"6px",textAlign:"center"}}>
+                  <div style={{fontSize:8,color:C.purple,fontWeight:700}}>{r.label}</div>
+                  <div style={{fontSize:12,fontWeight:900,color:C.text}}>{r.pct}%</div>
+                  <div style={{fontSize:8,color:C.accent,fontWeight:700}}>₩{fmtKRW(amt)}</div>
+                  <div style={{fontSize:7,color:C.muted}}>{shares}주 × {unit}{fmtPrice(triggerPrice,isKRSel)}</div>
+                  <div style={{fontSize:7,color:i===0?C.muted:C.emerald}}>{i===0?"진입시":`+${r.targetPct}%시`}</div>
+                </div>;
+              })}
             </div>
-            <div style={{fontSize:7,color:C.muted,marginTop:5}}>최대 비중: {riskSettings.maxWeightPct}% · 종목당 ₩{fmtKRW(perStockMax)}</div>
+
+            {/* 예상 손익 계산 */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:6}}>
+              <div style={{background:"rgba(239,68,68,.08)",borderRadius:6,padding:"6px",textAlign:"center"}}>
+                <div style={{fontSize:7,color:C.red}}>전량 손절 시 (-{stopPct}%)</div>
+                <div style={{fontSize:12,fontWeight:900,color:C.red}}>-₩{fmtKRW(Math.round(pyramidAmts[0]*stopPct/100))}</div>
+                <div style={{fontSize:7,color:C.muted}}>1차 기준</div>
+              </div>
+              <div style={{background:"rgba(16,185,129,.08)",borderRadius:6,padding:"6px",textAlign:"center"}}>
+                <div style={{fontSize:7,color:C.emerald}}>2R 목표 도달 시</div>
+                <div style={{fontSize:12,fontWeight:900,color:C.emerald}}>+₩{fmtKRW(Math.round(pyramidAmts[0]*stopPct*2/100))}</div>
+                <div style={{fontSize:7,color:C.muted}}>R:R {rrRatio}:1</div>
+              </div>
+              <div style={{background:"rgba(167,139,250,.08)",borderRadius:6,padding:"6px",textAlign:"center"}}>
+                <div style={{fontSize:7,color:C.purple}}>풀매수+목표 도달</div>
+                <div style={{fontSize:12,fontWeight:900,color:C.purple}}>{consTgt>curPrice?`+₩${fmtKRW(Math.round(perStockMax*((consTgt-curPrice)/curPrice)))}`:"—"}</div>
+                <div style={{fontSize:7,color:C.muted}}>{consTgt>curPrice?`+${((consTgt-curPrice)/curPrice*100).toFixed(1)}%`:""}</div>
+              </div>
+            </div>
+            <div style={{fontSize:7,color:C.muted}}>종목당 최대: ₩{fmtKRW(perStockMax)} · 비중 {riskSettings.maxWeightPct}% · 총자본 ₩{fmtKRW(riskSettings.totalCapital)}</div>
           </div>}
 
           {/* 매수 버튼 */}
@@ -1718,7 +1825,7 @@ export default function App() {
               entryPts: entryScore.score,
               conditions: entryScore.breakdown.filter(b=>b.ok).map(b=>b.label),
             };
-            setPositions(p=>[...p,{id:Date.now(),ticker:sel,label:selInfo.label,market:selInfo.market,entry:curPrice,current:curPrice,max:curPrice,trailStop:+(curPrice*(1-trailSettings.initialStopPct/100)).toFixed(isKRSel?0:2),trailMode:false,target:consTgt,pnl:0,date:new Date().toLocaleDateString("ko-KR"),entryTime:new Date().toLocaleTimeString("ko-KR"),foundScore:entryScore.score,foundGrade:entryScore.grade,foundSignals:entryScore.breakdown.filter(b=>b.ok).map(b=>b.label),snapshot:snap,oppScoreAt:oppScore,pyramid:[{level:1,targetPct:5,triggered:false},{level:2,targetPct:10,triggered:false},{level:3,targetPct:15,triggered:false}]}]);
+            setPositions(p=>[...p,{id:Date.now(),ticker:sel,label:selInfo.label,market:selInfo.market,entry:curPrice,current:curPrice,max:curPrice,trailStop:+(curPrice*(1-trailSettings.initialStopPct/100)).toFixed(isKRSel?0:2),trailMode:false,target:consTgt,pnl:0,date:new Date().toLocaleDateString("ko-KR"),entryTime:new Date().toLocaleTimeString("ko-KR"),foundScore:entryScore.score,foundGrade:entryScore.grade,foundSignals:entryScore.breakdown.filter(b=>b.ok).map(b=>b.label),snapshot:snap,oppScoreAt:oppScore,pyramid:PYRAMID_RULES.map((r,i)=>({step:i+1,label:r.label,pct:r.pct,targetPct:r.targetPct,triggered:i===0,amount:pyramidAmts[i]}))}]);
             setTab("track");setTrackTab("hold");setAddMsg(`📌 ${selInfo.label} 매수 등록`);setTimeout(()=>setAddMsg(""),2500);
           }} style={{width:"100%",background:"linear-gradient(135deg,#10b981,#059669)",border:`1px solid ${C.emerald}`,borderRadius:8,padding:"12px 16px",color:"#000",fontWeight:900,fontSize:11,cursor:"pointer",marginBottom:10}}>
             📈 매수 등록 → 추적 탭으로 이동
@@ -1864,11 +1971,12 @@ export default function App() {
           {/* 보조지표 4개 */}
           <div style={{...css.card,marginBottom:10}}>
             <div style={{fontSize:10,fontWeight:700,color:C.accent,marginBottom:8}}>📉 보조 지표</div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:7}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:7}}>
               {[
                 {l:"RSI",v:lastD?.rsi?.toFixed(0)||"-",c:lastD?.rsi>70?C.red:lastD?.rsi<30?C.green:C.text,d:lastD?.rsi>70?"⚠과매수":lastD?.rsi<30?"🎯과매도":"정상"},
                 {l:"MACD",v:lastD?.macd>lastD?.signal?"크로스↑":"크로스↓",c:lastD?.macd>lastD?.signal?C.green:C.red,d:lastD?.hist>0?"양봉":"음봉"},
-                {l:"거래량",v:`${selInfo?.volRatio||selInfo?._volRatio||"-"}%`,c:(selInfo?.volRatio||selInfo?._volRatio||0)>=150?C.green:(selInfo?.volRatio||selInfo?._volRatio||0)>=100?C.yellow:C.muted,d:(selInfo?.volRatio||selInfo?._volRatio||0)>=150?"급증":(selInfo?.volRatio||selInfo?._volRatio||0)>=100?"증가":"보통"},
+                {l:"거래량",v:`${selInfo?.volRatio||selInfo?._volRatio||"-"}%`,c:(selInfo?.volRatio||selInfo?._volRatio||0)>=150?C.green:(selInfo?.volRatio||selInfo?._volRatio||0)>=100?C.yellow:C.muted,d:(selInfo?.volRatio||selInfo?._volRatio||0)>=150?"급증":"보통"},
+                {l:"거래대금",v:fmtTurnover(selTurnover,isKRSel),c:C.text,d:isKRSel?"원":"USD"},
                 {l:"RS강도",v:`${((selInfo.chg5d||0)-idxRS.spy.chg5d).toFixed(1)}%p`,c:((selInfo.chg5d||0)-idxRS.spy.chg5d)>3?C.emerald:((selInfo.chg5d||0)-idxRS.spy.chg5d)>0?C.yellow:C.red,d:((selInfo.chg5d||0)-idxRS.spy.chg5d)>3?"매우강":"보통"},
               ].map((m,i)=>(
                 <div key={i} style={{background:C.panel2,borderRadius:7,padding:"8px 10px",textAlign:"center"}}>
@@ -1972,7 +2080,7 @@ export default function App() {
                           entryPts:calcEntryScore(cdc,vixVal,oppScore,pInfo).score,
                           conditions:(t.foundSignals||[]),
                         };
-                        setPositions(p=>[...p,{id:Date.now(),ticker:t.ticker,label:t.label,market:t.market,entry:cur,current:cur,max:cur,trailStop:+(cur*(1-trailSettings.initialStopPct/100)).toFixed(isKR?0:2),trailMode:false,target:0,pnl:0,date:new Date().toLocaleDateString("ko-KR"),entryTime:new Date().toLocaleTimeString("ko-KR"),foundScore:t.foundScore,foundSignals:t.foundSignals,foundRS:t.foundRS,snapshot:snap,oppScoreAt:t.oppScoreAt,pyramid:[{level:1,targetPct:5,triggered:false},{level:2,targetPct:10,triggered:false},{level:3,targetPct:15,triggered:false}]}]);
+                        setPositions(p=>[...p,{id:Date.now(),ticker:t.ticker,label:t.label,market:t.market,entry:cur,current:cur,max:cur,trailStop:+(cur*(1-trailSettings.initialStopPct/100)).toFixed(isKR?0:2),trailMode:false,target:0,pnl:0,date:new Date().toLocaleDateString("ko-KR"),entryTime:new Date().toLocaleTimeString("ko-KR"),foundScore:t.foundScore,foundSignals:t.foundSignals,foundRS:t.foundRS,snapshot:snap,oppScoreAt:t.oppScoreAt,pyramid:PYRAMID_RULES.map((r,idx)=>({step:idx+1,label:r.label,pct:r.pct,targetPct:r.targetPct,triggered:idx===0,amount:pyramidAmts[idx]}))}]);
                         setTracking(p=>p.filter((_,j)=>j!==i));
                         setTrackTab("hold");
                       }} style={{flex:1,background:"rgba(16,185,129,.1)",border:`1px solid ${C.emerald}`,color:C.emerald,borderRadius:6,padding:"6px 0",cursor:"pointer",fontSize:9,fontWeight:700}}>💼 매수 전환</button>
@@ -2023,7 +2131,7 @@ export default function App() {
                       <span>⏰ 타임컷 경고 — {tc.daysHeld}일 보유, 손익 ±{tc.absPnl?.toFixed(1)}% (박스권 {trailSettings.timeCutDays}일/{trailSettings.timeCutPct}% 기준)</span>
                       <button onClick={()=>{
                         if(window.confirm(`${pos.label}: ${tc.daysHeld}일간 ±${tc.absPnl?.toFixed(1)}% 정체. 타임컷 청산하시겠습니까?`)){
-                          setClosedLog(h=>[{...pos,exitPrice:cur,exitDate:new Date().toLocaleDateString("ko-KR"),finalPnl:pnl,reason:"타임컷",phase:"hold"},...h]);
+                          setClosedLog(h=>[{...pos,exitPrice:cur,exitDate:new Date().toLocaleDateString("ko-KR"),finalPnl:pnl,reason:"타임컷",phase:"hold",holdDays:pos.timeCutInfo?.daysHeld||0},...h]);
                           setPositions(p=>p.filter(x=>x.id!==pos.id));
                         }
                       }} style={{background:"rgba(251,146,60,.2)",border:"1px solid #fb923c",color:"#fb923c",borderRadius:4,padding:"2px 8px",cursor:"pointer",fontSize:8,fontWeight:700,flexShrink:0}}>⏰ 타임컷 청산</button>
@@ -2052,7 +2160,7 @@ export default function App() {
                         </div>
                         <button onClick={()=>{
                           if(window.confirm(`${pos.label} 포지션을 청산하시겠어요?`)){
-                            setClosedLog(h=>[{...pos,exitPrice:cur,exitDate:new Date().toLocaleDateString("ko-KR"),finalPnl:pnl,reason:"수동청산",phase:"hold"},...h]);
+                            setClosedLog(h=>[{...pos,exitPrice:cur,exitDate:new Date().toLocaleDateString("ko-KR"),finalPnl:pnl,reason:"수동청산",phase:"hold",holdDays:pos.timeCutInfo?.daysHeld||0},...h]);
                             setPositions(p=>p.filter(x=>x.id!==pos.id));
                           }
                         }} style={{background:"rgba(239,68,68,.1)",border:"1px solid rgba(239,68,68,.3)",color:C.red,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:9,fontWeight:700,flexShrink:0}}>청산 ✕</button>
@@ -2119,8 +2227,8 @@ export default function App() {
             {closedLog.length===0
               ?<div style={{textAlign:"center",padding:"30px 0",color:C.muted}}>청산 기록 없음</div>
               :<div style={{...css.card,padding:0,overflow:"hidden"}}>
-                <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr",padding:"6px 10px",background:"rgba(255,255,255,.03)",fontSize:8,color:C.muted,fontWeight:700}}>
-                  <span>종목</span><span>매수가</span><span>청산가</span><span>손익</span><span>이유</span>
+                <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 0.7fr 0.8fr",padding:"6px 10px",background:"rgba(255,255,255,.03)",fontSize:8,color:C.muted,fontWeight:700}}>
+                  <span>종목</span><span>매수가</span><span>청산가</span><span>손익</span><span>보유</span><span>이유</span>
                 </div>
                 {closedLog.map((h,i)=>{
                   const pnl=parseFloat(h.pnl||h.finalPnl||0);
@@ -2128,12 +2236,13 @@ export default function App() {
                   const u=isKR?"₩":"$";
                   const entry=h.entry||h.basePrice||0;
                   const exit=h.exitPrice||h.current||0;
-                  return<div key={i} style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr",padding:"8px 10px",borderTop:"1px solid rgba(255,255,255,.04)",fontSize:9,background:pnl>=0?"rgba(34,197,94,.03)":"rgba(239,68,68,.03)"}}>
+                  return<div key={i} style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 0.7fr 0.8fr",padding:"8px 10px",borderTop:"1px solid rgba(255,255,255,.04)",fontSize:9,background:pnl>=0?"rgba(34,197,94,.03)":"rgba(239,68,68,.03)"}}>
                     <div><div style={{fontWeight:700}}>{h.market} {h.label}</div><div style={{fontSize:7,color:C.muted}}>{h.addedDate||h.date} → {h.exitDate}</div></div>
-                    <span>{u}{entry.toLocaleString()}</span>
-                    <span>{u}{exit.toLocaleString()}</span>
+                    <span>{u}{isKR?fmtKRW(entry):entry.toLocaleString()}</span>
+                    <span>{u}{isKR?fmtKRW(exit):exit.toLocaleString()}</span>
                     <span style={{color:pnl>=0?C.green:C.red,fontWeight:700}}>{pnl>=0?"+":""}{pnl.toFixed(2)}%</span>
-                    <span style={{color:C.muted,fontSize:8}}>{h.reason||"수동"}</span>
+                    <span style={{color:C.muted,fontSize:8}}>{h.holdDays?`${h.holdDays}일`:"—"}</span>
+                    <span style={{color:h.reason==="타임컷"?"#fb923c":C.muted,fontSize:8}}>{h.reason||"수동"}</span>
                   </div>;
                 })}
               </div>
@@ -2363,8 +2472,8 @@ export default function App() {
             </div>
             {tradeJournal.length>0&&<div style={{display:"flex",gap:6,marginBottom:8}}>
               <button onClick={()=>{
-                const hd=["날짜","시간","종목","유형","감정","사유","메모"];
-                const rw=tradeJournal.map(j=>[j.date,j.time,j.ticker,j.type,j.emotion,j.reason,j.note]);
+                const hd=["날짜","시간","종목","유형","감정","사유","메모","가격","등락%","ST","RSI","구름","등급"];
+                const rw=tradeJournal.map(j=>[j.date,j.time,j.ticker,j.type,j.emotion,j.reason,j.note,j.price||"",j.changePct||"",j.stCount!=null?`${j.stCount}/3`:"",j.rsi||"",j.cloud||"",j.entryGrade||""]);
                 const csv2=[hd,...rw].map(r=>r.map(v=>`"${(v||"").replace(/"/g,'""')}"`).join(",")).join("\n");
                 const blob=new Blob(["\uFEFF"+csv2],{type:"text/csv;charset=utf-8;"});
                 const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=`apex_journal_${new Date().toISOString().slice(0,10)}.csv`;a.click();URL.revokeObjectURL(url);
