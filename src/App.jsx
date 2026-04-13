@@ -1,5 +1,5 @@
 /**
- * Apex v2.1 — App.jsx
+ * Alpha Terminal v2.2 — App.jsx
  * 추가: 에쿼티커브 / 매매일지 / CSV내보내기 / 불타기룰(30/30/25/15)
  * 리디자인: 다크 네이비 / 만원단위 / AI분석 API경유 / 성적리셋 / quarterly모드
  */
@@ -29,7 +29,7 @@ const SIG = {
 const PERIOD_DAYS = { "1M":22, "3M":66, "6M":130, "1Y":252, "ALL":9999 };
 const INITIAL = [];
 
-// ★ v2.1: 불타기 룰 (30/30/25/15 — 빠른 손절 전제)
+// ★ v2.2: 불타기 룰 (30/30/25/15 — 빠른 손절 전제)
 const PYRAMID_RULES = [
   { pct: 30, label: "1차 정찰", targetPct: 0 },
   { pct: 30, label: "2차 확인", targetPct: 3 },
@@ -62,7 +62,7 @@ const KR_NAME_DB = {
 
 
 // ═══════════════════════════════════════════════════════════
-// 1b. Opportunity Score (★ v2.1: US/KR 분리)
+// 1b. Opportunity Score (★ v2.2: US/KR 분리)
 function calcOpportunityScore(vix, spChg3d, kospiChg3d, sectorRS) {
   let score = 50;
   if (vix > 0) {
@@ -396,10 +396,10 @@ function alphaScore(s, chartData, idxRS) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 2b. ★ v2.1: CSV 내보내기 유틸
+// 2b. ★ v2.2: CSV 내보내기 유틸
 // ═══════════════════════════════════════════════════════════
 
-// ★ v2.1: 피보나치 되돌림 계산
+// ★ v2.2: 피보나치 되돌림 계산
 function calcFibonacci(candles, lookback=60) {
   if (!candles||candles.length<10) return null;
   const slice = candles.slice(-Math.min(lookback,candles.length));
@@ -417,7 +417,7 @@ function calcFibonacci(candles, lookback=60) {
   };
 }
 
-// ★ v2.1: 거래대금 계산 (volume × close)
+// ★ v2.2: 거래대금 계산 (volume × close)
 function calcTurnover(candles) {
   if (!candles||!candles.length) return 0;
   const last = candles[candles.length-1];
@@ -448,12 +448,12 @@ function exportCSV(closedLog) {
   const blob = new Blob([BOM + csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a"); a.href = url;
-  a.download = `apex_trades_${new Date().toISOString().slice(0,10)}.csv`;
+  a.download = `alpha_trades_${new Date().toISOString().slice(0,10)}.csv`;
   a.click(); URL.revokeObjectURL(url);
 }
 
 // ═══════════════════════════════════════════════════════════
-// 2c. ★ v2.1: 에쿼티 커브 데이터 생성
+// 2c. ★ v2.2: 에쿼티 커브 데이터 생성
 // ═══════════════════════════════════════════════════════════
 function buildEquityCurve(closedLog, initialCapital=10000000) {
   if (!closedLog?.length) return [];
@@ -475,9 +475,9 @@ function buildEquityCurve(closedLog, initialCapital=10000000) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 2d. ★ v2.1: 브라우저 알림 헬퍼
+// 2d. ★ v2.2: 브라우저 알림 헬퍼
 // ═══════════════════════════════════════════════════════════
-// ★ v2.1: 지수 미니차트 데이터 생성
+// ★ v2.2: 지수 미니차트 데이터 생성
 function genIndexChart(price, chg3d, chg5d, vol=0.008) {
   if (!price || price <= 0) return [];
   const data = []; const now = new Date();
@@ -496,7 +496,7 @@ function genIndexChart(price, chg3d, chg5d, vol=0.008) {
 function sendNotification(title, body, tag) {
   // 브라우저 알림
   if ("Notification" in window && Notification.permission === "granted") {
-    try { new Notification(title, { body, icon: "📊", tag: tag||"apex", renotify: true }); } catch {}
+    try { new Notification(title, { body, icon: "📊", tag: tag||"alpha-terminal", renotify: true }); } catch {}
   }
 }
 function requestNotifPermission() {
@@ -515,7 +515,7 @@ function Tip({active,payload,label}){
 function BuyDot({cx,cy,payload,dataKey}){if(!payload?.[dataKey])return null;const c=dataKey==="buyStrong"?"#4ade80":"#fbbf24",sz=dataKey==="buyStrong"?11:8;return<g><polygon points={`${cx},${cy-sz} ${cx-sz*.8},${cy+sz*.5} ${cx+sz*.8},${cy+sz*.5}`} fill={c} stroke="#000" strokeWidth="1" opacity=".9"/></g>;}
 function HistBar({x,y,width,height,value}){if(value==null)return null;const h=Math.abs(height),pos=value>0;return<rect x={x} y={pos?y:y+height-h} width={Math.max(1,width)} height={h} fill={pos?"rgba(34,197,94,.7)":"rgba(239,68,68,.7)"} rx={1}/>;}
 
-// ── 가격 포맷 (★ v2.1: K단위 통일) ─────────────
+// ── 가격 포맷 (★ v2.2: K단위 통일) ─────────────
 function fmtKRW(v) {
   if (!v && v !== 0) return "—";
   if (Math.abs(v) >= 1000000) return `${(v/1000).toLocaleString("ko-KR",{maximumFractionDigits:0})}K`;
@@ -552,7 +552,7 @@ export default function App() {
   const [addMsg, setAddMsg] = useState("");
   const [period, setPeriod] = useState("3M");
   const [selectedSector, setSelectedSector] = useState(null);
-  // ★ v2.1: 지수 미니차트
+  // ★ v2.2: 지수 미니차트
   const [selIndex, setSelIndex] = useState(null);
 
   // ── 데이터 상태 ──────────────────────────────────────────
@@ -616,11 +616,11 @@ export default function App() {
   // ── 기타 ────────────────────────────────────────────────
   const [investNotes, setInvestNotes] = useState(()=>{try{return localStorage.getItem("at_notes")||"";}catch{return "";}});
 
-  // ── ★ v2.1: 매매 일지 ──────────────────────────────────
+  // ── ★ v2.2: 매매 일지 ──────────────────────────────────
   const [tradeJournal, setTradeJournal] = useState(()=>{try{const s=localStorage.getItem("at_journal");return s?JSON.parse(s):[];}catch{return [];}});
   const [journalDraft, setJournalDraft] = useState({ticker:"",type:"진입",reason:"",emotion:"보통",note:""});
 
-  // ── ★ v2.1: 알림 시스템 ──────────────────────────────────
+  // ── ★ v2.2: 알림 시스템 ──────────────────────────────────
   const [alerts, setAlerts] = useState([]);
 
   // ════════════════════════════════════════════════════════
@@ -670,7 +670,7 @@ export default function App() {
       const pyramid=pos.pyramid||[];
       const updatedPyramid=pyramid.map(lv=>{
         if(!lv.triggered&&pnl>=lv.targetPct){
-          // ★ v2.1: 브라우저 알림 발사
+          // ★ v2.2: 브라우저 알림 발사
           const msg=`${pos.label} +${pnl.toFixed(1)}% → ${lv.level||lv.step||""}차 불타기 목표 도달!`;
           sendNotification("🔥 불타기 알림", msg, `pyramid-${pos.id}-${lv.level||lv.step}`);
           setAlerts(a=>[{id:Date.now(),type:"pyramid",msg,ticker:pos.ticker,time:new Date().toLocaleTimeString("ko-KR")},...a].slice(0,20));
@@ -678,7 +678,7 @@ export default function App() {
         }
         return lv;
       });
-      // ★ v2.1: 매도 목표가 도달 알림
+      // ★ v2.2: 매도 목표가 도달 알림
       const target=pos.target||0;
       if(target>0&&cur>=target&&!pos._targetAlerted){
         const msg2=`${pos.label} 목표가 도달! 현재 ${cur.toLocaleString()} ≥ 목표 ${target.toLocaleString()} (+${pnl.toFixed(1)}%)`;
@@ -686,7 +686,7 @@ export default function App() {
         setAlerts(a=>[{id:Date.now(),type:"target",msg:msg2,ticker:pos.ticker,time:new Date().toLocaleTimeString("ko-KR")},...a].slice(0,20));
         pos._targetAlerted=true;
       }
-      // ★ v2.1: 손절선 근접 알림 (5% 이내)
+      // ★ v2.2: 손절선 근접 알림 (5% 이내)
       const trailDist=pos.trailStop>0?((cur-newTrail)/cur*100):99;
       if(trailDist<2&&!pos._stopAlerted){
         const msg3=`${pos.label} 손절선 근접! 현재가-손절가 ${trailDist.toFixed(1)}%`;
@@ -694,7 +694,7 @@ export default function App() {
         setAlerts(a=>[{id:Date.now(),type:"stop",msg:msg3,ticker:pos.ticker,time:new Date().toLocaleTimeString("ko-KR")},...a].slice(0,20));
         pos._stopAlerted=true;
       }else if(trailDist>=5){pos._stopAlerted=false;}
-      // ★ v2.1: 타임컷 판정 (박스권 감지)
+      // ★ v2.2: 타임컷 판정 (박스권 감지)
       const entryDate=pos.date||pos.entryDate;
       const daysHeld=entryDate?Math.round((Date.now()-new Date(entryDate).getTime())/86400000):0;
       const absPnl=Math.abs(pnl);
@@ -812,7 +812,7 @@ export default function App() {
     finally{setAiLoading(false);}
   },[closedLog]);
 
-  // ★ v2.1: 매매 일지 추가
+  // ★ v2.2: 매매 일지 추가
   function addJournalEntry() {
     if (!journalDraft.ticker && !journalDraft.note) return;
     const tk = journalDraft.ticker || sel || "";
@@ -1006,7 +1006,7 @@ export default function App() {
   const oppLabel    = oppScore>=70?"HIGH":oppScore>=45?"MODERATE":"LOW";
   const oppColor    = oppScore>=70?C.emerald:oppScore>=45?C.yellow:C.red;
 
-  // ★ v2.1: US/KR 분리 점수
+  // ★ v2.2: US/KR 분리 점수
   const oppScoreUS  = calcOppScoreUS(vixVal,spChg3d,SECTOR_RS);
   const oppScoreKR  = calcOppScoreKR(kospiChg3d,SECTOR_RS);
   const oppColorUS  = oppScoreUS>=70?C.emerald:oppScoreUS>=45?C.yellow:C.red;
@@ -1017,7 +1017,7 @@ export default function App() {
   const entryScore  = calcEntryScore(cd?.data, vixVal, oppScore, selPoolInfo);
   const entryGradeColor = {S:C.emerald,A:C.green,B:C.yellow,C:"#fb923c",D:C.red}[entryScore.grade]||C.muted;
 
-  // ★ v2.1: 피보나치 + ATR 일변동폭 + 거래대금
+  // ★ v2.2: 피보나치 + ATR 일변동폭 + 거래대금
   const fibLevels = cd?.data ? calcFibonacci(cd.data.map(d=>({high:d.close*1.005,low:d.close*0.995,close:d.close}))) : null;
   const atrDaily = lastD?.atr && curPrice>0 ? +((lastD.atr/curPrice)*100).toFixed(2) : null;
   const atrDaysToTarget = atrDaily>0 && consTgt>curPrice ? Math.ceil(((consTgt-curPrice)/curPrice*100)/atrDaily) : null;
@@ -1064,7 +1064,7 @@ export default function App() {
   const currentExposure = positions.length;
   const overPositions   = currentExposure>=riskSettings.maxPositions;
 
-  // ★ v2.1: 에쿼티 커브 데이터
+  // ★ v2.2: 에쿼티 커브 데이터
   const equityCurveData = buildEquityCurve(closedLog, riskSettings.totalCapital);
 
   const TABS=[["radar","🌐 시장"],["alpha","🔍 발굴"],["sniper","📊 차트"],["track",`📁 추적 (${tracking.length+positions.length})`],["pool","🗃 종목풀"]];
@@ -1105,7 +1105,7 @@ export default function App() {
       {/* ── 헤더 ─────────────────────────────────── */}
       <div style={{borderBottom:`1px solid ${C.border}`,padding:"10px 16px",background:"#0d1526",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",position:"sticky",top:0,zIndex:50}}>
         <div>
-          <div style={{fontSize:15,fontWeight:900,color:C.accent,letterSpacing:3}}>✦ APEX <span style={{fontSize:10,color:C.muted,letterSpacing:1,fontWeight:400}}>v2.1</span></div>
+          <div style={{fontSize:15,fontWeight:900,color:C.accent,letterSpacing:3}}>✦ ALPHA TERMINAL <span style={{fontSize:10,color:C.muted,letterSpacing:1,fontWeight:400}}>v2.2</span></div>
           <div style={{fontSize:9,color:C.muted}}>추세추종 · RS랭킹 · 백테스트</div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:5}}>
@@ -1152,7 +1152,7 @@ export default function App() {
               <div style={{fontSize:10,fontWeight:700,color:C.emerald,textAlign:"center"}}>+{trailSettings.switchPct}% 이상</div>
             </div>
           </div>
-          {/* ★ v2.1: 타임컷 설정 */}
+          {/* ★ v2.2: 타임컷 설정 */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
             <div>
               <div style={{fontSize:9,color:C.muted,marginBottom:4}}>⏰ 타임컷 기간 (일)</div>
@@ -1170,7 +1170,7 @@ export default function App() {
             <div style={{fontSize:8,color:C.muted}}>종목당 최대 투자: ₩{fmtKRW(perStockMax)} · 1차 25%: ₩{fmtKRW(pyramidAmts[0])}</div>
             <button onClick={()=>setShowRiskPanel(false)} style={{...css.btn(),fontSize:9}}>닫기</button>
           </div>
-          {/* ★ v2.1: 불타기 룰 표시 */}
+          {/* ★ v2.2: 불타기 룰 표시 */}
           <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
             <div style={{fontSize:9,fontWeight:700,color:C.purple,marginBottom:6}}>📐 불타기 룰 (30/30/25/15)</div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4}}>
@@ -1222,7 +1222,7 @@ export default function App() {
         })}
       </div>
 
-      {/* ── ★ v2.1: 알림 배너 ─────────────────────── */}
+      {/* ── ★ v2.2: 알림 배너 ─────────────────────── */}
       {alerts.length>0&&<div style={{background:"#0d1526",borderBottom:`1px solid ${C.border}`,padding:"0 12px",maxHeight:80,overflowY:"auto"}}>
         {alerts.slice(0,3).map(a=>(
           <div key={a.id} style={{display:"flex",alignItems:"center",gap:8,padding:"4px 0",borderBottom:"1px solid rgba(255,255,255,.03)",animation:"pulse 2s ease-in-out 3"}}>
@@ -1266,7 +1266,7 @@ export default function App() {
               </div>;
             })}
           </div>
-          {/* ★ v2.1: 지수 미니차트 */}
+          {/* ★ v2.2: 지수 미니차트 */}
           {selIndex&&(()=>{
             const d=indicesData[selIndex];if(!d||!d.price)return null;
             const idxNames={"^GSPC":"S&P 500","^IXIC":"NASDAQ","^KS11":"KOSPI","^VIX":"VIX","KRW=X":"USD/KRW","^TNX":"미국 10Y 금리","GC=F":"금"};
@@ -1322,9 +1322,27 @@ export default function App() {
               })}
               {selectedSector&&(()=>{
                 const sec=SECTOR_RS.find(s=>s.etf===selectedSector);
-                if(!sec||!sec.members?.length)return null;
+                if(!sec)return null;
+                // ★ v2.2: 섹터 미니차트
+                const secChartD=genIndexChart(100*(1+sec.chg1M/100), sec.chg1W||0, sec.chg1M||0, 0.012);
                 return<div style={{marginTop:8,background:"rgba(56,189,248,.06)",border:`1px solid rgba(56,189,248,.2)`,borderRadius:7,padding:"8px 10px"}}>
-                  <div style={{fontSize:9,fontWeight:700,color:C.accent,marginBottom:6}}>{sec.name} 구성종목</div>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                    <div style={{fontSize:9,fontWeight:700,color:C.accent}}>{sec.name} ({sec.etf})</div>
+                    <div style={{display:"flex",gap:6,fontSize:8}}>
+                      <span style={{color:(sec.chg1W||0)>=0?C.green:C.red}}>1W {(sec.chg1W||0)>=0?"+":""}{(sec.chg1W||0).toFixed(1)}%</span>
+                      <span style={{color:(sec.chg1M||0)>=0?C.green:C.red}}>1M {(sec.chg1M||0)>=0?"+":""}{(sec.chg1M||0).toFixed(1)}%</span>
+                    </div>
+                  </div>
+                  {secChartD.length>3&&<ResponsiveContainer width="100%" height={80}>
+                    <ComposedChart data={secChartD} margin={{left:0,right:6}}>
+                      <XAxis dataKey="date" tick={{fill:C.muted,fontSize:6}} tickLine={false} interval={Math.floor(secChartD.length/4)||1}/>
+                      <YAxis tick={{fill:C.muted,fontSize:6}} tickLine={false} width={35} domain={["auto","auto"]}/>
+                      <Tooltip content={<Tip/>}/>
+                      <Area type="monotone" dataKey="close" stroke={(sec.chg1M||0)>=0?C.emerald:C.red} fill={(sec.chg1M||0)>=0?"rgba(16,185,129,.1)":"rgba(239,68,68,.1)"} strokeWidth={2} dot={false}/>
+                    </ComposedChart>
+                  </ResponsiveContainer>}
+                  {sec.members?.length>0&&<>
+                  <div style={{fontSize:8,fontWeight:700,color:C.muted,marginTop:4,marginBottom:4}}>구성종목</div>
                   <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
                     {(sec.members||[]).map(ticker=>{
                       const s=stocks.find(x=>x.ticker===ticker);
@@ -1338,6 +1356,7 @@ export default function App() {
                       </div>;
                     })}
                   </div>
+                  </>}
                 </div>;
               })()}
             </div>
@@ -1379,6 +1398,45 @@ export default function App() {
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* ★ v2.2: AI 상승 추천 종목 TOP5 */}
+          <div style={css.card}>
+            <div style={{fontSize:11,fontWeight:700,color:C.purple,marginBottom:8}}>🏆 AI 추천 — 상승 유력 TOP5</div>
+            <div style={{fontSize:8,color:C.muted,marginBottom:10}}>RS강도 + ST신호 + 구름 + 거래량 + 모멘텀 기반 종합 점수</div>
+            {(()=>{
+              const ranked = stocks.map(s => {
+                const cData = charts[s.ticker]?.data;
+                const {score, signals, rs} = alphaScore(s, cData, idxRS);
+                const lastPt = cData?.at(-1);
+                const stCount = [lastPt?.st1Bull,lastPt?.st2Bull,lastPt?.st3Bull].filter(v=>v!=null).length;
+                const cloudSt = lastPt?.aboveCloud?"구름위":lastPt?.nearCloud?"접근":"아래";
+                const es = calcEntryScore(cData, vixVal, oppScore, pool[s.ticker]||s);
+                return {...s, score, signals, rs, stCount, cloudSt, entryGrade:es.grade, entryScore:es.score};
+              }).filter(s => s.score > 20).sort((a,b) => b.score - a.score).slice(0,5);
+
+              if (!ranked.length) return <div style={{textAlign:"center",padding:"20px",color:C.muted}}>종목을 추가하면 추천이 표시됩니다</div>;
+              return ranked.map((s,i) => {
+                const medal = i===0?"🥇":i===1?"🥈":i===2?"🥉":`${i+1}`;
+                return <div key={s.ticker} onClick={()=>{setSel(s.ticker);setTab("sniper");}} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderBottom:`1px solid rgba(255,255,255,.05)`,cursor:"pointer",background:i===0?"rgba(167,139,250,.06)":"transparent",borderRadius:i===0?8:0}}>
+                  <span style={{fontSize:16,minWidth:24}}>{medal}</span>
+                  <div style={{flex:1}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6}}>
+                      <span style={{fontWeight:900,fontSize:12}}>{s.market} {s.label}</span>
+                      <span style={{fontSize:8,padding:"1px 5px",borderRadius:3,background:s.entryGrade==="S"?"rgba(16,185,129,.15)":s.entryGrade==="A"?"rgba(56,189,248,.15)":"rgba(255,255,255,.05)",color:s.entryGrade==="S"?C.emerald:s.entryGrade==="A"?C.accent:C.muted,fontWeight:700}}>{s.entryGrade}</span>
+                      <span style={{fontSize:8,color:C.muted}}>ST{s.stCount}/3 · {s.cloudSt}</span>
+                    </div>
+                    <div style={{display:"flex",gap:3,marginTop:3}}>
+                      {(s.signals||[]).slice(0,4).map(sig=><span key={sig} style={{fontSize:7,padding:"1px 4px",borderRadius:3,background:"rgba(167,139,250,.1)",color:C.purple}}>{sig}</span>)}
+                    </div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:14,fontWeight:900,color:C.accent}}>{s.score}pt</div>
+                    <div style={{fontSize:9,color:(s.rs||0)>=0?C.emerald:C.red}}>RS {(s.rs||0)>=0?"+":""}{(s.rs||0).toFixed(1)}</div>
+                  </div>
+                </div>;
+              });
+            })()}
           </div>
         </div>}
 
@@ -1721,7 +1779,7 @@ export default function App() {
             </div>
           </div>}
 
-          {/* ★ v2.1: 피보나치 되돌림 */}
+          {/* ★ v2.2: 피보나치 되돌림 */}
           {fibLevels&&<div style={{background:"rgba(167,139,250,.06)",border:"1px solid rgba(167,139,250,.25)",borderRadius:8,padding:"9px 12px",marginBottom:8}}>
             <div style={{fontSize:8,fontWeight:700,color:C.purple,marginBottom:5}}>📐 피보나치 되돌림 (60일)</div>
             <div style={{display:"flex",gap:4}}>
@@ -1744,7 +1802,7 @@ export default function App() {
             <input type="range" min="3" max="20" value={stopPct} onChange={e=>setStopPct(+e.target.value)} style={{width:"100%",accentColor:C.red}}/>
           </div>
 
-          {/* ★ v2.1: 매수 시뮬레이터 (풀세트) */}
+          {/* ★ v2.2: 매수 시뮬레이터 (풀세트) */}
           {perStockMax>0&&<div style={{...css.card,border:`1px solid ${C.accent}`,marginBottom:10}}>
             <div style={{fontSize:10,fontWeight:700,color:C.accent,marginBottom:8}}>🧮 매수 시뮬레이터</div>
             {overPositions&&<div style={{fontSize:8,color:C.red,marginBottom:6}}>⚠ 최대 종목수 초과 ({currentExposure}/{riskSettings.maxPositions})</div>}
@@ -1906,7 +1964,7 @@ export default function App() {
           {chartOpts.adx&&<div style={{background:C.panel,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 6px 3px",marginBottom:6}}>
             <div style={{fontSize:7,color:C.muted,paddingLeft:6,marginBottom:3}}>ADX <span style={{color:lastD?.adx>=25?C.emerald:C.muted}}>{lastD?.adx?.toFixed(0)||"—"} {lastD?.adx>=25?"(추세강)":"(횡보)"}</span></div>
             <ResponsiveContainer width="100%" height={70}>
-              <ComposedChart data={sliced} margin={{left:0,right:6}}>
+              <ComposedChart data={sliced} syncId="stockChart" margin={{left:0,right:6}}>
                 <XAxis dataKey="date" tick={false} tickLine={false}/>
                 <YAxis domain={[0,100]} tick={{fill:C.muted,fontSize:6}} tickLine={false} ticks={[25,50]} width={40}/>
                 <Tooltip content={<Tip/>}/>
@@ -1922,7 +1980,7 @@ export default function App() {
           {chartOpts.obv&&<div style={{background:C.panel,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 6px 3px",marginBottom:6}}>
             <div style={{fontSize:7,color:C.muted,paddingLeft:6,marginBottom:3}}>OBV (백만)</div>
             <ResponsiveContainer width="100%" height={70}>
-              <ComposedChart data={sliced} margin={{left:0,right:6}}>
+              <ComposedChart data={sliced} syncId="stockChart" margin={{left:0,right:6}}>
                 <XAxis dataKey="date" tick={false} tickLine={false}/>
                 <YAxis tick={{fill:C.muted,fontSize:6}} tickLine={false} width={40} tickFormatter={v=>v.toFixed(0)}/>
                 <Tooltip content={<Tip/>}/>
@@ -1938,7 +1996,7 @@ export default function App() {
               <span style={{fontSize:7,color:lastD?.sqzMomUp?C.green:C.red}}>{lastD?.sqzMomUp?"▲ 모멘텀↑":"▼ 모멘텀↓"}</span>
             </div>
             <ResponsiveContainer width="100%" height={70}>
-              <ComposedChart data={sliced} margin={{left:0,right:6}}>
+              <ComposedChart data={sliced} syncId="stockChart" margin={{left:0,right:6}}>
                 <XAxis dataKey="date" tick={false} tickLine={false}/>
                 <YAxis tick={{fill:C.muted,fontSize:6}} tickLine={false} width={40} tickFormatter={v=>v.toFixed(1)}/>
                 <Tooltip content={<Tip/>}/>
@@ -2122,7 +2180,7 @@ export default function App() {
                   const volDrop=posVolRatio<50;
                   // 불타기 알림
                   const pendingPyramid=(pos.pyramid||[]).filter(lv=>lv.triggered&&!lv.notified);
-                  // ★ v2.1: 타임컷 판정
+                  // ★ v2.2: 타임컷 판정
                   const tc=pos.timeCutInfo||{};
                   const isTimeCut=tc.isTimeCut;
                   return<div key={pos.id} style={{...css.card,border:`2px solid ${near?"rgba(239,68,68,.8)":isTimeCut?"rgba(251,146,60,.7)":volDrop?"rgba(250,204,21,.6)":pos.trailMode?"rgba(250,204,21,.5)":C.border}`,animation:near?"ap 2s infinite":""}}>
@@ -2214,7 +2272,7 @@ export default function App() {
 
           {/* 청산완료 */}
           {trackTab==="closed"&&<div>
-            {/* ★ v2.1: CSV 내보내기 + 초기화 */}
+            {/* ★ v2.2: CSV 내보내기 + 초기화 */}
             {closedLog.length>0&&<div style={{display:"flex",gap:6,marginBottom:10}}>
               <button onClick={()=>exportCSV(closedLog)} style={{...css.btn(),fontSize:9,borderColor:C.emerald,color:C.emerald}}>📥 CSV 내보내기</button>
               <button onClick={()=>{if(window.confirm("모든 청산 기록을 삭제하시겠습니까?"))setClosedLog([]);}} style={{...css.btn(),fontSize:9,borderColor:C.red,color:C.red}}>🗑 초기화</button>
@@ -2255,7 +2313,7 @@ export default function App() {
             </div>}
             {/* 요약 통계 */}
             {closedLog.length>0?<>
-              {/* ★ v2.1: 에쿼티 커브 */}
+              {/* ★ v2.2: 에쿼티 커브 */}
               {equityCurveData.length>1&&<div style={css.card}>
                 <div style={{fontSize:10,fontWeight:700,color:C.emerald,marginBottom:8}}>📈 에쿼티 커브 (누적 수익률)</div>
                 <ResponsiveContainer width="100%" height={150}>
@@ -2438,7 +2496,7 @@ export default function App() {
             </div>}
           </div>}
 
-          {/* ★ v2.1: 매매 일지 탭 */}
+          {/* ★ v2.2: 매매 일지 탭 */}
           {trackTab==="journal"&&<div>
             <div style={css.card}>
               <div style={{fontSize:10,fontWeight:700,color:C.purple,marginBottom:10}}>📝 매매 일지 작성</div>
@@ -2476,7 +2534,7 @@ export default function App() {
                 const rw=tradeJournal.map(j=>[j.date,j.time,j.ticker,j.type,j.emotion,j.reason,j.note,j.price||"",j.changePct||"",j.stCount!=null?`${j.stCount}/3`:"",j.rsi||"",j.cloud||"",j.entryGrade||""]);
                 const csv2=[hd,...rw].map(r=>r.map(v=>`"${(v||"").replace(/"/g,'""')}"`).join(",")).join("\n");
                 const blob=new Blob(["\uFEFF"+csv2],{type:"text/csv;charset=utf-8;"});
-                const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=`apex_journal_${new Date().toISOString().slice(0,10)}.csv`;a.click();URL.revokeObjectURL(url);
+                const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=`alpha_journal_${new Date().toISOString().slice(0,10)}.csv`;a.click();URL.revokeObjectURL(url);
               }} style={{...css.btn(),fontSize:9,borderColor:C.emerald,color:C.emerald}}>📥 일지 CSV</button>
               <span style={{fontSize:8,color:C.muted,alignSelf:"center"}}>{tradeJournal.length}건 기록</span>
             </div>}
