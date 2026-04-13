@@ -1,12 +1,13 @@
 name: Daily Data Update
 on:
   schedule:
-    - cron: '0 7 * * 1-5'  # UTC 07:00 = KST 16:00 (장마감 후)
+    - cron: '0 22 * * 1-5'  # UTC 22:00 = KST 07:00 (미국 장마감 후 + 한국 전일 확정)
   workflow_dispatch:          # 수동 실행 가능
 
 jobs:
   update-data:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
     env:
