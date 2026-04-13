@@ -20,7 +20,7 @@ jobs:
         run: pip install yfinance
 
       - name: Fetch market data
-        run: python scripts/fetch_data.py
+        run: python scripts/fetch_yahoo.py
 
       - name: Commit and push
         run: |
