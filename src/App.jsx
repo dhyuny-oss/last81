@@ -3,7 +3,7 @@
  * 추가: 에쿼티커브 / 매매일지 / CSV내보내기 / 불타기룰(30/30/25/15)
  * 리디자인: 다크 네이비 / 만원단위 / AI분석 API경유 / 성적리셋 / quarterly모드
  */
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   ComposedChart, Area, Line, Bar, Scatter,
   XAxis, YAxis, CartesianGrid, Tooltip,
@@ -2616,8 +2616,8 @@ export default function App() {
 
         {/* ══ TAB: 실험실 ══ */}
         {tab==="lab"&&<div style={{padding:"12px 14px"}}>
-          <div style={{fontSize:12,fontWeight:900,color:C.purple,marginBottom:4}}>🔬 실험실</div>
-          <div style={{fontSize:9,color:C.sub,marginBottom:12}}>차트 위 날짜를 클릭하면 그 시점의 모든 지표값을 볼 수 있어요</div>
+          <div style={{fontSize:12,fontWeight:900,color:C.purple,marginBottom:4}}>🔬 실험실 — 지표 연구소</div>
+          <div style={{fontSize:9,color:C.sub,marginBottom:12}}>매수/매도 신호를 차트에 표시 · 클릭하면 그 시점 지표값 전부 · 어떤 신호가 잘 맞는지 성과 분석</div>
 
           {/* 종목 선택 */}
           <div style={{display:"flex",gap:4,marginBottom:12,flexWrap:"wrap"}}>
@@ -2628,111 +2628,216 @@ export default function App() {
 
           {labStock&&(()=>{
             const labCd = charts[labStock]?.data;
-            if(!labCd||labCd.length<10) return <div style={{textAlign:"center",padding:"30px",color:C.muted}}>데이터 부족 — 종목을 다시 선택해주세요</div>;
+            if(!labCd||labCd.length<10) return <div style={{textAlign:"center",padding:"30px",color:C.muted}}>데이터 부족</div>;
             const labSliced = labCd.slice(-90);
             const labSel = labPoint!=null ? labSliced[labPoint] : null;
             const labInfo = stocks.find(s=>s.ticker===labStock);
             const isKR3 = (labStock?.length||0)>5;
 
+            // ★ 매수/매도 신호 감지
+            const sigMarkers = [];
+            for(let i=1;i<labSliced.length;i++){
+              const d=labSliced[i], p=labSliced[i-1];
+              const stN=[d.st1Bull,d.st2Bull,d.st3Bull].filter(v=>v!=null).length;
+              const stP=[p.st1Bull,p.st2Bull,p.st3Bull].filter(v=>v!=null).length;
+              // 매수 신호
+              if(stN===3&&stP<3) sigMarkers.push({i,date:d.date,type:"ST플립",side:"buy",emoji:"🔥",color:C.emerald});
+              if(d.macd>d.signal&&p.macd<=p.signal) sigMarkers.push({i,date:d.date,type:"MACD↑",side:"buy",emoji:"⚡",color:C.accent});
+              if(d.aboveCloud&&!p.aboveCloud) sigMarkers.push({i,date:d.date,type:"구름돌파",side:"buy",emoji:"☁️",color:"#22d3ee"});
+              if(d.sqzOff&&p.sqzOn) sigMarkers.push({i,date:d.date,type:"스퀴즈해제",side:"buy",emoji:"💎",color:C.purple});
+              const vols=labSliced.slice(Math.max(0,i-20),i).map(x=>x.volume||0).filter(v=>v>0);
+              const avgV=vols.length?vols.reduce((a,b)=>a+b,0)/vols.length:0;
+              if(avgV>0&&d.volume>avgV*2&&d.close>p.close) sigMarkers.push({i,date:d.date,type:"거래량폭발",side:"buy",emoji:"💥",color:C.yellow});
+              // 매도 신호
+              if(stN<3&&stP===3) sigMarkers.push({i,date:d.date,type:"ST이탈",side:"sell",emoji:"⛔",color:C.red});
+              if(d.macd<d.signal&&p.macd>=p.signal) sigMarkers.push({i,date:d.date,type:"MACD↓",side:"sell",emoji:"📉",color:"#f87171"});
+              if(!d.aboveCloud&&p.aboveCloud) sigMarkers.push({i,date:d.date,type:"구름이탈",side:"sell",emoji:"🌧",color:"#fb923c"});
+              if(d.rsi>78) sigMarkers.push({i,date:d.date,type:"RSI과매수",side:"sell",emoji:"⚠️",color:"#fbbf24"});
+            }
+
+            // ★ 신호 성과 분석: 매수 후 5일/10일/20일 수익률
+            const sigPerf = {};
+            sigMarkers.filter(s=>s.side==="buy").forEach(sig=>{
+              if(!sigPerf[sig.type]) sigPerf[sig.type]={count:0,sum5:0,sum10:0,sum20:0,wins:0};
+              const entry=labSliced[sig.i]?.close;
+              if(!entry)return;
+              sigPerf[sig.type].count++;
+              const after5=labSliced[Math.min(sig.i+5,labSliced.length-1)]?.close||entry;
+              const after10=labSliced[Math.min(sig.i+10,labSliced.length-1)]?.close||entry;
+              const after20=labSliced[Math.min(sig.i+20,labSliced.length-1)]?.close||entry;
+              sigPerf[sig.type].sum5+=(after5-entry)/entry*100;
+              sigPerf[sig.type].sum10+=(after10-entry)/entry*100;
+              sigPerf[sig.type].sum20+=(after20-entry)/entry*100;
+              if(after10>entry) sigPerf[sig.type].wins++;
+            });
+            // 매도 신호 성과
+            const sellPerf = {};
+            sigMarkers.filter(s=>s.side==="sell").forEach(sig=>{
+              if(!sellPerf[sig.type]) sellPerf[sig.type]={count:0,sum5:0,wins:0};
+              const entry=labSliced[sig.i]?.close;
+              if(!entry)return;
+              sellPerf[sig.type].count++;
+              const after5=labSliced[Math.min(sig.i+5,labSliced.length-1)]?.close||entry;
+              sellPerf[sig.type].sum5+=(after5-entry)/entry*100;
+              if(after5<entry) sellPerf[sig.type].wins++;
+            });
+
             return <div>
-              {/* 차트 (클릭 가능) */}
+              {/* 신호 범례 */}
+              <div style={{display:"flex",gap:4,marginBottom:8,flexWrap:"wrap"}}>
+                <span style={{fontSize:8,fontWeight:700,color:C.emerald}}>▲ 매수신호:</span>
+                {["🔥ST플립","⚡MACD↑","☁️구름돌파","💎스퀴즈","💥거래량"].map(s=><span key={s} style={{fontSize:7,color:C.muted}}>{s}</span>)}
+                <span style={{fontSize:8,fontWeight:700,color:C.red,marginLeft:8}}>▼ 매도신호:</span>
+                {["⛔ST이탈","📉MACD↓","🌧구름이탈","⚠️RSI과매수"].map(s=><span key={s} style={{fontSize:7,color:C.muted}}>{s}</span>)}
+              </div>
+
+              {/* 차트 + 신호 마커 */}
               <div style={{...css.card,padding:"6px 6px 3px",marginBottom:8}}>
-                <div style={{fontSize:9,fontWeight:700,color:C.accent,paddingLeft:6,marginBottom:4}}>📊 {labInfo?.label||labStock} — 클릭하여 시점 선택</div>
-                <ResponsiveContainer width="100%" height={200}>
+                <div style={{fontSize:9,fontWeight:700,color:C.accent,paddingLeft:6,marginBottom:4}}>📊 {labInfo?.label||labStock} — 신호 + 클릭 분석</div>
+                <ResponsiveContainer width="100%" height={220}>
                   <ComposedChart data={labSliced} margin={{left:0,right:6}} onClick={(e)=>{if(e&&e.activeTooltipIndex!=null)setLabPoint(e.activeTooltipIndex);}}>
                     <XAxis dataKey="date" tick={{fill:C.muted,fontSize:7}} tickLine={false} interval={Math.floor(labSliced.length/6)||1}/>
                     <YAxis tick={{fill:C.muted,fontSize:7}} tickLine={false} domain={["auto","auto"]} width={45} tickFormatter={v=>isKR3?`${(v/1000).toFixed(0)}k`:v.toFixed(0)}/>
                     <Tooltip content={<Tip/>}/>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,.05)"/>
                     {labSel&&<ReferenceLine x={labSel.date} stroke={C.accent} strokeWidth={2} strokeDasharray="4 2"/>}
-                    <Area type="monotone" dataKey="close" stroke={C.accent} fill="rgba(56,189,248,.08)" strokeWidth={2} dot={false}/>
-                    {labSliced.map((d,i)=>{
-                      const st=[d.st1Bull,d.st2Bull,d.st3Bull].filter(v=>v!=null).length;
-                      if(st===3&&i>0){const pSt=[labSliced[i-1]?.st1Bull,labSliced[i-1]?.st2Bull,labSliced[i-1]?.st3Bull].filter(v=>v!=null).length;if(pSt<3)return <ReferenceLine key={i} x={d.date} stroke={C.emerald} strokeWidth={1} strokeDasharray="2 2"/>;}
-                      return null;
-                    })}
+                    <Area type="monotone" dataKey="close" stroke="rgba(56,189,248,.5)" fill="rgba(56,189,248,.05)" strokeWidth={1.5} dot={false}/>
+                    {/* 매수 신호 마커 — 삼각형 위 */}
+                    <Scatter data={sigMarkers.filter(s=>s.side==="buy").map(s=>({...labSliced[s.i],_sig:s.emoji+s.type,_color:s.color,_idx:s.i}))} dataKey="close" shape={(props)=>{
+                      const {cx,cy,payload}=props;if(!cx||!cy)return null;
+                      return<g onClick={()=>setLabPoint(payload._idx)}><polygon points={`${cx},${cy-12} ${cx-5},${cy-4} ${cx+5},${cy-4}`} fill={payload._color} stroke={payload._color} strokeWidth={1}/><text x={cx} y={cy-14} textAnchor="middle" fill={payload._color} fontSize={8}>{payload._sig?.slice(0,2)}</text></g>;
+                    }}/>
+                    {/* 매도 신호 마커 — 삼각형 아래 */}
+                    <Scatter data={sigMarkers.filter(s=>s.side==="sell").map(s=>({...labSliced[s.i],_sig:s.emoji+s.type,_color:s.color,_idx:s.i}))} dataKey="close" shape={(props)=>{
+                      const {cx,cy,payload}=props;if(!cx||!cy)return null;
+                      return<g onClick={()=>setLabPoint(payload._idx)}><polygon points={`${cx},${cy+12} ${cx-5},${cy+4} ${cx+5},${cy+4}`} fill={payload._color} stroke={payload._color} strokeWidth={1}/><text x={cx} y={cy+22} textAnchor="middle" fill={payload._color} fontSize={8}>{payload._sig?.slice(0,2)}</text></g>;
+                    }}/>
                   </ComposedChart>
                 </ResponsiveContainer>
-                <div style={{fontSize:7,color:C.muted,paddingLeft:6,paddingBottom:4}}>초록 점선 = ST 3/3 진입 시점 · 파란 실선 = 선택된 날짜</div>
               </div>
 
               {/* 선택된 시점의 지표 스냅샷 */}
               {labSel?<div style={{...css.card,border:`1px solid ${C.accent}`,marginBottom:8}}>
-                <div style={{fontSize:10,fontWeight:700,color:C.accent,marginBottom:8}}>📌 {labSel.date} 시점 지표 스냅샷</div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:10}}>
+                <div style={{fontSize:10,fontWeight:700,color:C.accent,marginBottom:8}}>📌 {labSel.date} 시점 — 전체 지표</div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:5,marginBottom:8}}>
                   {[
                     {l:"종가",v:isKR3?`₩${fmtKRW(labSel.close)}`:`$${labSel.close?.toFixed(2)}`,c:C.text},
                     {l:"거래량",v:labSel.volume?`${(labSel.volume/1e6).toFixed(1)}M`:"—",c:C.text},
                     {l:"RSI",v:labSel.rsi?.toFixed(0)||"—",c:labSel.rsi>70?C.red:labSel.rsi<30?C.green:C.text},
                     {l:"MACD",v:labSel.macd?.toFixed(2)||"—",c:labSel.macd>labSel.signal?C.green:C.red},
-                  ].map((m,i)=>(
-                    <div key={i} style={{background:"rgba(0,0,0,.3)",borderRadius:6,padding:"6px",textAlign:"center"}}>
-                      <div style={{fontSize:7,color:C.muted}}>{m.l}</div>
-                      <div style={{fontSize:13,fontWeight:900,color:m.c}}>{m.v}</div>
-                    </div>
-                  ))}
-                </div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:10}}>
-                  {[
-                    {l:"ST 신호",v:`${[labSel.st1Bull,labSel.st2Bull,labSel.st3Bull].filter(v=>v!=null).length}/3`,c:[labSel.st1Bull,labSel.st2Bull,labSel.st3Bull].filter(v=>v!=null).length===3?C.emerald:C.yellow},
                     {l:"Signal",v:labSel.signal?.toFixed(2)||"—",c:C.muted},
-                    {l:"히스토그램",v:labSel.hist?.toFixed(2)||"—",c:(labSel.hist||0)>=0?C.green:C.red},
+                    {l:"히스토",v:labSel.hist?.toFixed(2)||"—",c:(labSel.hist||0)>=0?C.green:C.red},
+                    {l:"ST신호",v:`${[labSel.st1Bull,labSel.st2Bull,labSel.st3Bull].filter(v=>v!=null).length}/3`,c:[labSel.st1Bull,labSel.st2Bull,labSel.st3Bull].filter(v=>v!=null).length===3?C.emerald:C.yellow},
                     {l:"일목구름",v:labSel.aboveCloud?"구름위":labSel.nearCloud?"접근":"아래",c:labSel.aboveCloud?C.emerald:labSel.nearCloud?C.yellow:C.red},
-                  ].map((m,i)=>(
-                    <div key={i} style={{background:"rgba(0,0,0,.3)",borderRadius:6,padding:"6px",textAlign:"center"}}>
-                      <div style={{fontSize:7,color:C.muted}}>{m.l}</div>
-                      <div style={{fontSize:13,fontWeight:900,color:m.c}}>{m.v}</div>
-                    </div>
-                  ))}
-                </div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:10}}>
-                  {[
-                    {l:"스퀴즈",v:labSel.sqzOn?"🟡 압축중":labSel.sqzOff?"🔴 해제!":"⚪ 없음",c:labSel.sqzOn?C.yellow:labSel.sqzOff?C.red:C.muted},
+                    {l:"스퀴즈",v:labSel.sqzOn?"🟡압축":labSel.sqzOff?"🔴해제":"⚪없음",c:labSel.sqzOn?C.yellow:labSel.sqzOff?C.red:C.muted},
+                    {l:"모멘텀",v:labSel.sqzMom?.toFixed(1)||"—",c:(labSel.sqzMom||0)>=0?C.green:C.red},
                     {l:"ADX",v:labSel.adx?.toFixed(0)||"—",c:(labSel.adx||0)>=25?C.emerald:C.muted},
                     {l:"ATR",v:labSel.atr?.toFixed(2)||"—",c:C.text},
                   ].map((m,i)=>(
-                    <div key={i} style={{background:"rgba(0,0,0,.3)",borderRadius:6,padding:"6px",textAlign:"center"}}>
-                      <div style={{fontSize:7,color:C.muted}}>{m.l}</div>
-                      <div style={{fontSize:13,fontWeight:900,color:m.c}}>{m.v}</div>
+                    <div key={i} style={{background:"rgba(0,0,0,.3)",borderRadius:5,padding:"5px",textAlign:"center"}}>
+                      <div style={{fontSize:6,color:C.muted}}>{m.l}</div>
+                      <div style={{fontSize:11,fontWeight:900,color:m.c}}>{m.v}</div>
                     </div>
                   ))}
                 </div>
+
+                {/* 이 시점 신호 */}
+                {(()=>{const sigs=sigMarkers.filter(s=>s.i===labPoint);return sigs.length?<div style={{display:"flex",gap:4,marginBottom:8,flexWrap:"wrap"}}>{sigs.map((s,i)=><span key={i} style={{fontSize:8,padding:"2px 8px",borderRadius:4,background:`${s.color}18`,border:`1px solid ${s.color}40`,color:s.color,fontWeight:700}}>{s.emoji} {s.type} ({s.side==="buy"?"매수":"매도"})</span>)}</div>:null;})()}
 
                 {/* 이 시점에 샀다면? */}
                 <div style={{background:"rgba(167,139,250,.06)",border:"1px solid rgba(167,139,250,.25)",borderRadius:8,padding:"8px 10px"}}>
                   <div style={{fontSize:9,fontWeight:700,color:C.purple,marginBottom:6}}>🧪 이 시점에 샀다면?</div>
                   {(()=>{
                     const buyPrice = labSel.close;
-                    const latest = labSliced.at(-1);
-                    const latestPrice = latest?.close||buyPrice;
+                    const after = labSliced.slice(labPoint);
+                    const latestPrice = after.at(-1)?.close||buyPrice;
                     const pnlPct = ((latestPrice-buyPrice)/buyPrice*100).toFixed(2);
-                    const daysHeld = labSliced.length - labPoint;
-                    const maxPrice = Math.max(...labSliced.slice(labPoint).map(d=>d.close||0));
+                    const daysHeld = after.length-1;
+                    const maxPrice = Math.max(...after.map(d=>d.close||0));
                     const maxPnl = ((maxPrice-buyPrice)/buyPrice*100).toFixed(2);
-                    const minPrice = Math.min(...labSliced.slice(labPoint).map(d=>d.close||0));
+                    const minPrice = Math.min(...after.map(d=>d.close||0));
                     const maxDD = ((minPrice-buyPrice)/buyPrice*100).toFixed(2);
-                    return <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
+                    // 최적 매도 시점 찾기
+                    let bestSellDay=0,bestSellPnl=0;
+                    after.forEach((d,j)=>{const p2=((d.close-buyPrice)/buyPrice*100);if(p2>bestSellPnl){bestSellPnl=p2;bestSellDay=j;}});
+                    return <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:5}}>
                       <div style={{textAlign:"center"}}>
-                        <div style={{fontSize:7,color:C.muted}}>현재 손익</div>
-                        <div style={{fontSize:14,fontWeight:900,color:pnlPct>=0?C.green:C.red}}>{pnlPct>=0?"+":""}{pnlPct}%</div>
+                        <div style={{fontSize:6,color:C.muted}}>현재 손익</div>
+                        <div style={{fontSize:13,fontWeight:900,color:pnlPct>=0?C.green:C.red}}>{pnlPct>=0?"+":""}{pnlPct}%</div>
                       </div>
                       <div style={{textAlign:"center"}}>
-                        <div style={{fontSize:7,color:C.muted}}>보유일</div>
-                        <div style={{fontSize:14,fontWeight:900,color:C.text}}>{daysHeld}일</div>
+                        <div style={{fontSize:6,color:C.muted}}>보유일</div>
+                        <div style={{fontSize:13,fontWeight:900,color:C.text}}>{daysHeld}일</div>
                       </div>
                       <div style={{textAlign:"center"}}>
-                        <div style={{fontSize:7,color:C.muted}}>최대 수익</div>
-                        <div style={{fontSize:14,fontWeight:900,color:C.emerald}}>+{maxPnl}%</div>
+                        <div style={{fontSize:6,color:C.muted}}>최대 수익</div>
+                        <div style={{fontSize:13,fontWeight:900,color:C.emerald}}>+{maxPnl}%</div>
                       </div>
                       <div style={{textAlign:"center"}}>
-                        <div style={{fontSize:7,color:C.muted}}>최대 하락</div>
-                        <div style={{fontSize:14,fontWeight:900,color:C.red}}>{maxDD}%</div>
+                        <div style={{fontSize:6,color:C.muted}}>최대 하락</div>
+                        <div style={{fontSize:13,fontWeight:900,color:C.red}}>{maxDD}%</div>
+                      </div>
+                      <div style={{textAlign:"center"}}>
+                        <div style={{fontSize:6,color:C.muted}}>최적매도</div>
+                        <div style={{fontSize:13,fontWeight:900,color:C.purple}}>{bestSellDay}일째</div>
+                        <div style={{fontSize:6,color:C.emerald}}>+{bestSellPnl.toFixed(1)}%</div>
                       </div>
                     </div>;
                   })()}
                 </div>
               </div>
-              :<div style={{textAlign:"center",padding:"30px",color:C.muted,fontSize:10}}>👆 차트 위 아무 날짜를 클릭하세요</div>}
+              :<div style={{textAlign:"center",padding:"20px",color:C.muted,fontSize:10}}>👆 차트 위 아무 날짜를 클릭하세요 (▲매수 ▼매도 신호 표시)</div>}
+
+              {/* ★ 신호 성과 분석 */}
+              <div style={css.card}>
+                <div style={{fontSize:10,fontWeight:700,color:C.emerald,marginBottom:8}}>📈 매수 신호 성과 분석 (90일)</div>
+                <div style={{fontSize:8,color:C.muted,marginBottom:6}}>각 신호 발생 후 평균 수익률 · 어떤 신호가 상승을 잘 잡았나?</div>
+                {Object.keys(sigPerf).length===0?<div style={{fontSize:9,color:C.muted,textAlign:"center",padding:10}}>매수 신호 없음</div>
+                :<div style={{overflowX:"auto"}}>
+                  <div style={{display:"grid",gridTemplateColumns:"1.2fr 0.5fr 0.5fr 0.8fr 0.8fr 0.8fr",gap:0,fontSize:8,minWidth:350}}>
+                    <div style={{padding:"4px 8px",fontWeight:700,color:C.muted,borderBottom:`1px solid ${C.border}`}}>신호</div>
+                    <div style={{padding:"4px 8px",fontWeight:700,color:C.muted,borderBottom:`1px solid ${C.border}`}}>횟수</div>
+                    <div style={{padding:"4px 8px",fontWeight:700,color:C.muted,borderBottom:`1px solid ${C.border}`}}>승률</div>
+                    <div style={{padding:"4px 8px",fontWeight:700,color:C.muted,borderBottom:`1px solid ${C.border}`}}>5일후</div>
+                    <div style={{padding:"4px 8px",fontWeight:700,color:C.muted,borderBottom:`1px solid ${C.border}`}}>10일후</div>
+                    <div style={{padding:"4px 8px",fontWeight:700,color:C.muted,borderBottom:`1px solid ${C.border}`}}>20일후</div>
+                    {Object.entries(sigPerf).sort((a,b)=>(b[1].sum10/b[1].count)-(a[1].sum10/a[1].count)).map(([name,d])=>{
+                      const avg5=(d.sum5/d.count).toFixed(1),avg10=(d.sum10/d.count).toFixed(1),avg20=(d.sum20/d.count).toFixed(1);
+                      const winRate=Math.round(d.wins/d.count*100);
+                      return <React.Fragment key={name}>
+                        <div style={{padding:"5px 8px",fontWeight:700}}>{name}</div>
+                        <div style={{padding:"5px 8px"}}>{d.count}회</div>
+                        <div style={{padding:"5px 8px",color:winRate>=60?C.emerald:winRate>=40?C.yellow:C.red,fontWeight:700}}>{winRate}%</div>
+                        <div style={{padding:"5px 8px",color:avg5>=0?C.green:C.red}}>{avg5>=0?"+":""}{avg5}%</div>
+                        <div style={{padding:"5px 8px",color:avg10>=0?C.green:C.red,fontWeight:700}}>{avg10>=0?"+":""}{avg10}%</div>
+                        <div style={{padding:"5px 8px",color:avg20>=0?C.green:C.red}}>{avg20>=0?"+":""}{avg20}%</div>
+                      </React.Fragment>;
+                    })}
+                  </div>
+                </div>}
+              </div>
+
+              <div style={css.card}>
+                <div style={{fontSize:10,fontWeight:700,color:C.red,marginBottom:8}}>📉 매도 신호 성과 (도망 타이밍)</div>
+                <div style={{fontSize:8,color:C.muted,marginBottom:6}}>신호 발생 후 5일 평균 하락률 · 높을수록 좋은 탈출 신호</div>
+                {Object.keys(sellPerf).length===0?<div style={{fontSize:9,color:C.muted,textAlign:"center",padding:10}}>매도 신호 없음</div>
+                :<div style={{display:"grid",gridTemplateColumns:"1.2fr 0.5fr 0.5fr 1fr",gap:0,fontSize:8}}>
+                  <div style={{padding:"4px 8px",fontWeight:700,color:C.muted,borderBottom:`1px solid ${C.border}`}}>신호</div>
+                  <div style={{padding:"4px 8px",fontWeight:700,color:C.muted,borderBottom:`1px solid ${C.border}`}}>횟수</div>
+                  <div style={{padding:"4px 8px",fontWeight:700,color:C.muted,borderBottom:`1px solid ${C.border}`}}>적중률</div>
+                  <div style={{padding:"4px 8px",fontWeight:700,color:C.muted,borderBottom:`1px solid ${C.border}`}}>5일후 평균</div>
+                  {Object.entries(sellPerf).sort((a,b)=>(a[1].sum5/a[1].count)-(b[1].sum5/b[1].count)).map(([name,d])=>{
+                    const avg5=(d.sum5/d.count).toFixed(1);
+                    const winRate=Math.round(d.wins/d.count*100);
+                    return <React.Fragment key={name}>
+                      <div style={{padding:"5px 8px",fontWeight:700}}>{name}</div>
+                      <div style={{padding:"5px 8px"}}>{d.count}회</div>
+                      <div style={{padding:"5px 8px",color:winRate>=60?C.emerald:winRate>=40?C.yellow:C.red,fontWeight:700}}>{winRate}%</div>
+                      <div style={{padding:"5px 8px",color:avg5<0?C.emerald:C.red,fontWeight:700}}>{avg5>=0?"+":""}{avg5}%</div>
+                    </React.Fragment>;
+                  })}
+                </div>}
+              </div>
             </div>;
           })()}
         </div>}
