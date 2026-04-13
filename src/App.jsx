@@ -406,8 +406,6 @@ function alphaScore(s, chartData, idxRS) {
 
   const mktCap=s.mktCap||0;
   const isKR=(s.market||"").includes("kr")||(s.ticker||"").length>5;
-  const minCap=isKR?5000:5;
-  if(mktCap>0&&mktCap<minCap)return{score:0,signals:[],rs,volRatio:s._volRatio||s.volRatio||100};
   s._signals=signals;s._rs=rs;
   return{score:Math.min(100,Math.max(0,sc)),signals,rs,volRatio:s._volRatio||s.volRatio||100};
 }
@@ -585,7 +583,7 @@ export default function App() {
   const [ibVol, setIbVol]   = useState(0);
 
   // ── 발굴탭 ────────────────────────────────────────────
-  const [fVolRatio, setFVolRatio] = useState(60);
+  const [fVolRatio, setFVolRatio] = useState(0);
   const [fMarket, setFMarket]   = useState("all");
   const [fST, setFST]           = useState(0);
   const [fCloud, setFCloud]     = useState("all");
@@ -1054,15 +1052,12 @@ export default function App() {
   // ★ v2.2: 발굴탭 — 종목풀 전체 스캔 (관심종목 + 풀 합산)
   const allStocksForScan = (() => {
     const merged = {};
-    // 1) 관심종목 (차트 데이터 있음)
     stocks.forEach(s => { merged[s.ticker] = s; });
-    // 2) 종목풀 (pool) — 관심종목에 없는 것도 포함
     Object.entries(pool).forEach(([ticker, info]) => {
       if (!merged[ticker]) {
         merged[ticker] = { ticker, ...info };
       } else {
-        // 풀 데이터로 RS랭킹 등 보강
-        merged[ticker] = { ...merged[ticker], ...info, ...merged[ticker] };
+        merged[ticker] = { ...merged[ticker], rsPctRank:info.rsPctRank, rsRank:info.rsRank, w52Breakout:info.w52Breakout, w52DistPct:info.w52DistPct };
       }
     });
     return Object.values(merged);
@@ -1070,8 +1065,6 @@ export default function App() {
 
   const alphaHits=allStocksForScan.filter(s=>{
     const isKR=(s.market||"").includes("kr")||(s.ticker||"").length>5;
-    const minCap=isKR?5000:5;
-    if((s.mktCap||0)>0&&(s.mktCap||0)<minCap)return false;
     if((s.volRatio||100)<fVolRatio)return false;
     if(fMarket==="kr"&&!isKR)return false;
     if(fMarket==="us"&&isKR)return false;
@@ -1083,11 +1076,11 @@ export default function App() {
     const cloudSt=lD?.aboveCloud?"above":lD?.nearCloud?"near":"below";
     const rsVal=r.rs||0;
     if(fST>0&&stCount<fST)return null;
-    if(fCloud==="above"&&cloudSt!=="above")return null;
-    if(fCloud==="near"&&cloudSt==="below")return null;
+    if(fCloud==="above"&&cloudSt!=="above"&&lD)return null;
+    if(fCloud==="near"&&cloudSt==="below"&&lD)return null;
     if(fRS>0&&rsVal<fRS)return null;
     return{...s,score:r.score,signals:r.signals,rs:r.rs,volRatio:s.volRatio||r.volRatio,stCount,cloudSt};
-  }).filter(s=>s&&s.score>0).sort((a,b)=>b.score-a.score);
+  }).filter(s=>s!=null).sort((a,b)=>b.score-a.score);
 
   // pool 필터링 (IIFE 대신 변수로)
   const poolFiltered = Object.entries(pool).filter(([ticker,info])=>{
@@ -1574,7 +1567,7 @@ export default function App() {
               </div>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
                 <div style={{fontSize:12,fontWeight:700,color:C.accent}}>✅ {alphaHits.length}개 통과</div>
-                <button onClick={()=>{setFMarket("all");setFST(0);setFCloud("all");setFRS(0);setFVolRatio(60);}} style={{fontSize:8,padding:"3px 10px",borderRadius:5,border:`1px solid ${C.border}`,background:"rgba(255,255,255,.04)",color:C.muted,cursor:"pointer"}}>초기화</button>
+                <button onClick={()=>{setFMarket("all");setFST(0);setFCloud("all");setFRS(0);setFVolRatio(0);}} style={{fontSize:8,padding:"3px 10px",borderRadius:5,border:`1px solid ${C.border}`,background:"rgba(255,255,255,.04)",color:C.muted,cursor:"pointer"}}>초기화</button>
               </div>
             </div>
             {alphaHits.length===0
