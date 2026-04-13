@@ -374,6 +374,8 @@ function alphaScore(s, chartData, idxRS) {
   const stockChg5=s.chg5d||0;
   const rs=+(stockChg5-spyChg5).toFixed(1);
   if(rs>5){sc+=35;signals.push("RS매우강");}else if(rs>2){sc+=25;signals.push("RS강");}else if(rs>0){sc+=15;signals.push("RS보통");}else if(rs<-3){sc-=10;}
+
+  // 차트 데이터 있을 때 → 전체 지표 활용
   if(last?.aboveCloud){sc+=10;signals.push("구름위");}
   const stBull=[last?.st1Bull,last?.st2Bull,last?.st3Bull].filter(v=>v!=null).length;
   if(stBull===3){sc+=15;signals.push("ST매수");}else if(stBull>=2){sc+=8;}
@@ -387,12 +389,27 @@ function alphaScore(s, chartData, idxRS) {
     if(volRatio>2){sc+=10;signals.push("거래량급증");}else if(volRatio>1.5){sc+=5;signals.push("거래량증가");}
   }
   if(last?.w52Near){sc+=5;signals.push("신고가근접");}
+
+  // ★ v2.2: 차트 데이터 없을 때 → 풀 메타데이터로 보완 점수
+  if(!last && s.rsPctRank) {
+    if(s.rsPctRank>=90){sc+=15;signals.push("RS상위10%");}
+    else if(s.rsPctRank>=70){sc+=8;signals.push("RS상위30%");}
+  }
+  if(!last && s.w52Breakout){sc+=10;signals.push("신고가돌파");}
+  if(!last && s.volRatio) {
+    s._volRatio = s.volRatio;
+    if(s.volRatio>=200){sc+=10;signals.push("거래량급증");}
+    else if(s.volRatio>=150){sc+=5;signals.push("거래량증가");}
+  }
+  if(!last && (s.chg3d||0)>3){sc+=5;signals.push("3일강세");}
+  if(!last && (s.changePct||0)>2){sc+=5;signals.push("금일급등");}
+
   const mktCap=s.mktCap||0;
   const isKR=(s.market||"").includes("kr")||(s.ticker||"").length>5;
   const minCap=isKR?5000:5;
-  if(mktCap>0&&mktCap<minCap)return{score:0,signals:[],rs,volRatio:s._volRatio||100};
+  if(mktCap>0&&mktCap<minCap)return{score:0,signals:[],rs,volRatio:s._volRatio||s.volRatio||100};
   s._signals=signals;s._rs=rs;
-  return{score:Math.min(100,Math.max(0,sc)),signals,rs,volRatio:s._volRatio||100};
+  return{score:Math.min(100,Math.max(0,sc)),signals,rs,volRatio:s._volRatio||s.volRatio||100};
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -640,6 +657,8 @@ export default function App() {
         setIndicesData(json.indices||{});
         if(json.sectors&&Object.keys(json.sectors).length>0) setSectorsData(json.sectors);
         if(json.breadth) setBreadthData(json.breadth);
+        // ★ v2.2: 풀 자동 로드 (발굴탭 전체 스캔용)
+        if(json.pool&&Object.keys(json.pool).length>0){setPool(json.pool);setPoolLoaded(true);}
         if(json.ibVol) setIbVol(json.ibVol);
         if(Object.keys(stocksJson).length>0){
           setStocks(prev=>prev.map(s=>{
