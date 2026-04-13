@@ -1032,7 +1032,24 @@ export default function App() {
     kospi:{chg3d:indicesData["^KS11"]?.chg3d??+0.8,chg5d:indicesData["^KS11"]?.chg5d??-0.5},
   };
 
-  const alphaHits=stocks.filter(s=>{
+  // ★ v2.2: 발굴탭 — 종목풀 전체 스캔 (관심종목 + 풀 합산)
+  const allStocksForScan = (() => {
+    const merged = {};
+    // 1) 관심종목 (차트 데이터 있음)
+    stocks.forEach(s => { merged[s.ticker] = s; });
+    // 2) 종목풀 (pool) — 관심종목에 없는 것도 포함
+    Object.entries(pool).forEach(([ticker, info]) => {
+      if (!merged[ticker]) {
+        merged[ticker] = { ticker, ...info };
+      } else {
+        // 풀 데이터로 RS랭킹 등 보강
+        merged[ticker] = { ...merged[ticker], ...info, ...merged[ticker] };
+      }
+    });
+    return Object.values(merged);
+  })();
+
+  const alphaHits=allStocksForScan.filter(s=>{
     const isKR=(s.market||"").includes("kr")||(s.ticker||"").length>5;
     const minCap=isKR?5000:5;
     if((s.mktCap||0)>0&&(s.mktCap||0)<minCap)return false;
@@ -1050,7 +1067,7 @@ export default function App() {
     if(fCloud==="above"&&cloudSt!=="above")return null;
     if(fCloud==="near"&&cloudSt==="below")return null;
     if(fRS>0&&rsVal<fRS)return null;
-    return{...s,score:r.score,signals:r.signals,rs:r.rs,volRatio:r.volRatio,stCount,cloudSt};
+    return{...s,score:r.score,signals:r.signals,rs:r.rs,volRatio:s.volRatio||r.volRatio,stCount,cloudSt};
   }).filter(s=>s&&s.score>0).sort((a,b)=>b.score-a.score);
 
   // pool 필터링 (IIFE 대신 변수로)
@@ -1408,7 +1425,7 @@ export default function App() {
             <div style={{fontSize:11,fontWeight:700,color:C.purple,marginBottom:8}}>🏆 AI 추천 — 상승 유력 TOP5</div>
             <div style={{fontSize:8,color:C.muted,marginBottom:10}}>RS강도 + ST신호 + 구름 + 거래량 + 모멘텀 기반 종합 점수</div>
             {(()=>{
-              const ranked = stocks.map(s => {
+              const ranked = allStocksForScan.map(s => {
                 const cData = charts[s.ticker]?.data;
                 const {score, signals, rs} = alphaScore(s, cData, idxRS);
                 const lastPt = cData?.at(-1);
@@ -1447,7 +1464,7 @@ export default function App() {
             <div style={{fontSize:11,fontWeight:700,color:C.emerald,marginBottom:8}}>🚀 오늘의 돌파 감지</div>
             <div style={{fontSize:8,color:C.muted,marginBottom:10}}>어제 대비 신호가 바뀐 종목 — 상승 시작 포착</div>
             {(()=>{
-              const breakouts = stocks.map(s => {
+              const breakouts = allStocksForScan.map(s => {
                 const cData = charts[s.ticker]?.data;
                 if(!cData||cData.length<3) return null;
                 const today = cData.at(-1), yesterday = cData.at(-2), d3 = cData.at(-3);
