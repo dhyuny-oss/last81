@@ -2838,6 +2838,143 @@ export default function App() {
                   })}
                 </div>}
               </div>
+
+              {/* ★ v2.2: 조합 자동 분석 — 최적 전략 찾기 */}
+              <div style={css.card}>
+                <div style={{fontSize:10,fontWeight:700,color:C.purple,marginBottom:8}}>🧬 조합 분석 — 최적 매수 조건 찾기</div>
+                <div style={{fontSize:8,color:C.muted,marginBottom:8}}>2개 이상 신호가 동시 발생한 시점의 성과 · 조합이 많을수록 정확도↑</div>
+                {(()=>{
+                  // 각 날짜에 어떤 매수 신호가 있었는지 매핑
+                  const daySignals = {};
+                  sigMarkers.filter(s=>s.side==="buy").forEach(s=>{
+                    if(!daySignals[s.i]) daySignals[s.i]=[];
+                    daySignals[s.i].push(s.type);
+                  });
+
+                  // 조합별 성과 계산
+                  const combos = {};
+                  const condNames = ["ST플립","MACD↑","구름돌파","스퀴즈해제","거래량폭발"];
+                  
+                  // 2개 조합
+                  for(let a=0;a<condNames.length;a++){
+                    for(let b=a+1;b<condNames.length;b++){
+                      const key = `${condNames[a]} + ${condNames[b]}`;
+                      combos[key]={count:0,wins:0,sum10:0,sum20:0,signals:2};
+                    }
+                  }
+                  // 3개 조합
+                  for(let a=0;a<condNames.length;a++){
+                    for(let b=a+1;b<condNames.length;b++){
+                      for(let c=b+1;c<condNames.length;c++){
+                        const key = `${condNames[a]} + ${condNames[b]} + ${condNames[c]}`;
+                        combos[key]={count:0,wins:0,sum10:0,sum20:0,signals:3};
+                      }
+                    }
+                  }
+                  // 풀 조합
+                  combos["풀조합 (3개+)"]={count:0,wins:0,sum10:0,sum20:0,signals:99};
+
+                  Object.entries(daySignals).forEach(([idx,sigs])=>{
+                    const i=+idx;
+                    const entry=labSliced[i]?.close;
+                    if(!entry)return;
+                    const after10=labSliced[Math.min(i+10,labSliced.length-1)]?.close||entry;
+                    const after20=labSliced[Math.min(i+20,labSliced.length-1)]?.close||entry;
+                    const pnl10=(after10-entry)/entry*100;
+                    const pnl20=(after20-entry)/entry*100;
+                    const win=after10>entry;
+
+                    // 2개 조합 체크
+                    for(let a=0;a<condNames.length;a++){
+                      for(let b=a+1;b<condNames.length;b++){
+                        if(sigs.includes(condNames[a])&&sigs.includes(condNames[b])){
+                          const key=`${condNames[a]} + ${condNames[b]}`;
+                          combos[key].count++;combos[key].sum10+=pnl10;combos[key].sum20+=pnl20;if(win)combos[key].wins++;
+                        }
+                      }
+                    }
+                    // 3개 조합 체크
+                    for(let a=0;a<condNames.length;a++){
+                      for(let b=a+1;b<condNames.length;b++){
+                        for(let c=b+1;c<condNames.length;c++){
+                          if(sigs.includes(condNames[a])&&sigs.includes(condNames[b])&&sigs.includes(condNames[c])){
+                            const key=`${condNames[a]} + ${condNames[b]} + ${condNames[c]}`;
+                            combos[key].count++;combos[key].sum10+=pnl10;combos[key].sum20+=pnl20;if(win)combos[key].wins++;
+                          }
+                        }
+                      }
+                    }
+                    // 풀 조합
+                    if(sigs.length>=3){combos["풀조합 (3개+)"].count++;combos["풀조합 (3개+)"].sum10+=pnl10;combos["풀조합 (3개+)"].sum20+=pnl20;if(win)combos["풀조합 (3개+)"].wins++;}
+                  });
+
+                  const ranked = Object.entries(combos).filter(([,d])=>d.count>0).sort((a,b)=>{
+                    const aWr=a[1].wins/a[1].count, bWr=b[1].wins/b[1].count;
+                    return bWr-aWr || (b[1].sum10/b[1].count)-(a[1].sum10/a[1].count);
+                  });
+
+                  if(!ranked.length) return <div style={{fontSize:9,color:C.muted,textAlign:"center",padding:15}}>동시 발생한 조합이 없습니다 — 데이터가 더 쌓이면 나타납니다</div>;
+
+                  return <>
+                    <div style={{display:"grid",gridTemplateColumns:"2fr 0.5fr 0.6fr 0.8fr 0.8fr",gap:0,fontSize:8}}>
+                      <div style={{padding:"4px 8px",fontWeight:700,color:C.muted,borderBottom:`1px solid ${C.border}`}}>조합</div>
+                      <div style={{padding:"4px 8px",fontWeight:700,color:C.muted,borderBottom:`1px solid ${C.border}`}}>횟수</div>
+                      <div style={{padding:"4px 8px",fontWeight:700,color:C.muted,borderBottom:`1px solid ${C.border}`}}>승률</div>
+                      <div style={{padding:"4px 8px",fontWeight:700,color:C.muted,borderBottom:`1px solid ${C.border}`}}>10일후</div>
+                      <div style={{padding:"4px 8px",fontWeight:700,color:C.muted,borderBottom:`1px solid ${C.border}`}}>20일후</div>
+                      {ranked.slice(0,10).map(([name,d])=>{
+                        const wr=Math.round(d.wins/d.count*100);
+                        const avg10=(d.sum10/d.count).toFixed(1);
+                        const avg20=(d.sum20/d.count).toFixed(1);
+                        const isBest=wr>=60&&avg10>0;
+                        return <React.Fragment key={name}>
+                          <div style={{padding:"5px 8px",fontWeight:700,color:isBest?C.emerald:C.text,background:isBest?"rgba(16,185,129,.06)":"transparent"}}>{isBest?"⭐ ":""}{name}</div>
+                          <div style={{padding:"5px 8px",background:isBest?"rgba(16,185,129,.06)":"transparent"}}>{d.count}회</div>
+                          <div style={{padding:"5px 8px",color:wr>=60?C.emerald:wr>=40?C.yellow:C.red,fontWeight:700,background:isBest?"rgba(16,185,129,.06)":"transparent"}}>{wr}%</div>
+                          <div style={{padding:"5px 8px",color:avg10>=0?C.green:C.red,fontWeight:700,background:isBest?"rgba(16,185,129,.06)":"transparent"}}>{avg10>=0?"+":""}{avg10}%</div>
+                          <div style={{padding:"5px 8px",color:avg20>=0?C.green:C.red,background:isBest?"rgba(16,185,129,.06)":"transparent"}}>{avg20>=0?"+":""}{avg20}%</div>
+                        </React.Fragment>;
+                      })}
+                    </div>
+                    {ranked.find(([,d])=>d.wins/d.count>=0.6)&&<div style={{marginTop:8,padding:"8px 10px",background:"rgba(16,185,129,.08)",border:"1px solid rgba(16,185,129,.25)",borderRadius:8}}>
+                      <div style={{fontSize:9,fontWeight:700,color:C.emerald}}>💡 추천: {ranked.find(([,d])=>d.wins/d.count>=0.6)?.[0]}</div>
+                      <div style={{fontSize:8,color:C.muted,marginTop:2}}>이 조합이 {labInfo?.label}에서 승률 {Math.round(ranked.find(([,d])=>d.wins/d.count>=0.6)?.[1].wins/ranked.find(([,d])=>d.wins/d.count>=0.6)?.[1].count*100)}%로 가장 높았습니다 (90일 기준)</div>
+                    </div>}
+                  </>;
+                })()}
+              </div>
+
+              {/* ★ v2.2: 최적 매도 타이밍 분석 */}
+              <div style={css.card}>
+                <div style={{fontSize:10,fontWeight:700,color:"#fb923c",marginBottom:8}}>⏱ 보유 기간별 평균 수익률</div>
+                <div style={{fontSize:8,color:C.muted,marginBottom:8}}>매수 신호 발생 후 며칠 보유가 최적인가?</div>
+                {(()=>{
+                  const buyDays = sigMarkers.filter(s=>s.side==="buy");
+                  if(!buyDays.length) return <div style={{fontSize:9,color:C.muted,textAlign:"center",padding:10}}>매수 신호 없음</div>;
+                  const periods = [1,3,5,7,10,15,20];
+                  const results = periods.map(days=>{
+                    let sum=0,count=0;
+                    buyDays.forEach(sig=>{
+                      const entry=labSliced[sig.i]?.close;
+                      const exit=labSliced[Math.min(sig.i+days,labSliced.length-1)]?.close;
+                      if(entry&&exit){sum+=(exit-entry)/entry*100;count++;}
+                    });
+                    return {days, avg:count?+(sum/count).toFixed(2):0, count};
+                  });
+                  const best = results.reduce((a,b)=>b.avg>a.avg?b:a);
+                  return <>
+                    <div style={{display:"flex",gap:4,marginBottom:6}}>
+                      {results.map(r=>(
+                        <div key={r.days} style={{flex:1,textAlign:"center",padding:"6px 2px",borderRadius:6,background:r.days===best.days?"rgba(16,185,129,.12)":"rgba(0,0,0,.3)",border:r.days===best.days?`1px solid ${C.emerald}`:"1px solid transparent"}}>
+                          <div style={{fontSize:7,color:C.muted}}>{r.days}일</div>
+                          <div style={{fontSize:12,fontWeight:900,color:r.avg>=0?C.green:C.red}}>{r.avg>=0?"+":""}{r.avg}%</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{fontSize:8,color:C.emerald,fontWeight:700}}>💡 최적 보유기간: {best.days}일 (평균 {best.avg>=0?"+":""}{best.avg}%)</div>
+                  </>;
+                })()}
+              </div>
             </div>;
           })()}
         </div>}
