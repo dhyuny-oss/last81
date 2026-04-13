@@ -9,6 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      COLLECT_MODE: daily
     steps:
       - uses: actions/checkout@v4
 
@@ -17,7 +19,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install yfinance
+        run: pip install yfinance requests
 
       - name: Fetch market data
         run: python scripts/fetch_yahoo.py
@@ -26,6 +28,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add public/data/stocks.json
+          git add public/data/stocks.json public/data/alpha_hits.json
           git diff --staged --quiet || git commit -m "📊 $(date +%Y-%m-%d) 데이터 업데이트"
           git push
