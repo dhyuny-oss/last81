@@ -552,6 +552,9 @@ export default function App() {
   const [addMsg, setAddMsg] = useState("");
   const [period, setPeriod] = useState("3M");
   const [selectedSector, setSelectedSector] = useState(null);
+  // ★ v2.2: 실험실 탭
+  const [labStock, setLabStock] = useState(null);
+  const [labPoint, setLabPoint] = useState(null);
   // ★ v2.2: 지수 미니차트
   const [selIndex, setSelIndex] = useState(null);
 
@@ -1067,7 +1070,7 @@ export default function App() {
   // ★ v2.2: 에쿼티 커브 데이터
   const equityCurveData = buildEquityCurve(closedLog, riskSettings.totalCapital);
 
-  const TABS=[["radar","🌐 시장"],["alpha","🔍 발굴"],["sniper","📊 차트"],["track",`📁 추적 (${tracking.length+positions.length})`],["pool","🗃 종목풀"]];
+  const TABS=[["radar","🌐 시장"],["alpha","🔍 발굴"],["sniper","📊 차트"],["track",`📁 추적 (${tracking.length+positions.length})`],["lab","🔬 실험실"],["pool","🗃 종목풀"]];
 
   const pageStyle={minHeight:"100vh",background:"linear-gradient(180deg,#0b1120 0%,#0d1526 100%)",color:C.text,fontFamily:"'DM Mono','JetBrains Mono',monospace",display:"flex",flexDirection:"column",fontSize:12};
 
@@ -1438,8 +1441,53 @@ export default function App() {
               });
             })()}
           </div>
-        </div>}
 
+          {/* ★ v2.2: 🚀 오늘의 돌파 감지 */}
+          <div style={css.card}>
+            <div style={{fontSize:11,fontWeight:700,color:C.emerald,marginBottom:8}}>🚀 오늘의 돌파 감지</div>
+            <div style={{fontSize:8,color:C.muted,marginBottom:10}}>어제 대비 신호가 바뀐 종목 — 상승 시작 포착</div>
+            {(()=>{
+              const breakouts = stocks.map(s => {
+                const cData = charts[s.ticker]?.data;
+                if(!cData||cData.length<3) return null;
+                const today = cData.at(-1), yesterday = cData.at(-2), d3 = cData.at(-3);
+                const signals = [];
+                // ST 플립 (매도→매수)
+                const stToday = [today.st1Bull,today.st2Bull,today.st3Bull].filter(v=>v!=null).length;
+                const stYest = [yesterday.st1Bull,yesterday.st2Bull,yesterday.st3Bull].filter(v=>v!=null).length;
+                if(stToday===3 && stYest<3) signals.push({type:"🔥 ST돌파",desc:`ST ${stYest}→3/3`,color:C.emerald});
+                else if(stToday>stYest) signals.push({type:"📈 ST개선",desc:`ST ${stYest}→${stToday}/3`,color:C.green});
+                // MACD 골든크로스
+                if(today.macd>today.signal && yesterday.macd<=yesterday.signal) signals.push({type:"⚡ MACD↑",desc:"골든크로스 발생",color:C.accent});
+                // 구름 돌파
+                if(today.aboveCloud && !yesterday.aboveCloud) signals.push({type:"☁️ 구름돌파",desc:"일목구름 상향 돌파",color:C.emerald});
+                // 거래량 폭발
+                const vols = cData.slice(-21,-1).map(d=>d.volume||0).filter(v=>v>0);
+                const avgVol = vols.length?vols.reduce((a,b)=>a+b,0)/vols.length:0;
+                if(avgVol>0 && today.volume > avgVol*2) signals.push({type:"💥 거래량",desc:`${Math.round(today.volume/avgVol*100)}% 폭증`,color:C.yellow});
+                // 스퀴즈 해제
+                if(today.sqzOff) signals.push({type:"💎 스퀴즈",desc:"압축 해제! 방향 주목",color:C.purple});
+                if(!signals.length) return null;
+                const {score} = alphaScore(s, cData, idxRS);
+                return {...s, signals, score, stCount:stToday};
+              }).filter(Boolean).sort((a,b)=>b.signals.length-a.signals.length||b.score-a.score);
+
+              if(!breakouts.length) return <div style={{textAlign:"center",padding:"15px",color:C.muted,fontSize:9}}>오늘 신규 돌파 종목이 없습니다</div>;
+              return breakouts.slice(0,8).map(s=>(
+                <div key={s.ticker} onClick={()=>{setSel(s.ticker);setTab("sniper");}} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderBottom:`1px solid rgba(255,255,255,.05)`,cursor:"pointer"}}>
+                  <span style={{fontWeight:900,fontSize:11,minWidth:70}}>{s.market} {s.label}</span>
+                  <div style={{flex:1,display:"flex",gap:3,flexWrap:"wrap"}}>
+                    {s.signals.map((sig,i)=><span key={i} style={{fontSize:7,padding:"2px 6px",borderRadius:4,background:`${sig.color}15`,border:`1px solid ${sig.color}40`,color:sig.color,fontWeight:700}}>{sig.type} {sig.desc}</span>)}
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:11,fontWeight:900,color:C.accent}}>{s.score}pt</div>
+                    <div style={{fontSize:8,color:(s.changePct||0)>=0?C.green:C.red}}>{(s.changePct||0)>=0?"+":""}{(s.changePct||0).toFixed(1)}%</div>
+                  </div>
+                </div>
+              ));
+            })()}
+          </div>
+        </div>}
         {/* ══ TAB 2: 발굴탭 ══ */}
         {tab==="alpha"&&<div style={{padding:"12px 14px"}}>
           <RSBar/>
@@ -2564,6 +2612,129 @@ export default function App() {
             })}
             {tradeJournal.length===0&&<div style={{textAlign:"center",padding:"30px",color:C.muted}}><div style={{fontSize:24,marginBottom:8}}>📝</div>매매 일지를 작성하면 패턴 파악에 도움이 됩니다</div>}
           </div>}
+        </div>}
+
+        {/* ══ TAB: 실험실 ══ */}
+        {tab==="lab"&&<div style={{padding:"12px 14px"}}>
+          <div style={{fontSize:12,fontWeight:900,color:C.purple,marginBottom:4}}>🔬 실험실</div>
+          <div style={{fontSize:9,color:C.sub,marginBottom:12}}>차트 위 날짜를 클릭하면 그 시점의 모든 지표값을 볼 수 있어요</div>
+
+          {/* 종목 선택 */}
+          <div style={{display:"flex",gap:4,marginBottom:12,flexWrap:"wrap"}}>
+            {stocks.slice(0,20).map(s=>(
+              <button key={s.ticker} onClick={()=>{setLabStock(s.ticker);setLabPoint(null);}} style={{padding:"4px 10px",borderRadius:5,fontSize:9,fontWeight:labStock===s.ticker?700:400,border:`1px solid ${labStock===s.ticker?C.accent:C.border}`,background:labStock===s.ticker?"rgba(56,189,248,.15)":"rgba(255,255,255,.03)",color:labStock===s.ticker?C.accent:C.muted,cursor:"pointer"}}>{s.market} {s.label?.slice(0,6)}</button>
+            ))}
+          </div>
+
+          {labStock&&(()=>{
+            const labCd = charts[labStock]?.data;
+            if(!labCd||labCd.length<10) return <div style={{textAlign:"center",padding:"30px",color:C.muted}}>데이터 부족 — 종목을 다시 선택해주세요</div>;
+            const labSliced = labCd.slice(-90);
+            const labSel = labPoint!=null ? labSliced[labPoint] : null;
+            const labInfo = stocks.find(s=>s.ticker===labStock);
+            const isKR3 = (labStock?.length||0)>5;
+
+            return <div>
+              {/* 차트 (클릭 가능) */}
+              <div style={{...css.card,padding:"6px 6px 3px",marginBottom:8}}>
+                <div style={{fontSize:9,fontWeight:700,color:C.accent,paddingLeft:6,marginBottom:4}}>📊 {labInfo?.label||labStock} — 클릭하여 시점 선택</div>
+                <ResponsiveContainer width="100%" height={200}>
+                  <ComposedChart data={labSliced} margin={{left:0,right:6}} onClick={(e)=>{if(e&&e.activeTooltipIndex!=null)setLabPoint(e.activeTooltipIndex);}}>
+                    <XAxis dataKey="date" tick={{fill:C.muted,fontSize:7}} tickLine={false} interval={Math.floor(labSliced.length/6)||1}/>
+                    <YAxis tick={{fill:C.muted,fontSize:7}} tickLine={false} domain={["auto","auto"]} width={45} tickFormatter={v=>isKR3?`${(v/1000).toFixed(0)}k`:v.toFixed(0)}/>
+                    <Tooltip content={<Tip/>}/>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,.05)"/>
+                    {labSel&&<ReferenceLine x={labSel.date} stroke={C.accent} strokeWidth={2} strokeDasharray="4 2"/>}
+                    <Area type="monotone" dataKey="close" stroke={C.accent} fill="rgba(56,189,248,.08)" strokeWidth={2} dot={false}/>
+                    {labSliced.map((d,i)=>{
+                      const st=[d.st1Bull,d.st2Bull,d.st3Bull].filter(v=>v!=null).length;
+                      if(st===3&&i>0){const pSt=[labSliced[i-1]?.st1Bull,labSliced[i-1]?.st2Bull,labSliced[i-1]?.st3Bull].filter(v=>v!=null).length;if(pSt<3)return <ReferenceLine key={i} x={d.date} stroke={C.emerald} strokeWidth={1} strokeDasharray="2 2"/>;}
+                      return null;
+                    })}
+                  </ComposedChart>
+                </ResponsiveContainer>
+                <div style={{fontSize:7,color:C.muted,paddingLeft:6,paddingBottom:4}}>초록 점선 = ST 3/3 진입 시점 · 파란 실선 = 선택된 날짜</div>
+              </div>
+
+              {/* 선택된 시점의 지표 스냅샷 */}
+              {labSel?<div style={{...css.card,border:`1px solid ${C.accent}`,marginBottom:8}}>
+                <div style={{fontSize:10,fontWeight:700,color:C.accent,marginBottom:8}}>📌 {labSel.date} 시점 지표 스냅샷</div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:10}}>
+                  {[
+                    {l:"종가",v:isKR3?`₩${fmtKRW(labSel.close)}`:`$${labSel.close?.toFixed(2)}`,c:C.text},
+                    {l:"거래량",v:labSel.volume?`${(labSel.volume/1e6).toFixed(1)}M`:"—",c:C.text},
+                    {l:"RSI",v:labSel.rsi?.toFixed(0)||"—",c:labSel.rsi>70?C.red:labSel.rsi<30?C.green:C.text},
+                    {l:"MACD",v:labSel.macd?.toFixed(2)||"—",c:labSel.macd>labSel.signal?C.green:C.red},
+                  ].map((m,i)=>(
+                    <div key={i} style={{background:"rgba(0,0,0,.3)",borderRadius:6,padding:"6px",textAlign:"center"}}>
+                      <div style={{fontSize:7,color:C.muted}}>{m.l}</div>
+                      <div style={{fontSize:13,fontWeight:900,color:m.c}}>{m.v}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:10}}>
+                  {[
+                    {l:"ST 신호",v:`${[labSel.st1Bull,labSel.st2Bull,labSel.st3Bull].filter(v=>v!=null).length}/3`,c:[labSel.st1Bull,labSel.st2Bull,labSel.st3Bull].filter(v=>v!=null).length===3?C.emerald:C.yellow},
+                    {l:"Signal",v:labSel.signal?.toFixed(2)||"—",c:C.muted},
+                    {l:"히스토그램",v:labSel.hist?.toFixed(2)||"—",c:(labSel.hist||0)>=0?C.green:C.red},
+                    {l:"일목구름",v:labSel.aboveCloud?"구름위":labSel.nearCloud?"접근":"아래",c:labSel.aboveCloud?C.emerald:labSel.nearCloud?C.yellow:C.red},
+                  ].map((m,i)=>(
+                    <div key={i} style={{background:"rgba(0,0,0,.3)",borderRadius:6,padding:"6px",textAlign:"center"}}>
+                      <div style={{fontSize:7,color:C.muted}}>{m.l}</div>
+                      <div style={{fontSize:13,fontWeight:900,color:m.c}}>{m.v}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:10}}>
+                  {[
+                    {l:"스퀴즈",v:labSel.sqzOn?"🟡 압축중":labSel.sqzOff?"🔴 해제!":"⚪ 없음",c:labSel.sqzOn?C.yellow:labSel.sqzOff?C.red:C.muted},
+                    {l:"ADX",v:labSel.adx?.toFixed(0)||"—",c:(labSel.adx||0)>=25?C.emerald:C.muted},
+                    {l:"ATR",v:labSel.atr?.toFixed(2)||"—",c:C.text},
+                  ].map((m,i)=>(
+                    <div key={i} style={{background:"rgba(0,0,0,.3)",borderRadius:6,padding:"6px",textAlign:"center"}}>
+                      <div style={{fontSize:7,color:C.muted}}>{m.l}</div>
+                      <div style={{fontSize:13,fontWeight:900,color:m.c}}>{m.v}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* 이 시점에 샀다면? */}
+                <div style={{background:"rgba(167,139,250,.06)",border:"1px solid rgba(167,139,250,.25)",borderRadius:8,padding:"8px 10px"}}>
+                  <div style={{fontSize:9,fontWeight:700,color:C.purple,marginBottom:6}}>🧪 이 시점에 샀다면?</div>
+                  {(()=>{
+                    const buyPrice = labSel.close;
+                    const latest = labSliced.at(-1);
+                    const latestPrice = latest?.close||buyPrice;
+                    const pnlPct = ((latestPrice-buyPrice)/buyPrice*100).toFixed(2);
+                    const daysHeld = labSliced.length - labPoint;
+                    const maxPrice = Math.max(...labSliced.slice(labPoint).map(d=>d.close||0));
+                    const maxPnl = ((maxPrice-buyPrice)/buyPrice*100).toFixed(2);
+                    const minPrice = Math.min(...labSliced.slice(labPoint).map(d=>d.close||0));
+                    const maxDD = ((minPrice-buyPrice)/buyPrice*100).toFixed(2);
+                    return <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
+                      <div style={{textAlign:"center"}}>
+                        <div style={{fontSize:7,color:C.muted}}>현재 손익</div>
+                        <div style={{fontSize:14,fontWeight:900,color:pnlPct>=0?C.green:C.red}}>{pnlPct>=0?"+":""}{pnlPct}%</div>
+                      </div>
+                      <div style={{textAlign:"center"}}>
+                        <div style={{fontSize:7,color:C.muted}}>보유일</div>
+                        <div style={{fontSize:14,fontWeight:900,color:C.text}}>{daysHeld}일</div>
+                      </div>
+                      <div style={{textAlign:"center"}}>
+                        <div style={{fontSize:7,color:C.muted}}>최대 수익</div>
+                        <div style={{fontSize:14,fontWeight:900,color:C.emerald}}>+{maxPnl}%</div>
+                      </div>
+                      <div style={{textAlign:"center"}}>
+                        <div style={{fontSize:7,color:C.muted}}>최대 하락</div>
+                        <div style={{fontSize:14,fontWeight:900,color:C.red}}>{maxDD}%</div>
+                      </div>
+                    </div>;
+                  })()}
+                </div>
+              </div>
+              :<div style={{textAlign:"center",padding:"30px",color:C.muted,fontSize:10}}>👆 차트 위 아무 날짜를 클릭하세요</div>}
+            </div>;
+          })()}
         </div>}
 
         {/* ══ TAB 5: 종목풀 ══ */}
