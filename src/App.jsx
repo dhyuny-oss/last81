@@ -1000,7 +1000,7 @@ export default function App() {
           const dayChgPct = candles.length>=2
             ? +((candles.at(-1).close - candles.at(-2).close) / candles.at(-2).close * 100).toFixed(2)
             : +((price - prevClose) / prevClose * 100).toFixed(2);
-          return{ticker,label:meta.longName||meta.shortName||ticker,price,change:+(price-prevClose).toFixed(2),changePct:dayChgPct,chg3d:candles.length>3?+((candles.at(-1).close-candles.at(-4).close)/candles.at(-4).close*100).toFixed(2):0,chg5d:candles.length>5?+((candles.at(-1).close-candles.at(-6).close)/candles.at(-6).close*100).toFixed(2):0,sector:"Technology",market:isKR?"🇰🇷":"🇺🇸",roe:0,per:0,rev:0,revGrowth:0,mktCap:meta.marketCap||0,target:+(price*1.2).toFixed(isKR?0:2),liquidity:2,base:+(price*0.88).toFixed(isKR?0:2),vol:0.02,drift:0.001,candles};
+          return{ticker,label:meta.longName||meta.shortName||ticker,price,change:+(price-prevClose).toFixed(2),changePct:dayChgPct,chg3d:candles.length>3?+((candles.at(-1).close-candles.at(-4).close)/candles.at(-4).close*100).toFixed(2):0,chg5d:candles.length>5?+((candles.at(-1).close-candles.at(-6).close)/candles.at(-6).close*100).toFixed(2):0,sector:"Technology",market:isKR?"🇰🇷":"🇺🇸",roe:0,per:0,rev:0,revGrowth:0,mktCap:meta.marketCap||0,target:0,liquidity:2,base:+(price*0.88).toFixed(isKR?0:2),vol:0.02,drift:0.001,candles};
         }
       }catch{}
       return null;
@@ -1143,7 +1143,8 @@ export default function App() {
   const w52High  = charts[sel]?.data?.at(-1)?.w52High||0;
   const rrTarget2= stopPrice>0&&curPrice>stopPrice?+(curPrice+(curPrice-stopPrice)*2).toFixed(isKRSel?0:2):0;
   const rrTarget3= stopPrice>0&&curPrice>stopPrice?+(curPrice+(curPrice-stopPrice)*3).toFixed(isKRSel?0:2):0;
-  const consTgt  = rrTarget2||w52High||consensus[sel]?.data?.targetMean||selInfo?.target||0;
+  const consTgt  = consensus[sel]?.data?.targetMean||selInfo?.target||w52High||0;
+  const consTgtSrc = consensus[sel]?.data?.targetMean?"컨센서스":selInfo?.target?"설정목표":w52High?"52주고점":"";
   const rrRatio  = stopPrice>0&&consTgt>0&&curPrice>stopPrice?+((consTgt-curPrice)/(curPrice-stopPrice)).toFixed(1):0;
   const checkOk  = Object.values(checklist).every(Boolean);
 
@@ -2197,12 +2198,18 @@ export default function App() {
           </div>
 
           {/* ★ v2.3: 컨센서스 목표가 + 예상수익률 */}
-          <div style={{background:"linear-gradient(135deg,rgba(10,132,255,.08),rgba(191,90,242,.08))",border:`2px solid ${C.accent}`,borderRadius:12,padding:"14px 16px",marginBottom:10}}>
+          <div style={{background:"linear-gradient(135deg,rgba(10,132,255,.08),rgba(191,90,242,.08))",border:`2px solid ${consensus[sel]?.data?C.accent:consTgt>0?"rgba(255,214,10,.4)":"rgba(255,255,255,.12)"}`,borderRadius:12,padding:"14px 16px",marginBottom:10}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
               <div>
-                <div style={{fontSize:9,color:C.muted,marginBottom:4}}>🎯 목표가</div>
-                <div style={{fontSize:28,fontWeight:900,color:C.accent,lineHeight:1}}>{consTgt>0?`${unit}${fmtPrice(consTgt,isKRSel)}`:"조회중..."}</div>
-                {consTgt>0&&curPrice>0&&<div style={{fontSize:8,color:C.muted,marginTop:4}}>현재 {unit}{fmtPrice(curPrice,isKRSel)} 대비</div>}
+                <div style={{fontSize:9,color:C.muted,marginBottom:4}}>🎯 목표가 {consTgtSrc&&<span style={{color:C.accent,fontSize:7}}>({consTgtSrc})</span>}</div>
+                {consTgt>0?<>
+                  <div style={{fontSize:28,fontWeight:900,color:C.accent,lineHeight:1}}>{unit}{fmtPrice(consTgt,isKRSel)}</div>
+                  <div style={{fontSize:8,color:C.muted,marginTop:4}}>현재 {unit}{fmtPrice(curPrice,isKRSel)} 대비</div>
+                </>:<div>
+                  <div style={{fontSize:16,color:C.muted,lineHeight:1}}>조회 필요</div>
+                  {!consensus[sel]&&<button onClick={()=>fetchConsensus(sel,selInfo?.label,selInfo?.market)} style={{marginTop:6,background:"rgba(10,132,255,.12)",border:`1px solid ${C.accent}`,borderRadius:5,padding:"4px 12px",color:C.accent,fontSize:9,cursor:"pointer",fontWeight:700}}>🔍 컨센서스 조회</button>}
+                  {consensus[sel]?.loading&&<div style={{fontSize:9,color:C.accent,marginTop:4}}>조회 중...</div>}
+                </div>}
               </div>
               <div style={{textAlign:"right"}}>
                 <div style={{fontSize:9,color:C.muted,marginBottom:4}}>예상 수익률</div>
