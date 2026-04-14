@@ -575,21 +575,40 @@ def main():
         alpha_hits.sort(key=lambda x: x["score"], reverse=True)
         print(f"  ⭐ {len(alpha_hits)}개 알파 종목 발견")
 
+        # ★ 상위 100개 종목은 캔들 포함 저장 (ST/MACD/구름 분석용)
+        # RS 상위 50 + 알파점수 상위 50 합산 (중복 제거)
+        candle_keepers = set()
+        rs_sorted = sorted(pool_data.items(), key=lambda x: x[1].get("rsPctRank",0), reverse=True)
+        for t, _ in rs_sorted[:50]:
+            candle_keepers.add(t)
+        for hit in alpha_hits[:50]:
+            candle_keepers.add(hit["ticker"])
+        # 관심종목도 무조건 포함
+        watchlist = load_watchlist()
+        for t in watchlist:
+            candle_keepers.add(t)
+        print(f"\n📊 캔들 보존 대상: {len(candle_keepers)}개 (RS상위50 + 알파50 + 관심종목)")
+
         pool_slim = {}
         for ticker, stock in pool_data.items():
-            pool_slim[ticker] = {k:v for k,v in stock.items() if k != "candles"}
+            if ticker in candle_keepers:
+                # 캔들 포함 저장 → stocks에도 넣기
+                output["stocks"][ticker] = stock
+                pool_slim[ticker] = {k:v for k,v in stock.items() if k != "candles"}
+                pool_slim[ticker]["hasCandles"] = True
+            else:
+                pool_slim[ticker] = {k:v for k,v in stock.items() if k != "candles"}
         output["pool"] = pool_slim
 
         with open("public/data/alpha_hits.json", "w", encoding="utf-8") as f:
             json.dump({"hits":alpha_hits[:50],"count":len(alpha_hits),"scanned":len(pool_data),"updatedAt":now_str}, f, ensure_ascii=False, separators=(",",":"))
 
-        watchlist = load_watchlist()
-        print(f"\n⭐ 관심종목 {len(watchlist)}개 캔들 데이터 보존...")
+        # 관심종목 중 풀에 없는 것만 별도 수집
+        print(f"\n⭐ 관심종목 추가 수집...")
         for ticker, info in watchlist.items():
             if ticker in pool_data and pool_data[ticker].get("candles"):
-                output["stocks"][ticker] = pool_data[ticker]
-                print(f"  {ticker} ✅ (풀에서 가져옴)")
-            else:
+                print(f"  {ticker} ✅ (이미 포함)")
+            elif ticker not in output["stocks"]:
                 suffix = info.get("suffix","")
                 raw = fetch_yahoo(ticker+suffix, range_="6mo")
                 if raw:
