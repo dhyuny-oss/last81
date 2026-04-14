@@ -1290,7 +1290,24 @@ export default function App() {
         </div>
         <div style={{display:"flex",alignItems:"center",gap:5}}>
           {dataStatus==="loading"&&<div style={{display:"flex",gap:2,alignItems:"center",color:C.accent,fontSize:8}}>{[0,1,2].map(i=><div key={i} style={{width:3,height:3,borderRadius:"50%",background:C.accent,animation:`bounce 1s ${i*.2}s infinite`}}/>)}로딩중</div>}
-          {dataStatus==="real"&&<span style={{fontSize:8,color:C.green}}>🟢 실시간{lastUpdated?` (${new Date(lastUpdated).toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit"})})`:""}</span>}
+          {dataStatus==="real"&&(()=>{
+            const now=new Date();const h=now.getHours(),m=now.getMinutes(),t=h*60+m;
+            const krOpen=t>=540&&t<=930;
+            const usOpen=t>=1410||t<=360;
+            // 풀 데이터 기준 시각으로 각 시장 데이터 상태 판단
+            const upd=lastUpdated?new Date(lastUpdated):null;
+            const updH=upd?upd.getHours():0;const updT=upd?(updH*60+upd.getMinutes()):0;
+            // 한국: 15:30 이후 갱신 = 당일종가, 아니면 전일
+            const krLabel=!upd?"—":updT>=930?"당일종가":updT>=540?"장중":updT<540?"전일종가":"전일종가";
+            // 미국: 06:00 이후 갱신 = 당일종가(전야), 23:30 이후 = 장중
+            const usLabel=!upd?"—":updT>=360&&updT<1410?"당일종가":updT>=1410?"장중":"전일종가";
+            const updFmt=upd?`${upd.getMonth()+1}/${upd.getDate()} ${upd.toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit"})}`:"";
+            return<div style={{display:"flex",gap:6,fontSize:8,alignItems:"center"}}>
+              <span style={{padding:"2px 6px",borderRadius:4,background:krOpen?"rgba(48,209,88,.12)":"rgba(255,255,255,.04)",border:`1px solid ${krOpen?"rgba(48,209,88,.3)":"rgba(255,255,255,.08)"}`,color:krOpen?C.green:C.muted}}>🇰🇷 {krOpen?"장중":krLabel}</span>
+              <span style={{padding:"2px 6px",borderRadius:4,background:usOpen?"rgba(48,209,88,.12)":"rgba(255,255,255,.04)",border:`1px solid ${usOpen?"rgba(48,209,88,.3)":"rgba(255,255,255,.08)"}`,color:usOpen?C.green:C.muted}}>🇺🇸 {usOpen?"장중":usLabel}</span>
+              {updFmt&&<span style={{color:C.muted,fontSize:7}}>갱신 {updFmt}</span>}
+            </div>;
+          })()}
           {dataStatus==="sim"&&<span style={{fontSize:8,color:C.yellow}}>🟡 시뮬레이션</span>}
         </div>
         {/* 포지션 사이징 버튼 */}
