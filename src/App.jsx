@@ -30,11 +30,19 @@ const PERIOD_DAYS = { "1M":22, "3M":66, "6M":130, "1Y":252, "ALL":9999 };
 const INITIAL = [];
 
 // ★ v2.2: 불타기 룰 (30/30/25/15 — 빠른 손절 전제)
-const PYRAMID_RULES = [
-  { pct: 30, label: "1차 정찰", targetPct: 0 },
-  { pct: 30, label: "2차 확인", targetPct: 3 },
-  { pct: 25, label: "3차 추세", targetPct: 5 },
-  { pct: 15, label: "4차 가속", targetPct: 8 },
+// ★ v2.2: 불타기 룰 (기본/특별 모드)
+const PYRAMID_BASIC = [
+  { pct: 10, label: "보초", targetPct: 0 },
+  { pct: 40, label: "1차 진입", targetPct: 2 },
+  { pct: 40, label: "2차 추가", targetPct: 3 },
+  { pct: 10, label: "3차 마무리", targetPct: 5 },
+];
+const PYRAMID_SPECIAL = [
+  { pct: 5,  label: "보초", targetPct: 0 },
+  { pct: 20, label: "1차 진입", targetPct: 2 },
+  { pct: 20, label: "2차 추가", targetPct: 3 },
+  { pct: 40, label: "3차 본격", targetPct: 5 },
+  { pct: 15, label: "4차 마무리", targetPct: 10 },
 ];
 
 const SEARCH_DB = {
@@ -606,21 +614,26 @@ export default function App() {
   const [btResult, setBtResult] = useState(null);
 
   // ── 차트 진입 ────────────────────────────────────────────
-  const [stopPct, setStopPct]   = useState(()=>{ try{const s=localStorage.getItem("at_trail");return s?JSON.parse(s).initialStopPct||10:10;}catch{return 10;} });
+  const [stopPct, setStopPct]   = useState(()=>{ try{const s=localStorage.getItem("at_trail");return s?JSON.parse(s).initialStopPct||5:5;}catch{return 5;} });
   const [checklist, setChecklist] = useState({market:false,sector:false,stock:false,timing:false,risk:false});
 
   // ── 13번: 포지션 사이징 & 리스크 관리 ────────────────────
   const [riskSettings, setRiskSettings] = useState(()=>{
-    try{const s=localStorage.getItem("at_risk");return s?JSON.parse(s):{totalCapital:10000000,maxPositions:10,maxWeightPct:30};}
-    catch{return{totalCapital:10000000,maxPositions:10,maxWeightPct:30};}
+    try{const s=localStorage.getItem("at_risk");return s?JSON.parse(s):{totalCapital:5000000,specialCapital:10000000,maxPositions:10,maxWeightPct:100,investMode:"basic"};}
+    catch{return{totalCapital:5000000,specialCapital:10000000,maxPositions:10,maxWeightPct:100,investMode:"basic"};}
   });
   const [showRiskPanel, setShowRiskPanel] = useState(false);
 
   // ── 12번: 불타기 + 트레일링컷 설정 ──────────────────────
   const [trailSettings, setTrailSettings] = useState(()=>{
-    try{const s=localStorage.getItem("at_trail");return s?JSON.parse(s):{initialStopPct:10,trailPct:8,switchPct:10,timeCutDays:14,timeCutPct:3};}
-    catch{return{initialStopPct:10,trailPct:8,switchPct:10,timeCutDays:14,timeCutPct:3};}
+    try{const s=localStorage.getItem("at_trail");return s?JSON.parse(s):{initialStopPct:5,trailPct:8,switchPct:10,timeCutDays:14,timeCutPct:3};}
+    catch{return{initialStopPct:5,trailPct:8,switchPct:10,timeCutDays:14,timeCutPct:3};}
   });
+
+  // ★ v2.2: 투자모드에 따른 불타기룰
+  const isSpecial = riskSettings.investMode === "special";
+  const PYRAMID_RULES = isSpecial ? PYRAMID_SPECIAL : PYRAMID_BASIC;
+  const activeCapital = isSpecial ? (riskSettings.specialCapital||10000000) : (riskSettings.totalCapital||5000000);
 
   // ── 9번: 통합 추적 탭 ───────────────────────────────────
   const [trackTab, setTrackTab] = useState("watch"); // watch | hold | closed | stats
@@ -1111,8 +1124,8 @@ export default function App() {
   });
 
   // 13번: 권장 매수금액 계산
-  const perStockMax = riskSettings.totalCapital*(riskSettings.maxWeightPct/100);
-  const pyramidAmts = PYRAMID_RULES.map(r=>Math.round(perStockMax*r.pct/100));
+  const perStockMax = activeCapital;
+  const pyramidAmts = PYRAMID_RULES.map(r=>Math.round(activeCapital*r.pct/100));
   const currentExposure = positions.length;
   const overPositions   = currentExposure>=riskSettings.maxPositions;
 
@@ -1168,73 +1181,110 @@ export default function App() {
         {/* 포지션 사이징 버튼 */}
         <button onClick={()=>setShowRiskPanel(v=>!v)} style={{...css.btn(showRiskPanel),fontSize:8,padding:"3px 8px"}}>⚙ 리스크설정</button>
         {/* 리스크 설정 패널 */}
-        {showRiskPanel&&<div style={{position:"absolute",top:"100%",left:14,right:14,background:"#0a0f1e",border:`1px solid ${C.accent}`,borderRadius:10,padding:14,zIndex:100,boxShadow:"0 8px 32px rgba(0,0,0,.8)"}}>
-          <div style={{fontSize:11,fontWeight:900,color:C.accent,marginBottom:10}}>⚙ 포지션 사이징 & 리스크 관리</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12}}>
+        {showRiskPanel&&<div style={{position:"absolute",top:"100%",left:14,right:14,background:"#1C1C1E",border:`1px solid ${C.accent}`,borderRadius:14,padding:16,zIndex:100,boxShadow:"0 8px 32px rgba(0,0,0,.8)",maxHeight:"80vh",overflowY:"auto"}}>
+          <div style={{fontSize:12,fontWeight:900,color:C.accent,marginBottom:12}}>⚙ 리스크 관리 센터</div>
+
+          {/* 투자 모드 토글 */}
+          <div style={{display:"flex",gap:6,marginBottom:14}}>
+            {[["basic","기본 (₩"+fmtKRW(riskSettings.totalCapital)+")"],["special","특별 (₩"+fmtKRW(riskSettings.specialCapital||10000000)+")"]].map(([k,l])=>(
+              <button key={k} onClick={()=>setRiskSettings(p=>({...p,investMode:k}))} style={{flex:1,padding:"8px",borderRadius:8,border:`2px solid ${riskSettings.investMode===k?C.accent:C.border}`,background:riskSettings.investMode===k?"rgba(10,132,255,.15)":"rgba(255,255,255,.03)",color:riskSettings.investMode===k?C.accent:C.muted,fontSize:10,fontWeight:700,cursor:"pointer"}}>{k==="special"?"⭐ ":""}{l}</button>
+            ))}
+          </div>
+
+          {/* 투자금 설정 */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:12}}>
             <div>
-              <div style={{fontSize:9,color:C.muted,marginBottom:4}}>총 투자금</div>
+              <div style={{fontSize:9,color:C.muted,marginBottom:4}}>기본 투자금</div>
               <input type="number" value={riskSettings.totalCapital} onChange={e=>setRiskSettings(p=>({...p,totalCapital:+e.target.value}))} style={{width:"100%",background:"rgba(255,255,255,.07)",border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 8px",color:C.text,fontSize:10,outline:"none"}}/>
               <div style={{fontSize:8,color:C.muted,marginTop:2}}>₩{fmtKRW(riskSettings.totalCapital)}</div>
+            </div>
+            <div>
+              <div style={{fontSize:9,color:C.muted,marginBottom:4}}>특별 투자금</div>
+              <input type="number" value={riskSettings.specialCapital||10000000} onChange={e=>setRiskSettings(p=>({...p,specialCapital:+e.target.value}))} style={{width:"100%",background:"rgba(255,255,255,.07)",border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 8px",color:C.text,fontSize:10,outline:"none"}}/>
+              <div style={{fontSize:8,color:C.muted,marginTop:2}}>₩{fmtKRW(riskSettings.specialCapital||10000000)}</div>
             </div>
             <div>
               <div style={{fontSize:9,color:C.muted,marginBottom:4}}>최대 종목 수</div>
               <input type="range" min="3" max="20" value={riskSettings.maxPositions} onChange={e=>setRiskSettings(p=>({...p,maxPositions:+e.target.value}))} style={{width:"100%",accentColor:C.accent}}/>
               <div style={{fontSize:10,fontWeight:700,color:C.accent,textAlign:"center"}}>{riskSettings.maxPositions}종목</div>
             </div>
-            <div>
-              <div style={{fontSize:9,color:C.muted,marginBottom:4}}>종목당 최대 비중</div>
-              <input type="range" min="10" max="50" step="5" value={riskSettings.maxWeightPct} onChange={e=>setRiskSettings(p=>({...p,maxWeightPct:+e.target.value}))} style={{width:"100%",accentColor:C.emerald}}/>
-              <div style={{fontSize:10,fontWeight:700,color:C.emerald,textAlign:"center"}}>{riskSettings.maxWeightPct}%</div>
+          </div>
+
+          {/* 손절/트레일링 설정 */}
+          <div style={{paddingTop:12,borderTop:`1px solid ${C.border}`}}>
+            <div style={{fontSize:9,fontWeight:700,color:C.red,marginBottom:8}}>🛡 손절 & 트레일링</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
+              <div>
+                <div style={{fontSize:8,color:C.muted,marginBottom:4}}>초기 손절</div>
+                <input type="range" min="3" max="15" value={trailSettings.initialStopPct} onChange={e=>setTrailSettings(p=>({...p,initialStopPct:+e.target.value}))} style={{width:"100%",accentColor:C.red}}/>
+                <div style={{fontSize:11,fontWeight:700,color:C.red,textAlign:"center"}}>-{trailSettings.initialStopPct}%</div>
+              </div>
+              <div>
+                <div style={{fontSize:8,color:C.muted,marginBottom:4}}>트레일링 폭</div>
+                <input type="range" min="3" max="15" value={trailSettings.trailPct} onChange={e=>setTrailSettings(p=>({...p,trailPct:+e.target.value}))} style={{width:"100%",accentColor:C.yellow}}/>
+                <div style={{fontSize:11,fontWeight:700,color:C.yellow,textAlign:"center"}}>고점-{trailSettings.trailPct}%</div>
+              </div>
+              <div>
+                <div style={{fontSize:8,color:C.muted,marginBottom:4}}>전환 기준</div>
+                <input type="range" min="3" max="30" value={trailSettings.switchPct} onChange={e=>setTrailSettings(p=>({...p,switchPct:+e.target.value}))} style={{width:"100%",accentColor:C.emerald}}/>
+                <div style={{fontSize:11,fontWeight:700,color:C.emerald,textAlign:"center"}}>+{trailSettings.switchPct}%시 전환</div>
+              </div>
             </div>
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
+
+          {/* 타임컷 설정 */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
             <div>
-              <div style={{fontSize:9,color:C.muted,marginBottom:4}}>초기 손절 %</div>
-              <input type="range" min="3" max="20" value={trailSettings.initialStopPct} onChange={e=>setTrailSettings(p=>({...p,initialStopPct:+e.target.value}))} style={{width:"100%",accentColor:C.red}}/>
-              <div style={{fontSize:10,fontWeight:700,color:C.red,textAlign:"center"}}>-{trailSettings.initialStopPct}%</div>
-            </div>
-            <div>
-              <div style={{fontSize:9,color:C.muted,marginBottom:4}}>트레일링 %</div>
-              <input type="range" min="3" max="20" value={trailSettings.trailPct} onChange={e=>setTrailSettings(p=>({...p,trailPct:+e.target.value}))} style={{width:"100%",accentColor:C.yellow}}/>
-              <div style={{fontSize:10,fontWeight:700,color:C.yellow,textAlign:"center"}}>고점-{trailSettings.trailPct}%</div>
-            </div>
-            <div>
-              <div style={{fontSize:9,color:C.muted,marginBottom:4}}>트레일링 전환 기준</div>
-              <input type="range" min="3" max="30" value={trailSettings.switchPct} onChange={e=>setTrailSettings(p=>({...p,switchPct:+e.target.value}))} style={{width:"100%",accentColor:C.emerald}}/>
-              <div style={{fontSize:10,fontWeight:700,color:C.emerald,textAlign:"center"}}>+{trailSettings.switchPct}% 이상</div>
-            </div>
-          </div>
-          {/* ★ v2.2: 타임컷 설정 */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
-            <div>
-              <div style={{fontSize:9,color:C.muted,marginBottom:4}}>⏰ 타임컷 기간 (일)</div>
+              <div style={{fontSize:8,color:C.muted,marginBottom:4}}>⏰ 타임컷 기간</div>
               <input type="range" min="5" max="30" value={trailSettings.timeCutDays||14} onChange={e=>setTrailSettings(p=>({...p,timeCutDays:+e.target.value}))} style={{width:"100%",accentColor:"#FF9F0A"}}/>
-              <div style={{fontSize:10,fontWeight:700,color:"#FF9F0A",textAlign:"center"}}>{trailSettings.timeCutDays||14}일</div>
+              <div style={{fontSize:11,fontWeight:700,color:"#FF9F0A",textAlign:"center"}}>{trailSettings.timeCutDays||14}일</div>
             </div>
             <div>
-              <div style={{fontSize:9,color:C.muted,marginBottom:4}}>⏰ 박스권 판정 범위 (±%)</div>
+              <div style={{fontSize:8,color:C.muted,marginBottom:4}}>⏰ 박스권 범위</div>
               <input type="range" min="1" max="8" step="0.5" value={trailSettings.timeCutPct||3} onChange={e=>setTrailSettings(p=>({...p,timeCutPct:+e.target.value}))} style={{width:"100%",accentColor:"#FF9F0A"}}/>
-              <div style={{fontSize:10,fontWeight:700,color:"#FF9F0A",textAlign:"center"}}>±{trailSettings.timeCutPct||3}%</div>
+              <div style={{fontSize:11,fontWeight:700,color:"#FF9F0A",textAlign:"center"}}>±{trailSettings.timeCutPct||3}%</div>
             </div>
           </div>
-          <div style={{fontSize:8,color:C.muted,marginTop:6}}>💡 보유 {trailSettings.timeCutDays||14}일 경과 후 손익 ±{trailSettings.timeCutPct||3}% 이내면 타임컷 경고</div>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10}}>
-            <div style={{fontSize:8,color:C.muted}}>종목당 최대 투자: ₩{fmtKRW(perStockMax)} · 1차 25%: ₩{fmtKRW(pyramidAmts[0])}</div>
-            <button onClick={()=>setShowRiskPanel(false)} style={{...css.btn(),fontSize:9}}>닫기</button>
-          </div>
-          {/* ★ v2.2: 불타기 룰 표시 */}
-          <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
-            <div style={{fontSize:9,fontWeight:700,color:C.purple,marginBottom:6}}>📐 불타기 룰 (30/30/25/15)</div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4}}>
-              {PYRAMID_RULES.map((r,i)=>(
-                <div key={i} style={{background:"rgba(191,90,242,.08)",border:`1px solid rgba(191,90,242,.2)`,borderRadius:6,padding:"5px",textAlign:"center"}}>
+
+          {/* ★ 불타기 룰 시뮬레이션 (10,000원 기준 예시) */}
+          <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
+            <div style={{fontSize:9,fontWeight:700,color:C.purple,marginBottom:4}}>📐 불타기 룰 ({isSpecial?"⭐특별":"기본"} ₩{fmtKRW(activeCapital)})</div>
+            <div style={{fontSize:8,color:C.muted,marginBottom:8}}>만원짜리 종목 기준 시뮬레이션</div>
+            <div style={{display:"grid",gridTemplateColumns:`repeat(${PYRAMID_RULES.length},1fr)`,gap:4,marginBottom:8}}>
+              {PYRAMID_RULES.map((r,i)=>{
+                const amt=Math.round(activeCapital*r.pct/100);
+                const shares=Math.floor(amt/10000);
+                return <div key={i} style={{background:"rgba(191,90,242,.06)",border:`1px solid rgba(191,90,242,.2)`,borderRadius:8,padding:"6px",textAlign:"center"}}>
                   <div style={{fontSize:8,color:C.purple,fontWeight:700}}>{r.label}</div>
-                  <div style={{fontSize:13,fontWeight:900,color:C.text}}>{r.pct}%</div>
-                  <div style={{fontSize:7,color:C.muted}}>{r.targetPct>0?`평단+${r.targetPct}%시`:"진입시"}</div>
-                  <div style={{fontSize:8,color:C.accent}}>₩{fmtKRW(pyramidAmts[i])}</div>
-                </div>
-              ))}
+                  <div style={{fontSize:14,fontWeight:900,color:C.text}}>{r.pct}%</div>
+                  <div style={{fontSize:9,color:C.accent,fontWeight:700}}>₩{fmtKRW(amt)}</div>
+                  <div style={{fontSize:7,color:C.muted}}>{shares}주 × ₩10,000</div>
+                  <div style={{fontSize:7,color:r.targetPct>0?C.emerald:C.muted}}>{r.targetPct>0?`평단+${r.targetPct}%시`:"진입시"}</div>
+                </div>;
+              })}
             </div>
+            {/* 손절 금액 표시 */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
+              <div style={{background:"rgba(255,69,58,.06)",borderRadius:6,padding:"6px",textAlign:"center"}}>
+                <div style={{fontSize:7,color:C.red}}>보초 손절 (-{trailSettings.initialStopPct}%)</div>
+                <div style={{fontSize:12,fontWeight:900,color:C.red}}>-₩{fmtKRW(Math.round(pyramidAmts[0]*trailSettings.initialStopPct/100))}</div>
+                <div style={{fontSize:7,color:C.muted}}>₩{fmtKRW(pyramidAmts[0])}의 {trailSettings.initialStopPct}%</div>
+              </div>
+              <div style={{background:"rgba(255,214,10,.06)",borderRadius:6,padding:"6px",textAlign:"center"}}>
+                <div style={{fontSize:7,color:C.yellow}}>트레일링 전환</div>
+                <div style={{fontSize:12,fontWeight:900,color:C.yellow}}>+{trailSettings.switchPct}%</div>
+                <div style={{fontSize:7,color:C.muted}}>이후 고점-{trailSettings.trailPct}%</div>
+              </div>
+              <div style={{background:"rgba(255,159,10,.06)",borderRadius:6,padding:"6px",textAlign:"center"}}>
+                <div style={{fontSize:7,color:"#FF9F0A"}}>타임컷</div>
+                <div style={{fontSize:12,fontWeight:900,color:"#FF9F0A"}}>{trailSettings.timeCutDays||14}일</div>
+                <div style={{fontSize:7,color:C.muted}}>±{trailSettings.timeCutPct||3}% 이내</div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{display:"flex",justifyContent:"flex-end",marginTop:12}}>
+            <button onClick={()=>setShowRiskPanel(false)} style={{...css.btn(true),fontSize:10,padding:"6px 16px"}}>닫기</button>
           </div>
         </div>}
         <div style={{position:"relative",marginLeft:"auto"}}>
@@ -1365,8 +1415,8 @@ export default function App() {
                       const bg=excess>=3?"rgba(48,209,88,.45)":excess>=0?"rgba(48,209,88,.2)":excess>-3?"rgba(250,204,21,.2)":"rgba(255,69,58,.3)";
                       return<div key={sec.etf} onClick={()=>setSelectedSector(selectedSector===sec.etf?null:sec.etf)} style={{background:bg,borderRadius:5,padding:"5px 4px",border:selectedSector===sec.etf?`2px solid ${C.accent}`:isTop?`1px solid ${C.emerald}`:"1px solid rgba(255,255,255,.05)",cursor:"pointer",textAlign:"center"}}>
                         <div style={{fontSize:7,fontWeight:700,color:isTop?C.emerald:C.sub}}>{sec.name}</div>
-                        <div style={{fontSize:11,fontWeight:700,color:v>=0?C.green:C.red}}>{v>=0?"+":""}{v}%</div>
-                        <div style={{fontSize:7,color:excess>=0?C.emerald:C.red}}>vs {mkt==="us"?"SP":"KS"} {excess>=0?"+":""}{excess}</div>
+                        <div style={{fontSize:11,fontWeight:700,color:v>=0?C.green:C.red}}>{v>=0?"+":""}{v.toFixed(1)}%</div>
+                        <div style={{fontSize:7,color:excess>=0?C.emerald:C.red}}>vs {mkt==="us"?"SP":"KS"} {excess>=0?"+":""}{excess.toFixed(1)}</div>
                       </div>;
                     })}
                   </div>
@@ -1534,6 +1584,43 @@ export default function App() {
                   </div>
                 </div>
               ));
+            })()}
+          </div>
+
+          {/* ★ v2.2: 진입평점 순위 — 캔들 보유 종목 전체 */}
+          <div style={css.card}>
+            <div style={{fontSize:11,fontWeight:700,color:C.accent,marginBottom:8}}>🎯 진입평점 순위</div>
+            <div style={{fontSize:8,color:C.muted,marginBottom:10}}>캔들 데이터 보유 종목 중 진입 조건이 좋은 순서</div>
+            {(()=>{
+              const graded = allStocksForScan.map(s=>{
+                const cData = charts[s.ticker]?.data;
+                if(!cData||cData.length<10) return null;
+                const es = calcEntryScore(cData, vixVal, oppScore, pool[s.ticker]||s);
+                const lastPt = cData.at(-1);
+                const stCount = [lastPt?.st1Bull,lastPt?.st2Bull,lastPt?.st3Bull].filter(v=>v!=null).length;
+                const cloudSt = lastPt?.aboveCloud?"구름위":lastPt?.nearCloud?"접근":"아래";
+                return {...s, entryGrade:es.grade, entryScore:es.score, breakdown:es.breakdown, stCount, cloudSt};
+              }).filter(Boolean).filter(s=>s.entryScore>30).sort((a,b)=>b.entryScore-a.entryScore);
+
+              if(!graded.length) return <div style={{textAlign:"center",padding:"15px",color:C.muted,fontSize:9}}>캔들 데이터가 있는 종목이 없습니다 — Daily 실행 후 확인</div>;
+              return graded.slice(0,15).map((s,i)=>{
+                const gc = {S:C.emerald,A:C.green,B:C.yellow,C:"#FF9F0A",D:C.red}[s.entryGrade]||C.muted;
+                return <div key={s.ticker} onClick={()=>{setSel(s.ticker);setTab("sniper");}} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderBottom:`1px solid rgba(255,255,255,.05)`,cursor:"pointer",background:i<3?`${gc}08`:"transparent"}}>
+                  <span style={{fontSize:18,fontWeight:900,color:gc,minWidth:28}}>{s.entryGrade}</span>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:700,fontSize:11}}>{s.market} {s.label}</div>
+                    <div style={{display:"flex",gap:4,marginTop:2}}>
+                      <span style={{fontSize:7,color:C.muted}}>ST{s.stCount}/3</span>
+                      <span style={{fontSize:7,color:C.muted}}>{s.cloudSt}</span>
+                      {s.breakdown?.filter(b=>b.ok).slice(0,3).map(b=><span key={b.label} style={{fontSize:7,padding:"0px 4px",borderRadius:3,background:`${gc}12`,color:gc}}>{b.label}</span>)}
+                    </div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:14,fontWeight:900,color:gc}}>{s.entryScore}<span style={{fontSize:9,color:C.muted}}>/100</span></div>
+                    <div style={{fontSize:8,color:(s.changePct||0)>=0?C.green:C.red}}>{(s.changePct||0)>=0?"+":""}{(s.changePct||0).toFixed(1)}%</div>
+                  </div>
+                </div>;
+              });
             })()}
           </div>
         </div>}
@@ -2288,7 +2375,22 @@ export default function App() {
                   // ★ v2.2: 타임컷 판정
                   const tc=pos.timeCutInfo||{};
                   const isTimeCut=tc.isTimeCut;
+                  // ★ v2.2: BUY/HOLD/SELL 판정
+                  const posLd=charts[pos.ticker]?.data?.at(-1);
+                  const posStCount=[posLd?.st1Bull,posLd?.st2Bull,posLd?.st3Bull].filter(v=>v!=null).length;
+                  const nextPyramid=(pos.pyramid||[]).find(lv=>!lv.triggered);
+                  const holdSignal=near?"SELL":isTimeCut?"SELL":posStCount===0&&posLd?"SELL":pnl<-7?"SELL":volDrop&&pnl<0?"SELL"
+                    :nextPyramid&&pnl>=nextPyramid.targetPct?"ADD":posStCount===3&&pnl>0&&rs>0?"ADD"
+                    :"HOLD";
+                  const holdColor=holdSignal==="SELL"?C.red:holdSignal==="ADD"?C.emerald:C.yellow;
+                  const holdEmoji=holdSignal==="SELL"?"🔴":holdSignal==="ADD"?"🟢":"🟡";
+                  const holdLabel=holdSignal==="SELL"?"매도검토":holdSignal==="ADD"?"추가매수":"홀드";
                   return<div key={pos.id} style={{...css.card,border:`2px solid ${near?"rgba(255,69,58,.8)":isTimeCut?"rgba(255,159,10,.7)":volDrop?"rgba(250,204,21,.6)":pos.trailMode?"rgba(250,204,21,.5)":C.border}`,animation:near?"ap 2s infinite":""}}>
+                    {/* 매매 신호 배너 */}
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,padding:"5px 10px",borderRadius:6,background:`${holdColor}10`,border:`1px solid ${holdColor}30`}}>
+                      <span style={{fontSize:10,fontWeight:900,color:holdColor}}>{holdEmoji} {holdLabel}</span>
+                      <span style={{fontSize:8,color:C.muted}}>{posLd?`ST${posStCount}/3`:"—"} · 수익 {pnl>=0?"+":""}{pnl.toFixed(1)}% · {nextPyramid?`다음 불타기 +${nextPyramid.targetPct}%`:"불타기 완료"}</span>
+                    </div>
                     {near&&<div style={{background:"rgba(255,69,58,.15)",borderRadius:5,padding:"4px 8px",fontSize:8,color:C.red,fontWeight:700,marginBottom:8}}>🚨 손절선 근접 ({stopDist.toFixed(1)}%) — 즉시 확인!</div>}
                     {isTimeCut&&!near&&<div style={{background:"rgba(255,159,10,.12)",border:"1px solid rgba(255,159,10,.4)",borderRadius:5,padding:"6px 10px",fontSize:8,color:"#FF9F0A",fontWeight:700,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                       <span>⏰ 타임컷 경고 — {tc.daysHeld}일 보유, 손익 ±{tc.absPnl?.toFixed(1)}% (박스권 {trailSettings.timeCutDays}일/{trailSettings.timeCutPct}% 기준)</span>
@@ -2312,7 +2414,8 @@ export default function App() {
                         <div style={{fontSize:9,color:C.muted}}>진입 {u}{u==="₩"?fmtKRW(pos.entry):pos.entry.toLocaleString()} · {pos.date} <span style={{color:(pos.timeCutInfo?.daysHeld||0)>=(trailSettings.timeCutDays||14)?"#FF9F0A":C.muted}}>({pos.timeCutInfo?.daysHeld||0}일째)</span></div>
                         <div style={{display:"flex",gap:5,marginTop:3}}>
                           {pos.foundGrade&&(()=>{const gc={S:C.emerald,A:C.green,B:C.yellow,C:"#FF9F0A",D:C.red}[pos.foundGrade]||C.muted;return<span style={{fontSize:7,background:`${gc}18`,color:gc,border:`1px solid ${gc}`,borderRadius:3,padding:"1px 4px"}}>진입 {pos.foundGrade}등급</span>;})()}
-                          {pos.trailMode&&<span style={{fontSize:7,background:"rgba(250,204,21,.12)",color:C.yellow,border:`1px solid rgba(250,204,21,.3)`,borderRadius:3,padding:"1px 4px"}}>🔄 트레일링 모드</span>}
+                          {pos.trailMode&&<span style={{fontSize:7,background:"rgba(250,204,21,.12)",color:C.yellow,border:`1px solid rgba(250,204,21,.3)`,borderRadius:3,padding:"1px 4px"}}>🔄 트레일링</span>}
+                          <span style={{fontSize:7,background:`${holdColor}15`,color:holdColor,border:`1px solid ${holdColor}`,borderRadius:3,padding:"1px 4px",fontWeight:700}}>{holdEmoji} {holdLabel}</span>
                         </div>
                       </div>
                       <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
