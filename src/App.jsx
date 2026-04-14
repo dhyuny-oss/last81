@@ -1143,8 +1143,20 @@ export default function App() {
   const w52High  = charts[sel]?.data?.at(-1)?.w52High||0;
   const rrTarget2= stopPrice>0&&curPrice>stopPrice?+(curPrice+(curPrice-stopPrice)*2).toFixed(isKRSel?0:2):0;
   const rrTarget3= stopPrice>0&&curPrice>stopPrice?+(curPrice+(curPrice-stopPrice)*3).toFixed(isKRSel?0:2):0;
-  const consTgt  = consensus[sel]?.data?.targetMean||selInfo?.target||w52High||0;
-  const consTgtSrc = consensus[sel]?.data?.targetMean?"컨센서스":selInfo?.target?"설정목표":w52High?"52주고점":"";
+  // ★ v2.3: 목표가 — 컨센서스 우선, 없으면 후보 중 최선
+  const consTgtCalc = (()=>{
+    if(consensus[sel]?.data?.targetMean) return {price:consensus[sel].data.targetMean, src:"컨센서스"};
+    // 컨센서스 없을 때: 후보들 중 현재가보다 높은 것 중 가장 높은 것
+    const candidates = [
+      selInfo?.target>0 && {price:selInfo.target, src:"설정목표"},
+      w52High>curPrice*1.02 && {price:w52High, src:"52주고점"},
+      rrTarget2>0 && {price:rrTarget2, src:"R:R 2:1"},
+    ].filter(Boolean);
+    if(!candidates.length) return {price:0, src:""};
+    return candidates.sort((a,b)=>b.price-a.price)[0];
+  })();
+  const consTgt = consTgtCalc.price;
+  const consTgtSrc = consTgtCalc.src;
   const rrRatio  = stopPrice>0&&consTgt>0&&curPrice>stopPrice?+((consTgt-curPrice)/(curPrice-stopPrice)).toFixed(1):0;
   const checkOk  = Object.values(checklist).every(Boolean);
 
@@ -2198,7 +2210,7 @@ export default function App() {
           </div>
 
           {/* ★ v2.3: 컨센서스 목표가 + 예상수익률 */}
-          <div style={{background:"linear-gradient(135deg,rgba(10,132,255,.08),rgba(191,90,242,.08))",border:`2px solid ${consensus[sel]?.data?C.accent:consTgt>0?"rgba(255,214,10,.4)":"rgba(255,255,255,.12)"}`,borderRadius:12,padding:"14px 16px",marginBottom:10}}>
+          <div style={{background:"linear-gradient(135deg,rgba(10,132,255,.08),rgba(191,90,242,.08))",border:`2px solid ${consTgtSrc==="컨센서스"?C.accent:consTgt>0?"rgba(255,214,10,.4)":"rgba(255,255,255,.12)"}`,borderRadius:12,padding:"14px 16px",marginBottom:10}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
               <div>
                 <div style={{fontSize:9,color:C.muted,marginBottom:4}}>🎯 목표가 {consTgtSrc&&<span style={{color:C.accent,fontSize:7}}>({consTgtSrc})</span>}</div>
