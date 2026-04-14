@@ -608,6 +608,8 @@ export default function App() {
   // ★ v2.2: 실험실 탭
   const [labStock, setLabStock] = useState(null);
   const [labPoint, setLabPoint] = useState(null);
+  // ★ v2.3: 집중탭 뷰 전환
+  const [focusView, setFocusView] = useState(null); // null=기본 | "ranked" | "breakout" | "entry"
   // ★ v2.2: 지수 미니차트
   const [selIndex, setSelIndex] = useState(null);
 
@@ -1643,24 +1645,105 @@ export default function App() {
           <div style={{fontSize:9,color:C.sub,marginBottom:12}}>추천 · 돌파 · 진입평점 — 지금 주목할 종목</div>
 
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:14}}>
-            <div style={{background:"rgba(191,90,242,.06)",border:`1px solid rgba(191,90,242,.2)`,borderRadius:8,padding:"8px",textAlign:"center"}}>
+            <div onClick={()=>setFocusView(focusView==="ranked"?null:"ranked")} style={{background:focusView==="ranked"?"rgba(191,90,242,.15)":"rgba(191,90,242,.06)",border:`2px solid ${focusView==="ranked"?C.purple:"rgba(191,90,242,.2)"}`,borderRadius:8,padding:"8px",textAlign:"center",cursor:"pointer"}}>
               <div style={{fontSize:8,color:C.purple}}>종합추천</div>
               <div style={{fontSize:22,fontWeight:900,color:C.purple}}>{allStocksForScan.filter(s=>{const r=alphaScore(s,charts[s.ticker]?.data,idxRS);return r.score>50;}).length}</div>
-              <div style={{fontSize:7,color:C.muted}}>50pt 이상</div>
+              <div style={{fontSize:7,color:focusView==="ranked"?C.purple:C.muted}}>{focusView==="ranked"?"▲ 접기":"50pt+ 전체보기"}</div>
             </div>
-            <div style={{background:"rgba(48,209,88,.06)",border:`1px solid rgba(48,209,88,.2)`,borderRadius:8,padding:"8px",textAlign:"center"}}>
+            <div onClick={()=>setFocusView(focusView==="breakout"?null:"breakout")} style={{background:focusView==="breakout"?"rgba(48,209,88,.15)":"rgba(48,209,88,.06)",border:`2px solid ${focusView==="breakout"?C.emerald:"rgba(48,209,88,.2)"}`,borderRadius:8,padding:"8px",textAlign:"center",cursor:"pointer"}}>
               <div style={{fontSize:8,color:C.emerald}}>돌파감지</div>
               <div style={{fontSize:22,fontWeight:900,color:C.emerald}}>{(()=>{let c=0;allStocksForScan.forEach(s=>{const d=charts[s.ticker]?.data;if(!d||d.length<2)return;const t=d.at(-1),y=d.at(-2);const stT=[t.st1Bull,t.st2Bull,t.st3Bull].filter(v=>v!=null).length;const stY=[y.st1Bull,y.st2Bull,y.st3Bull].filter(v=>v!=null).length;if(stT>stY||(t.macd>t.signal&&y.macd<=y.signal)||(t.aboveCloud&&!y.aboveCloud))c++;});return c;})()}</div>
-              <div style={{fontSize:7,color:C.muted}}>신호 변화</div>
+              <div style={{fontSize:7,color:focusView==="breakout"?C.emerald:C.muted}}>{focusView==="breakout"?"▲ 접기":"신호변화 전체보기"}</div>
             </div>
-            <div style={{background:"rgba(10,132,255,.06)",border:`1px solid rgba(10,132,255,.2)`,borderRadius:8,padding:"8px",textAlign:"center"}}>
+            <div onClick={()=>setFocusView(focusView==="entry"?null:"entry")} style={{background:focusView==="entry"?"rgba(10,132,255,.15)":"rgba(10,132,255,.06)",border:`2px solid ${focusView==="entry"?C.accent:"rgba(10,132,255,.2)"}`,borderRadius:8,padding:"8px",textAlign:"center",cursor:"pointer"}}>
               <div style={{fontSize:8,color:C.accent}}>A등급+</div>
               <div style={{fontSize:22,fontWeight:900,color:C.accent}}>{allStocksForScan.filter(s=>{const d=charts[s.ticker]?.data;if(!d||d.length<10)return false;return calcEntryScore(d,vixVal,oppScore,pool[s.ticker]||s).score>=70;}).length}</div>
-              <div style={{fontSize:7,color:C.muted}}>진입평점 70+</div>
+              <div style={{fontSize:7,color:focusView==="entry"?C.accent:C.muted}}>{focusView==="entry"?"▲ 접기":"70pt+ 전체보기"}</div>
             </div>
           </div>
 
-          {/* ★ v2.2: AI 상승 추천 종목 TOP5 */}
+          {/* ★ v2.3: 확장 뷰 — 카드 클릭 시 전체 목록 */}
+          {focusView==="ranked"&&(()=>{
+            const all=allStocksForScan.map(s=>{
+              const cData=charts[s.ticker]?.data;const r=alphaScore(s,cData,idxRS);
+              const es=calcEntryScore(cData,vixVal,oppScore,pool[s.ticker]||s);
+              return{...s,score:r.score,signals:r.signals,rs:r.rs,entryGrade:es.grade,entryScore:es.score};
+            }).filter(s=>s.score>50).sort((a,b)=>b.score-a.score);
+            return<div style={css.card}>
+              <div style={{fontSize:11,fontWeight:700,color:C.purple,marginBottom:8}}>🏆 종합추천 50pt+ 전체 ({all.length}개)</div>
+              <div style={{maxHeight:400,overflowY:"auto"}}>
+                {all.map((s,i)=>(
+                  <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer"}}>
+                    <span style={{fontSize:10,fontWeight:900,color:C.purple,minWidth:20}}>{i+1}</span>
+                    <span style={{fontWeight:700,fontSize:10,minWidth:50,maxWidth:50,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</span>
+                    <span style={{fontSize:10,fontWeight:900,color:s.entryGrade==="S"?C.emerald:s.entryGrade==="A"?C.green:C.yellow}}>{s.entryGrade}{s.entryScore}</span>
+                    <div style={{flex:1,display:"flex",gap:2,flexWrap:"wrap"}}>{(s.signals||[]).slice(0,3).map(sig=><span key={sig} style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:"rgba(191,90,242,.1)",color:C.purple}}>{sig}</span>)}</div>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontSize:13,fontWeight:900,color:C.accent}}>{s.score}<span style={{fontSize:8,color:C.muted}}>pt</span></div>
+                      <div style={{fontSize:7,color:(s.changePct||0)>=0?C.green:C.red}}>1D {(s.changePct||0)>=0?"+":""}{(s.changePct||0).toFixed(1)}%</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>;
+          })()}
+
+          {focusView==="breakout"&&(()=>{
+            const all=allStocksForScan.map(s=>{
+              const cData=charts[s.ticker]?.data;if(!cData||cData.length<2)return null;
+              const today=cData.at(-1),yesterday=cData.at(-2);const signals=[];
+              const stT=[today.st1Bull,today.st2Bull,today.st3Bull].filter(v=>v!=null).length;
+              const stY=[yesterday.st1Bull,yesterday.st2Bull,yesterday.st3Bull].filter(v=>v!=null).length;
+              if(stT===3&&stY<3)signals.push({type:"🔥 ST돌파",color:C.emerald});
+              else if(stT>stY)signals.push({type:"📈 ST개선",color:C.green});
+              if(today.macd>today.signal&&yesterday.macd<=yesterday.signal)signals.push({type:"⚡ MACD↑",color:C.accent});
+              if(today.aboveCloud&&!yesterday.aboveCloud)signals.push({type:"☁️ 구름돌파",color:C.emerald});
+              const vols=cData.slice(-21,-1).map(d=>d.volume||0).filter(v=>v>0);
+              const avgVol=vols.length?vols.reduce((a,b)=>a+b,0)/vols.length:0;
+              if(avgVol>0&&today.volume>avgVol*2)signals.push({type:"💥 거래량",color:C.yellow});
+              if(today.sqzOff)signals.push({type:"💎 스퀴즈",color:C.purple});
+              if(!signals.length)return null;
+              const{score}=alphaScore(s,cData,idxRS);return{...s,signals,score,stCount:stT};
+            }).filter(Boolean).sort((a,b)=>b.signals.length-a.signals.length||b.score-a.score);
+            return<div style={css.card}>
+              <div style={{fontSize:11,fontWeight:700,color:C.emerald,marginBottom:8}}>🚀 돌파감지 전체 ({all.length}개)</div>
+              <div style={{maxHeight:400,overflowY:"auto"}}>
+                {all.map((s,i)=>(
+                  <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer"}}>
+                    <span style={{fontWeight:700,fontSize:10,minWidth:50,maxWidth:50,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</span>
+                    <div style={{flex:1,display:"flex",gap:3,flexWrap:"wrap"}}>{s.signals.map((sig,j)=><span key={j} style={{fontSize:7,padding:"2px 5px",borderRadius:3,background:`${sig.color}15`,border:`1px solid ${sig.color}40`,color:sig.color,fontWeight:700}}>{sig.type}</span>)}</div>
+                    <div style={{fontSize:12,fontWeight:900,color:C.accent}}>{s.score}<span style={{fontSize:7,color:C.muted}}>pt</span></div>
+                  </div>
+                ))}
+              </div>
+            </div>;
+          })()}
+
+          {focusView==="entry"&&(()=>{
+            const all=allStocksForScan.map(s=>{
+              const cData=charts[s.ticker]?.data;if(!cData||cData.length<10)return null;
+              const es=calcEntryScore(cData,vixVal,oppScore,pool[s.ticker]||s);if(es.score<70)return null;
+              const lastPt=cData.at(-1);const stCount=[lastPt?.st1Bull,lastPt?.st2Bull,lastPt?.st3Bull].filter(v=>v!=null).length;
+              return{...s,entryGrade:es.grade,entryScore:es.score,breakdown:es.breakdown,stCount};
+            }).filter(Boolean).sort((a,b)=>b.entryScore-a.entryScore);
+            return<div style={css.card}>
+              <div style={{fontSize:11,fontWeight:700,color:C.accent,marginBottom:8}}>🎯 진입평점 A등급+ 전체 ({all.length}개)</div>
+              <div style={{maxHeight:400,overflowY:"auto"}}>
+                {all.map((s,i)=>{
+                  const gc={S:C.emerald,A:C.green,B:C.yellow}[s.entryGrade]||C.muted;
+                  return<div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer"}}>
+                    <span style={{fontSize:18,fontWeight:900,color:gc,minWidth:22}}>{s.entryGrade}</span>
+                    <span style={{fontWeight:700,fontSize:10,minWidth:50,maxWidth:50,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</span>
+                    <div style={{flex:1,display:"flex",gap:3,flexWrap:"wrap"}}>{s.breakdown?.filter(b=>b.ok).slice(0,4).map(b=><span key={b.label} style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:`${gc}12`,color:gc}}>{b.label}</span>)}</div>
+                    <div style={{fontSize:14,fontWeight:900,color:gc}}>{s.entryScore}<span style={{fontSize:8,color:C.muted}}>/100</span></div>
+                  </div>;
+                })}
+              </div>
+            </div>;
+          })()}
+
+          {/* 기본 뷰: 카드 미선택 시 TOP5 + 돌파 + 진입평점 */}
+          {!focusView&&<>
           <div style={css.card}>
             <div style={{fontSize:11,fontWeight:700,color:C.purple,marginBottom:8}}>🏆 AI 추천 — 상승 유력 TOP5</div>
             <div style={{fontSize:8,color:C.muted,marginBottom:10}}>RS강도 + ST신호 + 구름 + 거래량 + 모멘텀 기반 종합 점수</div>
@@ -1781,6 +1864,7 @@ export default function App() {
               });
             })()}
           </div>
+          </>}
         </div>}
         {/* ══ TAB 2: 발굴탭 ══ */}
         {tab==="alpha"&&<div style={{padding:"12px 14px"}}>
