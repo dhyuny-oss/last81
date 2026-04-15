@@ -1758,7 +1758,7 @@ export default function App() {
         {/* ══ TAB: 집중 — 오늘 볼 종목 ══ */}
         {tab==="focus"&&<div style={{padding:"12px 14px"}}>
           <div style={{fontSize:13,fontWeight:900,color:C.accent,marginBottom:4,borderLeft:`3px solid ${C.accent}`,paddingLeft:8}}>🎯 오늘의 집중 종목</div>
-          <div style={{fontSize:9,color:C.sub,marginBottom:12}}>추천 · 돌파 · 진입평점 — 실시간 데이터 기반</div>
+          <div style={{fontSize:9,color:C.sub,marginBottom:12}}>추천 · 돌파 · 진입적기 — 실시간 데이터 기반</div>
 
           {/* ★ v2.3 FIX: 실시간 데이터(real:true)만 사용 — 시뮬 차트 제외 */}
           {(()=>{
@@ -2217,18 +2217,18 @@ export default function App() {
             {watchlist.length===0
               ?<div style={{textAlign:"center",padding:"30px 0",color:C.muted}}>히트맵 ★ 눌러 추가</div>
               :<div style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,minWidth:560}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,minWidth:400}}>
                   <thead><tr style={{background:"rgba(255,255,255,.04)"}}>
-                    {["종목","현재가","3D","5D","vs시장","거래량","일목","진입평점"].map(h=>(
+                    {["종목","현재가","3D","5D","vs시장","⚡타이밍","💪강도"].map(h=>(
                       <th key={h} style={{padding:"6px 8px",textAlign:"left",color:C.muted,fontSize:8,fontWeight:700,borderBottom:`1px solid ${C.border}`}}>{h}</th>
                     ))}
                   </tr></thead>
                   <tbody>
                     {[...watchlist].sort((a,b)=>((b.rs||0)-(a.rs||0))).map((stock,i)=>{
-                      const cdc=charts[stock.ticker]?.data;const lD=cdc?.at(-1);
-                      const iSt=lD?.aboveCloud?"above":lD?.nearCloud?"near":"below";
+                      const cdc=charts[stock.ticker]?.data;
                       const isKR=(stock.ticker?.length||0)>5;
-                      const es2=calcEntryScore(cdc,vixVal,oppScore,pool[stock.ticker]||stock);
+                      const tm2=calcEntryTiming(cdc);
+                      const dr2=calcTrendDurability(cdc);
                       return(
                         <tr key={stock.ticker} onClick={()=>navigateToStock(stock.ticker,stock)} style={{borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer"}}>
                           <td style={{padding:"6px 8px",fontWeight:700}}>{fmtName(stock)}</td>
@@ -2236,9 +2236,8 @@ export default function App() {
                           <td style={{padding:"6px 8px",color:(stock.chg3d||0)>=0?C.green:C.red,fontWeight:700}}>{(stock.chg3d||0)>=0?"+":""}{(stock.chg3d||0).toFixed(1)}%</td>
                           <td style={{padding:"6px 8px",color:(stock.chg5d||0)>=0?C.green:C.red,fontWeight:700}}>{(stock.chg5d||0)>=0?"+":""}{(stock.chg5d||0).toFixed(1)}%</td>
                           <td style={{padding:"6px 8px",color:(stock.rs||0)>=0?C.emerald:C.red,fontWeight:700}}>{(stock.rs||0)>=0?"+":""}{(stock.rs||0).toFixed(1)}%p</td>
-                          <td style={{padding:"6px 8px",color:(stock.volRatio||100)>=150?C.green:C.muted}}>{stock.volRatio||"-"}%</td>
-                          <td style={{padding:"6px 8px"}}><span style={{fontSize:9,fontWeight:700,color:iSt==="above"?C.emerald:iSt==="near"?C.yellow:"#FF453A"}}>{iSt==="above"?"구름위":iSt==="near"?"접근":"아래"}</span></td>
-                          <td style={{padding:"6px 8px"}}><span style={{fontSize:11,fontWeight:900,color:es2.grade==="S"?C.emerald:es2.grade==="A"?C.green:es2.grade==="B"?C.yellow:C.muted}}>{es2.grade}</span><span style={{fontSize:8,color:C.muted,marginLeft:2}}>{es2.score}</span></td>
+                          <td style={{padding:"6px 8px"}}><span style={{fontWeight:900,color:tm2.score>=40?"#FF9F0A":C.muted}}>{tm2.score}</span></td>
+                          <td style={{padding:"6px 8px"}}><span style={{fontWeight:900,color:dr2.score>=50?C.emerald:C.muted}}>{dr2.score}</span></td>
                         </tr>
                       );
                     })}
@@ -2276,44 +2275,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* ★ 5번: 진입 평점 패널 */}
-          <div style={{...css.card,border:`2px solid ${entryGradeColor}`,marginBottom:10}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-              <div style={{fontSize:11,fontWeight:700,color:C.accent}}>🎯 진입 평점 <span style={{fontSize:9,color:C.muted}}>(참고용 · 강제제한 없음)</span></div>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <div style={{fontSize:28,fontWeight:900,color:entryGradeColor,lineHeight:1}}>{entryScore.score}<span style={{fontSize:11,color:C.muted}}>/100</span></div>
-                <div style={{fontSize:22,fontWeight:900,color:entryGradeColor,background:`${entryGradeColor}18`,border:`2px solid ${entryGradeColor}`,borderRadius:8,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center"}}>{entryScore.grade}</div>
-              </div>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:4}}>
-              {entryScore.breakdown.map((b,i)=>(
-                <div key={i} style={{background:b.ok?"rgba(48,209,88,.08)":"rgba(255,255,255,.03)",border:`1px solid ${b.ok?"rgba(48,209,88,.3)":"rgba(255,255,255,.08)"}`,borderRadius:5,padding:"4px 7px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <span style={{fontSize:9,color:b.ok?C.text:C.muted}}>{b.label}</span>
-                  <span style={{fontSize:10,fontWeight:700,color:b.ok?C.emerald:C.muted}}>+{b.pts}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* RS 비교 */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:10}}>
-            <div style={css.panel2}>
-              <div style={{fontSize:8,color:C.muted,marginBottom:3}}>{fmtName(selInfo)} <span style={{color:C.accent}}>3D</span></div>
-              <div style={{fontSize:17,fontWeight:900,color:(selInfo.chg3d||0)>=0?C.green:C.red}}>{(selInfo.chg3d||0)>=0?"+":""}{(selInfo.chg3d||0).toFixed?.(1)||0}%</div>
-              <div style={{fontSize:7,color:C.sub,marginTop:2}}>vs시장 {((selInfo.chg3d||0)-idxRS.spy.chg3d)>=0?"+":""}{((selInfo.chg3d||0)-idxRS.spy.chg3d).toFixed(1)}%p</div>
-            </div>
-            <div style={css.panel2}>
-              <div style={{fontSize:8,color:C.muted,marginBottom:3}}>{fmtName(selInfo)} <span style={{color:C.accent}}>5D</span></div>
-              <div style={{fontSize:17,fontWeight:900,color:(selInfo.chg5d||0)>=0?C.green:C.red}}>{(selInfo.chg5d||0)>=0?"+":""}{(selInfo.chg5d||0).toFixed?.(1)||0}%</div>
-              <div style={{fontSize:7,color:C.sub,marginTop:2}}>vs시장 {((selInfo.chg5d||0)-idxRS.spy.chg5d)>=0?"+":""}{((selInfo.chg5d||0)-idxRS.spy.chg5d).toFixed(1)}%p</div>
-            </div>
-            <div style={{...css.panel2,background:((selInfo.chg5d||0)-idxRS.spy.chg5d)>0?"rgba(48,209,88,.08)":"rgba(255,69,58,.06)"}}>
-              <div style={{fontSize:8,color:C.emerald,marginBottom:3}}>RS 강도</div>
-              <div style={{fontSize:16,fontWeight:900,color:((selInfo.chg5d||0)-idxRS.spy.chg5d)>3?C.emerald:((selInfo.chg5d||0)-idxRS.spy.chg5d)>0?C.yellow:C.red}}>{((selInfo.chg5d||0)-idxRS.spy.chg5d)>3?"매우강":((selInfo.chg5d||0)-idxRS.spy.chg5d)>0?"보통":"약세"}</div>
-            </div>
-          </div>
-
-          {/* ★ v2.3: 진입타이밍 + 추세강도 2축 패널 */}
+          {/* ★ v2.3: 타이밍 + 강도 + RS 통합 패널 */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:10}}>
             <div style={{background:selTiming.score>=45?"rgba(255,159,10,.08)":"rgba(255,255,255,.03)",border:`2px solid ${selTiming.score>=70?"#FF9F0A":selTiming.score>=45?C.yellow:"rgba(255,255,255,.1)"}`,borderRadius:10,padding:"10px 12px"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
@@ -2338,16 +2300,17 @@ export default function App() {
               </div>
             </div>
           </div>
-          {/* 종합 판정 */}
-          {selTiming.score>=45&&selDurability.score>=50&&<div style={{background:"rgba(48,209,88,.08)",border:`1px solid ${C.emerald}`,borderRadius:8,padding:"8px 12px",marginBottom:10,textAlign:"center"}}>
-            <span style={{fontSize:10,fontWeight:900,color:C.emerald}}>✅ 타이밍 + 강도 모두 양호 — 진입 검토 구간</span>
-          </div>}
-          {selTiming.score>=45&&selDurability.score<30&&<div style={{background:"rgba(255,214,10,.08)",border:`1px solid ${C.yellow}`,borderRadius:8,padding:"8px 12px",marginBottom:10,textAlign:"center"}}>
-            <span style={{fontSize:10,fontWeight:700,color:C.yellow}}>⚠️ 신호 변화 감지 — 추세 확인 필요</span>
-          </div>}
-          {selTiming.score<20&&selDurability.score>=50&&<div style={{background:"rgba(255,255,255,.04)",border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 12px",marginBottom:10,textAlign:"center"}}>
-            <span style={{fontSize:10,color:C.muted}}>추세 유지 중이나 신규 진입 타이밍은 아님</span>
-          </div>}
+          {/* RS + 종합 판정 통합 */}
+          <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:10,padding:"6px 10px",background:selTiming.score>=45&&selDurability.score>=50?"rgba(48,209,88,.06)":selTiming.score>=45?"rgba(255,214,10,.06)":"rgba(255,255,255,.03)",borderRadius:8,border:`1px solid ${selTiming.score>=45&&selDurability.score>=50?C.emerald:selTiming.score>=45?C.yellow:C.border}`}}>
+            <span style={{fontSize:9,fontWeight:900,color:selTiming.score>=45&&selDurability.score>=50?C.emerald:selTiming.score>=45&&selDurability.score<30?C.yellow:selTiming.score<20&&selDurability.score>=50?C.muted:C.sub}}>
+              {selTiming.score>=45&&selDurability.score>=50?"✅ 진입 검토":selTiming.score>=45&&selDurability.score<30?"⚠️ 추세확인 필요":selTiming.score<20&&selDurability.score>=50?"유지중 · 신규진입 아님":"대기"}
+            </span>
+            <span style={{marginLeft:"auto",display:"flex",gap:8,fontSize:8}}>
+              <span style={{color:C.muted}}>3D <span style={{color:(selInfo.chg3d||0)>=0?C.green:C.red,fontWeight:700}}>{(selInfo.chg3d||0)>=0?"+":""}{(selInfo.chg3d||0).toFixed(1)}%</span></span>
+              <span style={{color:C.muted}}>5D <span style={{color:(selInfo.chg5d||0)>=0?C.green:C.red,fontWeight:700}}>{(selInfo.chg5d||0)>=0?"+":""}{(selInfo.chg5d||0).toFixed(1)}%</span></span>
+              <span style={{color:C.muted}}>RS <span style={{color:((selInfo.chg5d||0)-idxRS.spy.chg5d)>3?C.emerald:((selInfo.chg5d||0)-idxRS.spy.chg5d)>0?C.yellow:C.red,fontWeight:700}}>{((selInfo.chg5d||0)-idxRS.spy.chg5d)>=0?"+":""}{((selInfo.chg5d||0)-idxRS.spy.chg5d).toFixed(1)}</span></span>
+            </span>
+          </div>
 
           {/* ★ v2.3: 컨센서스 목표가 + 예상수익률 */}
           <div style={{background:"linear-gradient(135deg,rgba(10,132,255,.08),rgba(191,90,242,.08))",border:`2px solid ${consTgtSrc==="컨센서스"?C.accent:consTgt>0?"rgba(255,214,10,.4)":"rgba(255,255,255,.12)"}`,borderRadius:12,padding:"14px 16px",marginBottom:10}}>
@@ -2687,7 +2650,7 @@ export default function App() {
             {[
               ["market",lastD?.allBull&&vixVal<25,"📊 지수 추세 상승 (ST 매수배경 · VIX 25 이하)"],
               ["sector",true,"🏭 목표 업종이 당일 강세 섹터"],
-              ["stock",entryScore.score>=55,"📈 진입평점 55pt+ (현재 "+entryScore.score+"pt)"],
+              ["stock",selTiming.score>=40&&selDurability.score>=40,"📈 타이밍 "+selTiming.score+" · 강도 "+selDurability.score],
               ["timing",lastD?.allBull&&(lastD?.macd||0)>(lastD?.signal||0),"⏰ 트리플 ST 매수 + MACD 크로스"],
               ["risk",stopPrice>0&&stopPrice<curPrice,"🛑 손절가 현재가 아래 확인"],
             ].map(([key,autoVal,label])=>(
@@ -2709,7 +2672,7 @@ export default function App() {
             const initAmt=prompt("보초 실제 투입 금액 (만원 단위, 예: 50):");
             if(!initAmt)return;
             const realAmt=parseInt(initAmt)*10000;
-            setPositions(p=>[...p,{id:Date.now(),ticker:sel,label:selInfo.label,market:selInfo.market,entry:curPrice,current:curPrice,max:curPrice,trailStop:+(curPrice*(1-trailSettings.initialStopPct/100)).toFixed(isKRSel?0:2),trailMode:false,target:consTgt,pnl:0,date:new Date().toLocaleDateString("ko-KR"),entryTime:new Date().toLocaleTimeString("ko-KR"),foundScore:entryScore.score,foundGrade:entryScore.grade,foundSignals:entryScore.breakdown.filter(b=>b.ok).map(b=>b.label),snapshot:snap,oppScoreAt:oppScore,investMode:stockMode,pyramid:sPyr2.map((r,i)=>({step:i+1,label:r.label,pct:r.pct,targetPct:r.targetPct,triggered:i===0,amount:Math.round(sCap2*r.pct/100),actualAmount:i===0?realAmt:0,executedAt:i===0?new Date().toLocaleDateString("ko-KR"):""}))}]);
+            setPositions(p=>[...p,{id:Date.now(),ticker:sel,label:selInfo.label,market:selInfo.market,entry:curPrice,current:curPrice,max:curPrice,trailStop:+(curPrice*(1-trailSettings.initialStopPct/100)).toFixed(isKRSel?0:2),trailMode:false,target:consTgt,pnl:0,date:new Date().toLocaleDateString("ko-KR"),entryTime:new Date().toLocaleTimeString("ko-KR"),foundScore:entryScore.score,foundGrade:entryScore.grade,foundSignals:entryScore.breakdown.filter(b=>b.ok).map(b=>b.label),foundTiming:selTiming.score,foundDurability:selDurability.score,snapshot:snap,oppScoreAt:oppScore,investMode:stockMode,pyramid:sPyr2.map((r,i)=>({step:i+1,label:r.label,pct:r.pct,targetPct:r.targetPct,triggered:i===0,amount:Math.round(sCap2*r.pct/100),actualAmount:i===0?realAmt:0,executedAt:i===0?new Date().toLocaleDateString("ko-KR"):""}))}]);
             setTab("track");setTrackTab("hold");setAddMsg(`📌 ${selInfo.label} 보초 ₩${fmtKRW(realAmt)} 매수 (${sMode2?"⭐특별":"기본"})`);setTimeout(()=>setAddMsg(""),3000);
           }} style={{width:"100%",background:checkOk?"linear-gradient(135deg,#30D158,#28a745)":"rgba(255,255,255,.05)",border:`1px solid ${checkOk?C.emerald:C.border}`,borderRadius:10,padding:"14px 16px",color:checkOk?"#000":C.muted,fontWeight:900,fontSize:12,cursor:checkOk?"pointer":"not-allowed",opacity:checkOk?1:0.5}}>
             {checkOk?`📈 보초 매수 등록 (${stockMode==="special"?"⭐특별":"기본"} ₩${fmtKRW(stockMode==="special"?(riskSettings.specialCapital||10000000):(riskSettings.totalCapital||5000000))})`:"✅ 체크리스트를 먼저 완료하세요"}
