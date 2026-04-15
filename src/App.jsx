@@ -317,56 +317,171 @@ function buildChartData(candles){
   return data;
 }
 
-// ★ 5번: 진입 평점 계산 (참고용, 강제제한 없음)
-function calcEntryScore(chartData, vixVal, oppScore, stockInfo) {
-  const last = chartData?.at(-1);
-  if (!last) return { score: 0, breakdown: [], grade: "?" };
-  let score = 0;
-  const breakdown = [];
+// ═══════════════════════════════════════════════════════════
+// ★ v2.3: 진입타이밍 — "방금 시작했냐?" (변화의 순간 감지)
+// ═══════════════════════════════════════════════════════════
+function calcEntryTiming(chartData) {
+  if (!chartData || chartData.length < 10) return { score:0, signals:[], grade:"?" };
+  let score = 0; const signals = [];
+  const L = chartData.length;
+  const d = chartData;
 
-  // ① 구름 위 (15점)
-  if (last.aboveCloud)       { score += 15; breakdown.push({label:"구름위",pts:15,ok:true}); }
-  else if (last.nearCloud)   { score += 6;  breakdown.push({label:"구름접근",pts:6,ok:true}); }
-  else                       {               breakdown.push({label:"구름아래",pts:0,ok:false}); }
+  // ① ST 플립 (최대 25pt) — 최근 며칠 내 전환일수록 높음
+  for (let ago = 0; ago < Math.min(5, L-1); ago++) {
+    const ci = L-1-ago, pi = ci-1;
+    const stNow = [d[ci].st1Bull,d[ci].st2Bull,d[ci].st3Bull].filter(v=>v!=null).length;
+    const stPrev = [d[pi].st1Bull,d[pi].st2Bull,d[pi].st3Bull].filter(v=>v!=null).length;
+    if (stNow === 3 && stPrev < 3) {
+      const pts = ago === 0 ? 25 : ago <= 1 ? 20 : ago <= 2 ? 15 : 10;
+      score += pts; signals.push(`ST돌파${ago===0?"오늘":ago+"일전"}`); break;
+    } else if (stNow > stPrev && stNow >= 2) {
+      const pts = ago === 0 ? 12 : ago <= 2 ? 8 : 5;
+      score += pts; signals.push(`ST개선${ago===0?"":ago+"일전"}`); break;
+    }
+  }
 
-  // ② 트리플ST (25점)
-  const stC=[last.st1Bull,last.st2Bull,last.st3Bull].filter(v=>v!=null).length;
-  if (stC===3)      { score+=25; breakdown.push({label:"ST3/3",pts:25,ok:true}); }
-  else if (stC===2) { score+=12; breakdown.push({label:"ST2/3",pts:12,ok:true}); }
-  else if (stC===1) { score+=4;  breakdown.push({label:"ST1/3",pts:4,ok:false}); }
-  else              {             breakdown.push({label:"ST0/3",pts:0,ok:false}); }
+  // ② MACD 골든크로스 (최대 20pt)
+  for (let ago = 0; ago < Math.min(5, L-1); ago++) {
+    const ci = L-1-ago, pi = ci-1;
+    if (d[ci].macd > d[ci].signal && d[pi].macd <= d[pi].signal) {
+      const pts = ago === 0 ? 20 : ago <= 1 ? 16 : ago <= 2 ? 12 : 8;
+      score += pts; signals.push(`MACD↑${ago===0?"오늘":ago+"일전"}`); break;
+    }
+  }
 
-  // ③ MACD 크로스 (15점)
-  if (last.macd>last.signal&&last.hist>0) { score+=15; breakdown.push({label:"MACD↑크로스",pts:15,ok:true}); }
-  else if (last.hist>0)                   { score+=6;  breakdown.push({label:"MACD양전",pts:6,ok:true}); }
-  else                                    {             breakdown.push({label:"MACD음전",pts:0,ok:false}); }
+  // ③ 구름 돌파 (최대 15pt)
+  for (let ago = 0; ago < Math.min(5, L-1); ago++) {
+    const ci = L-1-ago, pi = ci-1;
+    if (d[ci].aboveCloud && !d[pi].aboveCloud) {
+      const pts = ago === 0 ? 15 : ago <= 2 ? 10 : 6;
+      score += pts; signals.push(`구름돌파${ago===0?"오늘":ago+"일전"}`); break;
+    }
+  }
 
-  // ④ RS 상위 랭킹 (25점) — 추세추종 핵심
-  const rsPct = stockInfo?.rsPctRank || 50;
-  if (rsPct>=90)      { score+=25; breakdown.push({label:"RS상위10%",pts:25,ok:true}); }
-  else if (rsPct>=80) { score+=18; breakdown.push({label:"RS상위20%",pts:18,ok:true}); }
-  else if (rsPct>=60) { score+=10; breakdown.push({label:`RS상위${Math.round(100-rsPct)}%`,pts:10,ok:true}); }
-  else if (rsPct>=40) { score+=3;  breakdown.push({label:`RS중위`,pts:3,ok:false}); }
-  else                {             breakdown.push({label:`RS하위`,pts:0,ok:false}); }
+  // ④ 스퀴즈 해제 (최대 15pt)
+  for (let ago = 0; ago < Math.min(3, L); ago++) {
+    if (d[L-1-ago].sqzOff) {
+      const pts = ago === 0 ? 15 : ago <= 1 ? 12 : 8;
+      score += pts; signals.push(`스퀴즈해제${ago===0?"":""+ago+"일전"}`); break;
+    }
+  }
 
-  // ⑤ RSI 모멘텀 (10점) — 70+도 강한 추세
+  // ⑤ RSI 50 상향돌파 (최대 10pt)
+  for (let ago = 0; ago < Math.min(5, L-1); ago++) {
+    const ci = L-1-ago, pi = ci-1;
+    if (d[ci].rsi >= 50 && d[pi].rsi < 50) {
+      const pts = ago === 0 ? 10 : ago <= 2 ? 7 : 4;
+      score += pts; signals.push(`RSI돌파50`); break;
+    }
+  }
+
+  // ⑥ 거래량 스파이크 (최대 15pt)
+  const vols = d.slice(-21, -1).map(c => c.volume || 0).filter(v => v > 0);
+  const avgVol = vols.length ? vols.reduce((a,b) => a+b, 0) / vols.length : 0;
+  const todayVol = d[L-1].volume || 0;
+  if (avgVol > 0) {
+    const ratio = todayVol / avgVol;
+    if (ratio > 2.5) { score += 15; signals.push(`거래량${Math.round(ratio*100)}%`); }
+    else if (ratio > 2) { score += 12; signals.push(`거래량급증`); }
+    else if (ratio > 1.5) { score += 6; signals.push(`거래량증가`); }
+  }
+
+  const s = Math.min(100, Math.max(0, score));
+  const grade = s >= 70 ? "🔥" : s >= 45 ? "⚡" : s >= 20 ? "💤" : "—";
+  return { score: s, signals, grade };
+}
+
+// ═══════════════════════════════════════════════════════════
+// ★ v2.3: 추세강도 — "세질거냐? 오래갈거냐?" (지속성 판단)
+// ═══════════════════════════════════════════════════════════
+function calcTrendDurability(chartData) {
+  if (!chartData || chartData.length < 10) return { score:0, signals:[], grade:"?" };
+  let score = 0; const signals = [];
+  const L = chartData.length;
+  const d = chartData;
+  const last = d[L-1];
+
+  // ① ADX 기울기 — 추세 강화 중인가 (최대 20pt)
+  if (last.adx != null) {
+    const adxPrev = d[Math.max(0, L-4)]?.adx;
+    const adxSlope = adxPrev != null ? last.adx - adxPrev : 0;
+    if (last.adx > 25 && adxSlope > 3) { score += 20; signals.push("ADX상승↑"); }
+    else if (last.adx > 25 && adxSlope > 0) { score += 14; signals.push("ADX유지"); }
+    else if (last.adx > 20 && adxSlope > 0) { score += 8; signals.push("ADX형성중"); }
+    else if (last.adx <= 20) { signals.push("ADX약세"); }
+    else { score += 3; }
+  }
+
+  // ② +DI > -DI 방향 확인 (최대 10pt)
+  if (last.pdi != null && last.mdi != null) {
+    if (last.pdi > last.mdi) { score += 10; signals.push("+DI우위"); }
+  }
+
+  // ③ OBV 동행 — 가격과 거래량 방향 일치 (최대 15pt)
+  if (L >= 10 && last.obv != null) {
+    const obv5ago = d[L-6]?.obv;
+    const price5ago = d[L-6]?.close;
+    if (obv5ago != null && price5ago) {
+      const priceUp = last.close > price5ago;
+      const obvUp = last.obv > obv5ago;
+      if (priceUp && obvUp) { score += 15; signals.push("OBV동행"); }
+      else if (priceUp && !obvUp) { signals.push("OBV이탈⚠"); }
+      else if (!priceUp && obvUp) { score += 5; signals.push("OBV선행"); }
+    }
+  }
+
+  // ④ MACD 히스토그램 가속 (최대 15pt)
+  if (L >= 4) {
+    const h1 = d[L-1].hist, h2 = d[L-2].hist, h3 = d[L-3].hist;
+    if (h1 != null && h2 != null && h3 != null) {
+      if (h1 > 0 && h1 > h2 && h2 > h3) { score += 15; signals.push("MACD가속"); }
+      else if (h1 > 0 && h1 > h2) { score += 10; signals.push("MACD증가"); }
+      else if (h1 > 0) { score += 4; signals.push("MACD양전"); }
+      else if (h1 < 0 && h1 < h2) { signals.push("MACD악화"); }
+    }
+  }
+
+  // ⑤ EMA 정배열 (최대 15pt)
+  const ema20 = last.ma20, ema50 = last.ema50;
+  const above200 = last.ma200 ? last.close > last.ma200 : null;
+  if (ema20 && ema50 && ema20 > ema50) {
+    if (above200 === true) { score += 15; signals.push("EMA정배열"); }
+    else if (above200 === null) { score += 10; signals.push("20>50정배열"); }
+    else { score += 5; signals.push("단기정배열"); }
+  } else if (ema20 && ema50 && ema20 < ema50) {
+    signals.push("EMA역배열");
+  }
+
+  // ⑥ RSI 건강 구간 (최대 15pt)
   const rsi = last.rsi;
-  if (rsi>=60&&rsi<=80)       { score+=10; breakdown.push({label:`RSI${rsi?.toFixed(0)}강세`,pts:10,ok:true}); }
-  else if (rsi>=50&&rsi<60)   { score+=7;  breakdown.push({label:`RSI${rsi?.toFixed(0)}`,pts:7,ok:true}); }
-  else if (rsi>80)            { score+=5;  breakdown.push({label:`RSI${rsi?.toFixed(0)}과열`,pts:5,ok:true}); }
-  else if (rsi>=40&&rsi<50)   { score+=3;  breakdown.push({label:`RSI${rsi?.toFixed(0)}약세`,pts:3,ok:false}); }
-  else                        {             breakdown.push({label:`RSI${rsi?.toFixed(0)||'?'}저조`,pts:0,ok:false}); }
+  if (rsi >= 50 && rsi <= 65) { score += 15; signals.push(`RSI${rsi?.toFixed(0)}최적`); }
+  else if (rsi > 65 && rsi <= 75) { score += 10; signals.push(`RSI${rsi?.toFixed(0)}강세`); }
+  else if (rsi > 40 && rsi < 50) { score += 5; signals.push(`RSI${rsi?.toFixed(0)}약세`); }
+  else if (rsi > 75) { score += 3; signals.push(`RSI${rsi?.toFixed(0)}과열`); }
+  else if (rsi != null) { signals.push(`RSI${rsi?.toFixed(0)}저조`); }
 
-  // ⑥ 52주 신고가 (10점) — 돌파 = 추세 확인
-  const w52Near = last.w52Near;
-  const w52Break = stockInfo?.w52Breakout;
-  if (w52Break)          { score+=10; breakdown.push({label:"신고가돌파",pts:10,ok:true}); }
-  else if (w52Near)      { score+=5;  breakdown.push({label:"신고가근접",pts:5,ok:true}); }
-  else                   {             breakdown.push({label:"신고가미달",pts:0,ok:false}); }
+  // ⑦ ST 유지 기간 보너스 (최대 10pt) — 오래 유지 = 안정적
+  let stDays = 0;
+  for (let i = L-1; i >= Math.max(0, L-20); i--) {
+    const sc = [d[i].st1Bull, d[i].st2Bull, d[i].st3Bull].filter(v => v != null).length;
+    if (sc >= 2) stDays++; else break;
+  }
+  if (stDays >= 10) { score += 10; signals.push(`ST${stDays}일유지`); }
+  else if (stDays >= 5) { score += 6; signals.push(`ST${stDays}일유지`); }
+  else if (stDays >= 3) { score += 3; }
 
-  const s=Math.min(100,score);
-  const grade=s>=85?"S":s>=70?"A":s>=55?"B":s>=40?"C":"D";
-  return { score:s, breakdown, grade };
+  const s = Math.min(100, Math.max(0, score));
+  const grade = s >= 70 ? "A" : s >= 50 ? "B" : s >= 30 ? "C" : "D";
+  return { score: s, signals, grade };
+}
+
+// ★ 5번: 진입 평점 (레거시 — 하위호환용, 내부적으로 두 점수 합산)
+function calcEntryScore(chartData, vixVal, oppScore, stockInfo) {
+  const timing = calcEntryTiming(chartData);
+  const durability = calcTrendDurability(chartData);
+  const combined = Math.round(timing.score * 0.5 + durability.score * 0.5);
+  const grade = combined >= 70 ? "S" : combined >= 55 ? "A" : combined >= 40 ? "B" : combined >= 25 ? "C" : "D";
+  return { score: combined, breakdown: [...timing.signals, ...durability.signals].map(s => ({label:s, pts:0, ok:true})), grade };
 }
 
 function getTSTSig(data){if(!data?.length)return{sig:"N/A",bull:0};const l=data[data.length-1];return{sig:l.bullCount===3?"BUY":l.bullCount>=2?"HOLD":"SELL",bull:l.bullCount};}
@@ -1173,8 +1288,10 @@ export default function App() {
   const oppColorUS  = oppScoreUS>=70?C.emerald:oppScoreUS>=45?C.yellow:C.red;
   const oppColorKR  = oppScoreKR>=70?C.emerald:oppScoreKR>=45?C.yellow:C.red;
 
-  // 5번: 진입 평점 (풀 데이터에서 RS랭킹/52주 정보 전달)
+  // ★ v2.3: 진입타이밍 + 추세강도
   const selPoolInfo = pool[sel] || selInfo || {};
+  const selTiming   = calcEntryTiming(cd?.data);
+  const selDurability = calcTrendDurability(cd?.data);
   const entryScore  = calcEntryScore(cd?.data, vixVal, oppScore, selPoolInfo);
   const entryGradeColor = {S:C.emerald,A:C.green,B:C.yellow,C:"#FF9F0A",D:C.red}[entryScore.grade]||C.muted;
 
@@ -1233,10 +1350,14 @@ export default function App() {
     if(lD&&pD&&lD.macd>lD.signal&&pD.macd<=pD.signal){accelTags.push("⚡MACD↑");accelScore+=2;}
     if((s.volRatio||100)>=200){accelTags.push("💥거래량");accelScore+=1;}
     if(lD?.sqzOff){accelTags.push("💎스퀴즈");accelScore+=2;}
-    // ★ v2.3: 진입평점 사전 계산
-    const es=calcEntryScore(charts[s.ticker]?.data,vixVal,oppScore,pool[s.ticker]||s);
-    return{...s,score:r.score,signals:r.signals,rs:r.rs,volRatio:s.volRatio||r.volRatio,stCount,cloudSt,accelTags,accelScore,chg3d,chg5d,entryScore:es.score,entryGrade:es.grade};
+    // ★ v2.3: 타이밍 + 강도 사전 계산
+    const cData=charts[s.ticker]?.data;
+    const es=calcEntryScore(cData,vixVal,oppScore,pool[s.ticker]||s);
+    const tm=calcEntryTiming(cData);
+    const dr=calcTrendDurability(cData);
+    return{...s,score:r.score,signals:r.signals,rs:r.rs,volRatio:s.volRatio||r.volRatio,stCount,cloudSt,accelTags,accelScore,chg3d,chg5d,entryScore:es.score,entryGrade:es.grade,timing:tm.score,durability:dr.score,timingGrade:tm.grade,durabilityGrade:dr.grade};
   }).filter(s=>s!=null).sort((a,b)=>{
+    if(alphaSort==="timing")return(b.timing||0)-(a.timing||0)||(b.durability||0)-(a.durability||0);
     if(alphaSort==="entry")return(b.entryScore||0)-(a.entryScore||0)||(b.score||0)-(a.score||0);
     if(alphaSort==="accel")return(b.accelScore||0)-(a.accelScore||0)||(b.score||0)-(a.score||0);
     if(alphaSort==="rs")return(b.rs||0)-(a.rs||0);
@@ -1658,9 +1779,9 @@ export default function App() {
               <div style={{fontSize:7,color:focusView==="breakout"?C.emerald:C.muted}}>{focusView==="breakout"?"▲ 접기":"신호변화 전체보기"}</div>
             </div>
             <div onClick={()=>setFocusView(focusView==="entry"?null:"entry")} style={{background:focusView==="entry"?"rgba(10,132,255,.15)":"rgba(10,132,255,.06)",border:`2px solid ${focusView==="entry"?C.accent:"rgba(10,132,255,.2)"}`,borderRadius:8,padding:"8px",textAlign:"center",cursor:"pointer"}}>
-              <div style={{fontSize:8,color:C.accent}}>A등급+</div>
-              <div style={{fontSize:22,fontWeight:900,color:C.accent}}>{realStocks.filter(s=>{const d=charts[s.ticker]?.data;if(!d||d.length<10)return false;return calcEntryScore(d,vixVal,oppScore,pool[s.ticker]||s).score>=70;}).length}</div>
-              <div style={{fontSize:7,color:focusView==="entry"?C.accent:C.muted}}>{focusView==="entry"?"▲ 접기":"70pt+ 전체보기"}</div>
+              <div style={{fontSize:8,color:C.accent}}>진입적기</div>
+              <div style={{fontSize:22,fontWeight:900,color:C.accent}}>{realStocks.filter(s=>{const d=charts[s.ticker]?.data;if(!d||d.length<10)return false;const t=calcEntryTiming(d);const dr=calcTrendDurability(d);return t.score>=40&&dr.score>=40;}).length}</div>
+              <div style={{fontSize:7,color:focusView==="entry"?C.accent:C.muted}}>{focusView==="entry"?"▲ 접기":"타이밍+강도 전체보기"}</div>
             </div>
           </div>
           {realCount>0&&<div style={{fontSize:7,color:C.muted,textAlign:"right",marginTop:-10,marginBottom:8}}>실시간 {realCount}종목 기준</div>}
@@ -1725,22 +1846,26 @@ export default function App() {
           {focusView==="entry"&&(()=>{
             const all=realStocks.map(s=>{
               const cData=charts[s.ticker]?.data;if(!cData||cData.length<10)return null;
-              const es=calcEntryScore(cData,vixVal,oppScore,pool[s.ticker]||s);if(es.score<70)return null;
-              const lastPt=cData.at(-1);const stCount=[lastPt?.st1Bull,lastPt?.st2Bull,lastPt?.st3Bull].filter(v=>v!=null).length;
-              return{...s,entryGrade:es.grade,entryScore:es.score,breakdown:es.breakdown,stCount};
-            }).filter(Boolean).sort((a,b)=>b.entryScore-a.entryScore);
+              const t=calcEntryTiming(cData);const dr=calcTrendDurability(cData);
+              if(t.score<40||dr.score<40)return null;
+              return{...s,timing:t.score,durability:dr.score,timingSignals:t.signals,durabilitySignals:dr.signals,combined:Math.round(t.score*0.5+dr.score*0.5)};
+            }).filter(Boolean).sort((a,b)=>b.combined-a.combined);
             return<div style={css.card}>
-              <div style={{fontSize:11,fontWeight:700,color:C.accent,marginBottom:8}}>🎯 진입평점 A등급+ 전체 ({all.length}개)</div>
+              <div style={{fontSize:11,fontWeight:700,color:C.accent,marginBottom:4}}>🎯 진입적기 — 타이밍+강도 양호 ({all.length}개)</div>
+              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>타이밍 40+ & 강도 40+ 종목</div>
               <div style={{maxHeight:400,overflowY:"auto"}}>
-                {all.map((s,i)=>{
-                  const gc={S:C.emerald,A:C.green,B:C.yellow}[s.entryGrade]||C.muted;
-                  return<div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer"}}>
-                    <span style={{fontSize:18,fontWeight:900,color:gc,minWidth:22}}>{s.entryGrade}</span>
+                {all.map((s,i)=>(
+                  <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 8px",borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer",background:i<3?"rgba(48,209,88,.04)":"transparent"}}>
                     <span style={{fontWeight:700,fontSize:10,minWidth:50,maxWidth:50,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</span>
-                    <div style={{flex:1,display:"flex",gap:3,flexWrap:"wrap"}}>{s.breakdown?.filter(b=>b.ok).slice(0,4).map(b=><span key={b.label} style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:`${gc}12`,color:gc}}>{b.label}</span>)}</div>
-                    <div style={{fontSize:14,fontWeight:900,color:gc}}>{s.entryScore}<span style={{fontSize:8,color:C.muted}}>/100</span></div>
-                  </div>;
-                })}
+                    <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                      <span style={{fontSize:9,fontWeight:900,color:"#FF9F0A",padding:"1px 4px",borderRadius:3,background:"rgba(255,159,10,.1)"}}>⚡{s.timing}</span>
+                      <span style={{fontSize:9,fontWeight:900,color:C.emerald,padding:"1px 4px",borderRadius:3,background:"rgba(48,209,88,.1)"}}>💪{s.durability}</span>
+                    </div>
+                    <div style={{flex:1,display:"flex",gap:2,flexWrap:"wrap"}}>{s.timingSignals.slice(0,2).map(sig=><span key={sig} style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:"rgba(255,159,10,.08)",color:"#FF9F0A"}}>{sig}</span>)}</div>
+                    <div style={{fontSize:8,color:(s.changePct||0)>=0?C.green:C.red}}>1D {(s.changePct||0)>=0?"+":""}{(s.changePct||0).toFixed(1)}%</div>
+                  </div>
+                ))}
+                {!all.length&&<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:9}}>현재 타이밍+강도 모두 양호한 종목 없음</div>}
               </div>
             </div>;
           })()}
@@ -1754,31 +1879,28 @@ export default function App() {
               const ranked = realStocks.map(s => {
                 const cData = charts[s.ticker]?.data;
                 const {score, signals, rs} = alphaScore(s, cData, idxRS);
-                const lastPt = cData?.at(-1);
-                const stCount = [lastPt?.st1Bull,lastPt?.st2Bull,lastPt?.st3Bull].filter(v=>v!=null).length;
-                const cloudSt = lastPt?.aboveCloud?"구름위":lastPt?.nearCloud?"접근":"아래";
-                const es = calcEntryScore(cData, vixVal, oppScore, pool[s.ticker]||s);
-                return {...s, score, signals, rs, stCount, cloudSt, entryGrade:es.grade, entryScore:es.score};
+                const tm = calcEntryTiming(cData);
+                const dr = calcTrendDurability(cData);
+                return {...s, score, signals, rs, timing:tm.score, durability:dr.score};
               }).filter(s => s.score > 20).sort((a,b) => b.score - a.score).slice(0,5);
 
               if (!ranked.length) return <div style={{textAlign:"center",padding:"20px",color:C.muted}}>종목을 추가하면 추천이 표시됩니다</div>;
               return ranked.map((s,i) => {
                 const medal = i===0?"🥇":i===1?"🥈":i===2?"🥉":`${i+1}`;
-                return <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderBottom:`1px solid rgba(255,255,255,.05)`,cursor:"pointer",background:i===0?"rgba(191,90,242,.06)":"transparent",borderRadius:i===0?8:0}}>
-                  <span style={{fontSize:16,minWidth:24}}>{medal}</span>
+                return <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderBottom:`1px solid rgba(255,255,255,.05)`,cursor:"pointer",background:i===0?"rgba(191,90,242,.06)":"transparent",borderRadius:i===0?8:0}}>
+                  <span style={{fontSize:14,minWidth:20}}>{medal}</span>
                   <div style={{flex:1}}>
-                    <div style={{display:"flex",alignItems:"center",gap:6}}>
-                      <span style={{fontWeight:900,fontSize:12,maxWidth:60,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</span>
-                      <span style={{fontSize:11,fontWeight:900,padding:"1px 5px",borderRadius:4,background:s.entryGrade==="S"?"rgba(48,209,88,.2)":s.entryGrade==="A"?"rgba(10,132,255,.15)":"rgba(255,255,255,.06)",color:s.entryGrade==="S"?C.emerald:s.entryGrade==="A"?C.accent:C.muted}}>{s.entryGrade}{s.entryScore}</span>
-                      <span style={{fontSize:8,color:C.muted}}>ST{s.stCount}/3 · {s.cloudSt}</span>
+                    <div style={{display:"flex",alignItems:"center",gap:5}}>
+                      <span style={{fontWeight:900,fontSize:11,maxWidth:55,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</span>
+                      <span style={{fontSize:9,fontWeight:900,color:s.timing>=40?"#FF9F0A":C.muted,padding:"1px 3px",borderRadius:3,background:"rgba(255,159,10,.08)"}}>⚡{s.timing}</span>
+                      <span style={{fontSize:9,fontWeight:900,color:s.durability>=50?C.emerald:C.muted,padding:"1px 3px",borderRadius:3,background:"rgba(48,209,88,.08)"}}>💪{s.durability}</span>
                     </div>
                     <div style={{display:"flex",gap:3,marginTop:3}}>
-                      {(s.signals||[]).slice(0,4).map(sig=><span key={sig} style={{fontSize:7,padding:"1px 4px",borderRadius:3,background:"rgba(191,90,242,.1)",color:C.purple}}>{sig}</span>)}
+                      {(s.signals||[]).slice(0,3).map(sig=><span key={sig} style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:"rgba(191,90,242,.1)",color:C.purple}}>{sig}</span>)}
                     </div>
                   </div>
                   <div style={{textAlign:"right"}}>
-                    <div style={{fontSize:16,fontWeight:900,color:C.accent}}>{s.score}<span style={{fontSize:9,color:C.muted}}>pt</span></div>
-                    <div style={{fontSize:9,color:(s.rs||0)>=0?C.emerald:C.red}}>RS {(s.rs||0)>=0?"+":""}{(s.rs||0).toFixed(1)}</div>
+                    <div style={{fontSize:14,fontWeight:900,color:C.accent}}>{s.score}<span style={{fontSize:8,color:C.muted}}>pt</span></div>
                   </div>
                 </div>;
               });
@@ -1831,37 +1953,38 @@ export default function App() {
             })()}
           </div>
 
-          {/* ★ v2.2: 진입평점 순위 — 캔들 보유 종목 전체 */}
+          {/* ★ v2.3: 진입적기 순위 — 타이밍 + 강도 2축 */}
           <div style={css.card}>
-            <div style={{fontSize:11,fontWeight:700,color:C.accent,marginBottom:8}}>🎯 진입평점 순위</div>
-            <div style={{fontSize:8,color:C.muted,marginBottom:10}}>캔들 데이터 보유 종목 중 진입 조건이 좋은 순서</div>
+            <div style={{fontSize:11,fontWeight:700,color:C.accent,marginBottom:4}}>🎯 진입적기 순위</div>
+            <div style={{fontSize:8,color:C.muted,marginBottom:8}}>타이밍(방금 시작) + 강도(오래갈) 양쪽 높은 순서</div>
             {(()=>{
               const graded = realStocks.map(s=>{
                 const cData = charts[s.ticker]?.data;
                 if(!cData||cData.length<10) return null;
-                const es = calcEntryScore(cData, vixVal, oppScore, pool[s.ticker]||s);
-                const lastPt = cData.at(-1);
-                const stCount = [lastPt?.st1Bull,lastPt?.st2Bull,lastPt?.st3Bull].filter(v=>v!=null).length;
-                const cloudSt = lastPt?.aboveCloud?"구름위":lastPt?.nearCloud?"접근":"아래";
-                return {...s, entryGrade:es.grade, entryScore:es.score, breakdown:es.breakdown, stCount, cloudSt};
-              }).filter(Boolean).filter(s=>s.entryScore>30).sort((a,b)=>b.entryScore-a.entryScore);
+                const t = calcEntryTiming(cData);
+                const dr = calcTrendDurability(cData);
+                const combined = Math.round(t.score*0.5+dr.score*0.5);
+                if(combined<20) return null;
+                return {...s, timing:t.score, durability:dr.score, combined, timingSignals:t.signals, durabilitySignals:dr.signals};
+              }).filter(Boolean).sort((a,b)=>b.combined-a.combined);
 
-              if(!graded.length) return <div style={{textAlign:"center",padding:"15px",color:C.muted,fontSize:9}}>캔들 데이터가 있는 종목이 없습니다 — Daily 실행 후 확인</div>;
+              if(!graded.length) return <div style={{textAlign:"center",padding:"15px",color:C.muted,fontSize:9}}>실시간 데이터 없음 — Daily 실행 후 확인</div>;
               return graded.slice(0,15).map((s,i)=>{
-                const gc = {S:C.emerald,A:C.green,B:C.yellow,C:"#FF9F0A",D:C.red}[s.entryGrade]||C.muted;
-                return <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderBottom:`1px solid rgba(255,255,255,.05)`,cursor:"pointer",background:i<3?`${gc}08`:"transparent"}}>
-                  <span style={{fontSize:22,fontWeight:900,color:gc,minWidth:28}}>{s.entryGrade}</span>
+                const good = s.timing>=40&&s.durability>=40;
+                return <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 8px",borderBottom:`1px solid rgba(255,255,255,.05)`,cursor:"pointer",background:good&&i<3?"rgba(48,209,88,.06)":"transparent"}}>
+                  <div style={{minWidth:50,display:"flex",gap:3}}>
+                    <span style={{fontSize:12,fontWeight:900,color:s.timing>=70?"#FF9F0A":s.timing>=40?C.yellow:C.muted,padding:"1px 3px",borderRadius:3,background:"rgba(255,159,10,.08)"}}>⚡{s.timing}</span>
+                    <span style={{fontSize:12,fontWeight:900,color:s.durability>=70?C.emerald:s.durability>=50?C.green:C.muted,padding:"1px 3px",borderRadius:3,background:"rgba(48,209,88,.08)"}}>💪{s.durability}</span>
+                  </div>
                   <div style={{flex:1}}>
-                    <div style={{fontWeight:700,fontSize:11,maxWidth:70,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s,8)}</div>
-                    <div style={{display:"flex",gap:4,marginTop:2}}>
-                      <span style={{fontSize:7,color:C.muted}}>ST{s.stCount}/3</span>
-                      <span style={{fontSize:7,color:C.muted}}>{s.cloudSt}</span>
-                      {s.breakdown?.filter(b=>b.ok).slice(0,3).map(b=><span key={b.label} style={{fontSize:7,padding:"0px 4px",borderRadius:3,background:`${gc}12`,color:gc}}>{b.label}</span>)}
+                    <div style={{fontWeight:700,fontSize:10,maxWidth:65,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s,8)}</div>
+                    <div style={{display:"flex",gap:2,marginTop:2,flexWrap:"wrap"}}>
+                      {s.timingSignals.slice(0,2).map(sig=><span key={sig} style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:"rgba(255,159,10,.08)",color:"#FF9F0A"}}>{sig}</span>)}
+                      {s.durabilitySignals.slice(0,2).map(sig=><span key={sig} style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:"rgba(48,209,88,.08)",color:C.emerald}}>{sig}</span>)}
                     </div>
                   </div>
                   <div style={{textAlign:"right"}}>
-                    <div style={{fontSize:16,fontWeight:900,color:gc}}>{s.entryScore}<span style={{fontSize:9,color:C.muted}}>/100</span></div>
-                    <div style={{fontSize:8,color:(s.changePct||0)>=0?C.green:C.red}}><span style={{color:C.muted}}>1D</span> {(s.changePct||0)>=0?"+":""}{(s.changePct||0).toFixed(1)}%</div>
+                    <div style={{fontSize:8,color:(s.changePct||0)>=0?C.green:C.red}}>1D {(s.changePct||0)>=0?"+":""}{(s.changePct||0).toFixed(1)}%</div>
                   </div>
                 </div>;
               });
@@ -1928,7 +2051,7 @@ export default function App() {
               :<div>
                 {/* ★ v2.3: 정렬 버튼 — 진입평점 추가 */}
                 <div style={{display:"flex",gap:4,marginBottom:8,flexWrap:"wrap"}}>
-                  {[["score","📊 종합점수"],["entry","🎯 진입평점"],["accel","🔥 가속신호"],["rs","💪 RS강도"],["chg3d","📈 3일수익"],["vol","💥 거래량"]].map(([k,l])=>(
+                  {[["score","📊 종합"],["timing","⚡ 타이밍"],["entry","🎯 복합"],["accel","🔥 가속"],["rs","💪 RS"],["chg3d","📈 3D"],["vol","💥 거래량"]].map(([k,l])=>(
                     <button key={k} onClick={()=>setAlphaSort(k)} style={{padding:"3px 8px",borderRadius:4,fontSize:8,fontWeight:alphaSort===k?700:400,border:`1px solid ${alphaSort===k?C.accent:C.border}`,background:alphaSort===k?"rgba(10,132,255,.12)":"transparent",color:alphaSort===k?C.accent:C.muted,cursor:"pointer"}}>{l}</button>
                   ))}
                   <span style={{fontSize:8,color:C.muted,marginLeft:"auto"}}>{alphaHits.filter(s=>s.accelScore>0).length}개 가속중 🔥</span>
@@ -1945,10 +2068,10 @@ export default function App() {
                       <span style={{fontSize:8,color:C.muted}}>3D {(idxD?.chg3d||0)>=0?"+":""}{(idxD?.chg3d||0).toFixed(1)}%</span>
                     </div>
                     <div style={{overflowX:"auto"}}>
-                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,minWidth:720,tableLayout:"fixed"}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,minWidth:500,tableLayout:"fixed"}}>
                         <thead>
                           <tr style={{background:"rgba(255,255,255,.04)",borderBottom:`2px solid ${C.border}`}}>
-                            {["종목","점수","가속","RS%","거래량%","3D","5D","일목","ST","진입평점",""].map(h=>(
+                            {["종목","점수","⚡타이밍","💪강도","가속","3D","5D","ST",""].map(h=>(
                               <th key={h} style={{padding:"6px 8px",textAlign:"left",color:C.purple,fontSize:8,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>
                             ))}
                           </tr>
@@ -1957,42 +2080,32 @@ export default function App() {
                           {hits.map((stock,i)=>{
                             const cdc=charts[stock.ticker]?.data;
                             const lD=cdc?.at(-1);const prevD=cdc?.at(-2);
-                            const iSt=lD?.aboveCloud?"above":lD?.nearCloud?"near":"below";
                             const stC=[lD?.st1Bull,lD?.st2Bull,lD?.st3Bull].filter(v=>v!=null).length;
-                            const es=calcEntryScore(cdc,vixVal,oppScore,pool[stock.ticker]||stock);
                             const isGold=(stock.score||0)>=85;
                             const inW=watchlist.find(w=>w.ticker===stock.ticker);
                             const pInfo=pool[stock.ticker]||{};
-                            const rsPct=pInfo.rsPctRank||0;
                             const isBreakout=pInfo.w52Breakout;
                             const isFlip=lD?.bullCount===3&&prevD?.bullCount<3;
+                            const tColor=stock.timing>=70?"#FF9F0A":stock.timing>=40?C.yellow:C.muted;
+                            const dColor=stock.durability>=70?C.emerald:stock.durability>=50?C.green:C.muted;
                             return(
-                              <tr key={stock.ticker} style={{background:stock.accelScore>=5?"rgba(255,159,10,.12)":isFlip?"rgba(48,209,88,.1)":isBreakout?"rgba(255,214,10,.1)":isGold?"rgba(255,214,10,.06)":i%2===0?C.panel:C.panel2,borderBottom:`1px solid ${C.border}`,cursor:"pointer"}}
+                              <tr key={stock.ticker} style={{background:stock.timing>=40&&stock.durability>=40?"rgba(48,209,88,.06)":stock.accelScore>=5?"rgba(255,159,10,.08)":isFlip?"rgba(48,209,88,.06)":i%2===0?C.panel:C.panel2,borderBottom:`1px solid ${C.border}`,cursor:"pointer"}}
                                 onClick={()=>navigateToStock(stock.ticker,stock)}>
-                                <td style={{padding:"7px 8px"}}>
-                                  <div style={{fontWeight:700,fontSize:11,maxWidth:65,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isFlip?"🚀":isBreakout?"🔥":isGold?"✨":""}{fmtName(stock,7)}</div>
-                                  <div style={{fontSize:7,color:C.muted}}>{/^\d{6}$/.test(stock.ticker)?stock.ticker:stock.label?.slice(0,10)}{isFlip?" ST돌파":isBreakout?" 신고가":""}</div>
+                                <td style={{padding:"6px 6px"}}>
+                                  <div style={{fontWeight:700,fontSize:10,maxWidth:60,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isFlip?"🚀":isBreakout?"🔥":""}{fmtName(stock,6)}</div>
+                                  <div style={{fontSize:6,color:C.muted}}>{/^\d{6}$/.test(stock.ticker)?stock.ticker:stock.label?.slice(0,8)}</div>
                                 </td>
-                                <td style={{padding:"7px 8px"}}><span style={{fontWeight:800,fontSize:11,color:isGold?"#FF9F0A":C.accent}}>{stock.score}pt</span></td>
-                                <td style={{padding:"4px 6px"}}>{stock.accelTags?.length>0?<div style={{display:"flex",flexWrap:"wrap",gap:2}}>{stock.accelTags.slice(0,2).map((t,j)=><span key={j} style={{fontSize:7,padding:"1px 4px",borderRadius:3,background:"rgba(255,159,10,.12)",border:"1px solid rgba(255,159,10,.3)",color:"#FF9F0A",fontWeight:700,whiteSpace:"nowrap"}}>{t}</span>)}</div>:<span style={{fontSize:8,color:C.muted}}>—</span>}</td>
-                                <td style={{padding:"7px 8px"}}><span style={{fontWeight:700,fontSize:10,color:rsPct>=80?C.emerald:rsPct>=60?C.accent:C.muted}}>{rsPct>=80?"상위"+Math.round(100-rsPct)+"%":rsPct>=60?"중상":rsPct>0?"중하":"—"}</span></td>
-                                <td style={{padding:"7px 8px",color:(stock.volRatio||100)>=150?C.emerald:(stock.volRatio||100)>=80?C.muted:C.red,fontWeight:600}}>{stock.volRatio||"-"}%</td>
-                                <td style={{padding:"7px 8px",fontWeight:700,color:(stock.chg3d||0)>=0?C.green:C.red}}>{(stock.chg3d||0)>=0?"+":""}{(stock.chg3d||0).toFixed(1)}%</td>
-                                <td style={{padding:"7px 8px",fontWeight:700,color:(stock.chg5d||0)>=0?C.green:C.red}}>{(stock.chg5d||0)>=0?"+":""}{(stock.chg5d||0).toFixed(1)}%</td>
-                                <td style={{padding:"7px 8px"}}>
-                                  <span style={{fontSize:8,fontWeight:700,padding:"2px 5px",borderRadius:4,background:iSt==="above"?"rgba(48,209,88,.2)":iSt==="near"?"rgba(250,204,21,.2)":"rgba(255,69,58,.2)",color:iSt==="above"?C.emerald:iSt==="near"?C.yellow:C.red}}>{iSt==="above"?"구름위":iSt==="near"?"접근":"아래"}</span>
-                                </td>
-                                <td style={{padding:"7px 8px"}}><span style={{fontWeight:700,color:stC===3?C.emerald:stC>=2?C.yellow:C.muted}}>{stC}/3</span></td>
-                                <td style={{padding:"7px 8px"}}>
-                                  <div style={{display:"flex",alignItems:"center",gap:3}}>
-                                    <span style={{fontSize:12,fontWeight:900,color:es.grade==="S"?C.emerald:es.grade==="A"?C.green:es.grade==="B"?C.yellow:es.grade==="C"?"#FF9F0A":C.red}}>{es.grade}</span>
-                                    <span style={{fontSize:8,color:C.muted}}>{es.score}</span>
-                                  </div>
-                                </td>
-                                <td style={{padding:"7px 6px"}} onClick={e=>e.stopPropagation()}>
-                                  <div style={{display:"flex",gap:3}}>
-                                    <button onClick={()=>{setTracking(p=>[...p,{id:Date.now(),ticker:stock.ticker,label:stock.label,market:stock.market,basePrice:stock.price||0,addedDate:new Date().toLocaleDateString("ko-KR"),foundScore:stock.score,foundSignals:stock.signals,foundRS:stock.rs,oppScoreAt:oppScore}]);setTab("track");setTrackTab("watch");}} style={{background:"rgba(48,209,88,.08)",border:`1px solid ${C.emerald}`,color:C.emerald,borderRadius:5,padding:"3px 7px",cursor:"pointer",fontSize:8,fontWeight:700}}>추적</button>
-                                    <button onClick={()=>{inW?setWatchlist(w=>w.filter(x=>x.ticker!==stock.ticker)):setWatchlist(w=>[...w,{...stock}]);}} style={{background:inW?"rgba(10,132,255,.12)":"rgba(255,255,255,.04)",border:`1px solid ${inW?C.accent:C.border}`,color:inW?C.accent:C.muted,borderRadius:5,padding:"3px 7px",cursor:"pointer",fontSize:10}}>{inW?"★":"☆"}</button>
+                                <td style={{padding:"6px 4px"}}><span style={{fontWeight:800,fontSize:10,color:isGold?"#FF9F0A":C.accent}}>{stock.score}</span></td>
+                                <td style={{padding:"6px 4px"}}><span style={{fontWeight:900,fontSize:11,color:tColor}}>{stock.timing||0}</span></td>
+                                <td style={{padding:"6px 4px"}}><span style={{fontWeight:900,fontSize:11,color:dColor}}>{stock.durability||0}</span></td>
+                                <td style={{padding:"4px 4px"}}>{stock.accelTags?.length>0?<div style={{display:"flex",flexWrap:"wrap",gap:1}}>{stock.accelTags.slice(0,2).map((t,j)=><span key={j} style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:"rgba(255,159,10,.1)",color:"#FF9F0A",fontWeight:700}}>{t}</span>)}</div>:<span style={{fontSize:7,color:C.muted}}>—</span>}</td>
+                                <td style={{padding:"6px 4px",fontWeight:700,fontSize:9,color:(stock.chg3d||0)>=0?C.green:C.red}}>{(stock.chg3d||0)>=0?"+":""}{(stock.chg3d||0).toFixed(1)}%</td>
+                                <td style={{padding:"6px 4px",fontWeight:700,fontSize:9,color:(stock.chg5d||0)>=0?C.green:C.red}}>{(stock.chg5d||0)>=0?"+":""}{(stock.chg5d||0).toFixed(1)}%</td>
+                                <td style={{padding:"6px 4px"}}><span style={{fontWeight:700,fontSize:9,color:stC===3?C.emerald:stC>=2?C.yellow:C.muted}}>{stC}/3</span></td>
+                                <td style={{padding:"6px 4px"}} onClick={e=>e.stopPropagation()}>
+                                  <div style={{display:"flex",gap:2}}>
+                                    <button onClick={()=>{setTracking(p=>[...p,{id:Date.now(),ticker:stock.ticker,label:stock.label,market:stock.market,basePrice:stock.price||0,addedDate:new Date().toLocaleDateString("ko-KR"),foundScore:stock.score,foundSignals:stock.signals,foundRS:stock.rs,oppScoreAt:oppScore}]);setTab("track");setTrackTab("watch");}} style={{background:"rgba(48,209,88,.08)",border:`1px solid ${C.emerald}`,color:C.emerald,borderRadius:4,padding:"2px 5px",cursor:"pointer",fontSize:7,fontWeight:700}}>추적</button>
+                                    <button onClick={()=>{inW?setWatchlist(w=>w.filter(x=>x.ticker!==stock.ticker)):setWatchlist(w=>[...w,{...stock}]);}} style={{background:inW?"rgba(10,132,255,.12)":"rgba(255,255,255,.04)",border:`1px solid ${inW?C.accent:C.border}`,color:inW?C.accent:C.muted,borderRadius:4,padding:"2px 5px",cursor:"pointer",fontSize:9}}>{inW?"★":"☆"}</button>
                                   </div>
                                 </td>
                               </tr>
@@ -2199,6 +2312,42 @@ export default function App() {
               <div style={{fontSize:16,fontWeight:900,color:((selInfo.chg5d||0)-idxRS.spy.chg5d)>3?C.emerald:((selInfo.chg5d||0)-idxRS.spy.chg5d)>0?C.yellow:C.red}}>{((selInfo.chg5d||0)-idxRS.spy.chg5d)>3?"매우강":((selInfo.chg5d||0)-idxRS.spy.chg5d)>0?"보통":"약세"}</div>
             </div>
           </div>
+
+          {/* ★ v2.3: 진입타이밍 + 추세강도 2축 패널 */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:10}}>
+            <div style={{background:selTiming.score>=45?"rgba(255,159,10,.08)":"rgba(255,255,255,.03)",border:`2px solid ${selTiming.score>=70?"#FF9F0A":selTiming.score>=45?C.yellow:"rgba(255,255,255,.1)"}`,borderRadius:10,padding:"10px 12px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                <span style={{fontSize:9,fontWeight:700,color:"#FF9F0A"}}>⚡ 진입타이밍</span>
+                <span style={{fontSize:8,color:C.muted}}>{selTiming.grade}</span>
+              </div>
+              <div style={{fontSize:28,fontWeight:900,color:selTiming.score>=70?"#FF9F0A":selTiming.score>=45?C.yellow:C.muted,lineHeight:1,marginBottom:6}}>{selTiming.score}<span style={{fontSize:10,color:C.muted}}>/100</span></div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:2}}>
+                {selTiming.signals.slice(0,4).map(s=><span key={s} style={{fontSize:7,padding:"1px 4px",borderRadius:3,background:"rgba(255,159,10,.12)",color:"#FF9F0A"}}>{s}</span>)}
+                {!selTiming.signals.length&&<span style={{fontSize:7,color:C.muted}}>최근 변화 없음</span>}
+              </div>
+            </div>
+            <div style={{background:selDurability.score>=50?"rgba(48,209,88,.06)":"rgba(255,255,255,.03)",border:`2px solid ${selDurability.score>=70?C.emerald:selDurability.score>=50?C.green:"rgba(255,255,255,.1)"}`,borderRadius:10,padding:"10px 12px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                <span style={{fontSize:9,fontWeight:700,color:C.emerald}}>💪 추세강도</span>
+                <span style={{fontSize:8,color:C.muted}}>{selDurability.grade}</span>
+              </div>
+              <div style={{fontSize:28,fontWeight:900,color:selDurability.score>=70?C.emerald:selDurability.score>=50?C.green:C.muted,lineHeight:1,marginBottom:6}}>{selDurability.score}<span style={{fontSize:10,color:C.muted}}>/100</span></div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:2}}>
+                {selDurability.signals.slice(0,4).map(s=><span key={s} style={{fontSize:7,padding:"1px 4px",borderRadius:3,background:"rgba(48,209,88,.1)",color:C.emerald}}>{s}</span>)}
+                {!selDurability.signals.length&&<span style={{fontSize:7,color:C.muted}}>추세 미형성</span>}
+              </div>
+            </div>
+          </div>
+          {/* 종합 판정 */}
+          {selTiming.score>=45&&selDurability.score>=50&&<div style={{background:"rgba(48,209,88,.08)",border:`1px solid ${C.emerald}`,borderRadius:8,padding:"8px 12px",marginBottom:10,textAlign:"center"}}>
+            <span style={{fontSize:10,fontWeight:900,color:C.emerald}}>✅ 타이밍 + 강도 모두 양호 — 진입 검토 구간</span>
+          </div>}
+          {selTiming.score>=45&&selDurability.score<30&&<div style={{background:"rgba(255,214,10,.08)",border:`1px solid ${C.yellow}`,borderRadius:8,padding:"8px 12px",marginBottom:10,textAlign:"center"}}>
+            <span style={{fontSize:10,fontWeight:700,color:C.yellow}}>⚠️ 신호 변화 감지 — 추세 확인 필요</span>
+          </div>}
+          {selTiming.score<20&&selDurability.score>=50&&<div style={{background:"rgba(255,255,255,.04)",border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 12px",marginBottom:10,textAlign:"center"}}>
+            <span style={{fontSize:10,color:C.muted}}>추세 유지 중이나 신규 진입 타이밍은 아님</span>
+          </div>}
 
           {/* ★ v2.3: 컨센서스 목표가 + 예상수익률 */}
           <div style={{background:"linear-gradient(135deg,rgba(10,132,255,.08),rgba(191,90,242,.08))",border:`2px solid ${consTgtSrc==="컨센서스"?C.accent:consTgt>0?"rgba(255,214,10,.4)":"rgba(255,255,255,.12)"}`,borderRadius:12,padding:"14px 16px",marginBottom:10}}>
