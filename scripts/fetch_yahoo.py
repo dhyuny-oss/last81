@@ -436,8 +436,12 @@ def fetch_pool_batch(pool, range_="3mo", batch_size=50, delay_between_batches=5)
                     fail += 1
                     continue
                 price     = float(meta.get("regularMarketPrice") or candles[-1]["close"])
-                prev      = float(meta.get("chartPreviousClose") or meta.get("previousClose") or price)
-                changePct = round((price-prev)/prev*100, 2) if prev else 0
+                prev      = float(meta.get("previousClose") or meta.get("chartPreviousClose") or price)
+                # ★ 캔들 기반 1일 변동률 (chartPreviousClose 오류 방지)
+                if len(candles) >= 2:
+                    changePct = round((candles[-1]["close"] - candles[-2]["close"]) / candles[-2]["close"] * 100, 2)
+                else:
+                    changePct = round((price-prev)/prev*100, 2) if prev else 0
                 mktCap    = float(meta.get("marketCap") or 0)
                 isKR = info.get("market") == "kr"
                 mktCapNorm = round(mktCap / 1e8, 1) if isKR else round(mktCap / 1e9, 2)
@@ -507,7 +511,7 @@ def main():
         try:
             candles, meta = parse_candles(raw)
             price     = float(meta.get("regularMarketPrice") or (candles[-1]["close"] if candles else 0))
-            prev      = float(meta.get("chartPreviousClose") or meta.get("previousClose") or price)
+            prev      = float(meta.get("previousClose") or meta.get("chartPreviousClose") or price)
             changePct = round((price-prev)/prev*100, 2) if prev else 0
             output["indices"][ticker] = {
                 **info, "ticker":ticker, "price":price, "changePct":changePct,
@@ -526,7 +530,7 @@ def main():
         return
 
     if MODE == "daily":
-        print("\n📦 전체 종목 풀 수집 중...")
+        print(f"\n📦 전체 종목 풀 수집 중...")
         pool = {}
         pool.update(get_krx_volume_top(300))
         pool.update(get_us_stocks())
@@ -537,8 +541,17 @@ def main():
                 pool[ticker] = info
                 print(f"  ➕ 관심종목 추가: {ticker} ({info.get('label','')})")
 
-        print(f"  총 {len(pool)}개 종목 대상\n")
+        kr_pool = sum(1 for t,v in pool.items() if v.get("market")=="kr")
+        us_pool = len(pool) - kr_pool
+        print(f"  총 {len(pool)}개 종목 대상 (🇰🇷{kr_pool} 🇺🇸{us_pool})\n")
         pool_data = fetch_pool_batch(pool, range_="3mo", batch_size=50, delay_between_batches=5)
+
+        # ★ 수집 결과 분포 확인
+        kr_ok = sum(1 for t,v in pool_data.items() if v.get("market")=="kr")
+        us_ok = len(pool_data) - kr_ok
+        print(f"\n  📊 수집 성공 분포: 🇰🇷{kr_ok} 🇺🇸{us_ok} (총 {len(pool_data)}개)")
+        if us_ok < 10:
+            print(f"  ⚠️ US 종목 부족! Yahoo 레이트리밋 가능성 — 배치 딜레이 증가 필요")
 
         # RS 랭킹
         print("\n📊 RS 랭킹 계산...")
@@ -615,7 +628,7 @@ def main():
                     try:
                         candles, meta = parse_candles(raw)
                         price = float(meta.get("regularMarketPrice") or candles[-1]["close"])
-                        prev  = float(meta.get("chartPreviousClose") or meta.get("previousClose") or price)
+                        prev  = float(meta.get("previousClose") or meta.get("chartPreviousClose") or price)
                         changePct = round((price-prev)/prev*100,2) if prev else 0
                         mktCap = float(meta.get("marketCap") or 0)
                         isKR = info.get("market") == "kr"
@@ -641,7 +654,7 @@ def main():
             try:
                 candles, meta = parse_candles(raw)
                 price     = float(meta.get("regularMarketPrice") or candles[-1]["close"])
-                prev      = float(meta.get("chartPreviousClose") or meta.get("previousClose") or price)
+                prev      = float(meta.get("previousClose") or meta.get("chartPreviousClose") or price)
                 changePct = round((price-prev)/prev*100,2) if prev else 0
                 output["stocks"][ticker] = {
                     **{k:v for k,v in (output["stocks"].get(ticker, info)).items()},
@@ -663,7 +676,7 @@ def main():
         try:
             candles, meta = parse_candles(raw)
             price = float(meta.get("regularMarketPrice") or candles[-1]["close"])
-            prev  = float(meta.get("chartPreviousClose") or price)
+            prev  = float(meta.get("previousClose") or meta.get("chartPreviousClose") or price)
             chg1d = round((price-prev)/prev*100, 2) if prev else 0
             mkt = "kr" if ".KS" in etf_ticker else "us"
             sectors_data[etf_ticker] = {
