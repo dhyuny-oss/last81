@@ -30,5 +30,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add public/data/stocks.json
-          git diff --staged --quiet || git commit -m "⏰ $(date +%H:%M) 관심종목 업데이트"
-          git push
+          git diff --staged --quiet || (
+            git commit -m "⏰ $(date +%H:%M) 관심종목 업데이트"
+            git pull --rebase origin main
+            git push
+          )
