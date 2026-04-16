@@ -308,7 +308,7 @@ def get_krx_volume_top(n=300):
                     name = item.get("ISU_ABBRV","")
                     if not t or not name:
                         continue
-                    if item["_val"] < 100000000:
+                    if item["_val"] < 100000000:  # 1억원 이상
                         continue
                     suffix = ".KS" if market_id == "STK" else ".KQ"
                     if t not in stocks:
@@ -318,12 +318,14 @@ def get_krx_volume_top(n=300):
             except Exception as e:
                 print(f"    ❌ {market_name}: {e}")
 
-    # ★ 폴백: 한국 주요종목 100개 보강
-    if len(stocks) < 150:
-        print(f"    ⚠ KRX 부족 ({len(stocks)}개) — 주요종목 {len(KR_MAJOR_STOCKS)}개 폴백 추가")
-        for t, (name, suffix) in KR_MAJOR_STOCKS.items():
-            if t not in stocks:
-                stocks[t] = {"label":name,"sector":"Korean","market":"kr","suffix":suffix}
+    # ★ 항상 주요종목 보강 (KRX에서 누락된 대형주 보완)
+    added_fallback = 0
+    for t, (name, suffix) in KR_MAJOR_STOCKS.items():
+        if t not in stocks:
+            stocks[t] = {"label":name,"sector":"Korean","market":"kr","suffix":suffix}
+            added_fallback += 1
+    if added_fallback:
+        print(f"    ➕ 주요종목 폴백 {added_fallback}개 추가")
 
     print(f"    📊 한국 총 {len(stocks)}개")
     return stocks
@@ -355,40 +357,95 @@ def get_us_stocks():
     except Exception as e:
         print(f"    ❌ S&P500: {e}")
 
-    # ★ 확장된 폴백 (200개)
-    if len(stocks) < 450:
-        print(f"    ⚠ Wikipedia 부족 ({len(stocks)}개) — 하드코딩 TOP 300 보강")
+    # ★ 확장된 폴백 — 테마별 핫 종목 (500개+)
+    if len(stocks) < 500:
+        print(f"    ⚠ Wikipedia 부족 ({len(stocks)}개) — 테마별 핫 종목 보강")
         fallback = [
+            # ── 빅테크 + 메가캡 (30) ──
             "AAPL","MSFT","NVDA","AMZN","META","GOOGL","GOOG","BRK-B","LLY","AVGO",
             "JPM","TSLA","UNH","XOM","V","PG","MA","JNJ","COST","HD",
             "MRK","ABBV","NFLX","AMD","CRM","BAC","CVX","KO","PEP","TMO",
-            "ADBE","WMT","ACN","MCD","LIN","CSCO","ABT","WFC","DHR","GE",
-            "INTC","QCOM","AMAT","MU","LRCX","KLAC","MRVL","PANW","SNPS","CDNS",
-            "NOW","INTU","BKNG","ISRG","VRTX","REGN","GILD","MRNA","AMGN","BIIB",
-            "CAT","HON","UPS","RTX","DE","MMM","GD","LMT","BA","NOC",
-            "GS","MS","BLK","SCHW","AXP","C","USB","PNC","TFC","COF",
-            "PFE","BMY","ZTS","SYK","MDT","EW","BSX","DXCM","IDXX","A",
-            "NKE","SBUX","TGT","LOW","TJX","ROST","DG","DLTR","ORLY","AZO",
-            "PLTR","CRWD","SNOW","DDOG","NET","ZS","FTNT","WDAY","OKTA","MDB",
-            "SQ","PYPL","COIN","HOOD","SOFI","AFRM","UPST","BILL","SHOP","SE",
-            "UBER","LYFT","ABNB","DASH","RBLX","U","TTWO","EA","MTCH","PINS",
+            # ── AI · 로보틱스 (30) ──
+            "PLTR","AI","SOUN","IONQ","RGTI","PATH","UPST","BBAI","BIGB","DT",
+            "SMCI","ARM","DELL","HPE","IBM","ORCL","SAP","SNOW","DDOG","MDB",
+            "CRWD","NET","ZS","FTNT","PANW","WDAY","OKTA","ESTC","CFLT","GTLB",
+            # ── 반도체 (25) ──
+            "TSM","ASML","INTC","QCOM","AMAT","MU","LRCX","KLAC","MRVL","SNPS",
+            "CDNS","ON","SWKS","MCHP","TXN","ADI","NXPI","WOLF","ACLS","MPWR",
+            "CRUS","RMBS","MTSI","ALGM","FORM",
+            # ── 양자컴퓨팅 (8) ──
+            "QUBT","QBTS","ARQQ","QTUM",
+            "IQM","DMYI","COLD","LASR",
+            # ── 우주 · 방산 (15) ──
+            "LMT","RTX","NOC","GD","BA","LHX","HII","TDG","HWM","KTOS",
+            "RKLB","LUNR","RDW","ASTS","MNTS",
+            # ── 핀테크 · 크립토 (25) ──
+            "SQ","PYPL","COIN","HOOD","SOFI","AFRM","BILL","SHOP","SE","NU",
+            "MELI","GRAB","CPNG","MSTR","RIOT","MARA","BITF","CLSK","HUT","CIFR",
+            "BTBT","IREN","WULF","CORZ","HIVE",
+            # ── 전기차 · 클린에너지 (20) ──
             "RIVN","LCID","NIO","XPEV","LI","F","GM","STLA","TM","HMC",
-            "SMCI","ARM","DELL","HPE","IBM","ORCL","SAP","TEAM","DOCU","VEEV",
-            "AI","SOUN","IONQ","RGTI","PATH","CPNG","GRAB","MELI","NU","BABA",
-            "TSM","ASML","ON","SWKS","MCHP","TXN","ADI","NXPI","WOLF","ACLS",
             "ENPH","SEDG","FSLR","RUN","NOVA","NEE","DUK","SO","AEP","D",
-            "CVS","CI","HUM","ELV","CNC","MOH","WBA","MCK","CAH","ABC",
-            "DIS","CMCSA","T","VZ","TMUS","CHTR","FOX","PARA","WBD","LYV",
-            "COP","SLB","EOG","PXD","DVN","HAL","OXY","MPC","VLO","PSX",
-            "APD","SHW","ECL","PPG","DD","EMN","CE","ALB","FMC","IFF",
-            "SPGI","ICE","CME","NDAQ","MSCI","MCO","FIS","FISV","GPN","WEX",
+            # ── 바이오 · 헬스케어 (25) ──
+            "ISRG","VRTX","REGN","GILD","MRNA","AMGN","BIIB","NBIX","EXAS","ARGX",
+            "PFE","BMY","ZTS","SYK","MDT","EW","BSX","DXCM","IDXX","A",
+            "CVS","CI","HUM","ELV","CNC",
+            # ── SaaS · 클라우드 (20) ──
+            "NOW","INTU","ADBE","BKNG","HUBS","ZI","PAYC","PCTY","VEEV","DOCU",
+            "TEAM","BRZE","APP","RBRK","RDDT","ZM","TWLO","DSGX","WK","MNDY",
+            # ── 소비재 · 리테일 (20) ──
+            "NKE","SBUX","TGT","LOW","TJX","ROST","DG","DLTR","ORLY","AZO",
+            "WMT","ACN","MCD","LIN","CSCO","ABT","WFC","DHR","GE","MNST",
+            # ── 게임 · 엔터 · 스트리밍 (15) ──
+            "DIS","CMCSA","RBLX","U","TTWO","EA","MTCH","PINS","LYV","SPOT",
+            "ROKU","CHTR","FOX","PARA","WBD",
+            # ── 플랫폼 · 모빌리티 (10) ──
+            "UBER","LYFT","ABNB","DASH","DKNG","PENN","BKSY","JOBY","ACHR","EVTL",
+            # ── 에너지 · 원자재 (20) ──
+            "COP","SLB","EOG","DVN","HAL","OXY","MPC","VLO","PSX","LNG",
+            "APD","SHW","ECL","PPG","DD","ALB","FMC","IFF","FCX","NEM",
+            # ── 금융 · 보험 (15) ──
+            "GS","MS","BLK","SCHW","AXP","C","USB","PNC","TFC","COF",
+            "SPGI","ICE","CME","NDAQ","MCO",
+            # ── 산업재 · 물류 (15) ──
+            "CAT","HON","UPS","DE","ITW","EMR","ROK","PH","ETN","AME",
+            "FDX","DAL","UAL","LUV","AAL",
+            # ── 리얼에셋 · 인프라 (10) ──
             "AMT","PLD","CCI","EQIX","DLR","SPG","O","WELL","AVB","EQR",
-            "KMI","WMB","OKE","ET","EPD","MPLX","PAA","AM","TRGP","LNG",
-            "ITW","EMR","ROK","PH","ETN","DOV","NDSN","AME","ROP","KEYS",
-            "FDX","DAL","UAL","LUV","AAL","JBLU","ALK","SAVE","HA","SKYW",
-            "MNST","MDLZ","HSY","GIS","K","CPB","SJM","HRL","MKC","CHD",
-            "ADP","PAYX","CTAS","RHI","HUBS","ZI","DSGX","PAYC","PCTY","WK",
-            "MSFT","ZM","TWLO","ESTC","CFLT","GTLB","BRZE","APP","RBRK","RDDT",
+            # ── 밈 · 소셜 화제 (15) ──
+            "GME","AMC","BBBY","CLOV","WISH","OPEN","LAZR","MVST","QS","CHPT",
+            "PLUG","BLNK","GOEV","WKHS","NKLA",
+            # ── 최근 IPO · 고성장 (20) ──
+            "CART","BIRK","VRT","IBKR","CAVA","DUOL","TOST","KVYO","ONON","CELH",
+            "LNTH","IOT","SRAD","GFS","DOCS","GTLB","BRZE","RBRK","RDDT","MNDY",
+            # ── 식품 · 필수소비 (15) ──
+            "MDLZ","HSY","GIS","K","CPB","SJM","HRL","MKC","CHD","ADP",
+            "PAYX","CTAS","CLX","KHC","KDP",
+            # ── MLP · 에너지인프라 (10) ──
+            "KMI","WMB","OKE","ET","EPD","MPLX","PAA","AM","TRGP","CTRA",
+            # ── 중국 ADR · 해외 (20) ──
+            "BABA","JD","PDD","BIDU","NIO","XPEV","LI","TME","BILI","IQ",
+            "ZTO","VIPS","TAL","EDU","FUTU","TIGR","DIDI","YMM","MNSO","WB",
+            # ── 통신 · 미디어 (10) ──
+            "T","VZ","TMUS","GOOGL","GOOG","NFLX","DIS","CMCSA","SPOT","ROKU",
+            # ── 사이버보안 확장 (10) ──
+            "S","RPD","TENB","QLYS","VRNS","CYBR","SAIL","RDOG","HACK","CIBR",
+            # ── 핵심 중형 성장주 (30) ──
+            "AXON","WYNN","MGM","LVS","MAR","HLT","H","RCL","CCL","NCLH",
+            "LULU","DECK","CROX","BIRK","SMAR","CFLT","GTLB","ESTC","DDOG","NET",
+            "TTD","MGNI","PUBM","DSP","IAS","DV","ZETA","BRZE","SEMR","CINT",
+            # ── 헬스케어 확장 (20) ──
+            "VEEV","DOCS","HIMS","GDRX","TDOC","AMWL","OSCR","ACCD","PHR","RCM",
+            "PODD","TNDM","SWAV","PRCT","NVCR","INSP","ALGN","XRAY","HOLX","TECH",
+            # ── 산업재 · 인프라 확장 (15) ──
+            "WM","RSG","GNRC","TT","IR","CARR","OTIS","JCI","TRANE","AOS",
+            "SWK","FAST","WSO","RBC","GGG",
+            # ── 소프트웨어 · SaaS 확장 (20) ──
+            "PCOR","ALTR","NCNO","FROG","FRSH","PTC","ANSS","AZPN","MANH","BSY",
+            "APPF","JAMF","TENB","ZUO","EVBG","CWMS","INTA","ALKT","BMBL","MTTR",
+            # ── ETF 대용 개별주 (15) ──
+            "BX","KKR","APO","ARES","OWL","CG","BAM","TPG","HLNE","STEP",
+            "LPLA","RJF","HOOD","IBKR","SCHW",
         ]
         for t in fallback:
             if t not in stocks:
