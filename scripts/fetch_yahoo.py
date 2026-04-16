@@ -12,6 +12,13 @@ from datetime import datetime, timezone, timedelta
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 MODE = os.environ.get("COLLECT_MODE", "hourly")
 
+# ── 한국투자증권 API ──────────────────────────────────────
+KIS_APP_KEY = os.environ.get("KIS_APP_KEY", "")
+KIS_APP_SECRET = os.environ.get("KIS_APP_SECRET", "")
+KIS_ACCOUNT = os.environ.get("KIS_ACCOUNT", "")
+KIS_BASE = "https://openapi.koreainvestment.com:9443"
+KIS_TOKEN = None
+
 # ── 글로벌 지수 ───────────────────────────────────────────
 INDICES = {
     "^GSPC":  {"label":"S&P 500",    "market":"us", "type":"index"},
@@ -212,6 +219,106 @@ def calc_vol_ratio(candles):
     avg5  = sum(vols[-5:]) / 5
     avg20 = sum(vols[-20:]) / min(len(vols), 20)
     return round(avg5 / avg20 * 100, 1) if avg20 > 0 else 100
+
+# ── 한국투자증권 API 함수 ─────────────────────────────────
+def kis_get_token():
+    """OAuth 토큰 발급"""
+    global KIS_TOKEN
+    if not KIS_APP_KEY or not KIS_APP_SECRET:
+        return None
+    try:
+        r = requests.post(f"{KIS_BASE}/oauth2/tokenP", json={
+            "grant_type":"client_credentials",
+            "appkey":KIS_APP_KEY, "appsecret":KIS_APP_SECRET,
+        }, timeout=10)
+        if r.status_code == 200:
+            KIS_TOKEN = r.json().get("access_token")
+            print(f"  ✅ 한투 API 토큰 발급 성공")
+            return KIS_TOKEN
+        else:
+            print(f"  ❌ 한투 토큰 실패: {r.status_code} {r.text[:100]}")
+    except Exception as e:
+        print(f"  ❌ 한투 토큰 오류: {e}")
+    return None
+
+def kis_headers(tr_id):
+    """API 호출용 헤더"""
+    acct = KIS_ACCOUNT.replace("-","") if KIS_ACCOUNT else ""
+    return {
+        "authorization": f"Bearer {KIS_TOKEN}",
+        "appkey": KIS_APP_KEY, "appsecret": KIS_APP_SECRET,
+        "tr_id": tr_id,
+        "custtype": "P",
+    }
+
+def kis_fetch_kr_price(ticker):
+    """한국 주식 현재가 조회"""
+    if not KIS_TOKEN: return None
+    try:
+        r = requests.get(f"{KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-price",
+            headers=kis_headers("FHKST01010100"),
+            params={"FID_COND_MRKT_DIV_CODE":"J","FID_INPUT_ISCD":ticker},
+            timeout=10)
+        if r.status_code == 200:
+            d = r.json().get("output",{})
+            price = float(d.get("stck_prpr",0))
+            prev  = float(d.get("stck_sdpr",0))  # 전일종가
+            vol   = int(d.get("acml_vol",0))      # 누적거래량
+            chg   = float(d.get("prdy_ctrt",0))   # 전일대비등락률
+            if price > 0:
+                return {"price":price,"prev":prev,"changePct":chg,"volume":vol}
+    except Exception as e:
+        pass
+    return None
+
+def kis_fetch_us_price(ticker):
+    """미국 주식 현재가 조회"""
+    if not KIS_TOKEN: return None
+    # 거래소 판별
+    excd = "NAS"  # 기본 나스닥
+    nyse_prefixes = ["BRK","JPM","BAC","WFC","GS","MS","JNJ","PG","KO","XOM",
+                     "CVX","WMT","HD","DIS","CAT","HON","BA","GE","MMM","IBM"]
+    if any(ticker.startswith(p) for p in nyse_prefixes) or len(ticker) <= 2:
+        excd = "NYS"
+    amex_tickers = ["AMC","PLUG","SOUN"]
+    if ticker in amex_tickers:
+        excd = "AMS"
+    try:
+        r = requests.get(f"{KIS_BASE}/uapi/overseas-price/v1/quotations/price",
+            headers=kis_headers("HHDFS00000300"),
+            params={"AUTH":"","EXCD":excd,"SYMB":ticker},
+            timeout=10)
+        if r.status_code == 200:
+            d = r.json().get("output",{})
+            price = float(d.get("last",0) or d.get("stck_prpr",0))
+            prev  = float(d.get("base",0) or d.get("stck_sdpr",0))
+            chg   = float(d.get("rate",0) or d.get("prdy_ctrt",0))
+            vol   = int(d.get("tvol",0) or d.get("acml_vol",0))
+            if price > 0:
+                return {"price":price,"prev":prev,"changePct":chg,"volume":vol}
+        # 거래소 틀렸으면 다른 거래소 시도
+        if r.status_code == 200 and not float(r.json().get("output",{}).get("last",0) or 0):
+            for alt in ["NAS","NYS","AMS"]:
+                if alt == excd: continue
+                r2 = requests.get(f"{KIS_BASE}/uapi/overseas-price/v1/quotations/price",
+                    headers=kis_headers("HHDFS00000300"),
+                    params={"AUTH":"","EXCD":alt,"SYMB":ticker}, timeout=10)
+                if r2.status_code == 200:
+                    d2 = r2.json().get("output",{})
+                    p2 = float(d2.get("last",0) or 0)
+                    if p2 > 0:
+                        return {"price":p2,"prev":float(d2.get("base",0)),"changePct":float(d2.get("rate",0)),"volume":int(d2.get("tvol",0))}
+                time.sleep(0.1)
+    except Exception as e:
+        pass
+    return None
+
+def kis_fetch_price(ticker, market="us"):
+    """시장에 따라 한국/미국 분기"""
+    if market == "kr":
+        return kis_fetch_kr_price(ticker)
+    else:
+        return kis_fetch_us_price(ticker)
 
 def alpha_scan(ticker, info, candles):
     if len(candles) < 20:
@@ -470,6 +577,7 @@ def fetch_pool_batch(pool, range_="3mo", batch_size=50, delay_between_batches=5)
     total = len(items)
     success = 0
     fail = 0
+    kis_ok = 0
     for batch_start in range(0, total, batch_size):
         batch = items[batch_start:batch_start + batch_size]
         batch_num = batch_start // batch_size + 1
@@ -478,46 +586,67 @@ def fetch_pool_batch(pool, range_="3mo", batch_size=50, delay_between_batches=5)
         for i, (ticker, info) in enumerate(batch):
             suffix = info.get("suffix","")
             yt = ticker + suffix
+            mkt = info.get("market","us")
             idx = batch_start + i + 1
             print(f"    [{idx}/{total}] {ticker:8s}... ", end="", flush=True)
+
+            # ★ 한투 API로 현재가 먼저 시도
+            kis_price = kis_fetch_price(ticker, mkt) if KIS_TOKEN else None
+
+            # Yahoo로 캔들 데이터 (차트 분석용)
             raw = fetch_yahoo(yt, range_=range_)
-            if not raw:
+            candles = None
+            meta = {}
+            if raw:
+                try:
+                    candles, meta = parse_candles(raw)
+                except:
+                    candles = None
+
+            if not candles and not kis_price:
                 print("❌")
                 fail += 1
                 time.sleep(0.3)
                 continue
+
             try:
-                candles, meta = parse_candles(raw)
-                if not candles:
-                    print("❌ 캔들없음")
-                    fail += 1
-                    continue
-                price     = float(meta.get("regularMarketPrice") or candles[-1]["close"])
-                prev      = float(meta.get("previousClose") or meta.get("chartPreviousClose") or price)
-                # ★ 캔들 기반 1일 변동률 (chartPreviousClose 오류 방지)
-                if len(candles) >= 2:
-                    changePct = round((candles[-1]["close"] - candles[-2]["close"]) / candles[-2]["close"] * 100, 2)
+                # 가격: 한투 우선 → Yahoo 폴백
+                if kis_price:
+                    price = kis_price["price"]
+                    changePct = kis_price["changePct"]
+                    kis_ok += 1
+                    src = "KIS"
+                elif candles:
+                    price = float(meta.get("regularMarketPrice") or candles[-1]["close"])
+                    if len(candles) >= 2:
+                        changePct = round((candles[-1]["close"] - candles[-2]["close"]) / candles[-2]["close"] * 100, 2)
+                    else:
+                        prev = float(meta.get("previousClose") or meta.get("chartPreviousClose") or price)
+                        changePct = round((price-prev)/prev*100, 2) if prev else 0
+                    src = "YHO"
                 else:
-                    changePct = round((price-prev)/prev*100, 2) if prev else 0
-                mktCap    = float(meta.get("marketCap") or 0)
-                isKR = info.get("market") == "kr"
+                    continue
+
+                mktCap = float(meta.get("marketCap") or 0)
+                isKR = mkt == "kr"
                 mktCapNorm = round(mktCap / 1e8, 1) if isKR else round(mktCap / 1e9, 2)
                 results[ticker] = {
                     **{k:v for k,v in info.items() if k != "suffix"},
                     "ticker":ticker, "price":price,
                     "changePct":changePct,
-                    "chg3d":calc_change(candles,3),
-                    "chg5d":calc_change(candles,5),
-                    "volRatio":calc_vol_ratio(candles),
+                    "chg3d":calc_change(candles,3) if candles else 0,
+                    "chg5d":calc_change(candles,5) if candles else 0,
+                    "volRatio":calc_vol_ratio(candles) if candles else 100,
                     "mktCap":mktCapNorm,
-                    "candles": candles,
+                    "candles": candles or [],
                 }
-                print(f"✅ {price:,.1f} ({changePct:+.1f}%)")
+                print(f"✅ [{src}] {price:,.1f} ({changePct:+.1f}%)")
                 success += 1
             except Exception as e:
                 print(f"❌ {e}")
                 fail += 1
-            base_delay = 0.4
+            base_delay = 0.3
+            if KIS_TOKEN: base_delay = 0.2  # 한투 있으면 Yahoo 부담 줄어서 빠르게
             if _rate_limit_hits > 10: base_delay = 1.5
             elif _rate_limit_hits > 5: base_delay = 1.0
             elif _rate_limit_hits > 2: base_delay = 0.7
@@ -529,6 +658,8 @@ def fetch_pool_batch(pool, range_="3mo", batch_size=50, delay_between_batches=5)
             print(f"  ⏸ 배치 간 {rest}초 대기 (요청 {_request_count}건, 리밋 {_rate_limit_hits}회)")
             time.sleep(rest)
     print(f"\n  📊 수집 결과: 성공 {success} / 실패 {fail} / 전체 {total}")
+    if kis_ok:
+        print(f"  🔑 한투 API 가격: {kis_ok}건 사용")
     return results
 
 def main():
@@ -557,6 +688,13 @@ def main():
         "updatedAt": now_str,
         "mode": MODE,
     }
+
+    # ── 한투 API 토큰 ─────────────────────────────────────
+    if KIS_APP_KEY and KIS_APP_SECRET:
+        print("🔑 한투 API 연결 중...")
+        kis_get_token()
+    else:
+        print("ℹ️ 한투 API 키 없음 — Yahoo 단독 모드")
 
     # ── 지수 ──────────────────────────────────────────────
     print("🌐 지수 수집...")
