@@ -1,13 +1,14 @@
 name: 주가 데이터 자동 업데이트
 on:
   schedule:
-    - cron: '0 0-8 * * 1-5'  # UTC 0~8시 = KST 9~17시 (장중 매시간)
+    - cron: '0 0-6 * * 1-5'   # UTC 0~6 = KST 9~15 (한국 장중 매시간)
+    - cron: '0 14-20 * * 1-5'  # UTC 14~20 = KST 23~05 (미국 장중 매시간)
   workflow_dispatch:
 
 jobs:
   update-data:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: write
     env:
@@ -25,7 +26,7 @@ jobs:
       - name: Install dependencies
         run: pip install yfinance requests
 
-      - name: Fetch watchlist data
+      - name: Fetch price data
         run: python scripts/fetch_yahoo.py
 
       - name: Commit and push
@@ -34,7 +35,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add public/data/stocks.json
           git diff --staged --quiet || (
-            git commit -m "⏰ $(date +%H:%M) 관심종목 업데이트"
+            git commit -m "⏰ $(date +%H:%M) 현재가 업데이트"
             git pull --rebase origin main
             git push
           )
