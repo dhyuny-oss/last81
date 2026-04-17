@@ -141,6 +141,52 @@ KR_MAJOR_STOCKS = {
     "041020":("폴라리스오피스",".KQ"),"060280":("큐렉소",".KQ"),"101490":("에스앤에스텍",".KQ"),
     "131970":("테스나",".KQ"),"175250":("아이큐어",".KQ"),"200710":("에이디테크놀로지",".KQ"),
     "253450":("스튜디오드래곤",".KQ"),"330860":("네이처셀",".KQ"),"365340":("성일하이텍",".KQ"),
+    # 코스피 추가 (~60개)
+    "000150":("두산",".KS"),"000240":("한국앤컴퍼니",".KS"),"000880":("한화",".KS"),
+    "001450":("현대해상",".KS"),"001740":("SK네트웍스",".KS"),"002790":("아모레G",".KS"),
+    "003240":("태광산업",".KS"),"004000":("롯데정밀화학",".KS"),"004490":("세방전지",".KS"),
+    "005830":("DB손해보험",".KS"),"006120":("SK디스커버리",".KS"),"006650":("대한유화",".KS"),
+    "007310":("오뚜기",".KS"),"008930":("한미사이언스",".KS"),"009420":("한올바이오파마",".KS"),
+    "010620":("현대미포조선",".KS"),"011070":("LG이노텍",".KS"),"011760":("현대코퍼레이션",".KS"),
+    "012510":("더존비즈온",".KS"),"014830":("유니드",".KS"),"016380":("KG동부제철",".KS"),
+    "017800":("현대엘리베이터",".KS"),"019170":("신풍제약",".KS"),"020000":("한섬",".KS"),
+    "021240":("코웨이",".KS"),"023590":("다우기술",".KS"),"024720":("한국콜마",".KS"),
+    "025540":("한국단자공업",".KS"),"025860":("남해화학",".KS"),"026890":("용기",".KS"),
+    "028050":("삼성엔지니어링",".KS"),"028670":("팬오션",".KS"),"029460":("케이씨",".KS"),
+    "030520":("한국프랜지",".KS"),"032350":("롯데관광개발",".KS"),"033240":("자화전자",".KS"),
+    "034300":("신세계건설",".KS"),"035150":("백산",".KS"),"035250":("강원랜드",".KS"),
+    "036090":("위지트",".KS"),"036580":("팜스코",".KS"),"037270":("YG PLUS",".KS"),
+    "037560":("LG헬로비전",".KS"),"039490":("키움증권",".KS"),"042660":("한화오션",".KS"),
+    "044380":("주성엔지니어링",".KS"),"049770":("동원F&B",".KS"),"051600":("한전KPS",".KS"),
+    "052400":("코나아이",".KS"),"053210":("스카이라이프",".KS"),"057050":("현대홈쇼핑",".KS"),
+    "064960":("에스앤에이치",".KS"),"067830":("세이브존I&C",".KS"),"068290":("삼성출판사",".KS"),
+    "069260":("TKG휴켐스",".KS"),"070960":("모나미",".KS"),"071840":("롯데하이마트",".KS"),
+    "073240":("금호타이어",".KS"),"075580":("세진중공업",".KS"),"077500":("유니퀘스트",".KS"),
+    "079160":("CJ CGV",".KS"),"082640":("동양생명",".KS"),"086280":("현대글로비스",".KS"),
+    "088980":("맥쿼리인프라",".KS"),"092200":("디아이씨",".KS"),"092780":("동양피스톤",".KS"),
+    "095720":("웅진씽크빅",".KS"),"100840":("SNT에너지",".KS"),"103140":("풍산",".KS"),
+    "105630":("한세실업",".KS"),"120110":("코오롱인더",".KS"),"123890":("한국자산신탁",".KS"),
+    "126560":("현대비앤지스틸",".KS"),"137310":("에스디바이오센서",".KS"),"138930":("BNK금융지주",".KS"),
+    "145990":("삼양사",".KS"),"161890":("한국콜마홀딩스",".KS"),"170900":("동아에스티",".KS"),
+    "195870":("해성디에스",".KS"),"204320":("만도",".KS"),"241840":("에이치엘비",".KS"),
+    "267250":("현대중공업지주",".KS"),"282690":("동아타이어",".KS"),"294870":("HDC현대산업개발",".KS"),
+    "316140":("우리금융지주",".KS"),"326030":("SK바이오팜",".KS"),"336370":("솔루스첨단소재",".KS"),
+    "352820":("하이브",".KS"),"375500":("DL이앤씨",".KS"),"402340":("SK스퀘어",".KS"),
+    # 코스닥 추가 (~40개)
+    "025900":("동화기업",".KQ"),"032500":("케이엠더블유",".KQ"),"035900":("JYP엔터테인먼트",".KQ"),
+    "036490":("인사이트포유",".KQ"),"041920":("메디아나",".KQ"),"043150":("바텍",".KQ"),
+    "048410":("현대바이오",".KQ"),"052770":("아이톡시",".KQ"),"053800":("안랩",".KQ"),
+    "054950":("제이브이엠",".KQ"),"056080":("유진로봇",".KQ"),"064260":("다원시스",".KQ"),
+    "065350":("신성델타테크",".KQ"),"066570":("LG전자",".KS"),"068760":("셀트리온제약",".KQ"),
+    "072770":("율호",".KQ"),"078600":("대주전자재료",".KQ"),"083310":("롯데정보통신",".KQ"),
+    "089010":("켐트로스",".KQ"),"090460":("비에이치",".KQ"),"092070":("디엔에프",".KQ"),
+    "095660":("네오위즈",".KQ"),"098460":("고영",".KQ"),"115390":("락앤락",".KQ"),
+    "119860":("다나와",".KQ"),"123040":("엠에스오토텍",".KQ"),"137400":("피엔티",".KQ"),
+    "140860":("파크시스템스",".KQ"),"146320":("비씨엔씨",".KQ"),"178920":("PI첨단소재",".KQ"),
+    "183490":("엔지인",".KQ"),"215600":("신라젠",".KQ"),"226330":("신테카바이오",".KQ"),
+    "234080":("JW중외제약",".KQ"),"256840":("한국비엔씨",".KQ"),"268600":("셀리버리",".KQ"),
+    "277810":("레인보우로보틱스",".KQ"),"298380":("에이비엘바이오",".KQ"),"338220":("뷰노",".KQ"),
+    "357230":("에이치피오",".KQ"),"396270":("넥스트칩",".KQ"),"950140":("잉글우드랩",".KQ"),
 }
 
 # ── 레이트 리밋 추적 ──────────────────────────────────────
@@ -840,27 +886,76 @@ def main():
                         print(f"  {ticker} ❌")
                 time.sleep(0.5)
     else:
-        print("\n⭐ 관심종목 현재가 업데이트...")
-        watchlist = load_watchlist()
-        for ticker, info in watchlist.items():
-            suffix = info.get("suffix","")
-            raw = fetch_yahoo(ticker+suffix)
-            if not raw: continue
-            try:
-                candles, meta = parse_candles(raw)
-                price     = float(meta.get("regularMarketPrice") or candles[-1]["close"])
-                prev      = float(meta.get("previousClose") or meta.get("chartPreviousClose") or price)
-                changePct = round((price-prev)/prev*100,2) if prev else 0
-                output["stocks"][ticker] = {
-                    **{k:v for k,v in (output["stocks"].get(ticker, info)).items()},
-                    "price":price,"changePct":changePct,
-                    "chg3d":calc_change(candles,3),"chg5d":calc_change(candles,5),
-                    "volRatio":calc_vol_ratio(candles),"candles":candles,"updatedAt":now_str,
-                }
-                print(f"  {ticker} ✅ {price:,.2f} ({changePct:+.2f}%)")
-            except Exception as e:
-                print(f"  {ticker} ❌ {e}")
-            time.sleep(0.5)
+        # ★ v2.3: hourly — 전체 풀 현재가 갱신 (KIS API)
+        print("\n⏰ 전체 풀 현재가 업데이트...")
+        if KIS_TOKEN:
+            # 기존 pool + stocks에서 모든 티커 수집
+            all_tickers = {}
+            for ticker, stock in {**existing.get("pool",{}), **existing.get("stocks",{})}.items():
+                all_tickers[ticker] = stock
+
+            updated = 0
+            failed = 0
+            total = len(all_tickers)
+            print(f"  📊 {total}개 종목 현재가 조회 중...")
+
+            for i, (ticker, stock) in enumerate(all_tickers.items()):
+                mkt = stock.get("market","us")
+                kis_data = kis_fetch_price(ticker, mkt)
+
+                if kis_data and kis_data["price"] > 0:
+                    # stocks에 현재가만 업데이트 (캔들/지표는 유지)
+                    if ticker in output["stocks"]:
+                        output["stocks"][ticker]["price"] = kis_data["price"]
+                        output["stocks"][ticker]["changePct"] = kis_data["changePct"]
+                        output["stocks"][ticker]["updatedAt"] = now_str
+                    # pool에도 현재가 업데이트
+                    if ticker in output["pool"]:
+                        output["pool"][ticker]["price"] = kis_data["price"]
+                        output["pool"][ticker]["changePct"] = kis_data["changePct"]
+                    updated += 1
+                else:
+                    failed += 1
+
+                # 진행상황 (100개마다)
+                if (i+1) % 100 == 0:
+                    print(f"    [{i+1}/{total}] 완료 ({updated}건 성공)")
+                time.sleep(0.05)  # 한투 API 초당 20건 제한
+
+            print(f"  ✅ 현재가 갱신: {updated}건 성공 / {failed}건 실패 / {total}건 전체")
+        else:
+            # 한투 API 없으면 관심종목만 Yahoo로
+            print("  ℹ️ 한투 API 없음 — 관심종목만 Yahoo 업데이트")
+            watchlist = load_watchlist()
+            for ticker, info in watchlist.items():
+                suffix = info.get("suffix","")
+                raw = fetch_yahoo(ticker+suffix)
+                if not raw: continue
+                try:
+                    candles, meta = parse_candles(raw)
+                    price     = float(meta.get("regularMarketPrice") or candles[-1]["close"])
+                    prev      = float(meta.get("previousClose") or meta.get("chartPreviousClose") or price)
+                    changePct = round((price-prev)/prev*100,2) if prev else 0
+                    output["stocks"][ticker] = {
+                        **{k:v for k,v in (output["stocks"].get(ticker, info)).items()},
+                        "price":price,"changePct":changePct,
+                        "updatedAt":now_str,
+                    }
+                    print(f"  {ticker} ✅ {price:,.2f} ({changePct:+.2f}%)")
+                except Exception as e:
+                    print(f"  {ticker} ❌ {e}")
+                time.sleep(0.5)
+
+        # hourly는 섹터/breadth 스킵 → 바로 저장
+        output["updatedAt"] = now_str
+        path = "public/data/stocks.json"
+        with open(path,"w",encoding="utf-8") as f:
+            json.dump(output, f, ensure_ascii=False, separators=(",",":"))
+        size_kb = os.path.getsize(path) / 1024
+        print(f"\n{'='*60}")
+        print(f"  ✅ hourly 완료 ({size_kb:.1f}KB)")
+        print(f"{'='*60}\n")
+        return
 
     # ── 섹터 ETF ──────────────────────────────────────────
     print("\n📊 섹터 ETF 수집 중...")
