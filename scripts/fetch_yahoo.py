@@ -366,6 +366,54 @@ def kis_fetch_price(ticker, market="us"):
     else:
         return kis_fetch_us_price(ticker)
 
+def kis_get_kr_volume_top(n=300):
+    """한투 API로 한국 거래대금 상위 종목 수집"""
+    if not KIS_TOKEN:
+        return {}
+    print("  🔑 한투 API 거래대금 순위 조회...")
+    stocks = {}
+    for mkt_code in ["J","Q"]:  # J=코스피, Q=코스닥
+        mkt_name = "코스피" if mkt_code=="J" else "코스닥"
+        target = n * 2 // 3 if mkt_code == "J" else n // 3
+        try:
+            r = requests.get(f"{KIS_BASE}/uapi/domestic-stock/v1/quotations/volume-rank",
+                headers=kis_headers("FHPST01710000"),
+                params={
+                    "FID_COND_MRKT_DIV_CODE":mkt_code,
+                    "FID_COND_SCR_DIV_CODE":"20390",  # 거래대금 순
+                    "FID_INPUT_ISCD":"0000",
+                    "FID_DIV_CLS_CODE":"0",
+                    "FID_BLNG_CLS_CODE":"0",
+                    "FID_TRGT_CLS_CODE":"111111111",
+                    "FID_TRGT_EXLS_CLS_CODE":"000000",
+                    "FID_INPUT_PRICE_1":"0",
+                    "FID_INPUT_PRICE_2":"0",
+                    "FID_VOL_CNT":"0",
+                    "FID_INPUT_DATE_1":"",
+                }, timeout=15)
+            if r.status_code == 200:
+                items = r.json().get("output", [])
+                count = 0
+                for item in items:
+                    if count >= target:
+                        break
+                    ticker_code = item.get("mksc_shrn_iscd","").replace("A","")
+                    name = item.get("hts_kor_isnm","")
+                    if not ticker_code or not name or len(ticker_code)!=6:
+                        continue
+                    suffix = ".KS" if mkt_code == "J" else ".KQ"
+                    if ticker_code not in stocks:
+                        stocks[ticker_code] = {"label":name,"sector":"Korean","market":"kr","suffix":suffix}
+                        count += 1
+                print(f"    ✅ {mkt_name}: {count}개")
+            else:
+                print(f"    ❌ {mkt_name}: HTTP {r.status_code}")
+        except Exception as e:
+            print(f"    ❌ {mkt_name}: {e}")
+        time.sleep(0.3)
+    print(f"    📊 한투 API 총 {len(stocks)}개")
+    return stocks
+
 def alpha_scan(ticker, info, candles):
     if len(candles) < 20:
         return None
@@ -773,7 +821,21 @@ def main():
     if MODE == "daily":
         print(f"\n📦 전체 종목 풀 수집 중...")
         pool = {}
-        pool.update(get_krx_volume_top(300))
+        # ★ KR 종목: 한투 API 우선 → KRX 폴백
+        kr_kis = kis_get_kr_volume_top(300) if KIS_TOKEN else {}
+        if len(kr_kis) >= 50:
+            pool.update(kr_kis)
+            print(f"  ✅ 한투 API로 KR {len(kr_kis)}개 수집")
+        else:
+            pool.update(get_krx_volume_top(300))
+        # ★ 항상 주요종목 보강
+        added_major = 0
+        for t, (name, suffix) in KR_MAJOR_STOCKS.items():
+            if t not in pool:
+                pool[t] = {"label":name,"sector":"Korean","market":"kr","suffix":suffix}
+                added_major += 1
+        if added_major:
+            print(f"  ➕ 주요종목 폴백 {added_major}개 추가")
         pool.update(get_us_stocks())
 
         watchlist = load_watchlist()
