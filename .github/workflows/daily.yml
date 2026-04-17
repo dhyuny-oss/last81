@@ -1,7 +1,8 @@
 name: Daily Data Update
 on:
   schedule:
-    - cron: '0 7 * * 1-5'  # UTC 07:00 = KST 16:00 (장마감 후)
+    - cron: '0 7 * * 1-5'   # UTC 07:00 = KST 16:00 (한국 장마감 후)
+    - cron: '30 21 * * 1-5'  # UTC 21:30 = KST 06:30 (미국 장마감 후)
   workflow_dispatch:
 
 jobs:
