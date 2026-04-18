@@ -1811,18 +1811,18 @@ export default function App() {
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:14}}>
             <div onClick={()=>setFocusView(focusView==="ranked"?null:"ranked")} style={{background:focusView==="ranked"?"rgba(191,90,242,.15)":"rgba(191,90,242,.06)",border:`2px solid ${focusView==="ranked"?C.purple:"rgba(191,90,242,.2)"}`,borderRadius:8,padding:"8px",textAlign:"center",cursor:"pointer"}}>
               <div style={{fontSize:8,color:C.purple}}>종합추천</div>
-              <div style={{fontSize:22,fontWeight:900,color:C.purple}}>{realStocks.filter(s=>{const r=alphaScore(s,charts[s.ticker]?.data,idxRS);return r.score>50;}).length}</div>
-              <div style={{fontSize:7,color:focusView==="ranked"?C.purple:C.muted}}>{focusView==="ranked"?"▲ 접기":"50pt+ 전체보기"}</div>
+              <div style={{fontSize:22,fontWeight:900,color:C.purple}}>{realStocks.filter(s=>{const r=alphaScore(s,charts[s.ticker]?.data,idxRS);return r.score>=75;}).length}</div>
+              <div style={{fontSize:7,color:focusView==="ranked"?C.purple:C.muted}}>{focusView==="ranked"?"▲ 접기":"75pt+ 전체보기"}</div>
             </div>
             <div onClick={()=>setFocusView(focusView==="breakout"?null:"breakout")} style={{background:focusView==="breakout"?"rgba(48,209,88,.15)":"rgba(48,209,88,.06)",border:`2px solid ${focusView==="breakout"?C.emerald:"rgba(48,209,88,.2)"}`,borderRadius:8,padding:"8px",textAlign:"center",cursor:"pointer"}}>
               <div style={{fontSize:8,color:C.emerald}}>돌파감지</div>
-              <div style={{fontSize:22,fontWeight:900,color:C.emerald}}>{(()=>{let c=0;realStocks.forEach(s=>{const d=charts[s.ticker]?.data;if(!d||d.length<2)return;const t=d.at(-1),y=d.at(-2);const stT=[t.st1Bull,t.st2Bull,t.st3Bull].filter(v=>v!=null).length;const stY=[y.st1Bull,y.st2Bull,y.st3Bull].filter(v=>v!=null).length;if(stT>stY||(t.macd>t.signal&&y.macd<=y.signal)||(t.aboveCloud&&!y.aboveCloud))c++;});return c;})()}</div>
-              <div style={{fontSize:7,color:focusView==="breakout"?C.emerald:C.muted}}>{focusView==="breakout"?"▲ 접기":"신호변화 전체보기"}</div>
+              <div style={{fontSize:22,fontWeight:900,color:C.emerald}}>{(()=>{let c=0;realStocks.forEach(s=>{const d=charts[s.ticker]?.data;if(!d||d.length<2)return;const t=d.at(-1),y=d.at(-2);const stT=[t.st1Bull,t.st2Bull,t.st3Bull].filter(v=>v!=null).length;const stY=[y.st1Bull,y.st2Bull,y.st3Bull].filter(v=>v!=null).length;let sigs=0;if(stT>stY)sigs++;if(t.macd>t.signal&&y.macd<=y.signal)sigs++;if(t.aboveCloud&&!y.aboveCloud)sigs++;if(t.sqzOff&&y.sqzOn)sigs++;if(sigs>=2)c++;});return c;})()}</div>
+              <div style={{fontSize:7,color:focusView==="breakout"?C.emerald:C.muted}}>{focusView==="breakout"?"▲ 접기":"2개+ 동시돌파"}</div>
             </div>
             <div onClick={()=>setFocusView(focusView==="entry"?null:"entry")} style={{background:focusView==="entry"?"rgba(10,132,255,.15)":"rgba(10,132,255,.06)",border:`2px solid ${focusView==="entry"?C.accent:"rgba(10,132,255,.2)"}`,borderRadius:8,padding:"8px",textAlign:"center",cursor:"pointer"}}>
               <div style={{fontSize:8,color:C.accent}}>진입적기</div>
-              <div style={{fontSize:22,fontWeight:900,color:C.accent}}>{realStocks.filter(s=>{const d=charts[s.ticker]?.data;if(!d||d.length<10)return false;const t=calcEntryTiming(d);const dr=calcTrendDurability(d);return t.score>=40&&dr.score>=40;}).length}</div>
-              <div style={{fontSize:7,color:focusView==="entry"?C.accent:C.muted}}>{focusView==="entry"?"▲ 접기":"타이밍+강도 전체보기"}</div>
+              <div style={{fontSize:22,fontWeight:900,color:C.accent}}>{realStocks.filter(s=>{const d=charts[s.ticker]?.data;if(!d||d.length<10)return false;const t=calcEntryTiming(d);const dr=calcTrendDurability(d);return t.score>=55&&dr.score>=55;}).length}</div>
+              <div style={{fontSize:7,color:focusView==="entry"?C.accent:C.muted}}>{focusView==="entry"?"▲ 접기":"⚡55+💪55+ 보기"}</div>
             </div>
           </div>
           {realCount>0&&<div style={{fontSize:7,color:C.muted,textAlign:"right",marginTop:-10,marginBottom:8}}>실시간 {realCount}종목 기준</div>}
@@ -1833,9 +1833,9 @@ export default function App() {
               const cData=charts[s.ticker]?.data;const r=alphaScore(s,cData,idxRS);
               const es=calcEntryScore(cData,vixVal,oppScore,pool[s.ticker]||s);
               return{...s,score:r.score,signals:r.signals,rs:r.rs,entryGrade:es.grade,entryScore:es.score};
-            }).filter(s=>s.score>50).sort((a,b)=>b.score-a.score);
+            }).filter(s=>s.score>=75).sort((a,b)=>b.score-a.score);
             return<div style={css.card}>
-              <div style={{fontSize:11,fontWeight:700,color:C.purple,marginBottom:8}}>🏆 종합추천 50pt+ 전체 ({all.length}개)</div>
+              <div style={{fontSize:11,fontWeight:700,color:C.purple,marginBottom:8}}>🏆 종합추천 75pt+ ({all.length}개)</div>
               <div style={{maxHeight:400,overflowY:"auto"}}>
                 {all.map((s,i)=>(
                   <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer"}}>
@@ -1869,9 +1869,9 @@ export default function App() {
               if(today.sqzOff)signals.push({type:"💎 스퀴즈",color:C.purple});
               if(!signals.length)return null;
               const{score}=alphaScore(s,cData,idxRS);return{...s,signals,score,stCount:stT};
-            }).filter(Boolean).sort((a,b)=>b.signals.length-a.signals.length||b.score-a.score);
+            }).filter(s=>s&&s.signals.length>=2).sort((a,b)=>b.signals.length-a.signals.length||b.score-a.score);
             return<div style={css.card}>
-              <div style={{fontSize:11,fontWeight:700,color:C.emerald,marginBottom:8}}>🚀 돌파감지 전체 ({all.length}개)</div>
+              <div style={{fontSize:11,fontWeight:700,color:C.emerald,marginBottom:8}}>🚀 돌파감지 — 2개+ 동시 ({all.length}개)</div>
               <div style={{maxHeight:400,overflowY:"auto"}}>
                 {all.map((s,i)=>(
                   <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer"}}>
@@ -1888,12 +1888,12 @@ export default function App() {
             const all=realStocks.map(s=>{
               const cData=charts[s.ticker]?.data;if(!cData||cData.length<10)return null;
               const t=calcEntryTiming(cData);const dr=calcTrendDurability(cData);
-              if(t.score<40||dr.score<40)return null;
+              if(t.score<55||dr.score<55)return null;
               return{...s,timing:t.score,durability:dr.score,timingSignals:t.signals,durabilitySignals:dr.signals,combined:Math.round(t.score*0.5+dr.score*0.5)};
             }).filter(Boolean).sort((a,b)=>b.combined-a.combined);
             return<div style={css.card}>
-              <div style={{fontSize:11,fontWeight:700,color:C.accent,marginBottom:4}}>🎯 진입적기 — 타이밍+강도 양호 ({all.length}개)</div>
-              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>타이밍 40+ & 강도 40+ 종목</div>
+              <div style={{fontSize:11,fontWeight:700,color:C.accent,marginBottom:4}}>🎯 진입적기 — ⚡55+💪55+ ({all.length}개)</div>
+              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>타이밍 55+ & 강도 55+ 종목</div>
               <div style={{maxHeight:400,overflowY:"auto"}}>
                 {all.map((s,i)=>(
                   <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 8px",borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer",background:i<3?"rgba(48,209,88,.04)":"transparent"}}>
@@ -2301,7 +2301,7 @@ export default function App() {
           <RSBar/>
           <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
             <div style={{fontWeight:900,fontSize:15}}>{fmtFullName(selInfo)}</div>
-            <button onClick={()=>fetchCompanyInfo(sel,selInfo.label,selInfo.market)} style={{fontSize:8,background:"rgba(10,132,255,.08)",border:`1px solid ${C.accent}`,borderRadius:4,padding:"2px 6px",color:C.accent,cursor:"pointer",fontWeight:600}}>🏢 회사정보</button>
+            <button onClick={()=>setCompanyInfo(p=>({...p,[sel]:p[sel]?null:true}))} style={{fontSize:8,background:companyInfo[sel]?"rgba(10,132,255,.15)":"rgba(10,132,255,.08)",border:`1px solid ${C.accent}`,borderRadius:4,padding:"2px 6px",color:C.accent,cursor:"pointer",fontWeight:600}}>🏢 {companyInfo[sel]?"접기":"회사정보"}</button>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
               <span style={{fontWeight:900,fontSize:17}}>{unit}{isKRSel?fmtKRW(curPrice):curPrice.toLocaleString(undefined,{maximumFractionDigits:2})}</span>
               {selInfo.changePct!=null&&<span style={{fontSize:11,fontWeight:700,color:selInfo.changePct>=0?C.green:C.red}}><span style={{fontSize:8,color:C.muted}}>1D</span> {selInfo.changePct>=0?"+":""}{selInfo.changePct?.toFixed?.(2)}%</span>}
@@ -2324,26 +2324,41 @@ export default function App() {
             </div>
           </div>
 
-          {/* ★ v2.3: 회사 소개 카드 */}
+          {/* ★ v2.3: 회사 정보 카드 — 기존 데이터 + 외부 링크 */}
           {companyInfo[sel]&&(()=>{
-            const ci=companyInfo[sel];
-            if(ci.loading)return<div style={{...css.card,marginBottom:10,textAlign:"center",padding:12}}><span style={{fontSize:9,color:C.muted}}>🏢 회사 정보 조회 중...</span></div>;
-            if(ci.error)return<div style={{...css.card,marginBottom:10,textAlign:"center",padding:12}}><span style={{fontSize:9,color:C.red}}>❌ {ci.error}</span></div>;
-            if(!ci.data)return null;
-            const d=ci.data;
+            const pi=pool[sel]||{};const si=selInfo||{};
+            const mktCapVal=si.mktCap||pi.mktCap||0;
+            const isKR4=isKRSel;
+            const mktCapStr=isKR4?(mktCapVal>=10000?`${(mktCapVal/10000).toFixed(1)}조`:`${mktCapVal.toFixed(0)}억`):(mktCapVal>=1000?`$${(mktCapVal/1000).toFixed(0)}T`:mktCapVal>=1?`$${mktCapVal.toFixed(0)}B`:`$${(mktCapVal*1000).toFixed(0)}M`);
+            const rsRank=pi.rsRank||si.rsRank;const rsPct=pi.rsPctRank||si.rsPctRank;
+            const naverUrl=isKR4?`https://finance.naver.com/item/main.naver?code=${sel}`:null;
+            const yahooUrl=`https://finance.yahoo.com/quote/${isKR4?sel+".KS":sel}`;
+            const googleUrl=`https://www.google.com/search?q=${encodeURIComponent((si.label||sel)+" 주식 기업정보")}`;
             return<div style={{...css.card,marginBottom:10,border:`1px solid rgba(10,132,255,.2)`}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                <span style={{fontSize:10,fontWeight:700,color:C.accent}}>🏢 {selInfo.label}</span>
-                <button onClick={()=>setCompanyInfo(p=>{const n={...p};delete n[sel];return n;})} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:9}}>✕</button>
+                <span style={{fontSize:10,fontWeight:700,color:C.accent}}>🏢 {si.label||sel}</span>
+                <button onClick={()=>setCompanyInfo(p=>({...p,[sel]:null}))} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:9}}>✕</button>
               </div>
-              {d.sector&&<div style={{fontSize:8,color:C.muted,marginBottom:4}}>업종: {d.sector}{d.founded?` · 설립 ${d.founded}`:""}{d.ceo?` · ${d.ceo}`:""}</div>}
-              <div style={{fontSize:9,color:C.sub,marginBottom:8,lineHeight:1.5}}>{d.description}</div>
-              {d.news?.length>0&&<>
-                <div style={{fontSize:8,fontWeight:700,color:C.accent,marginBottom:4}}>📰 최근 뉴스</div>
-                {d.news.slice(0,3).map((n,i)=><div key={i} style={{fontSize:8,color:C.text,padding:"3px 0",borderBottom:`1px solid rgba(255,255,255,.04)`}}>
-                  <span style={{color:C.muted,marginRight:4}}>{n.date}</span>{n.title}
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4,marginBottom:8}}>
+                {[
+                  {l:"티커",v:sel,c:C.accent},
+                  {l:"시가총액",v:mktCapVal>0?mktCapStr:"—",c:C.text},
+                  {l:"섹터",v:si.sector||pi.sector||"—",c:C.text},
+                  {l:"시장",v:isKR4?"🇰🇷 한국":"🇺🇸 미국",c:C.text},
+                  {l:"RS순위",v:rsRank?`${rsRank}위`:"—",c:rsPct>=80?C.emerald:rsPct>=50?C.yellow:C.muted},
+                  {l:"RS상위",v:rsPct?`${Math.round(100-rsPct)}%`:"—",c:rsPct>=80?C.emerald:C.muted},
+                  {l:"거래량비",v:(si.volRatio||si._volRatio||pi.volRatio)?`${si.volRatio||si._volRatio||pi.volRatio}%`:"—",c:(si.volRatio||100)>=150?C.green:C.muted},
+                  {l:"52주",v:pi.w52Breakout?"🔥돌파":pi.w52DistPct!=null?`${pi.w52DistPct}%`:"—",c:pi.w52Breakout?C.emerald:C.muted},
+                ].map((m,i)=><div key={i} style={{background:"rgba(0,0,0,.4)",borderRadius:5,padding:"5px",textAlign:"center"}}>
+                  <div style={{fontSize:6,color:C.muted}}>{m.l}</div>
+                  <div style={{fontSize:10,fontWeight:700,color:m.c}}>{m.v}</div>
                 </div>)}
-              </>}
+              </div>
+              <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                {naverUrl&&<a href={naverUrl} target="_blank" rel="noopener noreferrer" style={{fontSize:8,padding:"4px 10px",borderRadius:5,background:"rgba(3,199,90,.1)",border:"1px solid rgba(3,199,90,.3)",color:"#03C75A",fontWeight:700,textDecoration:"none"}}>📊 네이버증권</a>}
+                <a href={yahooUrl} target="_blank" rel="noopener noreferrer" style={{fontSize:8,padding:"4px 10px",borderRadius:5,background:"rgba(106,13,173,.1)",border:"1px solid rgba(106,13,173,.3)",color:"#6A0DAD",fontWeight:700,textDecoration:"none"}}>📈 Yahoo Finance</a>
+                <a href={googleUrl} target="_blank" rel="noopener noreferrer" style={{fontSize:8,padding:"4px 10px",borderRadius:5,background:"rgba(66,133,244,.1)",border:"1px solid rgba(66,133,244,.3)",color:"#4285F4",fontWeight:700,textDecoration:"none"}}>🔍 Google 검색</a>
+              </div>
             </div>;
           })()}
 
