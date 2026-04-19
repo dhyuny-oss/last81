@@ -2035,17 +2035,10 @@ export default function App() {
               return graded.slice(0,15).map((s,i)=>{
                 const good = s.timing>=40&&s.durability>=40;
                 return <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 8px",borderBottom:`1px solid rgba(255,255,255,.05)`,cursor:"pointer",background:good&&i<3?"rgba(48,209,88,.06)":"transparent"}}>
-                  <div style={{minWidth:50,display:"flex",gap:3}}>
-                    <span style={{fontSize:12,fontWeight:900,color:s.timing>=70?"#FF9F0A":s.timing>=40?C.yellow:C.muted,padding:"1px 3px",borderRadius:3,background:"rgba(255,159,10,.08)"}}>⚡{s.timing}</span>
-                    <span style={{fontSize:12,fontWeight:900,color:s.durability>=70?C.emerald:s.durability>=50?C.green:C.muted,padding:"1px 3px",borderRadius:3,background:"rgba(48,209,88,.08)"}}>💪{s.durability}</span>
-                  </div>
-                  <div style={{flex:1}}>
-                    <div style={{fontWeight:700,fontSize:10,maxWidth:65,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s,8)}</div>
-                    <div style={{display:"flex",gap:2,marginTop:2,flexWrap:"wrap"}}>
-                      {s.timingSignals.slice(0,2).map(sig=><span key={sig} style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:"rgba(255,159,10,.08)",color:"#FF9F0A"}}>{sig}</span>)}
-                      {s.durabilitySignals.slice(0,2).map(sig=><span key={sig} style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:"rgba(48,209,88,.08)",color:C.emerald}}>{sig}</span>)}
-                    </div>
-                  </div>
+                  <span style={{fontWeight:700,fontSize:9,minWidth:55,maxWidth:72,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</span>
+                  <span style={{fontSize:10,fontWeight:900,color:s.timing>=70?"#FF9F0A":s.timing>=40?C.yellow:C.muted,padding:"1px 3px",borderRadius:3,background:"rgba(255,159,10,.08)"}}>⚡{s.timing}</span>
+                  <span style={{fontSize:10,fontWeight:900,color:s.durability>=70?C.emerald:s.durability>=50?C.green:C.muted,padding:"1px 3px",borderRadius:3,background:"rgba(48,209,88,.08)"}}>💪{s.durability}</span>
+                  <div style={{flex:1}}/>
                   <div style={{textAlign:"right"}}>
                     <div style={{display:"flex",gap:4,justifyContent:"flex-end"}}>
                       <span style={{fontSize:7,color:(s.changePct||0)>=0?C.green:C.red}}>1D {(s.changePct||0)>=0?"+":""}{(s.changePct||0).toFixed(1)}%</span>
@@ -2166,17 +2159,17 @@ export default function App() {
                             return(
                               <tr key={stock.ticker} style={{background:stock.timing>=40&&stock.durability>=40?"rgba(48,209,88,.06)":stock.accelScore>=5?"rgba(255,159,10,.08)":isFlip?"rgba(48,209,88,.06)":i%2===0?C.panel:C.panel2,borderBottom:`1px solid ${C.border}`,cursor:"pointer"}}
                                 onClick={()=>navigateToStock(stock.ticker,stock)}>
-                                <td style={{padding:"5px 5px"}}>
-                                  <div style={{fontWeight:700,fontSize:9,maxWidth:82,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isFlip?"🚀":isBreakout?"🔥":""}{fmtName(stock,8)}</div>
-                                  <div style={{fontSize:6,color:C.muted}}>{/^\d{6}$/.test(stock.ticker)?stock.ticker:stock.label?.slice(0,8)}</div>
+                                <td style={{padding:"5px 4px"}}>
+                                  <div style={{fontWeight:700,fontSize:8,maxWidth:52,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isFlip?"🚀":isBreakout?"🔥":""}{fmtName(stock,5)}</div>
+                                  <div style={{fontSize:5,color:C.muted}}>{/^\d{6}$/.test(stock.ticker)?stock.ticker:stock.label?.slice(0,6)}</div>
                                 </td>
-                                <td style={{padding:"5px 4px"}}><span style={{fontWeight:800,fontSize:10,color:isGold?"#FF9F0A":C.accent}}>{stock.score}</span></td>
-                                <td style={{padding:"5px 3px"}}><span style={{fontWeight:900,fontSize:10,color:tColor}}>{stock.timing||0}</span></td>
-                                <td style={{padding:"5px 3px"}}><span style={{fontWeight:900,fontSize:10,color:dColor}}>{stock.durability||0}</span></td>
-                                <td style={{padding:"5px 3px",fontWeight:700,fontSize:8,color:(stock.changePct||0)>=0?C.green:C.red}}>{(stock.changePct||0)>=0?"+":""}{(stock.changePct||0).toFixed(1)}%</td>
-                                <td style={{padding:"5px 3px",fontWeight:700,fontSize:8,color:(stock.chg3d||0)>=0?C.green:C.red}}>{(stock.chg3d||0)>=0?"+":""}{(stock.chg3d||0).toFixed(1)}%</td>
-                                <td style={{padding:"5px 3px",fontWeight:700,fontSize:8,color:(stock.chg5d||0)>=0?C.green:C.red}}>{(stock.chg5d||0)>=0?"+":""}{(stock.chg5d||0).toFixed(1)}%</td>
-                                <td style={{padding:"5px 3px"}}><span style={{fontWeight:700,fontSize:8,color:stC===3?C.emerald:stC>=2?C.yellow:C.muted}}>{stC}/3</span></td>
+                                <td style={{padding:"5px 3px"}}><span style={{fontWeight:800,fontSize:10,color:isGold?"#FF9F0A":C.accent}}>{stock.score}</span></td>
+                                <td style={{padding:"5px 2px"}}><span style={{fontWeight:900,fontSize:9,color:tColor}}>{stock.timing||0}</span></td>
+                                <td style={{padding:"5px 2px"}}><span style={{fontWeight:900,fontSize:9,color:dColor}}>{stock.durability||0}</span></td>
+                                <td style={{padding:"5px 2px",fontWeight:700,fontSize:7,color:(stock.changePct||0)>=0?C.green:C.red}}>{(stock.changePct||0)>=0?"+":""}{(stock.changePct||0).toFixed(1)}</td>
+                                <td style={{padding:"5px 2px",fontWeight:700,fontSize:7,color:(stock.chg3d||0)>=0?C.green:C.red}}>{(stock.chg3d||0)>=0?"+":""}{(stock.chg3d||0).toFixed(1)}</td>
+                                <td style={{padding:"5px 2px",fontWeight:700,fontSize:7,color:(stock.chg5d||0)>=0?C.green:C.red}}>{(stock.chg5d||0)>=0?"+":""}{(stock.chg5d||0).toFixed(1)}</td>
+                                <td style={{padding:"5px 2px"}}><span style={{fontWeight:700,fontSize:8,color:stC===3?C.emerald:stC>=2?C.yellow:C.muted}}>{stC}/3</span></td>
                                 <td style={{padding:"6px 4px"}} onClick={e=>e.stopPropagation()}>
                                   <div style={{display:"flex",gap:2}}>
                                     <button onClick={()=>{setTracking(p=>[...p,{id:Date.now(),ticker:stock.ticker,label:stock.label,market:stock.market,basePrice:stock.price||0,addedDate:new Date().toLocaleDateString("ko-KR"),foundScore:stock.score,foundSignals:stock.signals,foundRS:stock.rs,oppScoreAt:oppScore}]);setTab("track");setTrackTab("watch");}} style={{background:"rgba(48,209,88,.08)",border:`1px solid ${C.emerald}`,color:C.emerald,borderRadius:4,padding:"2px 5px",cursor:"pointer",fontSize:7,fontWeight:700}}>👁 관찰</button>
@@ -2314,8 +2307,8 @@ export default function App() {
                         <tr key={stock.ticker} onClick={()=>navigateToStock(stock.ticker,stock)} style={{borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer"}}>
                           <td style={{padding:"6px 8px",fontWeight:700}}>{fmtName(stock)}</td>
                           <td style={{padding:"6px 8px"}}>{isKR?"₩":"$"}{isKR?fmtKRW(stock.price||0):(stock.price||0).toLocaleString()}</td>
-                          <td style={{padding:"6px 8px",color:(stock.chg3d||0)>=0?C.green:C.red,fontWeight:700}}>{(stock.chg3d||0)>=0?"+":""}{(stock.chg3d||0).toFixed(1)}%</td>
-                          <td style={{padding:"6px 8px",color:(stock.chg5d||0)>=0?C.green:C.red,fontWeight:700}}>{(stock.chg5d||0)>=0?"+":""}{(stock.chg5d||0).toFixed(1)}%</td>
+                          <td style={{padding:"6px 8px",color:(stock.chg3d||0)>=0?C.green:C.red,fontWeight:700}}>{(stock.chg3d||0)>=0?"+":""}{(stock.chg3d||0).toFixed(1)}</td>
+                          <td style={{padding:"6px 8px",color:(stock.chg5d||0)>=0?C.green:C.red,fontWeight:700}}>{(stock.chg5d||0)>=0?"+":""}{(stock.chg5d||0).toFixed(1)}</td>
                           <td style={{padding:"6px 8px",color:(stock.rs||0)>=0?C.emerald:C.red,fontWeight:700}}>{(stock.rs||0)>=0?"+":""}{(stock.rs||0).toFixed(1)}%p</td>
                           <td style={{padding:"6px 8px"}}><span style={{fontWeight:900,color:tm2.score>=40?"#FF9F0A":C.muted}}>{tm2.score}</span></td>
                           <td style={{padding:"6px 8px"}}><span style={{fontWeight:900,color:dr2.score>=50?C.emerald:C.muted}}>{dr2.score}</span></td>
@@ -3169,8 +3162,8 @@ export default function App() {
             {closedLog.length===0
               ?<div style={{textAlign:"center",padding:"30px 0",color:C.muted}}>청산 기록 없음</div>
               :<div style={{...css.card,padding:0,overflow:"hidden"}}>
-                <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 0.7fr 0.8fr",padding:"6px 10px",background:"rgba(255,255,255,.03)",fontSize:8,color:C.muted,fontWeight:700}}>
-                  <span>종목</span><span>매수가</span><span>청산가</span><span>손익</span><span>보유</span><span>이유</span>
+                <div style={{display:"grid",gridTemplateColumns:"1.8fr 1fr 1fr 0.8fr 0.8fr",padding:"6px 10px",background:"rgba(255,255,255,.03)",fontSize:8,color:C.muted,fontWeight:700}}>
+                  <span>종목</span><span>손익</span><span>이유</span><span>이후</span><span>판정</span>
                 </div>
                 {closedLog.map((h,i)=>{
                   const pnl=parseFloat(h.pnl||h.finalPnl||0);
@@ -3178,13 +3171,18 @@ export default function App() {
                   const u=isKR?"₩":"$";
                   const entry=h.entry||h.basePrice||0;
                   const exit=h.exitPrice||h.current||0;
-                  return<div key={i} style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 0.7fr 0.8fr",padding:"8px 10px",borderTop:"1px solid rgba(255,255,255,.04)",fontSize:9,background:pnl>=0?"rgba(34,197,94,.03)":"rgba(255,69,58,.03)"}}>
-                    <div><div style={{fontWeight:700}}>{fmtName(h,8)}</div><div style={{fontSize:7,color:C.muted}}>{h.addedDate||h.date} → {h.exitDate}</div></div>
-                    <span>{u}{isKR?fmtKRW(entry):entry.toLocaleString()}</span>
-                    <span>{u}{isKR?fmtKRW(exit):exit.toLocaleString()}</span>
-                    <span style={{color:pnl>=0?C.green:C.red,fontWeight:700}}>{pnl>=0?"+":""}{pnl.toFixed(2)}%</span>
-                    <span style={{color:C.muted,fontSize:8}}>{h.holdDays?`${h.holdDays}일`:"—"}</span>
-                    <span style={{color:h.reason==="타임컷"?"#FF9F0A":C.muted,fontSize:8}}>{h.reason||"수동"}</span>
+                  // ★ 이후 추적: 현재가 vs 청산가
+                  const curInfo=stocks.find(s=>s.ticker===h.ticker)||pool[h.ticker];
+                  const curP=curInfo?.price||0;
+                  const afterPct=exit>0&&curP>0?+((curP-exit)/exit*100).toFixed(1):null;
+                  const goodSell=afterPct!==null&&afterPct<-2; // 청산 후 더 떨어짐 = 잘 팔았음
+                  const badSell=afterPct!==null&&afterPct>5; // 청산 후 많이 오름 = 아쉬움
+                  return<div key={i} style={{display:"grid",gridTemplateColumns:"1.8fr 1fr 1fr 0.8fr 0.8fr",padding:"8px 10px",borderTop:"1px solid rgba(255,255,255,.04)",fontSize:9,background:pnl>=0?"rgba(34,197,94,.03)":"rgba(255,69,58,.03)"}}>
+                    <div><div style={{fontWeight:700}}>{fmtName(h)}</div><div style={{fontSize:6,color:C.muted}}>{h.addedDate||h.date} → {h.exitDate}</div></div>
+                    <span style={{color:pnl>=0?C.green:C.red,fontWeight:700}}>{pnl>=0?"+":""}{pnl.toFixed(1)}%</span>
+                    <span style={{color:h.reason==="타임컷"?"#FF9F0A":h.reason==="손절"?C.red:C.muted,fontSize:8}}>{h.reason||"수동"}</span>
+                    <span style={{color:afterPct>0?C.green:afterPct<0?C.red:C.muted,fontWeight:600,fontSize:8}}>{afterPct!==null?`${afterPct>0?"+":""}${afterPct}%`:"—"}</span>
+                    <span style={{fontSize:7,fontWeight:700,color:goodSell?C.emerald:badSell?C.red:C.muted}}>{afterPct===null?"—":goodSell?"✅잘팔음":badSell?"😢아쉬움":"적절"}</span>
                   </div>;
                 })}
               </div>
