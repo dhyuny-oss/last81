@@ -69,6 +69,14 @@ const KR_NAME_DB = {
   "한국항공우주":"047810","KAI":"047810","카카오":"035720","naver":"035420","NAVER":"035420","네이버":"035420",
   "엔씨소프트":"036570","엔씨":"036570","크래프톤":"259960","하이브":"352820","에코프로비엠":"247540","에코프로":"086520",
   "레인보우로보틱스":"277810","알테오젠":"196170","리가켐바이오":"141080","삼천당제약":"000250",
+  "SK텔레콤":"017670","sk텔레콤":"017670","SKT":"017670","KT":"030200","kt":"030200",
+  "LG":"003550","lg":"003550","한화":"000880","SK":"034730","sk":"034730",
+  "현대건설":"000720","대우건설":"047040","DL이앤씨":"375500","삼성엔지니어링":"028050",
+  "한화오션":"042660","HD한국조선해양":"009540","현대중공업":"329180","삼성중공업":"010140",
+  "현대로템":"064350","한화시스템":"272210","LIG넥스원":"079550",
+  "두산에너빌리티":"034020","한전기술":"052690","SK이노베이션":"096770",
+  "아모레퍼시픽":"090430","LG생활건강":"051900","CJ제일제당":"097950",
+  "SK바이오팜":"326030","SK스퀘어":"402340","카카오페이":"377300",
   "엔비디아":"NVDA","NVIDIA":"NVDA","애플":"AAPL","Apple":"AAPL","테슬라":"TSLA","Tesla":"TSLA",
   "마이크로소프트":"MSFT","MS":"MSFT","메타":"META","페이스북":"META","구글":"GOOGL","Google":"GOOGL","알파벳":"GOOGL",
   "아마존":"AMZN","Amazon":"AMZN","AMD":"AMD","인텔":"INTC","Intel":"INTC","팔란티어":"PLTR","Palantir":"PLTR",
@@ -779,6 +787,7 @@ export default function App() {
     catch{return{totalCapital:5000000,specialCapital:10000000,maxPositions:10,maxWeightPct:100,investMode:"basic"};}
   });
   const [showRiskPanel, setShowRiskPanel] = useState(false);
+  const [showManualEntry, setShowManualEntry] = useState(false);
 
   // ── 12번: 불타기 + 트레일링컷 설정 ──────────────────────
   const [trailSettings, setTrailSettings] = useState(()=>{
@@ -992,16 +1001,26 @@ export default function App() {
         if(!results.length){
           const qUp=q.toUpperCase();
           const krMatch=KR_NAME_DB[q]||KR_NAME_DB[qUp]||Object.entries(KR_NAME_DB).find(([k])=>k.includes(q))?.[1];
+          // ★ pool에서도 이름 매칭
+          if(!krMatch){
+            const poolMatch=Object.entries(pool).find(([t,v])=>(v.label||"").includes(q));
+            if(poolMatch&&!already.includes(poolMatch[0]))results.push({ticker:poolMatch[0],...poolMatch[1]});
+          }
           const ticker=krMatch||qUp;
-          if(!already.includes(ticker))results.push({ticker,label:`"${q}" 실시간 조회`,_custom:true});
+          if(!results.length&&!already.includes(ticker))results.push({ticker,label:`"${q}" 실시간 조회`,_custom:true});
         }
         setSearchRes(results);
       }catch{
         const qUp=q.toUpperCase();
         const krMatch=KR_NAME_DB[q]||KR_NAME_DB[qUp]||Object.entries(KR_NAME_DB).find(([k])=>k.includes(q))?.[1];
         const res=[];
-        if(krMatch&&!already.includes(krMatch))res.push({ticker:krMatch,label:`${q} (${krMatch})`,_custom:true});
-        else if(!already.includes(qUp))res.push({ticker:qUp,label:`"${q}" 실시간 조회`,_custom:true});
+        // ★ pool에서도 이름 매칭
+        const poolMatches=Object.entries(pool).filter(([t,v])=>(v.label||"").includes(q)||(t||"").toUpperCase().includes(qUp)).slice(0,5);
+        poolMatches.forEach(([t,v])=>{if(!already.includes(t))res.push({ticker:t,...v});});
+        if(!res.length){
+          if(krMatch&&!already.includes(krMatch))res.push({ticker:krMatch,label:`${q} (${krMatch})`,_custom:true});
+          else if(!already.includes(qUp))res.push({ticker:qUp,label:`"${q}" 실시간 조회`,_custom:true});
+        }
         setSearchRes(res);
       }finally{setSearchLoading(false);}
     },300);
@@ -1491,7 +1510,7 @@ export default function App() {
           <div style={{marginLeft:"auto",display:"flex",gap:6,alignItems:"center"}}>
             <div style={{position:"relative"}}>
               <input value={search} onChange={e=>{setSearch(e.target.value);setShowSearch(true);}} onFocus={()=>setShowSearch(true)}
-                onKeyDown={e=>{if(e.key==="Enter"&&search.trim()){const q=search.trim(),qUp=q.toUpperCase();const krMatch=KR_NAME_DB[q]||KR_NAME_DB[qUp]||Object.entries(KR_NAME_DB).find(([k])=>k.includes(q))?.[1];const ticker=krMatch||qUp;const found=[...stocks,...Object.entries(SEARCH_DB).map(([t,v])=>({ticker:t,...v}))].find(s=>s.ticker===ticker);if(found)addStock(found);else addStock({ticker,label:q,_custom:true});setShowSearch(false);}}}
+                onKeyDown={e=>{if(e.key==="Enter"&&search.trim()){const q=search.trim(),qUp=q.toUpperCase();const krMatch=KR_NAME_DB[q]||KR_NAME_DB[qUp]||Object.entries(KR_NAME_DB).find(([k])=>k.includes(q))?.[1];const ticker=krMatch||qUp;const found=[...stocks,...Object.entries(SEARCH_DB).map(([t,v])=>({ticker:t,...v}))].find(s=>s.ticker===ticker);if(found){addStock(found);}else{const poolMatch=Object.entries(pool).find(([t,v])=>t===ticker||(v.label||"").includes(q));if(poolMatch){navigateToStock(poolMatch[0],{ticker:poolMatch[0],...poolMatch[1]});}else{addStock({ticker,label:q,_custom:true});}}setShowSearch(false);}}}
                 placeholder="🔍 종목 검색" style={{background:"rgba(255,255,255,.05)",border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.text,fontSize:10,outline:"none",width:130}}/>
               {(showSearch&&(searchLoading||searchRes.length>0))&&<div style={{position:"absolute",top:"calc(100% + 4px)",left:0,right:0,background:"#0f172a",border:`1px solid ${C.border}`,borderRadius:7,zIndex:200,overflow:"hidden",boxShadow:"0 8px 32px rgba(0,0,0,.8)"}}>
                 {searchLoading&&<div style={{padding:"10px 12px",color:C.muted,fontSize:10}}>🔍 검색 중...</div>}
@@ -1499,9 +1518,66 @@ export default function App() {
               </div>}
             </div>
             <button onClick={()=>setShowRiskPanel(v=>!v)} style={{fontSize:10,padding:"5px 8px",borderRadius:5,border:`1px solid ${showRiskPanel?C.accent:C.border}`,background:showRiskPanel?"rgba(10,132,255,.12)":"transparent",color:showRiskPanel?C.accent:C.muted,cursor:"pointer",fontWeight:600}}>⚙</button>
+            <button onClick={()=>setShowManualEntry(v=>!v)} style={{fontSize:10,padding:"5px 8px",borderRadius:5,border:`1px solid ${showManualEntry?C.emerald:C.border}`,background:showManualEntry?"rgba(48,209,88,.12)":"transparent",color:showManualEntry?C.emerald:C.muted,cursor:"pointer",fontWeight:600}}>📝</button>
           </div>
         </div>
         {addMsg&&<div style={{fontSize:8,color:C.green,marginBottom:4}}>{addMsg}</div>}
+        {/* ★ 수동 보유종목 등록 */}
+        {showManualEntry&&<div style={{position:"absolute",top:"100%",left:14,right:14,background:"#1C1C1E",border:`1px solid ${C.emerald}`,borderRadius:14,padding:16,zIndex:100,boxShadow:"0 8px 32px rgba(0,0,0,.8)"}}>
+          <div style={{fontSize:12,fontWeight:900,color:C.emerald,marginBottom:12}}>📝 보유종목 수동 등록</div>
+          <div style={{fontSize:8,color:C.muted,marginBottom:12}}>기존 보유 종목을 직접 입력해서 추적에 추가합니다</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+            <div>
+              <div style={{fontSize:9,color:C.muted,marginBottom:4}}>종목명 또는 티커</div>
+              <input id="manual_ticker" placeholder="예: 삼성전자, NVDA" style={{width:"100%",background:"rgba(255,255,255,.07)",border:`1px solid ${C.border}`,borderRadius:6,padding:"6px 8px",color:C.text,fontSize:10,outline:"none"}}/>
+            </div>
+            <div>
+              <div style={{fontSize:9,color:C.muted,marginBottom:4}}>매수일</div>
+              <input id="manual_date" type="date" defaultValue={new Date().toISOString().slice(0,10)} style={{width:"100%",background:"rgba(255,255,255,.07)",border:`1px solid ${C.border}`,borderRadius:6,padding:"6px 8px",color:C.text,fontSize:10,outline:"none"}}/>
+            </div>
+            <div>
+              <div style={{fontSize:9,color:C.muted,marginBottom:4}}>매수가 (1주당)</div>
+              <input id="manual_price" type="number" placeholder="예: 82000" style={{width:"100%",background:"rgba(255,255,255,.07)",border:`1px solid ${C.border}`,borderRadius:6,padding:"6px 8px",color:C.text,fontSize:10,outline:"none"}}/>
+            </div>
+            <div>
+              <div style={{fontSize:9,color:C.muted,marginBottom:4}}>투입 금액 (만원)</div>
+              <input id="manual_amount" type="number" placeholder="예: 100" style={{width:"100%",background:"rgba(255,255,255,.07)",border:`1px solid ${C.border}`,borderRadius:6,padding:"6px 8px",color:C.text,fontSize:10,outline:"none"}}/>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>{
+              const tickerInput=document.getElementById("manual_ticker")?.value?.trim();
+              const dateInput=document.getElementById("manual_date")?.value;
+              const priceInput=+document.getElementById("manual_price")?.value;
+              const amtInput=+document.getElementById("manual_amount")?.value*10000;
+              if(!tickerInput||!priceInput||!amtInput){setAddMsg("❌ 종목/매수가/금액을 모두 입력하세요");setTimeout(()=>setAddMsg(""),3000);return;}
+              const qUp=tickerInput.toUpperCase();
+              const krMatch=KR_NAME_DB[tickerInput]||KR_NAME_DB[qUp]||Object.entries(KR_NAME_DB).find(([k])=>k.includes(tickerInput))?.[1];
+              const poolMatch=Object.entries(pool).find(([t,v])=>t===tickerInput||t===(krMatch||qUp)||(v.label||"").includes(tickerInput));
+              const ticker=krMatch||poolMatch?.[0]||qUp;
+              const label=poolMatch?.[1]?.label||tickerInput;
+              const market=poolMatch?.[1]?.market||(/^\d{6}$/.test(ticker)?"kr":"us");
+              const isKR=market==="kr";
+              const entryDate=dateInput?new Date(dateInput).toLocaleDateString("ko-KR"):new Date().toLocaleDateString("ko-KR");
+              const autoMode=amtInput>(riskSettings.totalCapital||5000000)?"special":"basic";
+              const autoCap=autoMode==="special"?(riskSettings.specialCapital||10000000):(riskSettings.totalCapital||5000000);
+              const autoPyr=autoMode==="special"?PYRAMID_SPECIAL:PYRAMID_BASIC;
+              // 불타기 단계 중 투입금액까지 자동 채우기
+              let remaining=amtInput;
+              const pyramid=autoPyr.map((r,i)=>{
+                const stepAmt=Math.round(autoCap*r.pct/100);
+                const filled=remaining>=stepAmt;
+                const actual=filled?stepAmt:Math.max(0,remaining);
+                remaining-=actual;
+                return{step:i+1,label:r.label,pct:r.pct,targetPct:r.targetPct,triggered:actual>0,amount:stepAmt,actualAmount:actual,executedAt:actual>0?entryDate:""};
+              });
+              setPositions(p=>[...p,{id:Date.now(),ticker,label,market,entry:priceInput,current:priceInput,max:priceInput,trailStop:+(priceInput*(1-trailSettings.initialStopPct/100)).toFixed(isKR?0:2),trailMode:false,target:0,pnl:0,date:entryDate,entryTime:"수동등록",foundScore:0,foundSignals:["수동등록"],foundTiming:0,foundDurability:0,snapshot:{},oppScoreAt:0,investMode:autoMode,pyramid}]);
+              setShowManualEntry(false);setTab("track");setTrackTab("hold");
+              setAddMsg(`📝 ${label} ₩${fmtKRW(amtInput)} 수동 등록 (${autoMode==="special"?"⭐특별":"기본"})`);setTimeout(()=>setAddMsg(""),3000);
+            }} style={{flex:1,background:"linear-gradient(135deg,#30D158,#28a745)",border:"none",borderRadius:8,padding:"10px",color:"#000",fontWeight:900,fontSize:11,cursor:"pointer"}}>📝 보유 등록</button>
+            <button onClick={()=>setShowManualEntry(false)} style={{padding:"10px 16px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontSize:10,cursor:"pointer"}}>취소</button>
+          </div>
+        </div>}
         {/* 리스크 설정 패널 */}
         {showRiskPanel&&<div style={{position:"absolute",top:"100%",left:14,right:14,background:"#1C1C1E",border:`1px solid ${C.accent}`,borderRadius:14,padding:16,zIndex:100,boxShadow:"0 8px 32px rgba(0,0,0,.8)",maxHeight:"80vh",overflowY:"auto"}}>
           <div style={{fontSize:12,fontWeight:900,color:C.accent,marginBottom:12}}>⚙ 리스크 관리 센터</div>
@@ -2855,7 +2931,16 @@ export default function App() {
             const autoMode=realAmt>(riskSettings.totalCapital||5000000)?"special":"basic";
             const autoCap=autoMode==="special"?(riskSettings.specialCapital||10000000):(riskSettings.totalCapital||5000000);
             const autoPyr=autoMode==="special"?PYRAMID_SPECIAL:PYRAMID_BASIC;
-            setPositions(p=>[...p,{id:Date.now(),ticker:sel,label:selInfo.label,market:selInfo.market,entry:curPrice,current:curPrice,max:curPrice,trailStop:+(curPrice*(1-trailSettings.initialStopPct/100)).toFixed(isKRSel?0:2),trailMode:false,target:consTgt,pnl:0,date:new Date().toLocaleDateString("ko-KR"),entryTime:new Date().toLocaleTimeString("ko-KR"),foundScore:entryScore.score,foundSignals:entryScore.breakdown.filter(b=>b.ok).map(b=>b.label),foundTiming:selTiming.score,foundDurability:selDurability.score,snapshot:snap,oppScoreAt:oppScore,investMode:autoMode,pyramid:autoPyr.map((r,i)=>({step:i+1,label:r.label,pct:r.pct,targetPct:r.targetPct,triggered:i===0,amount:Math.round(autoCap*r.pct/100),actualAmount:i===0?realAmt:0,executedAt:i===0?new Date().toLocaleDateString("ko-KR"):""}))}]);
+            // ★ 불타기 단계 자동 채우기: 투입금액까지 알아서 채움
+            let remaining=realAmt;
+            const pyramid=autoPyr.map((r,i)=>{
+              const stepAmt=Math.round(autoCap*r.pct/100);
+              const filled=remaining>=stepAmt;
+              const actual=filled?stepAmt:Math.max(0,remaining);
+              remaining-=actual;
+              return{step:i+1,label:r.label,pct:r.pct,targetPct:r.targetPct,triggered:actual>0,amount:stepAmt,actualAmount:actual,executedAt:actual>0?new Date().toLocaleDateString("ko-KR"):""};
+            });
+            setPositions(p=>[...p,{id:Date.now(),ticker:sel,label:selInfo.label,market:selInfo.market,entry:curPrice,current:curPrice,max:curPrice,trailStop:+(curPrice*(1-trailSettings.initialStopPct/100)).toFixed(isKRSel?0:2),trailMode:false,target:consTgt,pnl:0,date:new Date().toLocaleDateString("ko-KR"),entryTime:new Date().toLocaleTimeString("ko-KR"),foundScore:entryScore.score,foundSignals:entryScore.breakdown.filter(b=>b.ok).map(b=>b.label),foundTiming:selTiming.score,foundDurability:selDurability.score,snapshot:snap,oppScoreAt:oppScore,investMode:autoMode,pyramid}]);
             setTab("track");setTrackTab("hold");setAddMsg(`📌 ${selInfo.label} ₩${fmtKRW(realAmt)} 보초 매수 (${autoMode==="special"?"⭐특별":"기본"})`);setTimeout(()=>setAddMsg(""),3000);
           }} style={{width:"100%",background:checkOk?"linear-gradient(135deg,#30D158,#28a745)":"rgba(255,255,255,.05)",border:`1px solid ${checkOk?C.emerald:C.border}`,borderRadius:10,padding:"14px 16px",color:checkOk?"#000":C.muted,fontWeight:900,fontSize:12,cursor:checkOk?"pointer":"not-allowed",opacity:checkOk?1:0.5}}>
             {checkOk?"📈 보초 매수 등록":"✅ 체크리스트를 먼저 완료하세요"}
@@ -2937,7 +3022,15 @@ export default function App() {
                         const autoMode=realAmt>(riskSettings.totalCapital||5000000)?"special":"basic";
                         const autoCap=autoMode==="special"?(riskSettings.specialCapital||10000000):(riskSettings.totalCapital||5000000);
                         const autoPyr=autoMode==="special"?PYRAMID_SPECIAL:PYRAMID_BASIC;
-                        setPositions(p=>[...p,{id:Date.now(),ticker:t.ticker,label:t.label,market:t.market,entry:cur,current:cur,max:cur,trailStop:+(cur*(1-trailSettings.initialStopPct/100)).toFixed(isKR?0:2),trailMode:false,target:0,pnl:0,date:new Date().toLocaleDateString("ko-KR"),entryTime:new Date().toLocaleTimeString("ko-KR"),foundScore:t.foundScore,foundSignals:t.foundSignals,foundRS:t.foundRS,foundTiming:tm.score,foundDurability:dr.score,snapshot:snap,oppScoreAt:t.oppScoreAt,investMode:autoMode,pyramid:autoPyr.map((r,idx)=>({step:idx+1,label:r.label,pct:r.pct,targetPct:r.targetPct,triggered:idx===0,amount:Math.round(autoCap*r.pct/100),actualAmount:idx===0?realAmt:0,executedAt:idx===0?new Date().toLocaleDateString("ko-KR"):"" }))}]);
+                        let remaining2=realAmt;
+                        const pyramid=autoPyr.map((r,idx)=>{
+                          const stepAmt=Math.round(autoCap*r.pct/100);
+                          const filled=remaining2>=stepAmt;
+                          const actual=filled?stepAmt:Math.max(0,remaining2);
+                          remaining2-=actual;
+                          return{step:idx+1,label:r.label,pct:r.pct,targetPct:r.targetPct,triggered:actual>0,amount:stepAmt,actualAmount:actual,executedAt:actual>0?new Date().toLocaleDateString("ko-KR"):""};
+                        });
+                        setPositions(p=>[...p,{id:Date.now(),ticker:t.ticker,label:t.label,market:t.market,entry:cur,current:cur,max:cur,trailStop:+(cur*(1-trailSettings.initialStopPct/100)).toFixed(isKR?0:2),trailMode:false,target:0,pnl:0,date:new Date().toLocaleDateString("ko-KR"),entryTime:new Date().toLocaleTimeString("ko-KR"),foundScore:t.foundScore,foundSignals:t.foundSignals,foundRS:t.foundRS,foundTiming:tm.score,foundDurability:dr.score,snapshot:snap,oppScoreAt:t.oppScoreAt,investMode:autoMode,pyramid}]);
                         setTracking(p=>p.filter((_,j)=>j!==i));
                         setTrackTab("hold");setAddMsg(`📌 ${t.label} ₩${fmtKRW(realAmt)} 매수 전환 (${autoMode==="special"?"⭐특별":"기본"})`);setTimeout(()=>setAddMsg(""),3000);
                       }} style={{flex:1,background:"rgba(48,209,88,.1)",border:`1px solid ${C.emerald}`,color:C.emerald,borderRadius:6,padding:"6px 0",cursor:"pointer",fontSize:9,fontWeight:700}}>💼 매수 전환</button>
