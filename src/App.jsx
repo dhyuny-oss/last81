@@ -1571,7 +1571,25 @@ export default function App() {
                 remaining-=actual;
                 return{step:i+1,label:r.label,pct:r.pct,targetPct:r.targetPct,triggered:actual>0,amount:stepAmt,actualAmount:actual,executedAt:actual>0?entryDate:""};
               });
-              setPositions(p=>[...p,{id:Date.now(),ticker,label,market,entry:priceInput,current:priceInput,max:priceInput,trailStop:+(priceInput*(1-trailSettings.initialStopPct/100)).toFixed(isKR?0:2),trailMode:false,target:0,pnl:0,date:entryDate,entryTime:"수동등록",foundScore:0,foundSignals:["수동등록"],foundTiming:0,foundDurability:0,snapshot:{},oppScoreAt:0,investMode:autoMode,pyramid}]);
+              // ★ 트레일링 계산: 현재가 + 매수일 이후 최고가 조회
+              const curInfo2=stocks.find(s=>s.ticker===ticker)||pool[ticker];
+              const curPrice2=curInfo2?.price||priceInput;
+              const cData2=charts[ticker]?.data;
+              let maxPrice2=Math.max(priceInput,curPrice2);
+              if(cData2&&dateInput){
+                const entryMo=new Date(dateInput).getMonth()+1;const entryDa=new Date(dateInput).getDate();
+                let started=false;
+                cData2.forEach(d=>{
+                  if(!started){const dd=d.date||"";if(dd.includes(`${entryMo}/${entryDa}`)||dd.includes(`${entryMo}-${entryDa}`)||new Date(dd)>=new Date(dateInput))started=true;}
+                  if(started&&d.close>maxPrice2)maxPrice2=d.close;
+                });
+              }
+              const pnl2=+((curPrice2-priceInput)/priceInput*100).toFixed(2);
+              const trailMode2=pnl2>=trailSettings.switchPct;
+              const trailStop2=trailMode2
+                ?+(maxPrice2*(1-trailSettings.trailPct/100)).toFixed(isKR?0:2)
+                :+(priceInput*(1-trailSettings.initialStopPct/100)).toFixed(isKR?0:2);
+              setPositions(p=>[...p,{id:Date.now(),ticker,label,market,entry:priceInput,current:curPrice2,max:maxPrice2,trailStop:trailStop2,trailMode:trailMode2,target:0,pnl:pnl2,date:entryDate,entryTime:"수동등록",foundScore:0,foundSignals:["수동등록"],foundTiming:0,foundDurability:0,snapshot:{},oppScoreAt:0,investMode:autoMode,pyramid}]);
               setShowManualEntry(false);setTab("track");setTrackTab("hold");
               setAddMsg(`📝 ${label} ₩${fmtKRW(amtInput)} 수동 등록 (${autoMode==="special"?"⭐특별":"기본"})`);setTimeout(()=>setAddMsg(""),3000);
             }} style={{flex:1,background:"linear-gradient(135deg,#30D158,#28a745)",border:"none",borderRadius:8,padding:"10px",color:"#000",fontWeight:900,fontSize:11,cursor:"pointer"}}>📝 보유 등록</button>
