@@ -664,7 +664,7 @@ def load_watchlist():
         pass
     return DEFAULT_WATCHLIST
 
-def fetch_pool_batch(pool, range_="3mo", batch_size=50, delay_between_batches=5):
+def fetch_pool_batch(pool, range_="6mo", batch_size=50, delay_between_batches=5):
     global _rate_limit_hits
     results = {}
     items = list(pool.items())
@@ -847,7 +847,7 @@ def main():
         kr_pool = sum(1 for t,v in pool.items() if v.get("market")=="kr")
         us_pool = len(pool) - kr_pool
         print(f"  총 {len(pool)}개 종목 대상 (🇰🇷{kr_pool} 🇺🇸{us_pool})\n")
-        pool_data = fetch_pool_batch(pool, range_="3mo", batch_size=50, delay_between_batches=5)
+        pool_data = fetch_pool_batch(pool, range_="6mo", batch_size=50, delay_between_batches=5)
 
         # ★ 수집 결과 분포 확인
         kr_ok = sum(1 for t,v in pool_data.items() if v.get("market")=="kr")
