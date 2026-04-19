@@ -891,6 +891,33 @@ def main():
         alpha_hits.sort(key=lambda x: x["score"], reverse=True)
         print(f"  ⭐ {len(alpha_hits)}개 알파 종목 발견")
 
+        # ★ v2.3: 목표가 수집 (Yahoo financialData → 상위 종목만)
+        print("\n🎯 목표가 수집 중...")
+        tgt_count = 0
+        tgt_tickers = set()
+        for hit in alpha_hits[:60]:
+            tgt_tickers.add(hit["ticker"])
+        for t, s in sorted(pool_data.items(), key=lambda x: x[1].get("rsPctRank",0), reverse=True)[:40]:
+            tgt_tickers.add(t)
+        for ticker in tgt_tickers:
+            if ticker.isdigit() and len(ticker) == 6:
+                continue  # 한국 종목은 Yahoo 목표가 없음
+            try:
+                suffix = pool.get(ticker,{}).get("suffix","")
+                yt = ticker + suffix
+                url = f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{yt}?modules=financialData"
+                r = requests.get(url, headers=HEADERS, timeout=8)
+                if r.status_code == 200:
+                    fd = r.json().get("quoteSummary",{}).get("result",[{}])[0].get("financialData",{})
+                    tgt = fd.get("targetMeanPrice",{}).get("raw",0)
+                    if tgt and tgt > 0:
+                        pool_data[ticker]["targetPrice"] = round(tgt, 2)
+                        tgt_count += 1
+                time.sleep(0.2)
+            except:
+                pass
+        print(f"  📊 목표가 수집: {tgt_count}개 (US 주요종목)")
+
         # ★ 상위 100개 종목은 캔들 포함 저장 (ST/MACD/구름 분석용)
         # RS 상위 50 + 알파점수 상위 50 합산 (중복 제거)
         candle_keepers = set()
