@@ -322,6 +322,22 @@ function buildChartData(candles){
   data.forEach((d,ii)=>{const cii=ii+off;if(cii>=25){const t=midV(highs,cii-8,cii+1),k=midV(highs,cii-25,cii+1);d.spanA=+((t+k)/2).toFixed(2);}d.spanB=cii>=51?+midV(highs,cii-51,cii+1).toFixed(2):null;if(d.spanA&&d.spanB){d.spanHigh=Math.max(d.spanA,d.spanB);d.spanLow=Math.min(d.spanA,d.spanB);}});
   const lp=last;const ct=lp.spanA&&lp.spanB?Math.max(lp.spanA,lp.spanB):null;
   lp.aboveCloud=ct&&lp.close>ct;lp.nearCloud=ct&&!lp.aboveCloud&&lp.close>=ct*0.97;lp.inCloud=ct&&lp.close<=ct&&lp.spanB&&lp.close>=lp.spanB;
+  // ★ v2.3: 캔들 패턴 + 엔벨로프
+  data.forEach((d,i)=>{
+    const ci2=i+off;
+    const o=candles[ci2].open||d.close,h=candles[ci2].high||d.close,l=candles[ci2].low||d.close,c=d.close;
+    const body=Math.abs(c-o),range=h-l||1;
+    d.candleOpen=o;d.candleHigh=h;d.candleLow=l;
+    d.isBull=c>o;
+    d.bodyPct=c>0?+(body/c*100).toFixed(2):0; // 몸통 크기 %
+    d.upperWickPct=+((h-Math.max(o,c))/range*100).toFixed(1); // 위꼬리 비율
+    d.lowerWickPct=+((Math.min(o,c)-l)/range*100).toFixed(1); // 아래꼬리 비율
+    d.bigBull=c>o&&d.bodyPct>=5; // 장대양봉 (5%+)
+    d.cleanCandle=c>o&&d.upperWickPct<20; // 깔끔한 양봉 (위꼬리 20% 이하)
+    d.bigBullClean=d.bigBull&&d.cleanCandle; // 장대양봉 + 깔끔
+    // 엔벨로프 (20,20)
+    if(d.ma20){d.envUpper=+(d.ma20*1.20).toFixed(2);d.envLower=+(d.ma20*0.80).toFixed(2);d.nearEnvLower=c<=d.envLower*1.02;}
+  });
   return data;
 }
 
@@ -1449,7 +1465,7 @@ export default function App() {
   // ★ v2.2: 에쿼티 커브 데이터
   const equityCurveData = buildEquityCurve(closedLog, riskSettings.totalCapital);
 
-  const TABS=[["radar","🌐 시장"],["focus","🎯 집중"],["alpha","🔍 발굴"],["sniper","📊 차트"],["track",`📁 추적 (${tracking.length+positions.length})`],["lab","🔬 실험실"],["pool","🗃 종목풀"]];
+  const TABS=[["radar","🌐 시장"],["focus","🎯 집중"],["alpha","🔍 발굴"],["scanner","📡 스캐너"],["sniper","📊 차트"],["track",`📁 추적 (${tracking.length+positions.length})`],["lab","🔬 실험실"],["pool","🗃 종목풀"]];
 
   const pageStyle={minHeight:"100vh",background:"#000000",color:C.text,fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Display','Pretendard',sans-serif",display:"flex",flexDirection:"column",fontSize:12,WebkitFontSmoothing:"antialiased"};
 
@@ -2415,6 +2431,169 @@ export default function App() {
               </div>
             }
           </div>}
+        </div>}
+
+        {/* ══ TAB: 📡 스캐너 — 기법별 종목 발굴 ══ */}
+        {tab==="scanner"&&<div style={{padding:"12px 14px"}}>
+          <div style={{fontSize:12,fontWeight:900,color:"#FF9F0A",marginBottom:4}}>📡 스캐너 — 기법별 종목 스크리닝</div>
+          <div style={{fontSize:8,color:C.sub,marginBottom:10}}>실전 매매 기법 조건에 맞는 종목 자동 탐색</div>
+          <div style={{display:"flex",gap:4,marginBottom:10}}>
+            {[["all","전체"],["kr","🇰🇷 한국"],["us","🇺🇸 미국"]].map(([v,l])=>(
+              <button key={v} onClick={()=>setFocusMarket(v)} style={{padding:"4px 12px",borderRadius:5,border:`1px solid ${focusMarket===v?C.accent:C.border}`,background:focusMarket===v?"rgba(10,132,255,.12)":"transparent",color:focusMarket===v?C.accent:C.muted,fontSize:9,fontWeight:focusMarket===v?700:400,cursor:"pointer"}}>{l}</button>
+            ))}
+          </div>
+
+          {(()=>{
+            const isKRt=(t)=>(t?.length||0)>5;
+            const scanned=Object.entries(charts).filter(([t,c])=>c?.data?.length>=20&&c.real).filter(([t])=>focusMarket==="all"?true:focusMarket==="kr"?isKRt(t):!isKRt(t)).map(([ticker,c])=>{
+              const d=c.data;const L=d.length;const last=d[L-1];const prev=d[L-2];
+              if(!last||!prev)return null;
+              const info=stocks.find(s=>s.ticker===ticker)||pool[ticker]||{};
+              const isKR=isKRt(ticker);
+              const closes=d.map(x=>x.close);
+              const w52h=Math.max(...closes);const w52l=Math.min(...closes);
+              const prevHigh=Math.max(...closes.slice(0,-5));
+              const chg1=L>1?+((last.close-prev.close)/prev.close*100).toFixed(2):0;
+              const rs=((info.chg5d||0)-(indicesData["^GSPC"]?.chg5d||0));
+              const volR=info.volRatio||info._volRatio||100;
+
+              // 캔들 패턴
+              const bodyPct=last.bodyPct||0;
+              const upperWick=last.upperWickPct||0;
+              const isBull=last.isBull;
+              const bigBull=last.bigBull;
+              const cleanCandle=last.cleanCandle;
+              const bigBullClean=last.bigBullClean;
+
+              // D+0 조건
+              const d0_highBreak=last.close>=prevHigh*0.98; // 전고점 근접/돌파
+              const d0_bigCandle=bodyPct>=5; // 장대양봉 5%+
+              const d0_volume=volR>=150; // 거래량 증가
+              const d0_sector=rs>0; // 주도섹터
+              const d0_score=[d0_highBreak,d0_bigCandle,d0_volume,d0_sector,isBull,cleanCandle].filter(Boolean).length;
+
+              // 신정재 6체크
+              const sj_newHigh=last.close>=w52h*0.95; // ① 신고가 근접
+              const sj_gapSmall=last.close>=prevHigh*0.95; // ② 전고점 이격 좁음
+              const sj_bullVol=isBull&&volR>=150; // ③ 양봉+거래대금
+              const sj_volUp=volR>=150; // ④ 거래량 증가
+              const sj_clean=isBull&&upperWick<20; // ⑤ 위꼬리 짧은 양봉
+              const sj_squeeze=last.sqzOff||(!last.sqzOn&&prev?.sqzOn); // ⑥ 기간 조정 후 해제
+              const sj_score=[sj_newHigh,sj_gapSmall,sj_bullVol,sj_volUp,sj_clean,sj_squeeze].filter(Boolean).length;
+              const sj_checks=[
+                {ok:sj_newHigh,label:"신고가"},
+                {ok:sj_gapSmall,label:"이격좁음"},
+                {ok:sj_bullVol,label:"양봉+거래"},
+                {ok:sj_volUp,label:"거래↑"},
+                {ok:sj_clean,label:"깔끔양봉"},
+                {ok:sj_squeeze,label:"조정해제"},
+              ];
+
+              // 엔벨로프 하단 근접
+              const envLower=last.envLower||0;
+              const nearEnv=last.nearEnvLower;
+
+              return{ticker,label:info.label||ticker,market:info.market,price:last.close,chg1,rs:+rs.toFixed(1),volR,bodyPct,upperWick,isBull,bigBull,cleanCandle,bigBullClean,d0_score,sj_score,sj_checks,nearEnv,envLower,w52h,isKR,mktCap:info.mktCap||0,changePct:info.changePct||0};
+            }).filter(Boolean);
+
+            // D+0 후보 (4/6 이상)
+            const d0hits=scanned.filter(s=>s.d0_score>=4).sort((a,b)=>b.d0_score-a.d0_score);
+            // 신정재 후보 (4/6 이상)
+            const sjhits=scanned.filter(s=>s.sj_score>=4).sort((a,b)=>b.sj_score-a.sj_score);
+            // 엔벨로프 하단 근접
+            const envhits=scanned.filter(s=>s.nearEnv&&s.mktCap>(s.isKR?500:5)).sort((a,b)=>a.price/a.envLower-b.price/b.envLower);
+
+            return<>
+              {/* ── D+0 장대양봉 돌파 ── */}
+              <div style={css.card}>
+                <div style={{fontSize:11,fontWeight:700,color:"#FF9F0A",marginBottom:4}}>🔥 D+0 돌파 감지 — 장대양봉 + 전고점 돌파</div>
+                <div style={{fontSize:8,color:C.muted,marginBottom:8}}>전고점 돌파 + 장대양봉(5%+) + 거래량 폭발 + 주도섹터</div>
+                {d0hits.length===0?<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:9}}>현재 D+0 조건 충족 종목 없음</div>
+                :<div style={{maxHeight:350,overflowY:"auto"}}>
+                  {d0hits.map((s,i)=>(
+                    <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 8px",borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer",background:s.d0_score>=5?"rgba(255,159,10,.06)":"transparent"}}>
+                      <span style={{fontSize:9,fontWeight:900,color:"#FF9F0A",minWidth:14}}>{i+1}</span>
+                      <div style={{minWidth:65,maxWidth:80}}>
+                        <div style={{fontWeight:700,fontSize:9,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</div>
+                        <div style={{fontSize:7,color:C.muted}}>{s.isKR?"₩"+fmtKRW(s.price):"$"+s.price.toFixed(1)}</div>
+                      </div>
+                      <div style={{display:"flex",gap:2,flex:1,flexWrap:"wrap"}}>
+                        {s.bigBullClean&&<span style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:"rgba(255,159,10,.12)",color:"#FF9F0A",fontWeight:700}}>장대양봉</span>}
+                        {s.d0_score>=5&&<span style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:"rgba(48,209,88,.12)",color:C.emerald,fontWeight:700}}>전고돌파</span>}
+                        {s.volR>=200&&<span style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:"rgba(255,69,58,.12)",color:C.red,fontWeight:700}}>거래폭발</span>}
+                        {s.rs>3&&<span style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:"rgba(10,132,255,.12)",color:C.accent,fontWeight:700}}>주도주</span>}
+                      </div>
+                      <div style={{textAlign:"right",minWidth:50}}>
+                        <div style={{fontSize:9,fontWeight:900,color:s.chg1>=0?C.green:C.red}}>{s.chg1>=0?"+":""}{s.chg1}%</div>
+                        <div style={{fontSize:7,color:C.muted}}>체크 {s.d0_score}/6</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>}
+                <div style={{fontSize:7,color:C.muted,marginTop:6}}>D+1: 내일 전일종가 눌림목에서 매수 검토 · 익절 5~10% · 손절 지지선-1%</div>
+              </div>
+
+              {/* ── 신정재 6체크포인트 ── */}
+              <div style={css.card}>
+                <div style={{fontSize:11,fontWeight:700,color:C.emerald,marginBottom:4}}>✅ 종가베팅 6체크 — 매수 적합도</div>
+                <div style={{fontSize:8,color:C.muted,marginBottom:8}}>신고가 + 이격좁음 + 양봉거래 + 거래↑ + 깔끔양봉 + 조정해제</div>
+                {sjhits.length===0?<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:9}}>현재 4/6 이상 충족 종목 없음</div>
+                :<div style={{maxHeight:400,overflowY:"auto"}}>
+                  {sjhits.map((s,i)=>(
+                    <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 8px",borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer",background:s.sj_score>=5?"rgba(48,209,88,.06)":"transparent"}}>
+                      <span style={{fontSize:9,fontWeight:900,color:C.emerald,minWidth:14}}>{i+1}</span>
+                      <div style={{minWidth:65,maxWidth:80}}>
+                        <div style={{fontWeight:700,fontSize:9,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</div>
+                        <div style={{fontSize:7,color:C.muted}}>{s.isKR?"₩"+fmtKRW(s.price):"$"+s.price.toFixed(1)}</div>
+                      </div>
+                      <div style={{display:"flex",gap:2,flex:1,flexWrap:"wrap"}}>
+                        {s.sj_checks.map((ck,j)=><span key={j} style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:ck.ok?"rgba(48,209,88,.1)":"rgba(255,255,255,.03)",color:ck.ok?C.emerald:C.muted,fontWeight:ck.ok?700:400}}>{ck.ok?"✓":"✗"}{ck.label}</span>)}
+                      </div>
+                      <div style={{textAlign:"right",minWidth:40}}>
+                        <div style={{fontSize:11,fontWeight:900,color:s.sj_score>=5?C.emerald:s.sj_score>=4?C.yellow:C.muted}}>{s.sj_score}/6</div>
+                        <div style={{fontSize:7,color:s.chg1>=0?C.green:C.red}}>{s.chg1>=0?"+":""}{s.chg1}%</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>}
+                <div style={{fontSize:7,color:C.muted,marginTop:6}}>종가매수: 오후 3:18~20분 확인 후 매수 · 당일 저점 미이탈 확인 · 추세 믿고 눌림 매수</div>
+              </div>
+
+              {/* ── 엔벨로프 하단 근접 ── */}
+              <div style={css.card}>
+                <div style={{fontSize:11,fontWeight:700,color:C.purple,marginBottom:4}}>📐 엔벨로프 하단 근접 — 반등 후보</div>
+                <div style={{fontSize:8,color:C.muted,marginBottom:8}}>Envelope(20,20) 하한선 2% 이내 근접 우량주</div>
+                {envhits.length===0?<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:9}}>현재 엔벨로프 하단 근접 종목 없음 — 시장이 강세일 수 있습니다</div>
+                :<div style={{maxHeight:300,overflowY:"auto"}}>
+                  {envhits.map((s,i)=>(
+                    <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 8px",borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer"}}>
+                      <span style={{fontSize:9,fontWeight:900,color:C.purple,minWidth:14}}>{i+1}</span>
+                      <div style={{minWidth:65,maxWidth:80}}>
+                        <div style={{fontWeight:700,fontSize:9,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</div>
+                      </div>
+                      <div style={{flex:1,fontSize:8,color:C.muted}}>
+                        현재 {s.isKR?"₩"+fmtKRW(s.price):"$"+s.price.toFixed(1)} · 하한 {s.isKR?"₩"+fmtKRW(s.envLower):"$"+s.envLower.toFixed(1)}
+                      </div>
+                      <div style={{textAlign:"right"}}>
+                        <div style={{fontSize:9,fontWeight:700,color:C.red}}>{s.changePct>=0?"+":""}{(s.changePct||0).toFixed(1)}%</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>}
+                <div style={{fontSize:7,color:C.muted,marginTop:6}}>MA20 × 0.80 기준 · 과매도 반등 매매 · 손절 엔벨로프 하단 이탈 시</div>
+              </div>
+
+              {/* 기법 설명 */}
+              <div style={{marginTop:10,padding:"10px 12px",background:"rgba(255,255,255,.02)",borderRadius:8,border:`1px solid ${C.border}`}}>
+                <div style={{fontSize:9,fontWeight:700,color:C.muted,marginBottom:6}}>📖 기법 요약</div>
+                <div style={{fontSize:8,color:C.sub,lineHeight:1.6}}>
+                  <b style={{color:"#FF9F0A"}}>D+0,1</b>: 주도섹터 대장주가 전고점 돌파 + 첫 장대양봉 → 다음날(D+1) 눌림목 매수. 익절 5~10%.
+                  <br/><b style={{color:C.emerald}}>6체크</b>: ①신고가 ②전고점이격좁음 ③양봉+거래대금 ④거래량증가 ⑤위꼬리짧음 ⑥기간조정 → 종가확인 후 매수.
+                  <br/><b style={{color:C.purple}}>엔벨로프</b>: MA20 -20% 밴드 근접 대형주 → 과매도 반등 매수. KOSPI200급.
+                </div>
+              </div>
+            </>;
+          })()}
         </div>}
 
         {/* ══ TAB 3: 차트 ══ */}
