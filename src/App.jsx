@@ -762,6 +762,7 @@ export default function App() {
   const [indicesData, setIndicesData] = useState({});
   const [sectorsData, setSectorsData] = useState({});
   const [breadthData, setBreadthData] = useState({kr:{upPct:0,up:0,down:0},us:{upPct:0,up:0,down:0}});
+  const [fearGreed, setFearGreed] = useState({score:0,rating:""});
   const [rsKey, setRsKey]   = useState("chg1M");
   const [ibVol, setIbVol]   = useState(0);
 
@@ -858,6 +859,7 @@ export default function App() {
           if(krSample)console.log("[Alpha] KR섹터(",krSample[0],") 키:",Object.keys(krSample[1]).join(","),"값:",JSON.stringify(krSample[1]).slice(0,300));
         }
         if(json.breadth) setBreadthData(json.breadth);
+        if(json.fearGreed) setFearGreed(json.fearGreed);
         // ★ v2.3: 풀 자동 로드
         const poolData = json.pool&&Object.keys(json.pool).length>0 ? json.pool : {};
         if(Object.keys(poolData).length>0){
@@ -1791,6 +1793,13 @@ export default function App() {
               </div>;
             })}
           </div>
+          {/* ★ v2.3: 공포탐욕지수 */}
+          {fearGreed.score>0&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",marginBottom:6,background:C.panel2,borderRadius:8,border:`1px solid ${fearGreed.score>=60?"rgba(48,209,88,.3)":fearGreed.score>=40?"rgba(255,214,10,.3)":"rgba(255,69,58,.3)"}`}}>
+            <span style={{fontSize:9,color:C.muted}}>😱 공포탐욕</span>
+            <span style={{fontSize:18,fontWeight:900,color:fearGreed.score>=75?C.emerald:fearGreed.score>=55?C.green:fearGreed.score>=40?C.yellow:fearGreed.score>=25?C.red:"#FF453A"}}>{Math.round(fearGreed.score)}</span>
+            <span style={{fontSize:8,fontWeight:700,color:fearGreed.score>=75?C.emerald:fearGreed.score>=55?C.green:fearGreed.score>=40?C.yellow:fearGreed.score>=25?C.red:"#FF453A"}}>{fearGreed.score>=75?"극도의 탐욕":fearGreed.score>=55?"탐욕":fearGreed.score>=40?"중립":fearGreed.score>=25?"공포":"극도의 공포"}</span>
+            {fearGreed.prevClose>0&&<span style={{fontSize:7,color:C.muted,marginLeft:"auto"}}>전일 {Math.round(fearGreed.prevClose)}</span>}
+          </div>}
           {/* ★ v2.2: 지수 미니차트 */}
           {selIndex&&(()=>{
             const d=indicesData[selIndex];if(!d||!d.price)return null;
@@ -1923,7 +1932,12 @@ export default function App() {
 
           {/* ★ v2.3 FIX: 실시간 데이터(real:true)만 사용 — 시뮬 차트 제외 */}
           {(()=>{
-          const realStocks = allStocksForScan.filter(s=>charts[s.ticker]?.real).filter(s=>focusMarket==="all"?true:focusMarket==="kr"?((s.ticker?.length||0)>5||(s.market||"").includes("kr")):((s.ticker?.length||0)<=5&&!(s.market||"").includes("kr")));
+          const realStocks = allStocksForScan.filter(s=>charts[s.ticker]?.real).filter(s=>focusMarket==="all"?true:focusMarket==="kr"?((s.ticker?.length||0)>5||(s.market||"").includes("kr")):((s.ticker?.length||0)<=5&&!(s.market||"").includes("kr"))).filter(s=>{
+            // ★ v2.3: 소형주 필터 — US 시총 $3B 미만 제외
+            const isKR2=(s.ticker?.length||0)>5||(s.market||"").includes("kr");
+            if(!isKR2&&(s.mktCap||0)<3)return false;
+            return true;
+          });
           const realCount = realStocks.length;
           return<>
           {realCount===0&&<div style={{textAlign:"center",padding:"20px",color:C.muted,fontSize:9}}>실시간 데이터 로딩 중... Daily Actions 실행 후 확인해주세요</div>}
@@ -1961,6 +1975,7 @@ export default function App() {
                   <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 8px",borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer"}}>
                     <span style={{fontSize:10,fontWeight:900,color:C.purple,minWidth:16}}>{i+1}</span>
                     <span style={{fontWeight:700,fontSize:9,minWidth:60,maxWidth:82,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</span>
+                    <span style={{fontSize:7,color:C.muted,minWidth:45}}>{(s.ticker?.length||0)>5?"₩"+fmtKRW(s.price||0):"$"+(s.price||0).toFixed(1)}</span>
                     <span style={{fontSize:8,fontWeight:900,color:s.timing>=55?"#FF9F0A":C.muted,padding:"1px 3px",borderRadius:2,background:"rgba(255,159,10,.06)"}}>⚡{s.timing}</span>
                     <span style={{fontSize:8,fontWeight:900,color:s.durability>=55?C.emerald:C.muted,padding:"1px 3px",borderRadius:2,background:"rgba(48,209,88,.06)"}}>💪{s.durability}</span>
                     <div style={{flex:1}}/>
@@ -2000,6 +2015,7 @@ export default function App() {
                 {all.map((s,i)=>(
                   <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer"}}>
                     <span style={{fontWeight:700,fontSize:9,minWidth:60,maxWidth:82,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</span>
+                    <span style={{fontSize:7,color:C.muted,minWidth:45}}>{(s.ticker?.length||0)>5?"₩"+fmtKRW(s.price||0):"$"+(s.price||0).toFixed(1)}</span>
                     <div style={{flex:1,display:"flex",gap:2,flexWrap:"wrap"}}>{s.signals.map((sig,j)=><span key={j} style={{fontSize:6,padding:"1px 4px",borderRadius:3,background:`${sig.color}15`,border:`1px solid ${sig.color}40`,color:sig.color,fontWeight:700}}>{sig.type}</span>)}</div>
                     <div style={{textAlign:"right",minWidth:55}}>
                       <div style={{display:"flex",gap:3,justifyContent:"flex-end"}}>
@@ -2027,6 +2043,7 @@ export default function App() {
                 {all.map((s,i)=>(
                   <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 8px",borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer",background:i<3?"rgba(48,209,88,.04)":"transparent"}}>
                     <span style={{fontWeight:700,fontSize:9,minWidth:60,maxWidth:82,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</span>
+                    <span style={{fontSize:7,color:C.muted,minWidth:45}}>{(s.ticker?.length||0)>5?"₩"+fmtKRW(s.price||0):"$"+(s.price||0).toFixed(1)}</span>
                     <div style={{display:"flex",gap:4,alignItems:"center"}}>
                       <span style={{fontSize:9,fontWeight:900,color:"#FF9F0A",padding:"1px 4px",borderRadius:3,background:"rgba(255,159,10,.1)"}}>⚡{s.timing}</span>
                       <span style={{fontSize:9,fontWeight:900,color:C.emerald,padding:"1px 4px",borderRadius:3,background:"rgba(48,209,88,.1)"}}>💪{s.durability}</span>
