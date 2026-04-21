@@ -23,9 +23,9 @@ import {
 const C = {
   bg:"#0F1419", panel:"#1A2332", panel2:"#1E293B",
   border:"rgba(148,163,184,.12)", accent:"#3B82F6",
-  green:#22C55E, red:"#EF4444", yellow:"#F59E0B",
-  emerald:"#10B981", purple:#8B5CF6,
-  muted:"#64748B", text:"#E2E8F0", sub:"#94A3B8", ema:#F97316,
+  green:"#22C55E", red:"#EF4444", yellow:"#F59E0B",
+  emerald:"#10B981", purple:"#8B5CF6",
+  muted:"#64748B", text:"#E2E8F0", sub:"#94A3B8", ema:"#F97316",
   glass:"rgba(148,163,184,.06)",
 };
 const SIG = {
