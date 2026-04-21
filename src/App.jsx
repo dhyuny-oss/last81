@@ -2725,6 +2725,64 @@ export default function App() {
                         </div>
                       ))}
                     </div>
+                    {/* 기법별 성과 분석 */}
+                    <div style={{marginTop:10,padding:"8px 10px",background:"rgba(148,163,184,.04)",borderRadius:8}}>
+                      <div style={{fontSize:9,fontWeight:700,color:"#F59E0B",marginBottom:6}}>📋 기법별 성과</div>
+                      {(()=>{
+                        const byTag={};
+                        results.forEach(r=>{
+                          r.matched.forEach(m=>{
+                            if(!byTag[m.tag])byTag[m.tag]={count:0,wins:0,total:0,best:null,worst:null};
+                            byTag[m.tag].count++;
+                            if(r.ret>0)byTag[m.tag].wins++;
+                            byTag[m.tag].total+=r.ret;
+                            if(!byTag[m.tag].best||r.ret>byTag[m.tag].best.ret)byTag[m.tag].best=r;
+                            if(!byTag[m.tag].worst||r.ret<byTag[m.tag].worst.ret)byTag[m.tag].worst=r;
+                          });
+                        });
+                        return Object.entries(byTag).sort((a,b)=>b[1].total/b[1].count-a[1].total/a[1].count).map(([tag,d])=>{
+                          const wr=Math.round(d.wins/d.count*100);
+                          const avg=+(d.total/d.count).toFixed(2);
+                          return<div key={tag} style={{marginBottom:6,padding:"6px 8px",background:C.panel2,borderRadius:6}}>
+                            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
+                              <span style={{fontSize:8,fontWeight:700,color:tag==="D+0"?"#F97316":tag==="6체크"?C.emerald:C.accent,minWidth:45}}>{tag}</span>
+                              <span style={{fontSize:8,color:C.muted}}>{d.count}건</span>
+                              <div style={{flex:1,height:4,background:"rgba(148,163,184,.1)",borderRadius:2,overflow:"hidden"}}>
+                                <div style={{height:"100%",width:`${wr}%`,background:wr>=60?C.emerald:wr>=40?"#F59E0B":C.red,borderRadius:2}}/>
+                              </div>
+                              <span style={{fontSize:9,fontWeight:900,color:wr>=60?C.green:wr>=40?"#F59E0B":C.red,minWidth:28}}>{wr}%</span>
+                              <span style={{fontSize:9,fontWeight:900,color:avg>=0?C.green:C.red,minWidth:40,textAlign:"right"}}>{avg>=0?"+":""}{avg}%</span>
+                            </div>
+                            <div style={{fontSize:7,color:C.muted}}>
+                              최고: {d.best?`${fmtName(d.best)} ${d.best.ret>=0?"+":""}${d.best.ret}%`:"—"} · 최저: {d.worst?`${fmtName(d.worst)} ${d.worst.ret>=0?"+":""}${d.worst.ret}%`:"—"}
+                            </div>
+                          </div>;
+                        });
+                      })()}
+                    </div>
+                    {/* 개선 제안 */}
+                    <div style={{marginTop:8,padding:"8px 10px",background:"rgba(59,130,246,.04)",borderRadius:8,border:`1px solid rgba(59,130,246,.12)`}}>
+                      <div style={{fontSize:9,fontWeight:700,color:C.accent,marginBottom:4}}>💡 인사이트</div>
+                      {(()=>{
+                        const byTag2={};
+                        results.forEach(r=>r.matched.forEach(m=>{
+                          if(!byTag2[m.tag])byTag2[m.tag]={count:0,wins:0,total:0};
+                          byTag2[m.tag].count++;if(r.ret>0)byTag2[m.tag].wins++;byTag2[m.tag].total+=r.ret;
+                        }));
+                        const insights=[];
+                        const sorted2=Object.entries(byTag2).sort((a,b)=>(b[1].total/b[1].count)-(a[1].total/a[1].count));
+                        const best2=sorted2[0];const worst2=sorted2[sorted2.length-1];
+                        if(best2&&best2[1].total/best2[1].count>0)insights.push(`✅ ${best2[0]} 기법이 평균 +${(best2[1].total/best2[1].count).toFixed(1)}%로 가장 좋았습니다. 이 기법 위주로 매매하세요.`);
+                        if(worst2&&worst2[1].total/worst2[1].count<0&&worst2[0]!==best2?.[0])insights.push(`⚠️ ${worst2[0]} 기법은 평균 ${(worst2[1].total/worst2[1].count).toFixed(1)}%로 저조합니다. 조건 강화 또는 사용 축소를 고려하세요.`);
+                        const overallWr=Math.round(wins/results.length*100);
+                        if(overallWr>=60)insights.push("🟢 전체 승률 60%+ — 현재 전략이 시장에 잘 맞고 있습니다.");
+                        else if(overallWr>=40)insights.push("🟡 전체 승률 40~60% — 정상 범위. 손익비(R:R)로 수익 커버 가능.");
+                        else insights.push("🔴 전체 승률 40% 미만 — 시장 환경이 불리합니다. 매매를 줄이고 관망하세요.");
+                        if(avgRet>3)insights.push("📈 평균 +3% 이상 — 추세장입니다. 적극 매매 구간.");
+                        else if(avgRet<-1)insights.push("📉 평균 손실 구간 — 현금 비중을 높이고 관망하세요.");
+                        return insights.map((ins,i)=><div key={i} style={{fontSize:8,color:C.sub,marginBottom:3,lineHeight:1.5}}>{ins}</div>);
+                      })()}
+                    </div>
                   </>;
                 })()}
               </div>
