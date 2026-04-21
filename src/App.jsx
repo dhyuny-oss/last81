@@ -2523,11 +2523,15 @@ export default function App() {
               const rsi_rising=rsi_val>rsi_prev&&rsi_val>rsi_prev3&&rsi_val>=40; // RSI 3일 연속 우상향 + 40 이상
               const near_cloud=last.nearCloud||last.inCloud||(last.spanHigh&&last.close>=last.spanLow*0.97&&last.close<=last.spanHigh*1.03); // 구름 인접
               const rs_positive=rs>0;
+              const tr_volUp=volR>=110; // 거래량 110%+
+              const tr_macdUp=(last.macd>last.signal)||(last.hist>0&&prev?.hist<=0)||(last.hist>(prev?.hist||0)); // MACD 양전 또는 히스토 상승
               const tr_checks=[
                 {ok:st_rising||st_is2,label:"ST↑2"},
                 {ok:rsi_rising,label:"RSI↑"},
-                {ok:near_cloud,label:"구름인접"},
-                {ok:rs_positive,label:"RS강"},
+                {ok:near_cloud,label:"구름"},
+                {ok:rs_positive,label:"RS"},
+                {ok:tr_volUp,label:"거래량"},
+                {ok:tr_macdUp,label:"MACD"},
               ];
               const tr_score=tr_checks.filter(c=>c.ok).length;
 
@@ -2540,8 +2544,8 @@ export default function App() {
             const sjhits=scanned.filter(s=>s.sj_score>=4).sort((a,b)=>b.sj_score-a.sj_score);
             // 엔벨로프 하단 근접
             const envhits=scanned.filter(s=>s.nearEnv&&s.mktCap>(s.isKR?500:5)).sort((a,b)=>a.price/a.envLower-b.price/b.envLower);
-            // 추세 전환 초기 (3/4 이상)
-            const trhits=scanned.filter(s=>s.tr_score>=3).sort((a,b)=>b.tr_score-a.tr_score||b.rs-a.rs);
+            // 추세 전환 초기 (5/6 이상)
+            const trhits=scanned.filter(s=>s.tr_score>=5).sort((a,b)=>b.tr_score-a.tr_score||b.rs-a.rs);
 
             return<>
               {/* ── D+0 장대양봉 돌파 ── */}
@@ -2625,12 +2629,12 @@ export default function App() {
 
               {/* ── 추세 전환 초기 감지 ── */}
               <div style={css.card}>
-                <div style={{fontSize:11,fontWeight:700,color:C.accent,marginBottom:4}}>🔄 추세 전환 초기 — ST 상승 + RSI 우상향</div>
-                <div style={{fontSize:8,color:C.muted,marginBottom:8}}>ST 1→2 전환 + RSI 상승세 + 구름 인접 + RS 양수 → 3/3 되기 전 선점</div>
+                <div style={{fontSize:11,fontWeight:700,color:C.accent,marginBottom:4}}>🔄 추세 전환 초기 — ST↑ + RSI↑ + 구름 + 거래량</div>
+                <div style={{fontSize:8,color:C.muted,marginBottom:8}}>ST 2/3 + RSI 우상향 + 구름 인접 + RS 강 + 거래량 110%+ + MACD↑ → 5/6 이상</div>
                 {trhits.length===0?<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:9}}>현재 추세 전환 초기 종목 없음</div>
                 :<div style={{maxHeight:350,overflowY:"auto"}}>
                   {trhits.map((s,i)=>(
-                    <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s,"스캐너_전환")} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 8px",borderBottom:`1px solid rgba(148,163,184,.06)`,cursor:"pointer",background:s.tr_score>=4?"rgba(59,130,246,.06)":"transparent"}}>
+                    <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s,"스캐너_전환")} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 8px",borderBottom:`1px solid rgba(148,163,184,.06)`,cursor:"pointer",background:s.tr_score>=6?"rgba(59,130,246,.06)":"transparent"}}>
                       <span style={{fontSize:9,fontWeight:900,color:C.accent,minWidth:14}}>{i+1}</span>
                       <div style={{minWidth:65,maxWidth:80}}>
                         <div style={{fontWeight:700,fontSize:9,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</div>
@@ -2641,7 +2645,7 @@ export default function App() {
                       </div>
                       <div style={{textAlign:"right",minWidth:50}}>
                         <div style={{fontSize:8,color:C.muted}}>ST {s.stCount}/3 · RSI {s.rsi_val}</div>
-                        <div style={{fontSize:9,fontWeight:700,color:s.tr_score>=4?C.accent:C.muted}}>{s.tr_score}/4</div>
+                        <div style={{fontSize:9,fontWeight:700,color:s.tr_score>=6?C.accent:C.muted}}>{s.tr_score}/6</div>
                       </div>
                     </div>
                   ))}
