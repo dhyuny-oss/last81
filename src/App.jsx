@@ -2653,6 +2653,82 @@ export default function App() {
                 <div style={{fontSize:7,color:C.muted,marginTop:6}}>ST 3/3 완성 전 선점 · 구름 돌파 확인 후 매수 · 3/3 미완성 시 손절 -5%</div>
               </div>
 
+              {/* ── 1주 전 검증 ── */}
+              <div style={css.card}>
+                <div style={{fontSize:11,fontWeight:700,color:"#F59E0B",marginBottom:4}}>📊 1주 전 검증 — 그때 샀으면?</div>
+                <div style={{fontSize:8,color:C.muted,marginBottom:8}}>5일 전 시점에 각 기법 조건을 충족했던 종목의 실제 수익률</div>
+                {(()=>{
+                  // 5일 전 데이터로 각 기법 역산
+                  const results=[];
+                  scanned.forEach(s=>{
+                    const cd=charts[s.ticker]?.data;
+                    if(!cd||cd.length<10)return;
+                    const L=cd.length;
+                    const ago=cd[L-6];const ago2=cd[L-7];const now2=cd[L-1];
+                    if(!ago||!ago2||!now2)return;
+                    const priceThen=ago.close;const priceNow=now2.close;
+                    const ret=+((priceNow-priceThen)/priceThen*100).toFixed(2);
+                    const closes5=cd.slice(0,L-5).map(x=>x.close);
+                    const prevH5=closes5.length>5?Math.max(...closes5.slice(-20)):0;
+                    const w52h5=Math.max(...closes5.slice(-252));
+                    const volR5=ago.volume&&cd.slice(L-26,L-6).length>0?Math.round(ago.volume/(cd.slice(L-26,L-6).reduce((a,x)=>a+x.volume,0)/20)*100):100;
+                    const isB=ago.isBull;const bPct=ago.bodyPct||0;const uW=ago.upperWickPct||0;
+                    const rsAgo=L>10?+((ago.close-cd[L-11].close)/cd[L-11].close*100-((now2.close-cd[L-6].close)/cd[L-6].close*100||0)).toFixed(1):0;
+                    // D+0 체크 (5일 전 기준)
+                    const d0c=[priceThen>=prevH5*0.98,bPct>=5,volR5>=150,rsAgo>0,isB,isB&&uW<20].filter(Boolean).length;
+                    // 6체크 (5일 전 기준)
+                    const sjc=[priceThen>=w52h5*0.95,priceThen>=prevH5*0.95,isB&&volR5>=150,volR5>=150,isB&&uW<20,ago.sqzOff||(!ago.sqzOn&&ago2?.sqzOn)].filter(Boolean).length;
+                    // 진입적기 근사 (5일 전 기준)
+                    const stC5=[ago.st1Bull,ago.st2Bull,ago.st3Bull].filter(v=>v!=null).length;
+                    const macdUp5=ago.macd>ago.signal;
+                    const rsi5=ago.rsi||0;
+                    const entryLike=stC5===3&&macdUp5&&rsi5>=50&&rsi5<=70;
+                    const matched=[];
+                    if(d0c>=4)matched.push({tag:"D+0",score:d0c+"/6"});
+                    if(sjc>=4)matched.push({tag:"6체크",score:sjc+"/6"});
+                    if(entryLike)matched.push({tag:"진입적기",score:"ST3+MACD"});
+                    if(matched.length>0)results.push({...s,priceThen,priceNow:now2.close,ret,matched});
+                  });
+                  results.sort((a,b)=>b.ret-a.ret);
+                  if(!results.length)return<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:9}}>5일 전 기준 조건 충족 종목 없음</div>;
+                  const wins=results.filter(r=>r.ret>0).length;
+                  const avgRet=+(results.reduce((a,r)=>a+r.ret,0)/results.length).toFixed(2);
+                  return<>
+                    <div style={{display:"flex",gap:8,marginBottom:8}}>
+                      <div style={{background:C.panel2,borderRadius:6,padding:"4px 8px",textAlign:"center",flex:1}}>
+                        <div style={{fontSize:7,color:C.muted}}>종목수</div>
+                        <div style={{fontSize:14,fontWeight:900,color:C.text}}>{results.length}</div>
+                      </div>
+                      <div style={{background:C.panel2,borderRadius:6,padding:"4px 8px",textAlign:"center",flex:1}}>
+                        <div style={{fontSize:7,color:C.muted}}>승률</div>
+                        <div style={{fontSize:14,fontWeight:900,color:wins/results.length>=0.5?C.green:C.red}}>{Math.round(wins/results.length*100)}%</div>
+                      </div>
+                      <div style={{background:C.panel2,borderRadius:6,padding:"4px 8px",textAlign:"center",flex:1}}>
+                        <div style={{fontSize:7,color:C.muted}}>평균수익</div>
+                        <div style={{fontSize:14,fontWeight:900,color:avgRet>=0?C.green:C.red}}>{avgRet>=0?"+":""}{avgRet}%</div>
+                      </div>
+                    </div>
+                    <div style={{maxHeight:300,overflowY:"auto"}}>
+                      {results.map((r,i)=>(
+                        <div key={r.ticker} onClick={()=>navigateToStock(r.ticker,r)} style={{display:"flex",alignItems:"center",gap:5,padding:"5px 6px",borderBottom:`1px solid rgba(148,163,184,.04)`,cursor:"pointer"}}>
+                          <span style={{fontSize:8,fontWeight:700,minWidth:14,color:C.muted}}>{i+1}</span>
+                          <div style={{minWidth:55,maxWidth:72}}>
+                            <div style={{fontWeight:700,fontSize:9,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(r)}</div>
+                          </div>
+                          <div style={{display:"flex",gap:2,flex:1,flexWrap:"wrap"}}>
+                            {r.matched.map((m,j)=><span key={j} style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:m.tag==="D+0"?"rgba(249,115,22,.1)":m.tag==="6체크"?"rgba(34,197,94,.1)":"rgba(59,130,246,.1)",color:m.tag==="D+0"?"#F97316":m.tag==="6체크"?C.emerald:C.accent,fontWeight:700}}>{m.tag} {m.score}</span>)}
+                          </div>
+                          <div style={{textAlign:"right",minWidth:55}}>
+                            <div style={{fontSize:8,color:C.muted}}>{r.isKR?"₩"+fmtKRW(r.priceThen):"$"+r.priceThen.toFixed(1)} →</div>
+                            <div style={{fontSize:10,fontWeight:900,color:r.ret>=0?C.green:C.red}}>{r.ret>=0?"+":""}{r.ret}%</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>;
+                })()}
+              </div>
+
               {/* 기법 설명 */}
               <div style={{marginTop:10,padding:"10px 12px",background:"rgba(255,255,255,.02)",borderRadius:8,border:`1px solid ${C.border}`}}>
                 <div style={{fontSize:9,fontWeight:700,color:C.muted,marginBottom:6}}>📖 기법 요약</div>
