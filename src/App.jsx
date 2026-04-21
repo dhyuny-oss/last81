@@ -2683,10 +2683,24 @@ export default function App() {
                     const macdUp5=ago.macd>ago.signal;
                     const rsi5=ago.rsi||0;
                     const entryLike=stC5===3&&macdUp5&&rsi5>=50&&rsi5<=70;
+                    // 종합추천 근사 (5일 전 기준) — ST+구름+MACD+RS+거래량 종합
+                    const cloud5=ago.aboveCloud||ago.close>(ago.spanHigh||0);
+                    const adxOk=(ago.adx||0)>=25;
+                    const alphaLike=stC5>=2&&(macdUp5||cloud5)&&rsi5>=40&&rsi5<=80;
+                    const alphaScore5=(stC5>=3?25:stC5>=2?15:0)+(cloud5?20:0)+(macdUp5?15:0)+(adxOk?15:0)+(volR5>=150?15:0)+(rsi5>=50&&rsi5<=70?10:0);
+                    // 돌파감지 근사 (5일 전 기준) — 새 신호 동시 발생
+                    const prevStC=[ago2?.st1Bull,ago2?.st2Bull,ago2?.st3Bull].filter(v=>v!=null).length;
+                    const stFlip5=stC5===3&&prevStC<3;
+                    const macdFlip5=macdUp5&&!(ago2?.macd>ago2?.signal);
+                    const cloudFlip5=cloud5&&!ago2?.aboveCloud;
+                    const volSpike5=volR5>=200;
+                    const breakoutSigs=[stFlip5&&"ST플립",macdFlip5&&"MACD↑",cloudFlip5&&"구름돌파",volSpike5&&"거래폭발",(ago.sqzOff&&!ago2?.sqzOff)&&"스퀴즈"].filter(Boolean);
                     const matched=[];
+                    if(alphaScore5>=75)matched.push({tag:"AI추천",score:alphaScore5+"pt"});
+                    if(breakoutSigs.length>=2)matched.push({tag:"돌파감지",score:breakoutSigs.length+"개"});
                     if(d0c>=4)matched.push({tag:"D+0",score:d0c+"/6"});
                     if(sjc>=4)matched.push({tag:"6체크",score:sjc+"/6"});
-                    if(entryLike)matched.push({tag:"진입적기",score:"ST3+MACD"});
+                    if(entryLike)matched.push({tag:"진입적기",score:"ST3"});
                     if(matched.length>0)results.push({...s,priceThen,priceNow:now2.close,ret,matched});
                   });
                   results.sort((a,b)=>b.ret-a.ret);
@@ -2716,7 +2730,7 @@ export default function App() {
                             <div style={{fontWeight:700,fontSize:9,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(r)}</div>
                           </div>
                           <div style={{display:"flex",gap:2,flex:1,flexWrap:"wrap"}}>
-                            {r.matched.map((m,j)=><span key={j} style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:m.tag==="D+0"?"rgba(249,115,22,.1)":m.tag==="6체크"?"rgba(34,197,94,.1)":"rgba(59,130,246,.1)",color:m.tag==="D+0"?"#F97316":m.tag==="6체크"?C.emerald:C.accent,fontWeight:700}}>{m.tag} {m.score}</span>)}
+                            {r.matched.map((m,j)=><span key={j} style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:m.tag==="AI추천"?"rgba(139,92,246,.1)":m.tag==="돌파감지"?"rgba(34,197,94,.12)":m.tag==="D+0"?"rgba(249,115,22,.1)":m.tag==="6체크"?"rgba(34,197,94,.1)":"rgba(59,130,246,.1)",color:m.tag==="AI추천"?C.purple:m.tag==="돌파감지"?C.emerald:m.tag==="D+0"?"#F97316":m.tag==="6체크"?C.emerald:C.accent,fontWeight:700}}>{m.tag} {m.score}</span>)}
                           </div>
                           <div style={{textAlign:"right",minWidth:55}}>
                             <div style={{fontSize:8,color:C.muted}}>{r.isKR?"₩"+fmtKRW(r.priceThen):"$"+r.priceThen.toFixed(1)} →</div>
@@ -2745,7 +2759,7 @@ export default function App() {
                           const avg=+(d.total/d.count).toFixed(2);
                           return<div key={tag} style={{marginBottom:6,padding:"6px 8px",background:C.panel2,borderRadius:6}}>
                             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-                              <span style={{fontSize:8,fontWeight:700,color:tag==="D+0"?"#F97316":tag==="6체크"?C.emerald:C.accent,minWidth:45}}>{tag}</span>
+                              <span style={{fontSize:8,fontWeight:700,color:tag==="AI추천"?C.purple:tag==="돌파감지"?C.emerald:tag==="D+0"?"#F97316":tag==="6체크"?C.emerald:C.accent,minWidth:45}}>{tag}</span>
                               <span style={{fontSize:8,color:C.muted}}>{d.count}건</span>
                               <div style={{flex:1,height:4,background:"rgba(148,163,184,.1)",borderRadius:2,overflow:"hidden"}}>
                                 <div style={{height:"100%",width:`${wr}%`,background:wr>=60?C.emerald:wr>=40?"#F59E0B":C.red,borderRadius:2}}/>
