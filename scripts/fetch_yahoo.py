@@ -12,6 +12,95 @@ from datetime import datetime, timezone, timedelta
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 MODE = os.environ.get("COLLECT_MODE", "hourly")
 
+# ── 텔레그램 알림 ────────────────────────────────────────
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+def send_telegram(msg):
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        print("  ⚠️ 텔레그램 토큰/채팅ID 미설정 — 알림 건너뜀")
+        return False
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        r = requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML"}, timeout=10)
+        if r.status_code == 200:
+            print("  📨 텔레그램 알림 전송 완료")
+            return True
+        else:
+            print(f"  ⚠️ 텔레그램 실패: {r.status_code}")
+            return False
+    except Exception as e:
+        print(f"  ⚠️ 텔레그램 오류: {e}")
+        return False
+
+def build_daily_report(alpha_hits, pool_data, pool):
+    """daily 완료 후 텔레그램 리포트 생성"""
+    now = datetime.now(timezone(timedelta(hours=9)))
+    lines = [f"📊 <b>Alpha Terminal 리포트</b>", f"🕐 {now.strftime('%m/%d %H:%M')} KST", ""]
+
+    # 진입적기 (⚡55+ 💪55+) — alpha_hits에서 timing/durability 확인
+    entry_stocks = []
+    for h in alpha_hits[:30]:
+        t = h.get("ticker","")
+        timing = h.get("timing", 0)
+        durability = h.get("durability", 0)
+        if timing >= 55 and durability >= 55:
+            entry_stocks.append(h)
+    if entry_stocks:
+        lines.append("🎯 <b>진입적기</b> (⚡55+ 💪55+)")
+        for s in entry_stocks[:5]:
+            label = s.get("label", s.get("ticker",""))
+            lines.append(f"  • {label} ⚡{s.get('timing',0)} 💪{s.get('durability',0)} {s.get('score',0)}pt")
+        lines.append("")
+
+    # 돌파감지 (장대양봉 + 전고점)
+    breakout = []
+    for h in alpha_hits[:30]:
+        sigs = h.get("signals", [])
+        if len(sigs) >= 2:
+            breakout.append(h)
+    if breakout:
+        lines.append("🔥 <b>돌파감지</b> (2개+ 동시)")
+        for s in breakout[:5]:
+            label = s.get("label", s.get("ticker",""))
+            sigs = ", ".join(s.get("signals",[])[:3])
+            lines.append(f"  • {label} [{sigs}]")
+        lines.append("")
+
+    # 과매수 경고 (RSI 75+/80+)
+    overbought = []
+    for ticker, stock in pool_data.items():
+        candles = stock.get("candles", [])
+        if not candles or len(candles) < 14:
+            continue
+        # 간단 RSI 계산
+        closes = [c["close"] for c in candles[-15:]]
+        gains, losses = [], []
+        for i in range(1, len(closes)):
+            diff = closes[i] - closes[i-1]
+            gains.append(max(diff, 0))
+            losses.append(max(-diff, 0))
+        avg_gain = sum(gains) / len(gains) if gains else 0
+        avg_loss = sum(losses) / len(losses) if losses else 1
+        rs = avg_gain / avg_loss if avg_loss > 0 else 100
+        rsi = 100 - (100 / (1 + rs))
+        isKR = len(ticker) > 5
+        threshold = 80 if isKR else 75
+        if rsi >= threshold:
+            info = pool.get(ticker, stock)
+            overbought.append({"ticker": ticker, "label": info.get("label", ticker), "rsi": round(rsi, 1)})
+    if overbought:
+        overbought.sort(key=lambda x: x["rsi"], reverse=True)
+        lines.append("📈 <b>과매수 주의</b>")
+        for s in overbought[:5]:
+            lines.append(f"  • {s['label']} RSI {s['rsi']}")
+        lines.append("")
+
+    # 요약
+    lines.append(f"📡 스캔: {len(pool_data)}종목 | 알파: {len(alpha_hits)}개")
+
+    return "\n".join(lines)
+
 # ── 한국투자증권 API ──────────────────────────────────────
 KIS_APP_KEY = os.environ.get("KIS_APP_KEY", "")
 KIS_APP_SECRET = os.environ.get("KIS_APP_SECRET", "")
@@ -809,6 +898,30 @@ def main():
             print(f"✅ {price:,.2f} ({changePct:+.2f}%)")
         except Exception as e:
             print(f"❌ {e}")
+
+    # ── 공포탐욕지수 (CNN Fear & Greed) ─────────────────
+    print("😱 공포탐욕지수 수집...")
+    try:
+        fg_url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
+        fg_headers = {**HEADERS, "Accept": "application/json"}
+        fg_r = requests.get(fg_url, headers=fg_headers, timeout=10)
+        if fg_r.status_code == 200:
+            fg_data = fg_r.json()
+            fg_score = fg_data.get("fear_and_greed", {}).get("score", 0)
+            fg_rating = fg_data.get("fear_and_greed", {}).get("rating", "")
+            fg_prev = fg_data.get("fear_and_greed_historical", {}).get("previous_close", 0)
+            output["fearGreed"] = {
+                "score": round(fg_score, 1),
+                "rating": fg_rating,
+                "prevClose": round(fg_prev, 1) if fg_prev else 0,
+                "updatedAt": now_str
+            }
+            print(f"  ✅ {fg_score:.0f} ({fg_rating})")
+        else:
+            print(f"  ⚠️ HTTP {fg_r.status_code}")
+    except Exception as e:
+        print(f"  ⚠️ {e}")
+        output["fearGreed"] = output.get("fearGreed", {})
         time.sleep(0.5)
 
     if MODE == "quarterly":
@@ -1111,6 +1224,14 @@ def main():
     print(f"  ✅ 완료 ({size_kb:.1f}KB)")
     print(f"  📡 API 요청: {_request_count}건 / 레이트리밋: {_rate_limit_hits}회")
     print(f"{'='*60}\n")
+
+    # ★ v2.3: 텔레그램 알림 (daily 완료 후)
+    if MODE == "daily":
+        try:
+            report = build_daily_report(alpha_hits, pool_data, pool)
+            send_telegram(report)
+        except Exception as e:
+            print(f"  ⚠️ 텔레그램 리포트 생성 실패: {e}")
 
 if __name__ == "__main__":
     main()
