@@ -29,7 +29,7 @@ const C = {
   glass:"rgba(148,163,184,.06)",
 };
 const SIG = {
-  BUY:  { bg:"rgba(34,197,94,.08)", color:#22C55E, border:"rgba(34,197,94,.25)" },
+  BUY:  { bg:"rgba(34,197,94,.08)", color:"#22C55E", border:"rgba(34,197,94,.25)" },
   HOLD: { bg:"rgba(245,158,11,.06)",  color:"#F59E0B", border:"rgba(245,158,11,.2)"  },
   SELL: { bg:"rgba(239,68,68,.06)", color:"#EF4444", border:"rgba(239,68,68,.2)" },
 };
