@@ -1408,6 +1408,7 @@ export default function App() {
   }, [stocks, pool]);
 
   const alphaHits=allStocksForScan.filter(s=>{
+    if(!charts[s.ticker]?.real)return false; // ★ 시뮬 차트 제외 — 실제 데이터만
     const isKR=(s.market||"").includes("kr")||(s.ticker||"").length>5;
     if((s.volRatio||100)<fVolRatio)return false;
     if(fMarket==="kr"&&!isKR)return false;
