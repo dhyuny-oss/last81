@@ -702,9 +702,6 @@ def get_us_stocks():
             "FDX","DAL","UAL","LUV","AAL",
             # ── 리얼에셋 · 인프라 (10) ──
             "AMT","PLD","CCI","EQIX","DLR","SPG","O","WELL","AVB","EQR",
-            # ── 밈 · 소셜 화제 (15) ──
-            "GME","AMC","BBBY","CLOV","WISH","OPEN","LAZR","MVST","QS","CHPT",
-            "PLUG","BLNK","GOEV","WKHS","NKLA",
             # ── 최근 IPO · 고성장 (20) ──
             "CART","BIRK","VRT","IBKR","CAVA","DUOL","TOST","KVYO","ONON","CELH",
             "LNTH","IOT","SRAD","GFS","DOCS","GTLB","BRZE","RBRK","RDDT","MNDY",
@@ -1035,15 +1032,15 @@ def main():
         # RS 상위 50 + 알파점수 상위 50 합산 (중복 제거)
         candle_keepers = set()
         rs_sorted = sorted(pool_data.items(), key=lambda x: x[1].get("rsPctRank",0), reverse=True)
-        for t, _ in rs_sorted[:50]:
+        for t, _ in rs_sorted[:120]:
             candle_keepers.add(t)
-        for hit in alpha_hits[:50]:
+        for hit in alpha_hits[:120]:
             candle_keepers.add(hit["ticker"])
         # 관심종목도 무조건 포함
         watchlist = load_watchlist()
         for t in watchlist:
             candle_keepers.add(t)
-        print(f"\n📊 캔들 보존 대상: {len(candle_keepers)}개 (RS상위50 + 알파50 + 관심종목)")
+        print(f"\n📊 캔들 보존 대상: {len(candle_keepers)}개 (RS상위120 + 알파120 + 관심종목)")
 
         pool_slim = {}
         for ticker, stock in pool_data.items():
