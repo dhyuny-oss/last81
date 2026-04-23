@@ -1122,6 +1122,51 @@ def main():
                 time.sleep(0.05)  # 한투 API 초당 20건 제한
 
             print(f"  ✅ 현재가 갱신: {updated}건 성공 / {failed}건 실패 / {total}건 전체")
+
+            # ★ v2.3: 상위 50종목 캔들 갱신 (장중 지표 업데이트)
+            print("\n📊 상위 종목 캔들 갱신...")
+            candle_stocks = [(t,s) for t,s in output.get("stocks",{}).items() if s.get("candles") and len(s["candles"])>=10]
+            candle_stocks.sort(key=lambda x: x[1].get("rsPctRank",0), reverse=True)
+            top50 = candle_stocks[:80]
+            candle_updated = 0
+            for ticker, stock in top50:
+                try:
+                    isKR = (stock.get("market","") == "kr") or len(ticker) > 5
+                    suffix = ".KS" if isKR and not ticker.endswith(".KS") else ""
+                    yahoo_ticker = ticker + suffix if isKR else ticker
+                    raw = fetch_yahoo(yahoo_ticker, range_="5d")
+                    if not raw: continue
+                    candles, meta = parse_candles(raw)
+                    if not candles: continue
+                    # 기존 캔들에 최신 캔들 병합 (날짜 기준)
+                    old_candles = stock.get("candles", [])
+                    old_dates = {c["date"] for c in old_candles}
+                    merged = list(old_candles)
+                    for nc in candles:
+                        if nc["date"] in old_dates:
+                            # 같은 날짜면 업데이트 (장중 캔들 갱신)
+                            merged = [nc if c["date"]==nc["date"] else c for c in merged]
+                        else:
+                            merged.append(nc)
+                    merged.sort(key=lambda x: x["date"])
+                    # 최대 130일치 유지
+                    if len(merged) > 130:
+                        merged = merged[-130:]
+                    price = float(meta.get("regularMarketPrice") or candles[-1]["close"])
+                    prev = float(meta.get("previousClose") or meta.get("chartPreviousClose") or price)
+                    changePct = round((price-prev)/prev*100,2) if prev else 0
+                    output["stocks"][ticker]["candles"] = merged
+                    output["stocks"][ticker]["price"] = price
+                    output["stocks"][ticker]["changePct"] = changePct
+                    output["stocks"][ticker]["chg3d"] = calc_change(merged, 3)
+                    output["stocks"][ticker]["chg5d"] = calc_change(merged, 5)
+                    output["stocks"][ticker]["volRatio"] = calc_vol_ratio(merged)
+                    output["stocks"][ticker]["updatedAt"] = now_str
+                    candle_updated += 1
+                except Exception as e:
+                    pass
+                time.sleep(0.3)
+            print(f"  ✅ 캔들 갱신: {candle_updated}/{len(top50)}종목")
         else:
             # 한투 API 없으면 관심종목만 Yahoo로
             print("  ℹ️ 한투 API 없음 — 관심종목만 Yahoo 업데이트")
