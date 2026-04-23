@@ -1930,19 +1930,34 @@ export default function App() {
         {/* ══ TAB: 집중 — 오늘의 통합 추천 ══ */}
         {tab==="focus"&&<div style={{padding:"12px 14px"}}>
           <div style={{fontSize:13,fontWeight:900,color:C.accent,marginBottom:4,borderLeft:`3px solid ${C.accent}`,paddingLeft:8}}>🎯 오늘의 추천</div>
-          <div style={{fontSize:9,color:C.sub,marginBottom:8}}>모든 기법 통합 스캔 — 다중 기법 매칭 종목 우선</div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <div style={{fontSize:9,color:C.sub}}>모든 기법 통합 스캔 — 다중 기법 매칭 종목 우선</div>
+            {lastUpdated&&<div style={{fontSize:7,color:C.muted}}>📡 {lastUpdated}</div>}
+          </div>
           <div style={{display:"flex",gap:4,marginBottom:10}}>
             {[["all","전체"],["kr","🇰🇷 한국"],["us","🇺🇸 미국"]].map(([v,l])=>(
               <button key={v} onClick={()=>setFocusMarket(v)} style={{padding:"4px 12px",borderRadius:5,border:`1px solid ${focusMarket===v?C.accent:C.border}`,background:focusMarket===v?"rgba(59,130,246,.12)":"transparent",color:focusMarket===v?C.accent:C.muted,fontSize:9,fontWeight:focusMarket===v?700:400,cursor:"pointer"}}>{l}</button>
             ))}
           </div>
+          {/* 시장 상태 경고 */}
+          {oppScore<45&&<div style={{padding:"8px 12px",marginBottom:8,background:"rgba(239,68,68,.08)",borderRadius:8,border:"1px solid rgba(239,68,68,.2)"}}>
+            <div style={{fontSize:9,fontWeight:700,color:C.red}}>⚠️ 기회점수 {Math.round(oppScore)} LOW — 매수 비추천 구간</div>
+            <div style={{fontSize:8,color:C.muted}}>시장 환경이 불리합니다. 아래 추천은 참고만 하고 현금 비중을 높이세요.</div>
+          </div>}
+          {oppScore>=45&&oppScore<70&&<div style={{padding:"6px 12px",marginBottom:8,background:"rgba(245,158,11,.06)",borderRadius:8,border:"1px solid rgba(245,158,11,.15)"}}>
+            <div style={{fontSize:8,color:"#F59E0B"}}>🟡 기회점수 {Math.round(oppScore)} — 선별적 매수. 확실한 종목만.</div>
+          </div>}
           {(()=>{
           const realStocks = allStocksForScan.filter(s=>charts[s.ticker]?.real).filter(s=>focusMarket==="all"?true:focusMarket==="kr"?((s.ticker?.length||0)>5||(s.market||"").includes("kr")):((s.ticker?.length||0)<=5&&!(s.market||"").includes("kr"))).filter(s=>{
             const isKR2=(s.ticker?.length||0)>5||(s.market||"").includes("kr");
             if(!isKR2&&s.mktCap>0&&s.mktCap<3)return false;
+            if(isKR2&&s.mktCap>0&&s.mktCap<1000)return false; // 한국 시총 1000억 미만 제외
             return true;
           });
           if(!realStocks.length)return<div style={{textAlign:"center",padding:"20px",color:C.muted,fontSize:9}}>실시간 데이터 로딩 중... Daily Actions 실행 후 확인해주세요</div>;
+
+          // 기회점수 LOW 경고
+          const oppWarn=oppScore<45;
 
           // ★ 모든 기법 통합 스캔
           const unified=realStocks.map(s=>{
@@ -1982,11 +1997,19 @@ export default function App() {
             const trc=[(stT>=2&&stY<stT)||stT===2,rsiR,nearCl,rs2>0,volR>=stratCfg.tr.volMin,macdU2].filter(Boolean).length;
             if(trc>=stratCfg.tr.minScore)tags.push({tag:"전환초기",color:C.accent,score:trc+"/6"});
             if(!tags.length)return null;
-            return{...s,tags,tagCount:tags.length,score:asc.score,timing:tm.score,durability:dr.score,rs:rs2,stCount:stT};
+            return{...s,tags,tagCount:tags.length,score:asc.score,timing:tm.score,durability:dr.score,rs:rs2,stCount:stT,candleClose:last.close};
           }).filter(Boolean).sort((a,b)=>b.tagCount-a.tagCount||b.score-a.score);
 
           const multiTag=unified.filter(u=>u.tagCount>=2).length;
           return<>
+          {/* 기회점수 LOW 경고 */}
+          {oppWarn&&<div style={{background:"rgba(239,68,68,.08)",border:"1px solid rgba(239,68,68,.2)",borderRadius:8,padding:"8px 12px",marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
+            <span style={{fontSize:14}}>⚠️</span>
+            <div>
+              <div style={{fontSize:9,fontWeight:700,color:C.red}}>기회점수 {oppScore} LOW — 매수 주의</div>
+              <div style={{fontSize:7,color:C.muted}}>시장 환경이 불리합니다. 오늘은 관망을 권장합니다.</div>
+            </div>
+          </div>}
           {/* 요약 카드 */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:12}}>
             <div style={{background:C.panel2,borderRadius:8,padding:"8px",textAlign:"center"}}>
@@ -2025,7 +2048,10 @@ export default function App() {
                 </div>
                 <div style={{textAlign:"right",minWidth:45}}>
                   <div style={{fontSize:9,fontWeight:700,color:(s.changePct||0)>=0?C.green:C.red}}>{(s.changePct||0)>=0?"+":""}{(s.changePct||0).toFixed(1)}%</div>
-                  <div style={{fontSize:7,color:(s.chg3d||0)>=0?C.green:C.red}}>3D {(s.chg3d||0)>=0?"+":""}{(s.chg3d||0).toFixed(1)}%</div>
+                  {(()=>{const div=s.candleClose&&s.price?+((s.price-s.candleClose)/s.candleClose*100).toFixed(1):0;
+                    if(Math.abs(div)>=3)return<div style={{fontSize:6,color:C.red,fontWeight:700}}>⚠️ 지표대비 {div>0?"+":""}{div}%</div>;
+                    return<div style={{fontSize:7,color:(s.chg3d||0)>=0?C.green:C.red}}>3D {(s.chg3d||0)>=0?"+":""}{(s.chg3d||0).toFixed(1)}%</div>;
+                  })()}
                 </div>
               </div>
             ))}
