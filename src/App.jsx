@@ -2695,10 +2695,11 @@ export default function App() {
                     const avg=total>0?+(p.t/total).toFixed(1):null;
                     // 자동 제안
                     let suggestion=null;
-                    if(total>=3&&wr!==null&&wr<40)suggestion={text:"승률 낮음 → 조건 강화 추천",color:C.red,action:"up"};
-                    else if(total>=3&&wr>=70&&total<=3)suggestion={text:"승률 높으나 종목 적음 → 완화 가능",color:C.accent,action:"down"};
-                    else if(total>=3&&wr>=50)suggestion={text:"현재 설정 유지",color:C.emerald,action:null};
-                    else if(total===0)suggestion={text:"데이터 부족 — 다음 주 확인",color:C.muted,action:null};
+                    if(total===0)suggestion={text:"데이터 부족 — 1주 전 검증 결과가 쌓이면 제안됩니다",color:C.muted};
+                    else if(wr!==null&&wr<40)suggestion={text:`승률 ${wr}% → 조건 강화 추천 (슬라이더를 올려보세요)`,color:C.red};
+                    else if(wr>=70&&total<=3)suggestion={text:`승률 ${wr}%로 우수하나 ${total}건뿐 → 조건 완화해서 후보 늘리기`,color:C.accent};
+                    else if(wr>=60)suggestion={text:`승률 ${wr}% — 현재 설정이 잘 맞고 있습니다 ✅`,color:C.emerald};
+                    else suggestion={text:`승률 ${wr}% — 보통. 조건 강화하면 승률↑ 종목수↓`,color:"#F59E0B"};
                     return<div key={st.key} style={{marginBottom:10,padding:"8px 10px",background:C.panel2,borderRadius:8}}>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
                         <span style={{fontSize:10,fontWeight:700}}>{st.name}</span>
