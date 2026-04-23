@@ -775,6 +775,11 @@ export default function App() {
   const STRATEGY_DEFAULTS={d0:{bodyPct:5,volMin:150,minScore:4},sj:{highPct:95,minScore:4},entry:{timingMin:55,durMin:55},tr:{volMin:110,minScore:5}};
   const [stratCfg,setStratCfg]=useState(()=>{try{const s=localStorage.getItem("at_strat_cfg");return s?JSON.parse(s):STRATEGY_DEFAULTS;}catch{return STRATEGY_DEFAULTS;}});
   useEffect(()=>{localStorage.setItem("at_strat_cfg",JSON.stringify(stratCfg));},[stratCfg]);
+  const [expandedCombo,setExpandedCombo]=useState(null); // 패턴 발굴 확장
+  const [customCombos,setCustomCombos]=useState(()=>{try{const s=localStorage.getItem("at_custom_combos");return s?JSON.parse(s):[];}catch{return [];}});
+  useEffect(()=>{localStorage.setItem("at_custom_combos",JSON.stringify(customCombos));},[customCombos]);
+  const [comboHistory,setComboHistory]=useState(()=>{try{const s=localStorage.getItem("at_combo_history");return s?JSON.parse(s):[];}catch{return [];}});
+  useEffect(()=>{localStorage.setItem("at_combo_history",JSON.stringify(comboHistory));},[comboHistory]);
   const [alphaMarket, setAlphaMarket] = useState("all"); // all | kr | us
   const [fMarket, setFMarket]   = useState("all");
   const [fST, setFST]           = useState(0);
@@ -1996,6 +2001,13 @@ export default function App() {
             const macdU2=(last.macd>last.signal)||(last.hist>0&&prev?.hist<=0)||(last.hist>(prev?.hist||0));
             const trc=[(stT>=2&&stY<stT)||stT===2,rsiR,nearCl,rs2>0,volR>=stratCfg.tr.volMin,macdU2].filter(Boolean).length;
             if(trc>=stratCfg.tr.minScore)tags.push({tag:"전환초기",color:C.accent,score:trc+"/6"});
+            // 7. 편입된 커스텀 조합
+            if(customCombos.length>0){
+              const keyMap2={"ST 3/3":stT===3,"MACD 양전":last.macd>last.signal,"RSI 50~70":(last.rsi||0)>=50&&(last.rsi||0)<=70,"구름 위":!!last.aboveCloud,"ADX 25+":(last.adx||0)>=25,"거래량 150%+":volR>=150,"스퀴즈 해제":!!last.sqzOff};
+              customCombos.forEach((cc,ci)=>{
+                if(cc.keys.every(k=>keyMap2[k]))tags.push({tag:"발굴#"+(ci+1),color:"#F59E0B",score:cc.keys.length+"조건"});
+              });
+            }
             if(!tags.length)return null;
             return{...s,tags,tagCount:tags.length,score:asc.score,timing:tm.score,durability:dr.score,rs:rs2,stCount:stT,candleClose:last.close};
           }).filter(Boolean).sort((a,b)=>b.tagCount-a.tagCount||b.score-a.score);
@@ -2696,18 +2708,58 @@ export default function App() {
                     </div>
                     {combos.length>0&&<>
                       <div style={{fontSize:9,fontWeight:700,color:C.accent,marginBottom:4}}>🆕 발견된 강력 조합 (TOP3)</div>
-                      {combos.slice(0,3).map((cb,i)=>(
-                        <div key={i} style={{padding:"5px 8px",marginBottom:4,background:i===0?"rgba(34,197,94,.06)":"rgba(148,163,184,.04)",borderRadius:6,border:i===0?`1px solid rgba(34,197,94,.2)`:"none"}}>
-                          <div style={{display:"flex",gap:3,marginBottom:2}}>
-                            {cb.keys.map(k=><span key={k} style={{fontSize:7,padding:"1px 4px",borderRadius:2,background:"rgba(59,130,246,.1)",color:C.accent,fontWeight:600}}>{k}</span>)}
+                      {combos.slice(0,3).map((cb,i)=>{
+                        const isOpen=expandedCombo===i;
+                        const isAdopted=customCombos.some(cc=>cc.keys.join(",")=== cb.keys.join(","));
+                        // 매칭 종목 찾기
+                        const keyMap={"ST 3/3":"st","MACD 양전":"macd","RSI 50~70":"rsi70","구름 위":"cloud","ADX 25+":"adx","거래량 150%+":"volHigh","스퀴즈 해제":"sqzOff"};
+                        const matchStocks=isOpen?analyzed.filter(a=>cb.keys.every(k=>a[keyMap[k]])).sort((a,b)=>b.chg5-a.chg5):[];
+                        return<div key={i} style={{marginBottom:6}}>
+                          <div onClick={()=>setExpandedCombo(isOpen?null:i)} style={{padding:"6px 8px",background:isAdopted?"rgba(139,92,246,.08)":i===0?"rgba(34,197,94,.06)":"rgba(148,163,184,.04)",borderRadius:6,border:isAdopted?`1px solid rgba(139,92,246,.25)`:i===0?`1px solid rgba(34,197,94,.2)`:`1px solid ${C.border}`,cursor:"pointer"}}>
+                            <div style={{display:"flex",alignItems:"center",gap:3,marginBottom:2}}>
+                              {cb.keys.map(k=><span key={k} style={{fontSize:7,padding:"1px 4px",borderRadius:2,background:"rgba(59,130,246,.1)",color:C.accent,fontWeight:600}}>{k}</span>)}
+                              <span style={{marginLeft:"auto",fontSize:7,color:C.muted}}>{isOpen?"▲":"▼"} {cb.count}종목</span>
+                            </div>
+                            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                              <span style={{fontSize:8,color:C.muted}}>평균 <span style={{color:C.green,fontWeight:700}}>+{cb.avgRet}%</span> · {cb.pct}%{i===0?" 🏆":""}{isAdopted?" ✅편입됨":""}</span>
+                              {!isAdopted&&<button onClick={e=>{e.stopPropagation();setCustomCombos(p=>[...p,{keys:cb.keys,addedAt:new Date().toISOString()}]);setComboHistory(p=>[...p,{keys:cb.keys,avgRet:cb.avgRet,count:cb.count,action:"편입",date:new Date().toLocaleDateString("ko-KR")}]);}} style={{fontSize:7,padding:"2px 6px",borderRadius:3,border:`1px solid ${C.purple}`,background:"rgba(139,92,246,.1)",color:C.purple,fontWeight:700,cursor:"pointer"}}>📌 편입</button>}
+                              {isAdopted&&<button onClick={e=>{e.stopPropagation();setCustomCombos(p=>p.filter(cc=>cc.keys.join(",")!==cb.keys.join(",")));setComboHistory(p=>[...p,{keys:cb.keys,action:"제거",date:new Date().toLocaleDateString("ko-KR")}]);}} style={{fontSize:7,padding:"2px 6px",borderRadius:3,border:`1px solid ${C.red}`,background:"rgba(239,68,68,.06)",color:C.red,cursor:"pointer"}}>제거</button>}
+                            </div>
                           </div>
-                          <div style={{fontSize:8,color:C.muted}}>{cb.count}건 중 평균 <span style={{color:C.green,fontWeight:700}}>+{cb.avgRet}%</span> · 출현률 {cb.pct}%{i===0?" 🏆":""}</div>
-                        </div>
-                      ))}
+                          {isOpen&&matchStocks.length>0&&<div style={{padding:"4px 0",maxHeight:200,overflowY:"auto"}}>
+                            {matchStocks.map(ms=>(
+                              <div key={ms.ticker} onClick={()=>navigateToStock(ms.ticker,ms,"발굴_패턴")} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 8px",borderBottom:`1px solid rgba(148,163,184,.03)`,cursor:"pointer",fontSize:8}}>
+                                <span style={{fontWeight:700,minWidth:55,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ms.label}</span>
+                                <span style={{color:ms.chg5>=0?C.green:C.red,fontWeight:700}}>5D {ms.chg5>=0?"+":""}{ms.chg5}%</span>
+                              </div>
+                            ))}
+                          </div>}
+                        </div>;
+                      })}
                     </>}
                   </>;
                 })()}
               </div>
+
+              {/* ── 📜 조합 이력 ── */}
+              {comboHistory.length>0&&<div style={css.card}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                  <div style={{fontSize:10,fontWeight:700,color:C.muted}}>📜 과거 시도 이력 ({comboHistory.length}건)</div>
+                  <button onClick={()=>{if(confirm("이력을 전부 삭제하시겠습니까?"))setComboHistory([]);}} style={{fontSize:7,padding:"2px 6px",borderRadius:3,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer"}}>전체삭제</button>
+                </div>
+                <div style={{maxHeight:150,overflowY:"auto"}}>
+                  {[...comboHistory].reverse().map((h,i)=>(
+                    <div key={i} style={{display:"flex",alignItems:"center",gap:4,padding:"3px 0",borderBottom:`1px solid rgba(148,163,184,.04)`,fontSize:7}}>
+                      <span style={{color:h.action==="편입"?C.emerald:C.red,fontWeight:700,minWidth:22}}>{h.action==="편입"?"✅":"❌"}</span>
+                      <span style={{color:C.muted,minWidth:55}}>{h.date}</span>
+                      <div style={{display:"flex",gap:2,flex:1,flexWrap:"wrap"}}>
+                        {h.keys.map(k=><span key={k} style={{padding:"0px 3px",borderRadius:2,background:"rgba(148,163,184,.06)",color:C.sub,fontSize:6}}>{k}</span>)}
+                      </div>
+                      {h.avgRet!=null&&<span style={{color:C.green,fontSize:7}}>+{h.avgRet}%</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>}
 
               {/* ── 🔧 조건 튜닝 ── */}
               <div style={css.card}>
