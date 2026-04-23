@@ -750,7 +750,7 @@ export default function App() {
   // ★ v2.2: 실험실 탭
   const [labStock, setLabStock] = useState(null);
   const [labPoint, setLabPoint] = useState(null);
-  const [labMarket, setLabMarket] = useState("all"); // all | kr | us
+  // labMarket 제거됨 — focusMarket 사용
   // ★ v2.3: 집중탭 뷰 전환
   const [focusView, setFocusView] = useState(null); // null=기본 | "ranked" | "breakout" | "entry"
   const [focusMarket, setFocusMarket] = useState("all"); // all | kr | us
@@ -1474,7 +1474,7 @@ export default function App() {
   // ★ v2.2: 에쿼티 커브 데이터
   const equityCurveData = buildEquityCurve(closedLog, riskSettings.totalCapital);
 
-  const TABS=[["radar","🌐 시장"],["focus","🎯 집중"],["alpha","🔍 발굴"],["scanner","📡 스캐너"],["sniper","📊 차트"],["track",`📁 추적 (${tracking.length+positions.length})`],["lab","🔬 실험실"],["pool","🗃 종목풀"]];
+  const TABS=[["radar","🌐 시장"],["focus","🎯 집중"],["alpha","🔍 발굴"],["scanner","📡 분석"],["sniper","📊 차트"],["track",`📁 추적 (${tracking.length+positions.length})`],["pool","🗃 종목풀"]];
 
   const pageStyle={minHeight:"100vh",background:"#0F1419",color:C.text,fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Display','Pretendard',sans-serif",display:"flex",flexDirection:"column",fontSize:12,WebkitFontSmoothing:"antialiased"};
 
@@ -2303,10 +2303,10 @@ export default function App() {
           </div>}
         </div>}
 
-        {/* ══ TAB: 📡 스캐너 — 기법별 종목 발굴 ══ */}
+        {/* ══ TAB: 📡 분석 — 전략 검증 + 시장 패턴 ══ */}
         {tab==="scanner"&&<div style={{padding:"12px 14px"}}>
-          <div style={{fontSize:12,fontWeight:900,color:"#F97316",marginBottom:4}}>📡 스캐너 — 기법별 종목 스크리닝</div>
-          <div style={{fontSize:8,color:C.sub,marginBottom:10}}>실전 매매 기법 조건에 맞는 종목 자동 탐색</div>
+          <div style={{fontSize:12,fontWeight:900,color:C.accent,marginBottom:4}}>📡 분석 — 전략 검증 + 시장 패턴</div>
+          <div style={{fontSize:8,color:C.sub,marginBottom:10}}>기법별 스크리닝 + 검증 + 시장 패턴 분석</div>
           <div style={{display:"flex",gap:4,marginBottom:10}}>
             {[["all","전체"],["kr","🇰🇷 한국"],["us","🇺🇸 미국"]].map(([v,l])=>(
               <button key={v} onClick={()=>setFocusMarket(v)} style={{padding:"4px 12px",borderRadius:5,border:`1px solid ${focusMarket===v?C.accent:C.border}`,background:focusMarket===v?"rgba(59,130,246,.12)":"transparent",color:focusMarket===v?C.accent:C.muted,fontSize:9,fontWeight:focusMarket===v?700:400,cursor:"pointer"}}>{l}</button>
@@ -2737,6 +2737,186 @@ export default function App() {
                   <br/><b style={{color:C.purple}}>엔벨로프</b>: MA20 -20% 밴드 근접 대형주 → 과매도 반등 매수. KOSPI200급.
                   <br/><b style={{color:C.accent}}>전환초기</b>: ST 1→2 + RSI↑ + 구름인접 + RS강 → 3/3 전 선점. 손절 -5%.
                 </div>
+              </div>
+
+
+              {/* ── 🔬 시장 패턴 분석 (구 실험실) ── */}
+              <div style={css.card}>
+                <div style={{fontSize:11,fontWeight:700,color:C.purple,marginBottom:4}}>🔬 시장 패턴 — 뭐가 통하고 있나</div>
+                <div style={{fontSize:8,color:C.muted,marginBottom:8}}>최근 상승 종목의 공통 패턴 분석 → 지금 매칭 종목 탐색</div>
+          {(()=>{
+            const isKRticker=(t)=>(t?.length||0)>5;
+            const analyzed = Object.entries(charts).filter(([t,c])=>c?.data?.length>=20&&c.real).filter(([t])=>focusMarket==="all"?true:focusMarket==="kr"?isKRticker(t):!isKRticker(t)).map(([ticker,c])=>{
+              const d=c.data;const L=d.length;const last=d[L-1];
+              const chg5=L>5?+((last.close-d[L-6].close)/d[L-6].close*100).toFixed(2):0;
+              const chg3=L>3?+((last.close-d[L-4].close)/d[L-4].close*100).toFixed(2):0;
+              const chg1=L>1?+((last.close-d[L-2].close)/d[L-2].close*100).toFixed(2):0;
+              const info=stocks.find(s=>s.ticker===ticker)||pool[ticker]||{};
+              // 상승 시작점 지표 (5일 전 시점)
+              const startIdx=Math.max(0,L-6);
+              const sp=d[startIdx];
+              const stC=[sp?.st1Bull,sp?.st2Bull,sp?.st3Bull].filter(v=>v!=null).length;
+              const macdUp=sp?.macd>sp?.signal;
+              const rsiZone=sp?.rsi>=50&&sp?.rsi<=70;
+              const adxStrong=(sp?.adx||0)>=25;
+              const cloud=!!sp?.aboveCloud;
+              const sqzOff=!!sp?.sqzOff;
+              const volSpike=(()=>{if(startIdx<20)return false;const vs=d.slice(startIdx-20,startIdx).map(x=>x.volume||0).filter(v=>v>0);const avg=vs.length?vs.reduce((a,b)=>a+b,0)/vs.length:0;return avg>0&&(sp?.volume||0)>avg*1.5;})();
+              return{ticker,label:info.label||ticker,market:info.market,chg5,chg3,chg1,price:last.close,stC,macdUp,rsiZone,adxStrong,cloud,sqzOff,volSpike,rsi:sp?.rsi};
+            });
+
+            const top40=analyzed.filter(s=>s.chg5>0).sort((a,b)=>b.chg5-a.chg5).slice(0,40);
+            const totalTop=top40.length;
+            if(!totalTop)return<div style={{textAlign:"center",padding:40,color:C.muted}}>실시간 차트 데이터가 필요합니다. Daily 실행 후 확인하세요.</div>;
+
+            // 통계 계산
+            const stats=[
+              {key:"stC",label:"ST 3/3",count:top40.filter(s=>s.stC===3).length,color:C.emerald},
+              {key:"macdUp",label:"MACD 양전",count:top40.filter(s=>s.macdUp).length,color:C.accent},
+              {key:"rsiZone",label:"RSI 50~70",count:top40.filter(s=>s.rsiZone).length,color:C.green},
+              {key:"adxStrong",label:"ADX > 25",count:top40.filter(s=>s.adxStrong).length,color:C.yellow},
+              {key:"cloud",label:"구름 위",count:top40.filter(s=>s.cloud).length,color:"#64D2FF"},
+              {key:"volSpike",label:"거래량 150%+",count:top40.filter(s=>s.volSpike).length,color:"#F97316"},
+              {key:"sqzOff",label:"스퀴즈 해제",count:top40.filter(s=>s.sqzOff).length,color:C.purple},
+            ];
+
+            // 패턴 조합 분석
+            const patterns=[];
+            // ST3 + MACD
+            const p1=top40.filter(s=>s.stC===3&&s.macdUp);
+            if(p1.length>=3)patterns.push({name:"ST 3/3 + MACD 양전",count:p1.length,pct:Math.round(p1.length/totalTop*100),avgChg:+(p1.reduce((a,s)=>a+s.chg5,0)/p1.length).toFixed(1)});
+            // MACD + RSI
+            const p2=top40.filter(s=>s.macdUp&&s.rsiZone);
+            if(p2.length>=3)patterns.push({name:"MACD 양전 + RSI 50~70",count:p2.length,pct:Math.round(p2.length/totalTop*100),avgChg:+(p2.reduce((a,s)=>a+s.chg5,0)/p2.length).toFixed(1)});
+            // 구름 + ADX
+            const p3=top40.filter(s=>s.cloud&&s.adxStrong);
+            if(p3.length>=3)patterns.push({name:"구름 위 + ADX 강세",count:p3.length,pct:Math.round(p3.length/totalTop*100),avgChg:+(p3.reduce((a,s)=>a+s.chg5,0)/p3.length).toFixed(1)});
+            // ST3 + 구름 + MACD
+            const p4=top40.filter(s=>s.stC===3&&s.cloud&&s.macdUp);
+            if(p4.length>=2)patterns.push({name:"ST + 구름 + MACD 트리플",count:p4.length,pct:Math.round(p4.length/totalTop*100),avgChg:+(p4.reduce((a,s)=>a+s.chg5,0)/p4.length).toFixed(1)});
+            // 거래량 + MACD
+            const p5=top40.filter(s=>s.volSpike&&s.macdUp);
+            if(p5.length>=2)patterns.push({name:"거래량 폭발 + MACD 양전",count:p5.length,pct:Math.round(p5.length/totalTop*100),avgChg:+(p5.reduce((a,s)=>a+s.chg5,0)/p5.length).toFixed(1)});
+            patterns.sort((a,b)=>b.pct-a.pct);
+
+            // 현재 매칭 종목 (top40 아닌 종목 중)
+            const bestPattern=patterns[0];
+            const matchStocks=bestPattern?analyzed.filter(s=>{
+              if(top40.find(t=>t.ticker===s.ticker))return false;
+              if(bestPattern.name.includes("ST")&&s.stC<3)return false;
+              if(bestPattern.name.includes("MACD")&&!s.macdUp)return false;
+              if(bestPattern.name.includes("구름")&&!s.cloud)return false;
+              if(bestPattern.name.includes("RSI")&&!s.rsiZone)return false;
+              if(bestPattern.name.includes("ADX")&&!s.adxStrong)return false;
+              if(bestPattern.name.includes("거래량")&&!s.volSpike)return false;
+              return true;
+            }).sort((a,b)=>b.chg3-a.chg3).slice(0,15):[];
+
+            return<>
+              {/* 상단: 상승 TOP40 지표 분포 */}
+              <div style={css.card}>
+                <div style={{fontSize:10,fontWeight:700,color:C.emerald,marginBottom:4}}>📊 최근 5일 상승 TOP {totalTop} 분석</div>
+                <div style={{fontSize:8,color:C.muted,marginBottom:8}}>상승 시작 시점에 어떤 지표가 켜져 있었나?</div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4}}>
+                  {stats.map(st=>{
+                    const pct=Math.round(st.count/totalTop*100);
+                    return<div key={st.key} style={{background:"rgba(0,0,0,.5)",borderRadius:6,padding:"6px",textAlign:"center",border:`1px solid ${pct>=60?st.color+"40":"rgba(148,163,184,.06)"}`}}>
+                      <div style={{fontSize:7,color:C.muted,marginBottom:2}}>{st.label}</div>
+                      <div style={{fontSize:16,fontWeight:900,color:pct>=60?st.color:C.muted}}>{pct}%</div>
+                      <div style={{fontSize:7,color:C.muted}}>{st.count}/{totalTop}</div>
+                    </div>;
+                  })}
+                  <div style={{background:"rgba(0,0,0,.5)",borderRadius:6,padding:"6px",textAlign:"center"}}>
+                    <div style={{fontSize:7,color:C.muted,marginBottom:2}}>평균 5D</div>
+                    <div style={{fontSize:16,fontWeight:900,color:C.green}}>+{(top40.reduce((a,s)=>a+s.chg5,0)/totalTop).toFixed(1)}%</div>
+                    <div style={{fontSize:7,color:C.muted}}>상승폭</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 중단: 패턴 결론 */}
+              {patterns.length>0&&<div style={css.card}>
+                <div style={{fontSize:10,fontWeight:700,color:C.purple,marginBottom:4}}>🎯 지금 통하는 패턴</div>
+                <div style={{fontSize:8,color:C.muted,marginBottom:8}}>상승 종목에서 가장 많이 나타난 지표 조합</div>
+                {patterns.slice(0,5).map((p,i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 8px",marginBottom:4,borderRadius:6,background:i===0?"rgba(34,197,94,.08)":"rgba(255,255,255,.02)",border:i===0?`1px solid ${C.emerald}`:`1px solid rgba(148,163,184,.05)`}}>
+                    <span style={{fontSize:9,fontWeight:700,color:i===0?C.emerald:C.text,flex:1}}>{i===0?"⭐ ":""}{p.name}</span>
+                    <span style={{fontSize:9,fontWeight:900,color:C.accent}}>{p.pct}%</span>
+                    <span style={{fontSize:8,color:C.muted}}>({p.count}종목)</span>
+                    <span style={{fontSize:8,fontWeight:700,color:C.green}}>+{p.avgChg}%</span>
+                  </div>
+                ))}
+                {/* 상승 종목 지표 평균값 */}
+                {(()=>{
+                  const rsis=top40.map(s=>s.rsi).filter(v=>v!=null);
+                  const avgRsi=rsis.length?Math.round(rsis.reduce((a,b)=>a+b,0)/rsis.length):0;
+                  const minRsi=rsis.length?Math.round(Math.min(...rsis)):0;
+                  const maxRsi=rsis.length?Math.round(Math.max(...rsis)):0;
+                  const st3pct=Math.round(top40.filter(s=>s.stC===3).length/totalTop*100);
+                  const macdPct=Math.round(top40.filter(s=>s.macdUp).length/totalTop*100);
+                  return<div style={{marginTop:8,padding:"8px 10px",background:"rgba(139,92,246,.06)",borderRadius:6}}>
+                    <div style={{fontSize:8,fontWeight:700,color:C.purple,marginBottom:4}}>📐 상승 종목들의 시작 시점 지표</div>
+                    <div style={{fontSize:8,color:C.sub,lineHeight:1.6}}>
+                      RSI 평균 <span style={{color:C.accent,fontWeight:700}}>{avgRsi}</span> (범위 {minRsi}~{maxRsi}) · ST 3/3 비율 <span style={{color:C.emerald,fontWeight:700}}>{st3pct}%</span> · MACD 양전 <span style={{color:C.accent,fontWeight:700}}>{macdPct}%</span>
+                    </div>
+                  </div>;
+                })()}
+              </div>}
+
+              {/* TOP40 종목 목록 */}
+              <div style={css.card}>
+                <div style={{fontSize:10,fontWeight:700,color:"#F97316",marginBottom:4}}>🏆 최근 5일 상승 TOP {totalTop}</div>
+                <div style={{maxHeight:300,overflowY:"auto"}}>
+                  {top40.map((s,i)=>{
+                    const isKR4=(s.ticker?.length||0)>5;
+                    return<div key={s.ticker} onClick={()=>navigateToStock(s.ticker,{ticker:s.ticker,label:s.label,market:s.market})} style={{display:"flex",alignItems:"center",gap:5,padding:"5px 6px",borderBottom:`1px solid rgba(148,163,184,.04)`,cursor:"pointer",background:i<3?"rgba(249,115,22,.06)":"transparent"}}>
+                      <span style={{fontSize:8,color:C.muted,minWidth:14}}>{i+1}</span>
+                      <span style={{fontWeight:700,fontSize:9,minWidth:55,maxWidth:72,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</span>
+                      <span style={{fontSize:7,color:C.muted,minWidth:42}}>{isKR4?"₩"+fmtKRW(s.price||0):"$"+(s.price||0).toFixed(1)}</span>
+                      <div style={{display:"flex",gap:2,flex:1}}>
+                        {s.stC===3&&<span style={{fontSize:5,padding:"1px 2px",borderRadius:2,background:"rgba(34,197,94,.1)",color:C.emerald}}>ST3</span>}
+                        {s.macdUp&&<span style={{fontSize:5,padding:"1px 2px",borderRadius:2,background:"rgba(59,130,246,.1)",color:C.accent}}>MACD</span>}
+                        {s.cloud&&<span style={{fontSize:5,padding:"1px 2px",borderRadius:2,background:"rgba(100,210,255,.1)",color:"#64D2FF"}}>구름</span>}
+                        {s.volSpike&&<span style={{fontSize:5,padding:"1px 2px",borderRadius:2,background:"rgba(249,115,22,.1)",color:"#F97316"}}>거래량</span>}
+                      </div>
+                      <span style={{fontSize:7,color:(s.chg1||0)>=0?C.green:C.red,minWidth:30,textAlign:"right"}}>1D {s.chg1>=0?"+":""}{s.chg1.toFixed(1)}%</span>
+                      <span style={{fontSize:8,fontWeight:900,color:C.green,minWidth:35,textAlign:"right"}}>5D +{s.chg5.toFixed(1)}%</span>
+                    </div>;
+                  })}
+                </div>
+              </div>
+
+              {/* 하단: 현재 매칭 종목 */}
+              {bestPattern&&matchStocks.length>0&&<div style={{...css.card,border:`1px solid ${C.emerald}`}}>
+                <div style={{fontSize:10,fontWeight:700,color:C.emerald,marginBottom:4}}>⚡ 지금 이 패턴에 해당하는 종목</div>
+                <div style={{fontSize:8,color:C.muted,marginBottom:8}}>"{bestPattern.name}" 조건 충족 — 아직 크게 안 오른 종목</div>
+                {matchStocks.map((s,i)=>{
+                  const cData=charts[s.ticker]?.data;
+                  const tm=calcEntryTiming(cData);
+                  const dr=calcTrendDurability(cData);
+                  const isKR4=(s.ticker?.length||0)>5;
+                  return<div key={s.ticker} onClick={()=>navigateToStock(s.ticker,{ticker:s.ticker,label:s.label,market:s.market})} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 8px",borderBottom:`1px solid rgba(148,163,184,.04)`,cursor:"pointer",background:tm.score>=40&&dr.score>=40?"rgba(34,197,94,.04)":"transparent"}}>
+                    <span style={{fontWeight:700,fontSize:9,minWidth:55,maxWidth:72,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</span>
+                    <span style={{fontSize:8,color:C.text,minWidth:45}}>{isKR4?"₩"+fmtKRW(s.price||0):"$"+(s.price||0).toFixed(1)}</span>
+                    <span style={{fontSize:8,fontWeight:900,color:tm.score>=40?"#F97316":C.muted,padding:"1px 3px",borderRadius:2,background:"rgba(249,115,22,.06)"}}>⚡{tm.score}</span>
+                    <span style={{fontSize:8,fontWeight:900,color:dr.score>=50?C.emerald:C.muted,padding:"1px 3px",borderRadius:2,background:"rgba(34,197,94,.06)"}}>💪{dr.score}</span>
+                    <div style={{flex:1,display:"flex",gap:2}}>
+                      {s.stC===3&&<span style={{fontSize:5,padding:"1px 2px",borderRadius:2,background:"rgba(34,197,94,.1)",color:C.emerald}}>ST3</span>}
+                      {s.macdUp&&<span style={{fontSize:5,padding:"1px 2px",borderRadius:2,background:"rgba(59,130,246,.1)",color:C.accent}}>MACD</span>}
+                      {s.cloud&&<span style={{fontSize:5,padding:"1px 2px",borderRadius:2,background:"rgba(100,210,255,.1)",color:"#64D2FF"}}>구름</span>}
+                    </div>
+                    <div style={{textAlign:"right",minWidth:55}}>
+                      <div style={{fontSize:7,color:(s.chg1||0)>=0?C.green:C.red}}>1D {s.chg1>=0?"+":""}{s.chg1.toFixed(1)}%</div>
+                      <div style={{fontSize:7,color:(s.chg3||0)>=0?C.green:C.red}}>3D {s.chg3>=0?"+":""}{s.chg3.toFixed(1)}%</div>
+                    </div>
+                  </div>;
+                })}
+              </div>}
+              {bestPattern&&!matchStocks.length&&<div style={{...css.card,textAlign:"center",padding:20}}>
+                <span style={{fontSize:9,color:C.muted}}>현재 "{bestPattern.name}" 패턴 매칭 종목 없음</span>
+              </div>}
+            </>;
+          })()}
               </div>
             </>;
           })()}
@@ -3929,190 +4109,6 @@ export default function App() {
           </div>}
         </div>}
 
-        {/* ══ TAB: 실험실 — 뭐가 통하고 있나 ══ */}
-        {tab==="lab"&&<div style={{padding:"12px 14px"}}>
-          <div style={{fontSize:12,fontWeight:900,color:C.purple,marginBottom:4}}>🔬 실험실 — 뭐가 통하고 있나</div>
-          <div style={{fontSize:9,color:C.sub,marginBottom:8}}>최근 상승 종목의 공통 패턴 분석 → 지금 매칭 종목 탐색</div>
-          <div style={{display:"flex",gap:4,marginBottom:10}}>
-            {[["all","전체"],["kr","🇰🇷 한국"],["us","🇺🇸 미국"]].map(([v,l])=>(
-              <button key={v} onClick={()=>setLabMarket(v)} style={{padding:"4px 12px",borderRadius:5,border:`1px solid ${labMarket===v?C.purple:C.border}`,background:labMarket===v?"rgba(139,92,246,.12)":"transparent",color:labMarket===v?C.purple:C.muted,fontSize:9,fontWeight:labMarket===v?700:400,cursor:"pointer"}}>{l}</button>
-            ))}
-          </div>
-
-          {(()=>{
-            const isKRticker=(t)=>(t?.length||0)>5;
-            const analyzed = Object.entries(charts).filter(([t,c])=>c?.data?.length>=20&&c.real).filter(([t])=>labMarket==="all"?true:labMarket==="kr"?isKRticker(t):!isKRticker(t)).map(([ticker,c])=>{
-              const d=c.data;const L=d.length;const last=d[L-1];
-              const chg5=L>5?+((last.close-d[L-6].close)/d[L-6].close*100).toFixed(2):0;
-              const chg3=L>3?+((last.close-d[L-4].close)/d[L-4].close*100).toFixed(2):0;
-              const chg1=L>1?+((last.close-d[L-2].close)/d[L-2].close*100).toFixed(2):0;
-              const info=stocks.find(s=>s.ticker===ticker)||pool[ticker]||{};
-              // 상승 시작점 지표 (5일 전 시점)
-              const startIdx=Math.max(0,L-6);
-              const sp=d[startIdx];
-              const stC=[sp?.st1Bull,sp?.st2Bull,sp?.st3Bull].filter(v=>v!=null).length;
-              const macdUp=sp?.macd>sp?.signal;
-              const rsiZone=sp?.rsi>=50&&sp?.rsi<=70;
-              const adxStrong=(sp?.adx||0)>=25;
-              const cloud=!!sp?.aboveCloud;
-              const sqzOff=!!sp?.sqzOff;
-              const volSpike=(()=>{if(startIdx<20)return false;const vs=d.slice(startIdx-20,startIdx).map(x=>x.volume||0).filter(v=>v>0);const avg=vs.length?vs.reduce((a,b)=>a+b,0)/vs.length:0;return avg>0&&(sp?.volume||0)>avg*1.5;})();
-              return{ticker,label:info.label||ticker,market:info.market,chg5,chg3,chg1,price:last.close,stC,macdUp,rsiZone,adxStrong,cloud,sqzOff,volSpike,rsi:sp?.rsi};
-            });
-
-            const top40=analyzed.filter(s=>s.chg5>0).sort((a,b)=>b.chg5-a.chg5).slice(0,40);
-            const totalTop=top40.length;
-            if(!totalTop)return<div style={{textAlign:"center",padding:40,color:C.muted}}>실시간 차트 데이터가 필요합니다. Daily 실행 후 확인하세요.</div>;
-
-            // 통계 계산
-            const stats=[
-              {key:"stC",label:"ST 3/3",count:top40.filter(s=>s.stC===3).length,color:C.emerald},
-              {key:"macdUp",label:"MACD 양전",count:top40.filter(s=>s.macdUp).length,color:C.accent},
-              {key:"rsiZone",label:"RSI 50~70",count:top40.filter(s=>s.rsiZone).length,color:C.green},
-              {key:"adxStrong",label:"ADX > 25",count:top40.filter(s=>s.adxStrong).length,color:C.yellow},
-              {key:"cloud",label:"구름 위",count:top40.filter(s=>s.cloud).length,color:"#64D2FF"},
-              {key:"volSpike",label:"거래량 150%+",count:top40.filter(s=>s.volSpike).length,color:"#F97316"},
-              {key:"sqzOff",label:"스퀴즈 해제",count:top40.filter(s=>s.sqzOff).length,color:C.purple},
-            ];
-
-            // 패턴 조합 분석
-            const patterns=[];
-            // ST3 + MACD
-            const p1=top40.filter(s=>s.stC===3&&s.macdUp);
-            if(p1.length>=3)patterns.push({name:"ST 3/3 + MACD 양전",count:p1.length,pct:Math.round(p1.length/totalTop*100),avgChg:+(p1.reduce((a,s)=>a+s.chg5,0)/p1.length).toFixed(1)});
-            // MACD + RSI
-            const p2=top40.filter(s=>s.macdUp&&s.rsiZone);
-            if(p2.length>=3)patterns.push({name:"MACD 양전 + RSI 50~70",count:p2.length,pct:Math.round(p2.length/totalTop*100),avgChg:+(p2.reduce((a,s)=>a+s.chg5,0)/p2.length).toFixed(1)});
-            // 구름 + ADX
-            const p3=top40.filter(s=>s.cloud&&s.adxStrong);
-            if(p3.length>=3)patterns.push({name:"구름 위 + ADX 강세",count:p3.length,pct:Math.round(p3.length/totalTop*100),avgChg:+(p3.reduce((a,s)=>a+s.chg5,0)/p3.length).toFixed(1)});
-            // ST3 + 구름 + MACD
-            const p4=top40.filter(s=>s.stC===3&&s.cloud&&s.macdUp);
-            if(p4.length>=2)patterns.push({name:"ST + 구름 + MACD 트리플",count:p4.length,pct:Math.round(p4.length/totalTop*100),avgChg:+(p4.reduce((a,s)=>a+s.chg5,0)/p4.length).toFixed(1)});
-            // 거래량 + MACD
-            const p5=top40.filter(s=>s.volSpike&&s.macdUp);
-            if(p5.length>=2)patterns.push({name:"거래량 폭발 + MACD 양전",count:p5.length,pct:Math.round(p5.length/totalTop*100),avgChg:+(p5.reduce((a,s)=>a+s.chg5,0)/p5.length).toFixed(1)});
-            patterns.sort((a,b)=>b.pct-a.pct);
-
-            // 현재 매칭 종목 (top40 아닌 종목 중)
-            const bestPattern=patterns[0];
-            const matchStocks=bestPattern?analyzed.filter(s=>{
-              if(top40.find(t=>t.ticker===s.ticker))return false;
-              if(bestPattern.name.includes("ST")&&s.stC<3)return false;
-              if(bestPattern.name.includes("MACD")&&!s.macdUp)return false;
-              if(bestPattern.name.includes("구름")&&!s.cloud)return false;
-              if(bestPattern.name.includes("RSI")&&!s.rsiZone)return false;
-              if(bestPattern.name.includes("ADX")&&!s.adxStrong)return false;
-              if(bestPattern.name.includes("거래량")&&!s.volSpike)return false;
-              return true;
-            }).sort((a,b)=>b.chg3-a.chg3).slice(0,15):[];
-
-            return<>
-              {/* 상단: 상승 TOP40 지표 분포 */}
-              <div style={css.card}>
-                <div style={{fontSize:10,fontWeight:700,color:C.emerald,marginBottom:4}}>📊 최근 5일 상승 TOP {totalTop} 분석</div>
-                <div style={{fontSize:8,color:C.muted,marginBottom:8}}>상승 시작 시점에 어떤 지표가 켜져 있었나?</div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4}}>
-                  {stats.map(st=>{
-                    const pct=Math.round(st.count/totalTop*100);
-                    return<div key={st.key} style={{background:"rgba(0,0,0,.5)",borderRadius:6,padding:"6px",textAlign:"center",border:`1px solid ${pct>=60?st.color+"40":"rgba(148,163,184,.06)"}`}}>
-                      <div style={{fontSize:7,color:C.muted,marginBottom:2}}>{st.label}</div>
-                      <div style={{fontSize:16,fontWeight:900,color:pct>=60?st.color:C.muted}}>{pct}%</div>
-                      <div style={{fontSize:7,color:C.muted}}>{st.count}/{totalTop}</div>
-                    </div>;
-                  })}
-                  <div style={{background:"rgba(0,0,0,.5)",borderRadius:6,padding:"6px",textAlign:"center"}}>
-                    <div style={{fontSize:7,color:C.muted,marginBottom:2}}>평균 5D</div>
-                    <div style={{fontSize:16,fontWeight:900,color:C.green}}>+{(top40.reduce((a,s)=>a+s.chg5,0)/totalTop).toFixed(1)}%</div>
-                    <div style={{fontSize:7,color:C.muted}}>상승폭</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* 중단: 패턴 결론 */}
-              {patterns.length>0&&<div style={css.card}>
-                <div style={{fontSize:10,fontWeight:700,color:C.purple,marginBottom:4}}>🎯 지금 통하는 패턴</div>
-                <div style={{fontSize:8,color:C.muted,marginBottom:8}}>상승 종목에서 가장 많이 나타난 지표 조합</div>
-                {patterns.slice(0,5).map((p,i)=>(
-                  <div key={i} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 8px",marginBottom:4,borderRadius:6,background:i===0?"rgba(34,197,94,.08)":"rgba(255,255,255,.02)",border:i===0?`1px solid ${C.emerald}`:`1px solid rgba(148,163,184,.05)`}}>
-                    <span style={{fontSize:9,fontWeight:700,color:i===0?C.emerald:C.text,flex:1}}>{i===0?"⭐ ":""}{p.name}</span>
-                    <span style={{fontSize:9,fontWeight:900,color:C.accent}}>{p.pct}%</span>
-                    <span style={{fontSize:8,color:C.muted}}>({p.count}종목)</span>
-                    <span style={{fontSize:8,fontWeight:700,color:C.green}}>+{p.avgChg}%</span>
-                  </div>
-                ))}
-                {/* 상승 종목 지표 평균값 */}
-                {(()=>{
-                  const rsis=top40.map(s=>s.rsi).filter(v=>v!=null);
-                  const avgRsi=rsis.length?Math.round(rsis.reduce((a,b)=>a+b,0)/rsis.length):0;
-                  const minRsi=rsis.length?Math.round(Math.min(...rsis)):0;
-                  const maxRsi=rsis.length?Math.round(Math.max(...rsis)):0;
-                  const st3pct=Math.round(top40.filter(s=>s.stC===3).length/totalTop*100);
-                  const macdPct=Math.round(top40.filter(s=>s.macdUp).length/totalTop*100);
-                  return<div style={{marginTop:8,padding:"8px 10px",background:"rgba(139,92,246,.06)",borderRadius:6}}>
-                    <div style={{fontSize:8,fontWeight:700,color:C.purple,marginBottom:4}}>📐 상승 종목들의 시작 시점 지표</div>
-                    <div style={{fontSize:8,color:C.sub,lineHeight:1.6}}>
-                      RSI 평균 <span style={{color:C.accent,fontWeight:700}}>{avgRsi}</span> (범위 {minRsi}~{maxRsi}) · ST 3/3 비율 <span style={{color:C.emerald,fontWeight:700}}>{st3pct}%</span> · MACD 양전 <span style={{color:C.accent,fontWeight:700}}>{macdPct}%</span>
-                    </div>
-                  </div>;
-                })()}
-              </div>}
-
-              {/* TOP40 종목 목록 */}
-              <div style={css.card}>
-                <div style={{fontSize:10,fontWeight:700,color:"#F97316",marginBottom:4}}>🏆 최근 5일 상승 TOP {totalTop}</div>
-                <div style={{maxHeight:300,overflowY:"auto"}}>
-                  {top40.map((s,i)=>{
-                    const isKR4=(s.ticker?.length||0)>5;
-                    return<div key={s.ticker} onClick={()=>navigateToStock(s.ticker,{ticker:s.ticker,label:s.label,market:s.market})} style={{display:"flex",alignItems:"center",gap:5,padding:"5px 6px",borderBottom:`1px solid rgba(148,163,184,.04)`,cursor:"pointer",background:i<3?"rgba(249,115,22,.06)":"transparent"}}>
-                      <span style={{fontSize:8,color:C.muted,minWidth:14}}>{i+1}</span>
-                      <span style={{fontWeight:700,fontSize:9,minWidth:55,maxWidth:72,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</span>
-                      <span style={{fontSize:7,color:C.muted,minWidth:42}}>{isKR4?"₩"+fmtKRW(s.price||0):"$"+(s.price||0).toFixed(1)}</span>
-                      <div style={{display:"flex",gap:2,flex:1}}>
-                        {s.stC===3&&<span style={{fontSize:5,padding:"1px 2px",borderRadius:2,background:"rgba(34,197,94,.1)",color:C.emerald}}>ST3</span>}
-                        {s.macdUp&&<span style={{fontSize:5,padding:"1px 2px",borderRadius:2,background:"rgba(59,130,246,.1)",color:C.accent}}>MACD</span>}
-                        {s.cloud&&<span style={{fontSize:5,padding:"1px 2px",borderRadius:2,background:"rgba(100,210,255,.1)",color:"#64D2FF"}}>구름</span>}
-                        {s.volSpike&&<span style={{fontSize:5,padding:"1px 2px",borderRadius:2,background:"rgba(249,115,22,.1)",color:"#F97316"}}>거래량</span>}
-                      </div>
-                      <span style={{fontSize:7,color:(s.chg1||0)>=0?C.green:C.red,minWidth:30,textAlign:"right"}}>1D {s.chg1>=0?"+":""}{s.chg1.toFixed(1)}%</span>
-                      <span style={{fontSize:8,fontWeight:900,color:C.green,minWidth:35,textAlign:"right"}}>5D +{s.chg5.toFixed(1)}%</span>
-                    </div>;
-                  })}
-                </div>
-              </div>
-
-              {/* 하단: 현재 매칭 종목 */}
-              {bestPattern&&matchStocks.length>0&&<div style={{...css.card,border:`1px solid ${C.emerald}`}}>
-                <div style={{fontSize:10,fontWeight:700,color:C.emerald,marginBottom:4}}>⚡ 지금 이 패턴에 해당하는 종목</div>
-                <div style={{fontSize:8,color:C.muted,marginBottom:8}}>"{bestPattern.name}" 조건 충족 — 아직 크게 안 오른 종목</div>
-                {matchStocks.map((s,i)=>{
-                  const cData=charts[s.ticker]?.data;
-                  const tm=calcEntryTiming(cData);
-                  const dr=calcTrendDurability(cData);
-                  const isKR4=(s.ticker?.length||0)>5;
-                  return<div key={s.ticker} onClick={()=>navigateToStock(s.ticker,{ticker:s.ticker,label:s.label,market:s.market})} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 8px",borderBottom:`1px solid rgba(148,163,184,.04)`,cursor:"pointer",background:tm.score>=40&&dr.score>=40?"rgba(34,197,94,.04)":"transparent"}}>
-                    <span style={{fontWeight:700,fontSize:9,minWidth:55,maxWidth:72,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</span>
-                    <span style={{fontSize:8,color:C.text,minWidth:45}}>{isKR4?"₩"+fmtKRW(s.price||0):"$"+(s.price||0).toFixed(1)}</span>
-                    <span style={{fontSize:8,fontWeight:900,color:tm.score>=40?"#F97316":C.muted,padding:"1px 3px",borderRadius:2,background:"rgba(249,115,22,.06)"}}>⚡{tm.score}</span>
-                    <span style={{fontSize:8,fontWeight:900,color:dr.score>=50?C.emerald:C.muted,padding:"1px 3px",borderRadius:2,background:"rgba(34,197,94,.06)"}}>💪{dr.score}</span>
-                    <div style={{flex:1,display:"flex",gap:2}}>
-                      {s.stC===3&&<span style={{fontSize:5,padding:"1px 2px",borderRadius:2,background:"rgba(34,197,94,.1)",color:C.emerald}}>ST3</span>}
-                      {s.macdUp&&<span style={{fontSize:5,padding:"1px 2px",borderRadius:2,background:"rgba(59,130,246,.1)",color:C.accent}}>MACD</span>}
-                      {s.cloud&&<span style={{fontSize:5,padding:"1px 2px",borderRadius:2,background:"rgba(100,210,255,.1)",color:"#64D2FF"}}>구름</span>}
-                    </div>
-                    <div style={{textAlign:"right",minWidth:55}}>
-                      <div style={{fontSize:7,color:(s.chg1||0)>=0?C.green:C.red}}>1D {s.chg1>=0?"+":""}{s.chg1.toFixed(1)}%</div>
-                      <div style={{fontSize:7,color:(s.chg3||0)>=0?C.green:C.red}}>3D {s.chg3>=0?"+":""}{s.chg3.toFixed(1)}%</div>
-                    </div>
-                  </div>;
-                })}
-              </div>}
-              {bestPattern&&!matchStocks.length&&<div style={{...css.card,textAlign:"center",padding:20}}>
-                <span style={{fontSize:9,color:C.muted}}>현재 "{bestPattern.name}" 패턴 매칭 종목 없음</span>
-              </div>}
-            </>;
-          })()}
-        </div>}
 
         {/* ══ TAB 5: 종목풀 ══ */}
         {tab==="pool"&&<div style={{padding:"12px 14px"}}>
