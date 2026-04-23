@@ -2530,150 +2530,181 @@ export default function App() {
                 <div style={{fontSize:7,color:C.muted,marginTop:6}}>ST 3/3 완성 전 선점 · 구름 돌파 확인 후 매수 · 3/3 미완성 시 손절 -5%</div>
               </div>
 
-              {/* ── 1주 전 검증 ── */}
+              {/* ── 📊 5주 리그 대시보드 ── */}
               <div style={css.card}>
-                <div style={{fontSize:11,fontWeight:700,color:"#F59E0B",marginBottom:4}}>📊 1주 전 검증 — 그때 샀으면?</div>
-                <div style={{fontSize:8,color:C.muted,marginBottom:8}}>5일 전 시점에 각 기법 조건을 충족했던 종목의 실제 수익률</div>
+                <div style={{fontSize:11,fontWeight:700,color:"#F59E0B",marginBottom:4}}>📊 5주 리그 — 기법별 성적표</div>
+                <div style={{fontSize:8,color:C.muted,marginBottom:8}}>5/10/15/20/25일 전 시점에서 각 기법이 추천했을 종목의 실제 수익률</div>
                 {(()=>{
-                  // 5일 전 데이터로 각 기법 역산
-                  const results=[];
-                  scanned.forEach(s=>{
-                    const cd=charts[s.ticker]?.data;
-                    if(!cd||cd.length<10)return;
-                    const L=cd.length;
-                    const ago=cd[L-6];const ago2=cd[L-7];const now2=cd[L-1];
-                    if(!ago||!ago2||!now2)return;
-                    const priceThen=ago.close;const priceNow=now2.close;
-                    const ret=+((priceNow-priceThen)/priceThen*100).toFixed(2);
-                    const closes5=cd.slice(0,L-5).map(x=>x.close);
-                    const prevH5=closes5.length>5?Math.max(...closes5.slice(-20)):0;
-                    const w52h5=Math.max(...closes5.slice(-252));
-                    const volR5=ago.volume&&cd.slice(L-26,L-6).length>0?Math.round(ago.volume/(cd.slice(L-26,L-6).reduce((a,x)=>a+x.volume,0)/20)*100):100;
-                    const isB=ago.isBull;const bPct=ago.bodyPct||0;const uW=ago.upperWickPct||0;
-                    const rsAgo=L>10?+((ago.close-cd[L-11].close)/cd[L-11].close*100-((now2.close-cd[L-6].close)/cd[L-6].close*100||0)).toFixed(1):0;
-                    // D+0 체크 (5일 전 기준)
-                    const d0c=[priceThen>=prevH5*0.98,bPct>=5,volR5>=150,rsAgo>0,isB,isB&&uW<20].filter(Boolean).length;
-                    // 6체크 (5일 전 기준)
-                    const sjc=[priceThen>=w52h5*0.95,priceThen>=prevH5*0.95,isB&&volR5>=150,volR5>=150,isB&&uW<20,ago.sqzOff||(!ago.sqzOn&&ago2?.sqzOn)].filter(Boolean).length;
-                    // 진입적기 근사 (5일 전 기준)
-                    const stC5=[ago.st1Bull,ago.st2Bull,ago.st3Bull].filter(v=>v!=null).length;
-                    const macdUp5=ago.macd>ago.signal;
-                    const rsi5=ago.rsi||0;
-                    const entryLike=stC5===3&&macdUp5&&rsi5>=50&&rsi5<=70;
-                    // 종합추천 근사 (5일 전 기준) — ST+구름+MACD+RS+거래량 종합
-                    const cloud5=ago.aboveCloud||ago.close>(ago.spanHigh||0);
-                    const adxOk=(ago.adx||0)>=25;
-                    const alphaLike=stC5>=2&&(macdUp5||cloud5)&&rsi5>=40&&rsi5<=80;
-                    const alphaScore5=(stC5>=3?25:stC5>=2?15:0)+(cloud5?20:0)+(macdUp5?15:0)+(adxOk?15:0)+(volR5>=150?15:0)+(rsi5>=50&&rsi5<=70?10:0);
-                    // 돌파감지 근사 (5일 전 기준) — 새 신호 동시 발생
-                    const prevStC=[ago2?.st1Bull,ago2?.st2Bull,ago2?.st3Bull].filter(v=>v!=null).length;
-                    const stFlip5=stC5===3&&prevStC<3;
-                    const macdFlip5=macdUp5&&!(ago2?.macd>ago2?.signal);
-                    const cloudFlip5=cloud5&&!ago2?.aboveCloud;
-                    const volSpike5=volR5>=200;
-                    const breakoutSigs=[stFlip5&&"ST플립",macdFlip5&&"MACD↑",cloudFlip5&&"구름돌파",volSpike5&&"거래폭발",(ago.sqzOff&&!ago2?.sqzOff)&&"스퀴즈"].filter(Boolean);
-                    const matched=[];
-                    if(alphaScore5>=75)matched.push({tag:"AI추천",score:alphaScore5+"pt"});
-                    if(breakoutSigs.length>=2)matched.push({tag:"돌파감지",score:breakoutSigs.length+"개"});
-                    if(d0c>=4)matched.push({tag:"D+0",score:d0c+"/6"});
-                    if(sjc>=4)matched.push({tag:"6체크",score:sjc+"/6"});
-                    if(entryLike)matched.push({tag:"진입적기",score:"ST3"});
-                    if(matched.length>0)results.push({...s,priceThen,priceNow:now2.close,ret,matched});
+                  const weeks=[{d:5,label:"1주전"},{d:10,label:"2주전"},{d:15,label:"3주전"},{d:20,label:"4주전"},{d:25,label:"5주전"}];
+                  const tagDefs=["AI추천","돌파","진입적기","D+0","6체크"];
+                  const league={};
+                  tagDefs.forEach(t=>{league[t]={weeks:[],totalW:0,totalL:0,totalRet:0,totalN:0};});
+                  weeks.forEach(wk=>{
+                    const wPerf={};tagDefs.forEach(t=>{wPerf[t]={w:0,l:0,ret:0,n:0};});
+                    scanned.forEach(s=>{
+                      const cd=charts[s.ticker]?.data;if(!cd||cd.length<wk.d+5)return;
+                      const L=cd.length;const ago=cd[L-1-wk.d];const ago2=cd[L-2-wk.d];const now2=cd[L-1];
+                      if(!ago||!ago2||!now2)return;
+                      const ret=+((now2.close-ago.close)/ago.close*100).toFixed(2);
+                      const stC=[ago.st1Bull,ago.st2Bull,ago.st3Bull].filter(v=>v!=null).length;
+                      const macdUp=ago.macd>ago.signal;const rsi=ago.rsi||0;
+                      const cloud=ago.aboveCloud||ago.close>(ago.spanHigh||0);
+                      const adxOk=(ago.adx||0)>=25;
+                      const volR5=ago.volume&&cd.slice(L-1-wk.d-20,L-1-wk.d).length>0?Math.round(ago.volume/(cd.slice(L-1-wk.d-20,L-1-wk.d).reduce((a,x)=>a+(x.volume||0),0)/20||1)*100):100;
+                      const alphaS=(stC>=3?25:stC>=2?15:0)+(cloud?20:0)+(macdUp?15:0)+(adxOk?15:0)+(volR5>=150?15:0)+(rsi>=50&&rsi<=70?10:0);
+                      if(alphaS>=75){wPerf["AI추천"].n++;wPerf["AI추천"].ret+=ret;if(ret>0)wPerf["AI추천"].w++;else wPerf["AI추천"].l++;}
+                      const prevStC=[ago2?.st1Bull,ago2?.st2Bull,ago2?.st3Bull].filter(v=>v!=null).length;
+                      let bkS=0;if(stC>prevStC)bkS++;if(macdUp&&!(ago2?.macd>ago2?.signal))bkS++;if(cloud&&!ago2?.aboveCloud)bkS++;if(ago.sqzOff&&!ago2?.sqzOff)bkS++;if(volR5>=200)bkS++;
+                      if(bkS>=2){wPerf["돌파"].n++;wPerf["돌파"].ret+=ret;if(ret>0)wPerf["돌파"].w++;else wPerf["돌파"].l++;}
+                      if(stC===3&&macdUp&&rsi>=50&&rsi<=70){wPerf["진입적기"].n++;wPerf["진입적기"].ret+=ret;if(ret>0)wPerf["진입적기"].w++;else wPerf["진입적기"].l++;}
+                      const closes5=cd.slice(0,L-wk.d).map(x=>x.close);const pH5=closes5.length>5?Math.max(...closes5.slice(-20)):0;
+                      const bPct5=ago.bodyPct||0;const uW5=ago.upperWickPct||0;
+                      const d0c5=[ago.close>=pH5*0.98,bPct5>=stratCfg.d0.bodyPct,volR5>=stratCfg.d0.volMin,true,ago.isBull,ago.isBull&&uW5<20].filter(Boolean).length;
+                      if(d0c5>=stratCfg.d0.minScore){wPerf["D+0"].n++;wPerf["D+0"].ret+=ret;if(ret>0)wPerf["D+0"].w++;else wPerf["D+0"].l++;}
+                      const w52h5=Math.max(...closes5.slice(-252));
+                      const sjc5=[ago.close>=w52h5*(stratCfg.sj.highPct/100),ago.close>=pH5*(stratCfg.sj.highPct/100),ago.isBull&&volR5>=stratCfg.d0.volMin,volR5>=stratCfg.d0.volMin,ago.isBull&&uW5<20,ago.sqzOff||(!ago.sqzOn&&ago2?.sqzOn)].filter(Boolean).length;
+                      if(sjc5>=stratCfg.sj.minScore){wPerf["6체크"].n++;wPerf["6체크"].ret+=ret;if(ret>0)wPerf["6체크"].w++;else wPerf["6체크"].l++;}
+                    });
+                    tagDefs.forEach(t=>{
+                      const p=wPerf[t];
+                      league[t].weeks.push({...p,avg:p.n>0?+(p.ret/p.n).toFixed(1):null});
+                      league[t].totalW+=p.w;league[t].totalL+=p.l;league[t].totalRet+=p.ret;league[t].totalN+=p.n;
+                    });
                   });
-                  results.sort((a,b)=>b.ret-a.ret);
-                  if(!results.length)return<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:9}}>5일 전 기준 조건 충족 종목 없음</div>;
-                  const wins=results.filter(r=>r.ret>0).length;
-                  const avgRet=+(results.reduce((a,r)=>a+r.ret,0)/results.length).toFixed(2);
+                  const ranked=tagDefs.map(t=>({tag:t,...league[t],avgRet:league[t].totalN>0?+(league[t].totalRet/league[t].totalN).toFixed(1):0,wr:league[t].totalN>0?Math.round(league[t].totalW/(league[t].totalW+league[t].totalL)*100):0})).sort((a,b)=>b.avgRet-a.avgRet);
                   return<>
-                    <div style={{display:"flex",gap:8,marginBottom:8}}>
-                      <div style={{background:C.panel2,borderRadius:6,padding:"4px 8px",textAlign:"center",flex:1}}>
-                        <div style={{fontSize:7,color:C.muted}}>종목수</div>
-                        <div style={{fontSize:14,fontWeight:900,color:C.text}}>{results.length}</div>
-                      </div>
-                      <div style={{background:C.panel2,borderRadius:6,padding:"4px 8px",textAlign:"center",flex:1}}>
-                        <div style={{fontSize:7,color:C.muted}}>승률</div>
-                        <div style={{fontSize:14,fontWeight:900,color:wins/results.length>=0.5?C.green:C.red}}>{Math.round(wins/results.length*100)}%</div>
-                      </div>
-                      <div style={{background:C.panel2,borderRadius:6,padding:"4px 8px",textAlign:"center",flex:1}}>
-                        <div style={{fontSize:7,color:C.muted}}>평균수익</div>
-                        <div style={{fontSize:14,fontWeight:900,color:avgRet>=0?C.green:C.red}}>{avgRet>=0?"+":""}{avgRet}%</div>
-                      </div>
-                    </div>
-                    <div style={{maxHeight:300,overflowY:"auto"}}>
-                      {results.map((r,i)=>(
-                        <div key={r.ticker} onClick={()=>navigateToStock(r.ticker,r)} style={{display:"flex",alignItems:"center",gap:5,padding:"5px 6px",borderBottom:`1px solid rgba(148,163,184,.04)`,cursor:"pointer"}}>
-                          <span style={{fontSize:8,fontWeight:700,minWidth:14,color:C.muted}}>{i+1}</span>
-                          <div style={{minWidth:55,maxWidth:72}}>
-                            <div style={{fontWeight:700,fontSize:9,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(r)}</div>
+                  <div style={{overflowX:"auto"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:8,minWidth:380}}>
+                      <thead><tr style={{borderBottom:`2px solid ${C.border}`}}>
+                        <th style={{padding:"4px",textAlign:"left",color:C.accent,fontSize:7}}>기법</th>
+                        {weeks.map(w=><th key={w.d} style={{padding:"4px",textAlign:"center",color:C.muted,fontSize:7}}>{w.label}</th>)}
+                        <th style={{padding:"4px",textAlign:"center",color:"#F59E0B",fontSize:7}}>평균</th>
+                        <th style={{padding:"4px",textAlign:"center",color:C.accent,fontSize:7}}>승률</th>
+                        <th style={{padding:"4px",textAlign:"center",color:C.muted,fontSize:7}}>추세</th>
+                      </tr></thead>
+                      <tbody>{ranked.map((r,ri)=>(
+                        <tr key={r.tag} style={{borderBottom:`1px solid ${C.border}`,background:ri===0?"rgba(34,197,94,.06)":"transparent"}}>
+                          <td style={{padding:"5px 4px",fontWeight:700,fontSize:9,color:ri===0?C.emerald:C.text}}>{ri===0?"🏆 ":""}{r.tag}</td>
+                          {r.weeks.map((w,wi)=><td key={wi} style={{padding:"4px",textAlign:"center",color:w.avg===null?C.muted:w.avg>=0?C.green:C.red,fontWeight:700}}>{w.avg===null?"—":w.avg>=0?"+"+w.avg+"%":w.avg+"%"}</td>)}
+                          <td style={{padding:"4px",textAlign:"center",fontWeight:900,color:r.avgRet>=0?C.green:C.red}}>{r.avgRet>=0?"+":""}{r.avgRet}%</td>
+                          <td style={{padding:"4px",textAlign:"center",fontWeight:700,color:r.wr>=60?C.green:r.wr>=40?"#F59E0B":C.red}}>{r.wr}%</td>
+                          <td style={{padding:"4px",textAlign:"center"}}>{(()=>{const recent=r.weeks.slice(0,3).filter(w=>w.avg!==null);const up=recent.filter(w=>w.avg>0).length;return up>=2?"↑":up===0?"↓":"→";})()}</td>
+                        </tr>
+                      ))}</tbody>
+                    </table>
+                  </div>
+                  {/* 인사이트 */}
+                  <div style={{marginTop:8,padding:"6px 10px",background:"rgba(59,130,246,.04)",borderRadius:6,border:`1px solid rgba(59,130,246,.1)`}}>
+                    <div style={{fontSize:8,color:C.accent,fontWeight:700,marginBottom:3}}>💡 인사이트</div>
+                    {ranked[0]&&ranked[0].avgRet>0&&<div style={{fontSize:8,color:C.sub}}>✅ {ranked[0].tag}이 평균 +{ranked[0].avgRet}%로 1위. 이 기법에 집중하세요.</div>}
+                    {ranked.at(-1)&&ranked.at(-1).avgRet<0&&<div style={{fontSize:8,color:C.sub}}>⚠️ {ranked.at(-1).tag}은 평균 {ranked.at(-1).avgRet}%로 저조. 조건 강화 또는 폐기 검토.</div>}
+                    {ranked.filter(r=>r.totalN<3).length>0&&<div style={{fontSize:8,color:C.muted}}>📊 {ranked.filter(r=>r.totalN<3).map(r=>r.tag).join(", ")} — 데이터 부족, 더 지켜보세요.</div>}
+                  </div>
+                  </>;
+                })()}
+              </div>
+
+              {/* ── 🔬 기법 해부 — 조건별 기여도 ── */}
+              <div style={css.card}>
+                <div style={{fontSize:11,fontWeight:700,color:C.purple,marginBottom:4}}>🔬 기법 해부 — 어떤 조건이 발목 잡나?</div>
+                <div style={{fontSize:8,color:C.muted,marginBottom:8}}>5일 전 기준, 각 기법의 세부 조건별 승률 분석</div>
+                {(()=>{
+                  // 5일 전 기준 조건별 승률
+                  const condPerf={d0:{},sj:{}};
+                  const d0Labels=["전고돌파","장대양봉","거래량","주도섹터","양봉","깔끔캔들"];
+                  const sjLabels=["신고가","이격좁음","양봉거래","거래↑","깔끔양봉","조정해제"];
+                  d0Labels.forEach(l=>{condPerf.d0[l]={w:0,l:0};});
+                  sjLabels.forEach(l=>{condPerf.sj[l]={w:0,l:0};});
+                  scanned.forEach(s=>{
+                    const cd=charts[s.ticker]?.data;if(!cd||cd.length<12)return;
+                    const L=cd.length;const ago=cd[L-6];const ago2=cd[L-7];const now2=cd[L-1];
+                    if(!ago||!ago2||!now2)return;
+                    const ret=+((now2.close-ago.close)/ago.close*100).toFixed(2);
+                    const win=ret>0;
+                    const closes5=cd.slice(0,L-5).map(x=>x.close);const pH=closes5.length>5?Math.max(...closes5.slice(-20)):0;
+                    const volR5=ago.volume&&cd.slice(L-26,L-6).length>0?Math.round(ago.volume/(cd.slice(L-26,L-6).reduce((a,x)=>a+(x.volume||0),0)/20||1)*100):100;
+                    const d0Conds=[ago.close>=pH*0.98,(ago.bodyPct||0)>=stratCfg.d0.bodyPct,volR5>=stratCfg.d0.volMin,true,ago.isBull,ago.isBull&&(ago.upperWickPct||100)<20];
+                    const d0Tot=d0Conds.filter(Boolean).length;
+                    if(d0Tot>=stratCfg.d0.minScore){d0Conds.forEach((ok,i)=>{if(ok){if(win)condPerf.d0[d0Labels[i]].w++;else condPerf.d0[d0Labels[i]].l++;}});}
+                    const w52h5=Math.max(...closes5.slice(-252));
+                    const sjConds=[ago.close>=w52h5*(stratCfg.sj.highPct/100),ago.close>=pH*(stratCfg.sj.highPct/100),ago.isBull&&volR5>=stratCfg.d0.volMin,volR5>=stratCfg.d0.volMin,ago.isBull&&(ago.upperWickPct||100)<20,ago.sqzOff||(!ago.sqzOn&&ago2?.sqzOn)];
+                    const sjTot=sjConds.filter(Boolean).length;
+                    if(sjTot>=stratCfg.sj.minScore){sjConds.forEach((ok,i)=>{if(ok){if(win)condPerf.sj[sjLabels[i]].w++;else condPerf.sj[sjLabels[i]].l++;}});}
+                  });
+                  const renderConds=(title,color,perfs,labels)=>{
+                    const entries=labels.map(l=>({label:l,...perfs[l],total:perfs[l].w+perfs[l].l})).filter(e=>e.total>0);
+                    if(!entries.length)return<div style={{fontSize:8,color:C.muted,marginBottom:6}}>{title}: 데이터 부족</div>;
+                    return<div style={{marginBottom:10}}>
+                      <div style={{fontSize:9,fontWeight:700,color,marginBottom:4}}>{title}</div>
+                      {entries.sort((a,b)=>(a.w/(a.total||1))-(b.w/(b.total||1))).map(e=>{
+                        const wr=Math.round(e.w/e.total*100);
+                        return<div key={e.label} style={{display:"flex",alignItems:"center",gap:4,marginBottom:3}}>
+                          <span style={{fontSize:7,color:C.muted,minWidth:50}}>{e.label}</span>
+                          <div style={{flex:1,height:4,background:"rgba(148,163,184,.1)",borderRadius:2,overflow:"hidden"}}>
+                            <div style={{height:"100%",width:`${wr}%`,background:wr>=60?C.emerald:wr>=40?"#F59E0B":C.red,borderRadius:2}}/>
                           </div>
-                          <div style={{display:"flex",gap:2,flex:1,flexWrap:"wrap"}}>
-                            {r.matched.map((m,j)=><span key={j} style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:m.tag==="AI추천"?"rgba(139,92,246,.1)":m.tag==="돌파감지"?"rgba(34,197,94,.12)":m.tag==="D+0"?"rgba(249,115,22,.1)":m.tag==="6체크"?"rgba(34,197,94,.1)":"rgba(59,130,246,.1)",color:m.tag==="AI추천"?C.purple:m.tag==="돌파감지"?C.emerald:m.tag==="D+0"?"#F97316":m.tag==="6체크"?C.emerald:C.accent,fontWeight:700}}>{m.tag} {m.score}</span>)}
+                          <span style={{fontSize:8,fontWeight:700,color:wr>=60?C.green:wr>=40?"#F59E0B":C.red,minWidth:28}}>{wr}%</span>
+                          <span style={{fontSize:7,color:C.muted}}>{e.total}건</span>
+                          {wr<40&&<span style={{fontSize:6,color:C.red}}>❌약함</span>}
+                        </div>;
+                      })}
+                    </div>;
+                  };
+                  return<>
+                    {renderConds("🔥 D+0 돌파","#F97316",condPerf.d0,d0Labels)}
+                    {renderConds("✅ 6체크",C.emerald,condPerf.sj,sjLabels)}
+                  </>;
+                })()}
+              </div>
+
+              {/* ── 🔍 패턴 발굴기 — 신규 조합 자동 발견 ── */}
+              <div style={css.card}>
+                <div style={{fontSize:11,fontWeight:700,color:C.emerald,marginBottom:4}}>🔍 패턴 발굴 — 실제 상승주의 공통점</div>
+                <div style={{fontSize:8,color:C.muted,marginBottom:8}}>최근 5일 상승 TOP30의 상승 시작 시점 지표 분석 → 신규 조합 발견</div>
+                {(()=>{
+                  const analyzed=Object.entries(charts).filter(([t,c])=>c?.data?.length>=20&&c.real).map(([ticker,c])=>{
+                    const d=c.data;const L=d.length;const chg5=L>5?+((d[L-1].close-d[L-6].close)/d[L-6].close*100).toFixed(2):0;
+                    if(chg5<=0)return null;
+                    const sp=d[Math.max(0,L-6)];if(!sp)return null;
+                    const info=stocks.find(s=>s.ticker===ticker)||pool[ticker]||{};
+                    const stC=[sp?.st1Bull,sp?.st2Bull,sp?.st3Bull].filter(v=>v!=null).length;
+                    return{ticker,label:info.label||ticker,chg5,st:stC===3,macd:sp.macd>sp.signal,rsi50:(sp.rsi||0)>=50&&(sp.rsi||0)<=65,rsi70:(sp.rsi||0)>=50&&(sp.rsi||0)<=70,cloud:sp.aboveCloud,adx:(sp.adx||0)>=25,volHigh:(sp.volRatio||100)>=150,sqzOff:!!sp.sqzOff};
+                  }).filter(Boolean).sort((a,b)=>b.chg5-a.chg5).slice(0,30);
+                  if(analyzed.length<5)return<div style={{textAlign:"center",padding:15,color:C.muted,fontSize:9}}>상승 종목 부족 — 시장 약세 구간</div>;
+                  const n=analyzed.length;
+                  const pats=[{k:"st",l:"ST 3/3"},{k:"macd",l:"MACD 양전"},{k:"rsi70",l:"RSI 50~70"},{k:"cloud",l:"구름 위"},{k:"adx",l:"ADX 25+"},{k:"volHigh",l:"거래량 150%+"},{k:"sqzOff",l:"스퀴즈 해제"}];
+                  const patStats=pats.map(p=>({...p,count:analyzed.filter(a=>a[p.k]).length,pct:Math.round(analyzed.filter(a=>a[p.k]).length/n*100)})).sort((a,b)=>b.pct-a.pct);
+                  // 조합 발견 (상위 3개 조합)
+                  const combos=[];
+                  for(let i=0;i<pats.length;i++){for(let j=i+1;j<pats.length;j++){for(let k=j+1;k<pats.length;k++){
+                    const matched=analyzed.filter(a=>a[pats[i].k]&&a[pats[j].k]&&a[pats[k].k]);
+                    if(matched.length>=3)combos.push({keys:[pats[i].l,pats[j].l,pats[k].l],count:matched.length,pct:Math.round(matched.length/n*100),avgRet:+(matched.reduce((a,m)=>a+m.chg5,0)/matched.length).toFixed(1)});
+                  }}}
+                  combos.sort((a,b)=>b.avgRet-a.avgRet);
+                  return<>
+                    <div style={{marginBottom:8}}>
+                      {patStats.map(p=>(
+                        <div key={p.k} style={{display:"flex",alignItems:"center",gap:4,marginBottom:2}}>
+                          <span style={{fontSize:7,color:C.muted,minWidth:65}}>{p.l}</span>
+                          <div style={{flex:1,height:5,background:"rgba(148,163,184,.08)",borderRadius:2,overflow:"hidden"}}>
+                            <div style={{height:"100%",width:`${p.pct}%`,background:p.pct>=70?C.emerald:p.pct>=50?C.green:"#F59E0B",borderRadius:2}}/>
                           </div>
-                          <div style={{textAlign:"right",minWidth:55}}>
-                            <div style={{fontSize:8,color:C.muted}}>{r.isKR?"₩"+fmtKRW(r.priceThen):"$"+r.priceThen.toFixed(1)} →</div>
-                            <div style={{fontSize:10,fontWeight:900,color:r.ret>=0?C.green:C.red}}>{r.ret>=0?"+":""}{r.ret}%</div>
-                          </div>
+                          <span style={{fontSize:8,fontWeight:700,color:p.pct>=70?C.emerald:C.muted,minWidth:28}}>{p.pct}%</span>
+                          <span style={{fontSize:7,color:C.muted}}>{p.count}/{n}</span>
                         </div>
                       ))}
                     </div>
-                    {/* 기법별 성과 분석 */}
-                    <div style={{marginTop:10,padding:"8px 10px",background:"rgba(148,163,184,.04)",borderRadius:8}}>
-                      <div style={{fontSize:9,fontWeight:700,color:"#F59E0B",marginBottom:6}}>📋 기법별 성과</div>
-                      {(()=>{
-                        const byTag={};
-                        results.forEach(r=>{
-                          r.matched.forEach(m=>{
-                            if(!byTag[m.tag])byTag[m.tag]={count:0,wins:0,total:0,best:null,worst:null};
-                            byTag[m.tag].count++;
-                            if(r.ret>0)byTag[m.tag].wins++;
-                            byTag[m.tag].total+=r.ret;
-                            if(!byTag[m.tag].best||r.ret>byTag[m.tag].best.ret)byTag[m.tag].best=r;
-                            if(!byTag[m.tag].worst||r.ret<byTag[m.tag].worst.ret)byTag[m.tag].worst=r;
-                          });
-                        });
-                        return Object.entries(byTag).sort((a,b)=>b[1].total/b[1].count-a[1].total/a[1].count).map(([tag,d])=>{
-                          const wr=Math.round(d.wins/d.count*100);
-                          const avg=+(d.total/d.count).toFixed(2);
-                          return<div key={tag} style={{marginBottom:6,padding:"6px 8px",background:C.panel2,borderRadius:6}}>
-                            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-                              <span style={{fontSize:8,fontWeight:700,color:tag==="AI추천"?C.purple:tag==="돌파감지"?C.emerald:tag==="D+0"?"#F97316":tag==="6체크"?C.emerald:C.accent,minWidth:45}}>{tag}</span>
-                              <span style={{fontSize:8,color:C.muted}}>{d.count}건</span>
-                              <div style={{flex:1,height:4,background:"rgba(148,163,184,.1)",borderRadius:2,overflow:"hidden"}}>
-                                <div style={{height:"100%",width:`${wr}%`,background:wr>=60?C.emerald:wr>=40?"#F59E0B":C.red,borderRadius:2}}/>
-                              </div>
-                              <span style={{fontSize:9,fontWeight:900,color:wr>=60?C.green:wr>=40?"#F59E0B":C.red,minWidth:28}}>{wr}%</span>
-                              <span style={{fontSize:9,fontWeight:900,color:avg>=0?C.green:C.red,minWidth:40,textAlign:"right"}}>{avg>=0?"+":""}{avg}%</span>
-                            </div>
-                            <div style={{fontSize:7,color:C.muted}}>
-                              최고: {d.best?`${fmtName(d.best)} ${d.best.ret>=0?"+":""}${d.best.ret}%`:"—"} · 최저: {d.worst?`${fmtName(d.worst)} ${d.worst.ret>=0?"+":""}${d.worst.ret}%`:"—"}
-                            </div>
-                          </div>;
-                        });
-                      })()}
-                    </div>
-                    {/* 개선 제안 */}
-                    <div style={{marginTop:8,padding:"8px 10px",background:"rgba(59,130,246,.04)",borderRadius:8,border:`1px solid rgba(59,130,246,.12)`}}>
-                      <div style={{fontSize:9,fontWeight:700,color:C.accent,marginBottom:4}}>💡 인사이트</div>
-                      {(()=>{
-                        const byTag2={};
-                        results.forEach(r=>r.matched.forEach(m=>{
-                          if(!byTag2[m.tag])byTag2[m.tag]={count:0,wins:0,total:0};
-                          byTag2[m.tag].count++;if(r.ret>0)byTag2[m.tag].wins++;byTag2[m.tag].total+=r.ret;
-                        }));
-                        const insights=[];
-                        const sorted2=Object.entries(byTag2).sort((a,b)=>(b[1].total/b[1].count)-(a[1].total/a[1].count));
-                        const best2=sorted2[0];const worst2=sorted2[sorted2.length-1];
-                        if(best2&&best2[1].total/best2[1].count>0)insights.push(`✅ ${best2[0]} 기법이 평균 +${(best2[1].total/best2[1].count).toFixed(1)}%로 가장 좋았습니다. 이 기법 위주로 매매하세요.`);
-                        if(worst2&&worst2[1].total/worst2[1].count<0&&worst2[0]!==best2?.[0])insights.push(`⚠️ ${worst2[0]} 기법은 평균 ${(worst2[1].total/worst2[1].count).toFixed(1)}%로 저조합니다. 조건 강화 또는 사용 축소를 고려하세요.`);
-                        const overallWr=Math.round(wins/results.length*100);
-                        if(overallWr>=60)insights.push("🟢 전체 승률 60%+ — 현재 전략이 시장에 잘 맞고 있습니다.");
-                        else if(overallWr>=40)insights.push("🟡 전체 승률 40~60% — 정상 범위. 손익비(R:R)로 수익 커버 가능.");
-                        else insights.push("🔴 전체 승률 40% 미만 — 시장 환경이 불리합니다. 매매를 줄이고 관망하세요.");
-                        if(avgRet>3)insights.push("📈 평균 +3% 이상 — 추세장입니다. 적극 매매 구간.");
-                        else if(avgRet<-1)insights.push("📉 평균 손실 구간 — 현금 비중을 높이고 관망하세요.");
-                        return insights.map((ins,i)=><div key={i} style={{fontSize:8,color:C.sub,marginBottom:3,lineHeight:1.5}}>{ins}</div>);
-                      })()}
-                    </div>
+                    {combos.length>0&&<>
+                      <div style={{fontSize:9,fontWeight:700,color:C.accent,marginBottom:4}}>🆕 발견된 강력 조합 (TOP3)</div>
+                      {combos.slice(0,3).map((cb,i)=>(
+                        <div key={i} style={{padding:"5px 8px",marginBottom:4,background:i===0?"rgba(34,197,94,.06)":"rgba(148,163,184,.04)",borderRadius:6,border:i===0?`1px solid rgba(34,197,94,.2)`:"none"}}>
+                          <div style={{display:"flex",gap:3,marginBottom:2}}>
+                            {cb.keys.map(k=><span key={k} style={{fontSize:7,padding:"1px 4px",borderRadius:2,background:"rgba(59,130,246,.1)",color:C.accent,fontWeight:600}}>{k}</span>)}
+                          </div>
+                          <div style={{fontSize:8,color:C.muted}}>{cb.count}건 중 평균 <span style={{color:C.green,fontWeight:700}}>+{cb.avgRet}%</span> · 출현률 {cb.pct}%{i===0?" 🏆":""}</div>
+                        </div>
+                      ))}
+                    </>}
                   </>;
                 })()}
               </div>
