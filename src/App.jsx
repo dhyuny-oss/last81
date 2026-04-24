@@ -776,6 +776,7 @@ export default function App() {
   const [stratCfg,setStratCfg]=useState(()=>{try{const s=localStorage.getItem("at_strat_cfg");return s?JSON.parse(s):STRATEGY_DEFAULTS;}catch{return STRATEGY_DEFAULTS;}});
   useEffect(()=>{localStorage.setItem("at_strat_cfg",JSON.stringify(stratCfg));},[stratCfg]);
   const [expandedCombo,setExpandedCombo]=useState(null); // 패턴 발굴 확장
+  const [scanCardOpen,setScanCardOpen]=useState({}); // 기법 카드 접기/펼치기
   const [customCombos,setCustomCombos]=useState(()=>{try{const s=localStorage.getItem("at_custom_combos");return s?JSON.parse(s):[];}catch{return [];}});
   useEffect(()=>{localStorage.setItem("at_custom_combos",JSON.stringify(customCombos));},[customCombos]);
   const [comboHistory,setComboHistory]=useState(()=>{try{const s=localStorage.getItem("at_combo_history");return s?JSON.parse(s):[];}catch{return [];}});
@@ -2003,7 +2004,7 @@ export default function App() {
             if(trc>=stratCfg.tr.minScore)tags.push({tag:"전환초기",color:C.accent,score:trc+"/6"});
             // 7. 편입된 커스텀 조합
             if(customCombos.length>0){
-              const keyMap2={"ST 3/3":stT===3,"MACD 양전":last.macd>last.signal,"RSI 50~70":(last.rsi||0)>=50&&(last.rsi||0)<=70,"구름 위":!!last.aboveCloud,"ADX 25+":(last.adx||0)>=25,"거래량 150%+":volR>=150,"스퀴즈 해제":!!last.sqzOff};
+              const keyMap2={"ST 3/3":stT===3,"MACD 양전":last.macd>last.signal,"RSI 50~70":(last.rsi||0)>=50&&(last.rsi||0)<=70,"구름 위":!!last.aboveCloud,"ADX 25+":(last.adx||0)>=25,"거래량 150%+":volR>=150,"스퀴즈해제":!!last.sqzOff,"EMA정배열":(last.ema20||0)>(last.ema50||0)&&(last.ema50||0)>(last.ema200||0)&&(last.ema200||0)>0,"MA20위":last.close>(last.ema20||0)&&(last.ema20||0)>0,"3연속양봉":last.isBull&&prev?.isBull&&(cd[L-3]?.isBull),"거래량3↑":last.volume>(prev?.volume||0)&&(prev?.volume||0)>(cd[L-3]?.volume||0),"RSI50돌파":(last.rsi||0)>=50&&(last.rsi||0)<=55&&(prev?.rsi||0)<50,"갭상승":last.open>(prev?.close||0)*1.01,"20일신고":last.close>=Math.max(...cd.slice(-21,-1).map(x=>x.close)),"MACD가속":(last.hist||0)>(prev?.hist||0)&&(prev?.hist||0)>(cd[L-3]?.hist||0)};
               customCombos.forEach((cc,ci)=>{
                 if(cc.keys.every(k=>keyMap2[k]))tags.push({tag:"발굴#"+(ci+1),color:"#F59E0B",score:cc.keys.length+"조건"});
               });
@@ -2439,7 +2440,8 @@ export default function App() {
             return<>
               {/* ── D+0 장대양봉 돌파 ── */}
               <div style={css.card}>
-                <div style={{fontSize:11,fontWeight:700,color:"#F97316",marginBottom:4}}>🔥 D+0 돌파 감지 — 장대양봉 + 전고점 돌파</div>
+                <div onClick={()=>setScanCardOpen(p=>({...p,d0:!p.d0}))} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:4}}><span style={{fontSize:11,fontWeight:700,color:"#F97316"}}>🔥 D+0 돌파 ({d0hits.length})</span><span style={{fontSize:8,color:C.muted}}>{scanCardOpen.d0?"▲ 접기":"▼ 펼치기"}</span></div>
+                <div style={{display:scanCardOpen.d0===false?"none":"block"}}>
                 <div style={{fontSize:8,color:C.muted,marginBottom:8}}>전고점 돌파 + 장대양봉(5%+) + 거래량 폭발 + 주도섹터</div>
                 {d0hits.length===0?<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:9}}>현재 D+0 조건 충족 종목 없음</div>
                 :<div style={{maxHeight:350,overflowY:"auto"}}>
@@ -2464,11 +2466,13 @@ export default function App() {
                   ))}
                 </div>}
                 <div style={{fontSize:7,color:C.muted,marginTop:6}}>D+1: 내일 전일종가 눌림목에서 매수 검토 · 익절 5~10% · 손절 지지선-1%</div>
+                </div>
               </div>
 
               {/* ── 신정재 6체크포인트 ── */}
               <div style={css.card}>
-                <div style={{fontSize:11,fontWeight:700,color:C.emerald,marginBottom:4}}>✅ 종가베팅 6체크 — 매수 적합도</div>
+                <div onClick={()=>setScanCardOpen(p=>({...p,sj:!p.sj}))} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:4}}><span style={{fontSize:11,fontWeight:700,color:C.emerald}}>✅ 6체크 ({sjhits.length})</span><span style={{fontSize:8,color:C.muted}}>{scanCardOpen.sj?"▲ 접기":"▼ 펼치기"}</span></div>
+                <div style={{display:scanCardOpen.sj===false?"none":"block"}}>
                 <div style={{fontSize:8,color:C.muted,marginBottom:8}}>신고가 + 이격좁음 + 양봉거래 + 거래↑ + 깔끔양봉 + 조정해제</div>
                 {sjhits.length===0?<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:9}}>현재 4/6 이상 충족 종목 없음</div>
                 :<div style={{maxHeight:400,overflowY:"auto"}}>
@@ -2494,7 +2498,8 @@ export default function App() {
 
               {/* ── 엔벨로프 하단 근접 ── */}
               <div style={css.card}>
-                <div style={{fontSize:11,fontWeight:700,color:C.purple,marginBottom:4}}>📐 엔벨로프 하단 근접 — 반등 후보</div>
+                <div onClick={()=>setScanCardOpen(p=>({...p,env:!p.env}))} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:4}}><span style={{fontSize:11,fontWeight:700,color:C.purple}}>📐 엔벨로프 ({envhits.length})</span><span style={{fontSize:8,color:C.muted}}>{scanCardOpen.env?"▲ 접기":"▼ 펼치기"}</span></div>
+                <div style={{display:scanCardOpen.env===false?"none":"block"}}>
                 <div style={{fontSize:8,color:C.muted,marginBottom:8}}>Envelope(20,20) 하한선 2% 이내 근접 우량주</div>
                 {envhits.length===0?<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:9}}>현재 엔벨로프 하단 근접 종목 없음 — 시장이 강세일 수 있습니다</div>
                 :<div style={{maxHeight:300,overflowY:"auto"}}>
@@ -2514,11 +2519,13 @@ export default function App() {
                   ))}
                 </div>}
                 <div style={{fontSize:7,color:C.muted,marginTop:6}}>MA20 × 0.80 기준 · 과매도 반등 매매 · 손절 엔벨로프 하단 이탈 시</div>
+                </div>
               </div>
 
               {/* ── 추세 전환 초기 감지 ── */}
               <div style={css.card}>
-                <div style={{fontSize:11,fontWeight:700,color:C.accent,marginBottom:4}}>🔄 추세 전환 초기 — ST↑ + RSI↑ + 구름 + 거래량</div>
+                <div onClick={()=>setScanCardOpen(p=>({...p,tr:!p.tr}))} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:4}}><span style={{fontSize:11,fontWeight:700,color:C.accent}}>🔄 전환초기 ({trhits.length})</span><span style={{fontSize:8,color:C.muted}}>{scanCardOpen.tr?"▲ 접기":"▼ 펼치기"}</span></div>
+                <div style={{display:scanCardOpen.tr===false?"none":"block"}}>
                 <div style={{fontSize:8,color:C.muted,marginBottom:8}}>ST 2/3 + RSI 우상향 + 구름 인접 + RS 강 + 거래량 110%+ + MACD↑ → 5/6 이상</div>
                 {trhits.length===0?<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:9}}>현재 추세 전환 초기 종목 없음</div>
                 :<div style={{maxHeight:350,overflowY:"auto"}}>
@@ -2540,6 +2547,7 @@ export default function App() {
                   ))}
                 </div>}
                 <div style={{fontSize:7,color:C.muted,marginTop:6}}>ST 3/3 완성 전 선점 · 구름 돌파 확인 후 매수 · 3/3 미완성 시 손절 -5%</div>
+                </div>
               </div>
 
               {/* ── 📊 5주 리그 대시보드 ── */}
@@ -2677,20 +2685,47 @@ export default function App() {
                   const analyzed=Object.entries(charts).filter(([t,c])=>c?.data?.length>=20&&c.real).map(([ticker,c])=>{
                     const d=c.data;const L=d.length;const chg5=L>5?+((d[L-1].close-d[L-6].close)/d[L-6].close*100).toFixed(2):0;
                     if(chg5<=0)return null;
-                    const sp=d[Math.max(0,L-6)];if(!sp)return null;
+                    const sp=d[Math.max(0,L-6)];const sp2=d[Math.max(0,L-7)];const sp3=d[Math.max(0,L-8)];if(!sp)return null;
                     const info=stocks.find(s=>s.ticker===ticker)||pool[ticker]||{};
                     const stC=[sp?.st1Bull,sp?.st2Bull,sp?.st3Bull].filter(v=>v!=null).length;
-                    return{ticker,label:info.label||ticker,chg5,st:stC===3,macd:sp.macd>sp.signal,rsi50:(sp.rsi||0)>=50&&(sp.rsi||0)<=65,rsi70:(sp.rsi||0)>=50&&(sp.rsi||0)<=70,cloud:sp.aboveCloud,adx:(sp.adx||0)>=25,volHigh:(sp.volRatio||100)>=150,sqzOff:!!sp.sqzOff};
+                    // 기존 지표
+                    const macdUp=sp.macd>sp.signal;const rsi=sp.rsi||0;
+                    const cloud=!!sp.aboveCloud;const adxOk=(sp.adx||0)>=25;
+                    const volR=(sp.volRatio||100);
+                    // 확장 지표
+                    const ema20=sp.ema20||0,ema50=sp.ema50||0,ema200=sp.ema200||0;
+                    const emaAlign=ema20>ema50&&ema50>ema200&&ema200>0; // EMA 정배열
+                    const above20=sp.close>ema20&&ema20>0; // MA20 위
+                    const above50=sp.close>ema50&&ema50>0; // MA50 위
+                    const consUp=sp.isBull&&sp2?.isBull&&sp3?.isBull; // 3연속 양봉
+                    const volUp3=sp.volume>(sp2?.volume||0)&&(sp2?.volume||0)>(sp3?.volume||0)&&sp3?.volume>0; // 거래량 3일 연속 증가
+                    const rsi50cross=rsi>=50&&rsi<=55&&(sp2?.rsi||0)<50; // RSI 50 막 돌파
+                    const gapUp=sp.open>(sp2?.close||0)*1.01; // 갭 상승 1%+
+                    const highNew=sp.close>=Math.max(...d.slice(Math.max(0,L-26),L-6).map(x=>x.close)); // 20일 신고가
+                    const histUp=(sp.hist||0)>(sp2?.hist||0)&&(sp2?.hist||0)>(sp3?.hist||0); // MACD 히스토 3일 가속
+                    return{ticker,label:info.label||ticker,chg5,
+                      st:stC===3,macd:macdUp,rsi70:rsi>=50&&rsi<=70,cloud,adx:adxOk,
+                      volHigh:volR>=150,sqzOff:!!sp.sqzOff,
+                      emaAlign,above20,above50,consUp,volUp3,rsi50x:rsi50cross,
+                      gapUp,highNew,histUp};
                   }).filter(Boolean).sort((a,b)=>b.chg5-a.chg5).slice(0,30);
                   if(analyzed.length<5)return<div style={{textAlign:"center",padding:15,color:C.muted,fontSize:9}}>상승 종목 부족 — 시장 약세 구간</div>;
                   const n=analyzed.length;
-                  const pats=[{k:"st",l:"ST 3/3"},{k:"macd",l:"MACD 양전"},{k:"rsi70",l:"RSI 50~70"},{k:"cloud",l:"구름 위"},{k:"adx",l:"ADX 25+"},{k:"volHigh",l:"거래량 150%+"},{k:"sqzOff",l:"스퀴즈 해제"}];
+                  const pats=[
+                    {k:"st",l:"ST 3/3"},{k:"macd",l:"MACD 양전"},{k:"rsi70",l:"RSI 50~70"},
+                    {k:"cloud",l:"구름 위"},{k:"adx",l:"ADX 25+"},{k:"volHigh",l:"거래량 150%+"},
+                    {k:"sqzOff",l:"스퀴즈해제"},{k:"emaAlign",l:"EMA정배열"},
+                    {k:"above20",l:"MA20위"},{k:"consUp",l:"3연속양봉"},
+                    {k:"volUp3",l:"거래량3↑"},{k:"rsi50x",l:"RSI50돌파"},
+                    {k:"gapUp",l:"갭상승"},{k:"highNew",l:"20일신고"},
+                    {k:"histUp",l:"MACD가속"},
+                  ];
                   const patStats=pats.map(p=>({...p,count:analyzed.filter(a=>a[p.k]).length,pct:Math.round(analyzed.filter(a=>a[p.k]).length/n*100)})).sort((a,b)=>b.pct-a.pct);
-                  // 조합 발견 (상위 3개 조합)
+                  // 조합 발견 (2개+3개 조합 모두)
                   const combos=[];
                   for(let i=0;i<pats.length;i++){for(let j=i+1;j<pats.length;j++){for(let k=j+1;k<pats.length;k++){
                     const matched=analyzed.filter(a=>a[pats[i].k]&&a[pats[j].k]&&a[pats[k].k]);
-                    if(matched.length>=3)combos.push({keys:[pats[i].l,pats[j].l,pats[k].l],count:matched.length,pct:Math.round(matched.length/n*100),avgRet:+(matched.reduce((a,m)=>a+m.chg5,0)/matched.length).toFixed(1)});
+                    if(matched.length>=3)combos.push({keys:[pats[i].l,pats[j].l,pats[k].l],keyIds:[pats[i].k,pats[j].k,pats[k].k],count:matched.length,pct:Math.round(matched.length/n*100),avgRet:+(matched.reduce((a,m)=>a+m.chg5,0)/matched.length).toFixed(1),stocks:matched});
                   }}}
                   combos.sort((a,b)=>b.avgRet-a.avgRet);
                   return<>
@@ -2707,13 +2742,13 @@ export default function App() {
                       ))}
                     </div>
                     {combos.length>0&&<>
-                      <div style={{fontSize:9,fontWeight:700,color:C.accent,marginBottom:4}}>🆕 발견된 강력 조합 (TOP3)</div>
-                      {combos.slice(0,3).map((cb,i)=>{
+                      <div style={{fontSize:9,fontWeight:700,color:C.accent,marginBottom:4}}>🆕 발견된 강력 조합 (TOP5)</div>
+                      {combos.slice(0,5).map((cb,i)=>{
                         const isOpen=expandedCombo===i;
                         const isAdopted=customCombos.some(cc=>cc.keys.join(",")=== cb.keys.join(","));
                         // 매칭 종목 찾기
-                        const keyMap={"ST 3/3":"st","MACD 양전":"macd","RSI 50~70":"rsi70","구름 위":"cloud","ADX 25+":"adx","거래량 150%+":"volHigh","스퀴즈 해제":"sqzOff"};
-                        const matchStocks=isOpen?analyzed.filter(a=>cb.keys.every(k=>a[keyMap[k]])).sort((a,b)=>b.chg5-a.chg5):[];
+                        const keyMap={"ST 3/3":"st","MACD 양전":"macd","RSI 50~70":"rsi70","구름 위":"cloud","ADX 25+":"adx","거래량 150%+":"volHigh","스퀴즈해제":"sqzOff","EMA정배열":"emaAlign","MA20위":"above20","3연속양봉":"consUp","거래량3↑":"volUp3","RSI50돌파":"rsi50x","갭상승":"gapUp","20일신고":"highNew","MACD가속":"histUp"};
+                        const matchStocks=isOpen?cb.stocks||analyzed.filter(a=>cb.keys.every(k=>a[keyMap[k]])).sort((a,b)=>b.chg5-a.chg5):[];
                         return<div key={i} style={{marginBottom:6}}>
                           <div onClick={()=>setExpandedCombo(isOpen?null:i)} style={{padding:"6px 8px",background:isAdopted?"rgba(139,92,246,.08)":i===0?"rgba(34,197,94,.06)":"rgba(148,163,184,.04)",borderRadius:6,border:isAdopted?`1px solid rgba(139,92,246,.25)`:i===0?`1px solid rgba(34,197,94,.2)`:`1px solid ${C.border}`,cursor:"pointer"}}>
                             <div style={{display:"flex",alignItems:"center",gap:3,marginBottom:2}}>
