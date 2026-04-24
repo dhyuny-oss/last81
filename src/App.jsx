@@ -2004,7 +2004,7 @@ export default function App() {
             if(trc>=stratCfg.tr.minScore)tags.push({tag:"전환초기",color:C.accent,score:trc+"/6"});
             // 7. 편입된 커스텀 조합
             if(customCombos.length>0){
-              const keyMap2={"ST 3/3":stT===3,"MACD 양전":last.macd>last.signal,"RSI 50~70":(last.rsi||0)>=50&&(last.rsi||0)<=70,"구름 위":!!last.aboveCloud,"ADX 25+":(last.adx||0)>=25,"거래량 150%+":volR>=150,"스퀴즈해제":!!last.sqzOff,"EMA정배열":(last.ema20||0)>(last.ema50||0)&&(last.ema50||0)>(last.ema200||0)&&(last.ema200||0)>0,"MA20위":last.close>(last.ema20||0)&&(last.ema20||0)>0,"3연속양봉":last.isBull&&prev?.isBull&&(cd[L-3]?.isBull),"거래량3↑":last.volume>(prev?.volume||0)&&(prev?.volume||0)>(cd[L-3]?.volume||0),"RSI50돌파":(last.rsi||0)>=50&&(last.rsi||0)<=55&&(prev?.rsi||0)<50,"갭상승":last.open>(prev?.close||0)*1.01,"20일신고":last.close>=Math.max(...cd.slice(-21,-1).map(x=>x.close)),"MACD가속":(last.hist||0)>(prev?.hist||0)&&(prev?.hist||0)>(cd[L-3]?.hist||0)};
+              const keyMap2={"ST3/3":stT===3,"ST2/3":stT===2,"ST전환↑":stT>=(prev?[prev.st1Bull,prev.st2Bull,prev.st3Bull].filter(v=>v!=null).length:0)+1&&stT>=2,"MACD양전":last.macd>last.signal,"RSI50~70":(last.rsi||0)>=50&&(last.rsi||0)<=70,"구름위":!!last.aboveCloud,"ADX25+":(last.adx||0)>=25,"거래량150%+":volR>=150,"스퀴즈해제":!!last.sqzOff,"EMA정배열":(last.ema20||0)>(last.ema50||0)&&(last.ema50||0)>(last.ema200||0)&&(last.ema200||0)>0,"MA20위":last.close>(last.ema20||0)&&(last.ema20||0)>0,"3연속양봉":last.isBull&&prev?.isBull&&(cd[L-3]?.isBull),"거래량3↑":last.volume>(prev?.volume||0)&&(prev?.volume||0)>(cd[L-3]?.volume||0),"RSI50돌파":(last.rsi||0)>=50&&(last.rsi||0)<=55&&(prev?.rsi||0)<50,"갭상승":last.open>(prev?.close||0)*1.01,"20일신고":last.close>=Math.max(...cd.slice(-21,-1).map(x=>x.close)),"MACD가속":(last.hist||0)>(prev?.hist||0)&&(prev?.hist||0)>(cd[L-3]?.hist||0),"OBV상승":(last.obv||0)>(prev?.obv||0)&&(prev?.obv||0)>(cd[L-3]?.obv||0),"DI매수우위":(last.plusDI||0)>(last.minusDI||0),"MA200위":last.close>(last.ma200||0)&&(last.ma200||0)>0,"모멘텀+":(last.sqzMom||0)>0,"RSI상승":(last.rsi||0)>(prev?.rsi||0)&&(prev?.rsi||0)>(cd[L-3]?.rsi||0),"장대양봉":!!last.bigBull,"구름돌파":!!last.aboveCloud&&!prev?.aboveCloud,"거래폭발":volR>=200};
               customCombos.forEach((cc,ci)=>{
                 if(cc.keys.every(k=>keyMap2[k]))tags.push({tag:"발굴#"+(ci+1),color:"#F59E0B",score:cc.keys.length+"조건"});
               });
@@ -2099,7 +2099,8 @@ export default function App() {
               const volR=(sp.volRatio||100);
               const ema20=sp.ema20||0,ema50=sp.ema50||0,ema200=sp.ema200||0;
               const indicators={
-                st:stC===3,macd:macdUp,rsi70:rsi>=50&&rsi<=70,cloud,adx:adxOk,
+                st3:stC===3,st2:stC===2,stFlip:stC>=(sp2?[sp2.st1Bull,sp2.st2Bull,sp2.st3Bull].filter(v=>v!=null).length:0)+1&&stC>=2,
+                macd:macdUp,rsi70:rsi>=50&&rsi<=70,cloud,adx:adxOk,
                 volHigh:volR>=150,sqzOff:!!sp.sqzOff,
                 emaAlign:ema20>ema50&&ema50>ema200&&ema200>0,
                 above20:sp.close>ema20&&ema20>0,
@@ -2108,15 +2109,44 @@ export default function App() {
                 rsi50x:rsi>=50&&rsi<=55&&(sp2?.rsi||0)<50,
                 gapUp:sp.open>(sp2?.close||0)*1.01,
                 highNew:sp.close>=Math.max(...d.slice(Math.max(0,L-26),L-6).map(x=>x.close)),
-                histUp:(sp.hist||0)>(sp2?.hist||0)&&(sp2?.hist||0)>(sp3?.hist||0)
+                histUp:(sp.hist||0)>(sp2?.hist||0)&&(sp2?.hist||0)>(sp3?.hist||0),
+                obvUp:(sp.obv||0)>(sp2?.obv||0)&&(sp2?.obv||0)>(sp3?.obv||0),
+                diPlus:(sp.plusDI||0)>(sp.minusDI||0),
+                abv200:sp.close>(sp.ma200||0)&&(sp.ma200||0)>0,
+                sqzMomP:(sp.sqzMom||0)>0,
+                rsiUp:rsi>(sp2?.rsi||0)&&(sp2?.rsi||0)>(sp3?.rsi||0),
+                bigCandle:!!sp.bigBull,
+                cloudBreak:!!sp.aboveCloud&&!sp2?.aboveCloud,
+                volBoom:volR>=200,
               };
               const activeInds=Object.entries(indicators).filter(([k,v])=>v).map(([k])=>k);
               return{ticker,label:info.label||ticker,chg5,indicators,activeInds,price:d[L-1].close,isKR:isKRticker(ticker)};
             }).filter(Boolean).sort((a,b)=>b.chg5-a.chg5).slice(0,alphaMarket==="all"?80:40);
             if(!top40.length)return<div style={{textAlign:"center",padding:30,color:C.muted,fontSize:9}}>최근 5일 상승 종목이 없습니다 — 시장 전체 약세</div>;
             const n=top40.length;
-            const indLabels={st:"ST3/3",macd:"MACD양전",rsi70:"RSI50~70",cloud:"구름위",adx:"ADX25+",volHigh:"거래량150%+",sqzOff:"스퀴즈해제",emaAlign:"EMA정배열",above20:"MA20위",consUp:"3연속양봉",volUp3:"거래량3↑",rsi50x:"RSI50돌파",gapUp:"갭상승",highNew:"20일신고",histUp:"MACD가속"};
-            const pats=Object.keys(indLabels).map(k=>({k,l:indLabels[k],count:top40.filter(s=>s.indicators[k]).length,pct:Math.round(top40.filter(s=>s.indicators[k]).length/n*100)})).sort((a,b)=>b.pct-a.pct);
+            const indLabels={st3:"ST3/3",st2:"ST2/3",stFlip:"ST전환↑",macd:"MACD양전",rsi70:"RSI50~70",cloud:"구름위",adx:"ADX25+",volHigh:"거래량150%+",sqzOff:"스퀴즈해제",emaAlign:"EMA정배열",above20:"MA20위",consUp:"3연속양봉",volUp3:"거래량3↑",rsi50x:"RSI50돌파",gapUp:"갭상승",highNew:"20일신고",histUp:"MACD가속",obvUp:"OBV상승",diPlus:"DI매수우위",abv200:"MA200위",sqzMomP:"모멘텀+",rsiUp:"RSI상승",bigCandle:"장대양봉",cloudBreak:"구름돌파",volBoom:"거래폭발"};
+
+            // ★ 리프트 계산 — 전체 종목 대비 TOP40에서 얼마나 더 많이 나타나는지
+            const allStocksInds={};
+            Object.keys(indLabels).forEach(k=>{allStocksInds[k]=0;});
+            let totalAll=0;
+            filtered.forEach(([ticker,c])=>{
+              const d2=c.data;const L2=d2.length;if(L2<8)return;
+              const sp4=d2[Math.max(0,L2-6)];const sp5=d2[Math.max(0,L2-7)];const sp6=d2[Math.max(0,L2-8)];
+              if(!sp4)return;totalAll++;
+              const stC2=[sp4?.st1Bull,sp4?.st2Bull,sp4?.st3Bull].filter(v=>v!=null).length;
+              const prevStC2=sp5?[sp5.st1Bull,sp5.st2Bull,sp5.st3Bull].filter(v=>v!=null).length:0;
+              const e20=sp4.ema20||0,e50=sp4.ema50||0,e200=sp4.ema200||0;
+              const vR2=sp4.volRatio||100;const rsi2=sp4.rsi||0;
+              const baseInds={st3:stC2===3,st2:stC2===2,stFlip:stC2>=prevStC2+1&&stC2>=2,macd:sp4.macd>sp4.signal,rsi70:rsi2>=50&&rsi2<=70,cloud:!!sp4.aboveCloud,adx:(sp4.adx||0)>=25,volHigh:vR2>=150,sqzOff:!!sp4.sqzOff,emaAlign:e20>e50&&e50>e200&&e200>0,above20:sp4.close>e20&&e20>0,consUp:sp4.isBull&&sp5?.isBull&&sp6?.isBull,volUp3:sp4.volume>(sp5?.volume||0)&&(sp5?.volume||0)>(sp6?.volume||0),rsi50x:rsi2>=50&&rsi2<=55&&(sp5?.rsi||0)<50,gapUp:sp4.open>(sp5?.close||0)*1.01,highNew:sp4.close>=Math.max(...d2.slice(Math.max(0,L2-26),L2-6).map(x=>x.close)),histUp:(sp4.hist||0)>(sp5?.hist||0)&&(sp5?.hist||0)>(sp6?.hist||0),obvUp:(sp4.obv||0)>(sp5?.obv||0)&&(sp5?.obv||0)>(sp6?.obv||0),diPlus:(sp4.plusDI||0)>(sp4.minusDI||0),abv200:sp4.close>(sp4.ma200||0)&&(sp4.ma200||0)>0,sqzMomP:(sp4.sqzMom||0)>0,rsiUp:rsi2>(sp5?.rsi||0)&&(sp5?.rsi||0)>(sp6?.rsi||0),bigCandle:!!sp4.bigBull,cloudBreak:!!sp4.aboveCloud&&!sp5?.aboveCloud,volBoom:vR2>=200};
+              Object.entries(baseInds).forEach(([k,v])=>{if(v)allStocksInds[k]++;});
+            });
+            const pats=Object.keys(indLabels).map(k=>{
+              const topPct=Math.round(top40.filter(s=>s.indicators[k]).length/n*100);
+              const basePct=totalAll>0?Math.round(allStocksInds[k]/totalAll*100):0;
+              const lift=basePct>0?+(topPct/basePct).toFixed(1):topPct>0?99:0;
+              return{k,l:indLabels[k],count:top40.filter(s=>s.indicators[k]).length,pct:topPct,basePct,lift};
+            }).sort((a,b)=>b.lift-a.lift);
             // 조합 발견
             const patKeys=Object.keys(indLabels);
             const combos=[];
@@ -2151,15 +2181,16 @@ export default function App() {
 
             {/* 공통 DNA */}
             <div style={css.card}>
-              <div style={{fontSize:11,fontWeight:700,color:C.accent,marginBottom:6}}>📊 공통 DNA — 이 종목들이 오르기 전 공통점</div>
-              {pats.map(p=>(
-                <div key={p.k} style={{display:"flex",alignItems:"center",gap:4,marginBottom:2}}>
-                  <span style={{fontSize:7,color:C.muted,minWidth:60}}>{p.l}</span>
+              <div style={{fontSize:11,fontWeight:700,color:C.accent,marginBottom:6}}>📊 차별적 DNA — 리프트순 (상승주에서 유독 많이 나타난 지표)</div>
+              <div style={{fontSize:7,color:C.muted,marginBottom:6}}>리프트 = TOP40 비율 ÷ 전체 비율. 2x+ = 진짜 차별점, 1.5x 미만 = 당연한 거</div>
+              {pats.filter(p=>p.count>0).map(p=>(
+                <div key={p.k} style={{display:"flex",alignItems:"center",gap:4,marginBottom:2,opacity:p.lift<1.5?0.4:1}}>
+                  <span style={{fontSize:7,color:p.lift>=2?C.emerald:p.lift>=1.5?C.accent:C.muted,minWidth:60,fontWeight:p.lift>=2?700:400}}>{p.l}</span>
                   <div style={{flex:1,height:5,background:"rgba(148,163,184,.08)",borderRadius:2,overflow:"hidden"}}>
-                    <div style={{height:"100%",width:`${p.pct}%`,background:p.pct>=70?C.emerald:p.pct>=50?C.green:"#F59E0B",borderRadius:2}}/>
+                    <div style={{height:"100%",width:`${p.pct}%`,background:p.lift>=2?C.emerald:p.lift>=1.5?C.green:"rgba(148,163,184,.2)",borderRadius:2}}/>
                   </div>
-                  <span style={{fontSize:8,fontWeight:700,color:p.pct>=70?C.emerald:C.muted,minWidth:28}}>{p.pct}%</span>
-                  <span style={{fontSize:7,color:C.muted}}>{p.count}/{n}</span>
+                  <span style={{fontSize:8,fontWeight:700,color:p.lift>=2?C.emerald:C.muted,minWidth:28}}>{p.pct}%</span>
+                  <span style={{fontSize:7,color:p.lift>=2?"#F59E0B":C.muted,minWidth:30}}>{p.lift>=99?"NEW":p.lift+"x"}</span>
                 </div>
               ))}
             </div>
@@ -2374,6 +2405,7 @@ export default function App() {
                   ))}
                 </div>}
                 <div style={{fontSize:7,color:C.muted,marginTop:6}}>종가매수: 오후 3:18~20분 확인 후 매수 · 당일 저점 미이탈 확인 · 추세 믿고 눌림 매수</div>
+                </div>
               </div>
 
               {/* ── 엔벨로프 하단 근접 ── */}
@@ -2436,14 +2468,14 @@ export default function App() {
                 <div style={{fontSize:8,color:C.muted,marginBottom:8}}>5/10/15/20/25일 전 시점에서 각 기법이 추천했을 종목의 실제 수익률</div>
                 {(()=>{
                   const weeks=[{d:5,label:"1주전"},{d:10,label:"2주전"},{d:15,label:"3주전"},{d:20,label:"4주전"},{d:25,label:"5주전"}];
-                  const tagDefs=["AI추천","돌파","진입적기","D+0","6체크"];
+                  const tagDefs=["AI추천","돌파","진입적기","D+0","6체크","전환초기",...customCombos.map((_,i)=>"발굴#"+(i+1))];
                   const league={};
                   tagDefs.forEach(t=>{league[t]={weeks:[],totalW:0,totalL:0,totalRet:0,totalN:0};});
                   weeks.forEach(wk=>{
                     const wPerf={};tagDefs.forEach(t=>{wPerf[t]={w:0,l:0,ret:0,n:0};});
                     scanned.forEach(s=>{
                       const cd=charts[s.ticker]?.data;if(!cd||cd.length<wk.d+5)return;
-                      const L=cd.length;const ago=cd[L-1-wk.d];const ago2=cd[L-2-wk.d];const now2=cd[L-1];
+                      const L=cd.length;const ago=cd[L-1-wk.d];const ago2=cd[L-2-wk.d];const ago3=cd[L-3-wk.d];const now2=cd[L-1];
                       if(!ago||!ago2||!now2)return;
                       const ret=+((now2.close-ago.close)/ago.close*100).toFixed(2);
                       const stC=[ago.st1Bull,ago.st2Bull,ago.st3Bull].filter(v=>v!=null).length;
@@ -2464,6 +2496,19 @@ export default function App() {
                       const w52h5=Math.max(...closes5.slice(-252));
                       const sjc5=[ago.close>=w52h5*(stratCfg.sj.highPct/100),ago.close>=pH5*(stratCfg.sj.highPct/100),ago.isBull&&volR5>=stratCfg.d0.volMin,volR5>=stratCfg.d0.volMin,ago.isBull&&uW5<20,ago.sqzOff||(!ago.sqzOn&&ago2?.sqzOn)].filter(Boolean).length;
                       if(sjc5>=stratCfg.sj.minScore){wPerf["6체크"].n++;wPerf["6체크"].ret+=ret;if(ret>0)wPerf["6체크"].w++;else wPerf["6체크"].l++;}
+                      // 전환초기
+                      const rsiR5=rsi>(ago2?.rsi||0)&&rsi>(ago3?.rsi||0)&&rsi>=40;
+                      const nearCl5=ago.nearCloud||ago.inCloud||(ago.spanHigh&&ago.close>=ago.spanLow*0.97&&ago.close<=ago.spanHigh*1.03);
+                      const macdU5=(ago.macd>ago.signal)||(ago.hist>0&&ago2?.hist<=0)||(ago.hist>(ago2?.hist||0));
+                      const trc5=[(stC>=2&&prevStC<stC)||stC===2,rsiR5,nearCl5,true,volR5>=stratCfg.tr.volMin,macdU5].filter(Boolean).length;
+                      if(trc5>=stratCfg.tr.minScore){wPerf["전환초기"].n++;wPerf["전환초기"].ret+=ret;if(ret>0)wPerf["전환초기"].w++;else wPerf["전환초기"].l++;}
+                      // 편입 조합
+                      const ema20=ago.ema20||0,ema50=ago.ema50||0,ema200=ago.ema200||0;
+                      const comboMap={"ST3/3":stC===3,"ST2/3":stC===2,"ST전환↑":stC>=prevStC+1&&stC>=2,"MACD양전":macdUp,"RSI50~70":rsi>=50&&rsi<=70,"구름위":!!cloud,"ADX25+":adxOk,"거래량150%+":volR5>=150,"스퀴즈해제":!!ago.sqzOff,"EMA정배열":ema20>ema50&&ema50>ema200&&ema200>0,"MA20위":ago.close>ema20&&ema20>0,"3연속양봉":ago.isBull&&ago2?.isBull&&ago3?.isBull,"거래량3↑":ago.volume>(ago2?.volume||0)&&(ago2?.volume||0)>(ago3?.volume||0),"RSI50돌파":rsi>=50&&rsi<=55&&(ago2?.rsi||0)<50,"갭상승":ago.open>(ago2?.close||0)*1.01,"20일신고":ago.close>=Math.max(...cd.slice(Math.max(0,L-1-wk.d-20),L-1-wk.d).map(x=>x.close)),"MACD가속":(ago.hist||0)>(ago2?.hist||0)&&(ago2?.hist||0)>(ago3?.hist||0),"OBV상승":(ago.obv||0)>(ago2?.obv||0)&&(ago2?.obv||0)>(ago3?.obv||0),"DI매수우위":(ago.plusDI||0)>(ago.minusDI||0),"MA200위":ago.close>(ago.ma200||0)&&(ago.ma200||0)>0,"모멘텀+":(ago.sqzMom||0)>0,"RSI상승":rsi>(ago2?.rsi||0)&&(ago2?.rsi||0)>(ago3?.rsi||0),"장대양봉":!!ago.bigBull,"구름돌파":!!cloud&&!ago2?.aboveCloud,"거래폭발":volR5>=200};
+                      customCombos.forEach((cc,ci)=>{
+                        const tag="발굴#"+(ci+1);
+                        if(cc.keys.every(k=>comboMap[k])){wPerf[tag].n++;wPerf[tag].ret+=ret;if(ret>0)wPerf[tag].w++;else wPerf[tag].l++;}
+                      });
                     });
                     tagDefs.forEach(t=>{
                       const p=wPerf[t];
