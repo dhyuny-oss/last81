@@ -793,9 +793,11 @@ export default function App() {
   useEffect(()=>{localStorage.setItem("at_strat_cfg",JSON.stringify(stratCfg));},[stratCfg]);
   const [expandedCombo,setExpandedCombo]=useState(null); // 패턴 발굴 확장
   const [scanCardOpen,setScanCardOpen]=useState({}); // 기법 카드 접기/펼치기
-  const [customCombos,setCustomCombos]=useState(()=>{try{const s=localStorage.getItem("at_custom_combos");return s?JSON.parse(s):[];}catch{return [];}});
+  // v2.4: 과거 버전(indLabels에 공백 포함)에서 저장된 키 → 현재 comboMap과 매칭되도록 공백 제거 마이그레이션
+  const stripKeySpaces=(arr)=>arr.map(cc=>({...cc,keys:(cc.keys||[]).map(k=>typeof k==="string"?k.replace(/\s+/g,""):k)}));
+  const [customCombos,setCustomCombos]=useState(()=>{try{const s=localStorage.getItem("at_custom_combos");return s?stripKeySpaces(JSON.parse(s)):[];}catch{return [];}});
   useEffect(()=>{localStorage.setItem("at_custom_combos",JSON.stringify(customCombos));},[customCombos]);
-  const [comboHistory,setComboHistory]=useState(()=>{try{const s=localStorage.getItem("at_combo_history");return s?JSON.parse(s):[];}catch{return [];}});
+  const [comboHistory,setComboHistory]=useState(()=>{try{const s=localStorage.getItem("at_combo_history");return s?stripKeySpaces(JSON.parse(s)):[];}catch{return [];}});
   useEffect(()=>{localStorage.setItem("at_combo_history",JSON.stringify(comboHistory));},[comboHistory]);
   const [alphaMarket, setAlphaMarket] = useState("all"); // all | kr | us
   const [fMarket, setFMarket]   = useState("all");
