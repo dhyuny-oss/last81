@@ -1,5 +1,10 @@
 /**
- * Alpha Terminal v2.3 — App.jsx
+ * Alpha Terminal v2.4 — App.jsx
+ * v2.4: per-candle 지표 완성 (ema20/ema200/aboveCloud/nearCloud/inCloud/volRatio)
+ *       → 발굴탭 조합 탐지에서 구름/거래량/EMA계열 지표가 이제 과거 시점에도 평가됨
+ *       5주 리그 volR5 슬라이스 버그 수정 (per-candle volRatio 사용)
+ *       분석탭 카드 자동 정렬 (5주 리그 avgRet 내림차순, 엔벨로프는 하단 고정)
+ *       리그 계산 1회로 통합 (카드 정렬 + 대시보드 공용)
  * v2.3: 데이터 범위 통합 (pool↔stocks 일관성)
  *       navigateToStock — pool 종목 클릭 시 자동 추가
  *       selInfo/labInfo/posInfo pool 폴백
@@ -283,7 +288,8 @@ function calcOBV(candles) {
 function buildChartData(candles){
   const closes=candles.map(c=>c.close);
   const s1=calcST(candles,10,1),s2=calcST(candles,11,2),s3=calcST(candles,12,3);
-  const ema50=calcEMA(closes,50),rsi=calcRSI(closes),{ml,sl,hist}=calcMACD(closes),atr=calcATR(candles);
+  // v2.4: ema20/ema200 per-candle (이전엔 ema50만 있어서 emaAlign/above20이 항상 false였음)
+  const ema20=calcEMA(closes,20),ema50=calcEMA(closes,50),ema200=calcEMA(closes,200),rsi=calcRSI(closes),{ml,sl,hist}=calcMACD(closes),atr=calcATR(candles);
   const hma20=calcHMA(closes,20);
   const sqzData=calcSqueeze(candles);
   const avwap=calcAVWAP(candles);
@@ -298,7 +304,7 @@ function buildChartData(candles){
       st2Bull:allBull?r2.st:null,st2Bear:!allBull?r2.st:null,
       st3Bull:allBull?r3.st:null,st3Bear:!allBull?r3.st:null,
       bullSignal:allBull?candles[ci].close:null,bearSignal:!allBull?candles[ci].close:null,
-      ema50:ema50[ci],hma20:hma20[ci],rsi:rsi[ci],macd:ml[ci],signal:sl[ci],hist:hist[ci],atr:atr[ci],bullCount,allBull,
+      ema20:ema20[ci],ema50:ema50[ci],ema200:ema200[ci],hma20:hma20[ci],rsi:rsi[ci],macd:ml[ci],signal:sl[ci],hist:hist[ci],atr:atr[ci],bullCount,allBull,
       sqzOn:sqzData[ci]?.sqzOn, sqzOff:sqzData[ci]?.sqzOff, sqzMom:sqzData[ci]?.mom, sqzMomUp:sqzData[ci]?.momUp,
       avwap:avwap[ci]||null};
   });
@@ -319,9 +325,8 @@ function buildChartData(candles){
   }
   const highs=candles.map(c=>c.high),lows=candles.map(c=>c.low);
   const midV=(arr,s,e)=>(Math.max(...arr.slice(s,e))+Math.min(...arr.slice(s,e)))/2;
-  data.forEach((d,ii)=>{const cii=ii+off;if(cii>=25){const t=midV(highs,cii-8,cii+1),k=midV(highs,cii-25,cii+1);d.spanA=+((t+k)/2).toFixed(2);}d.spanB=cii>=51?+midV(highs,cii-51,cii+1).toFixed(2):null;if(d.spanA&&d.spanB){d.spanHigh=Math.max(d.spanA,d.spanB);d.spanLow=Math.min(d.spanA,d.spanB);}});
-  const lp=last;const ct=lp.spanA&&lp.spanB?Math.max(lp.spanA,lp.spanB):null;
-  lp.aboveCloud=ct&&lp.close>ct;lp.nearCloud=ct&&!lp.aboveCloud&&lp.close>=ct*0.97;lp.inCloud=ct&&lp.close<=ct&&lp.spanB&&lp.close>=lp.spanB;
+  data.forEach((d,ii)=>{const cii=ii+off;if(cii>=25){const t=midV(highs,cii-8,cii+1),k=midV(highs,cii-25,cii+1);d.spanA=+((t+k)/2).toFixed(2);}d.spanB=cii>=51?+midV(highs,cii-51,cii+1).toFixed(2):null;if(d.spanA&&d.spanB){d.spanHigh=Math.max(d.spanA,d.spanB);d.spanLow=Math.min(d.spanA,d.spanB);const ct=d.spanHigh;d.aboveCloud=d.close>ct;d.nearCloud=!d.aboveCloud&&d.close>=ct*0.97;d.inCloud=d.close<=ct&&d.close>=d.spanB;}});
+  // v2.4: cloud status는 per-candle forEach 안에서 계산됨. (이전엔 last 만 세팅돼서 aboveCloud 체크 전부 false)
   // ★ v2.3: 캔들 패턴 + 엔벨로프
   data.forEach((d,i)=>{
     const ci2=i+off;
@@ -338,6 +343,14 @@ function buildChartData(candles){
     // 엔벨로프 (20,20)
     if(d.ma20){d.envUpper=+(d.ma20*1.20).toFixed(2);d.envLower=+(d.ma20*0.80).toFixed(2);d.nearEnvLower=c<=d.envLower*1.02;}
   });
+  // v2.4: volRatio per-candle (20일 이동평균 대비 %). 이전엔 stock info에만 있어서 과거 시점 거래량 평가 불가
+  for(let i=0;i<data.length;i++){
+    if(i>=20){
+      let sum=0;for(let j=i-20;j<i;j++)sum+=data[j].volume||0;
+      const avg=sum/20;
+      data[i].volRatio=avg>0?+(data[i].volume/avg*100).toFixed(0):100;
+    }else{data[i].volRatio=100;}
+  }
   return data;
 }
 
@@ -2348,9 +2361,74 @@ export default function App() {
             // 추세 전환 초기
             const trhits=scanned.filter(s=>s.tr_score>=stratCfg.tr.minScore).sort((a,b)=>b.tr_score-a.tr_score||b.rs-a.rs);
 
+            // ★ v2.4: 5주 리그 데이터 — 카드 정렬 + 대시보드 공용
+            const leagueWeeks=[{d:5,label:"1주전"},{d:10,label:"2주전"},{d:15,label:"3주전"},{d:20,label:"4주전"},{d:25,label:"5주전"}];
+            const leagueTagDefs=["AI추천","돌파","진입적기","D+0","6체크","전환초기",...customCombos.slice(0,3).map(cc=>cc.keys.slice(0,2).join("+"))];
+            const league={};
+            leagueTagDefs.forEach(t=>{league[t]={weeks:[],totalW:0,totalL:0,totalRet:0,totalN:0};});
+            leagueWeeks.forEach(wk=>{
+              const wPerf={};leagueTagDefs.forEach(t=>{wPerf[t]={w:0,l:0,ret:0,n:0};});
+              Object.entries(charts).filter(([t,c])=>c?.real&&c?.data?.length>=wk.d+8).forEach(([ticker,chartObj])=>{
+                const cd=chartObj.data;
+                const L=cd.length;const ago=cd[L-1-wk.d];const ago2=cd[L-2-wk.d];const ago3=cd[L-3-wk.d];const now2=cd[L-1];
+                if(!ago||!ago2||!now2)return;
+                const ret=+((now2.close-ago.close)/ago.close*100).toFixed(2);
+                const stC=[ago.st1Bull,ago.st2Bull,ago.st3Bull].filter(v=>v!=null).length;
+                const macdUp=ago.macd>ago.signal;const rsi=ago.rsi||0;
+                const cloud=ago.aboveCloud||ago.close>(ago.spanHigh||0);
+                const adxOk=(ago.adx||0)>=25;
+                const volR5=ago.volRatio||100;
+                const alphaS=(stC>=3?25:stC>=2?15:0)+(cloud?20:0)+(macdUp?15:0)+(adxOk?15:0)+(volR5>=150?15:0)+(rsi>=50&&rsi<=70?10:0);
+                if(alphaS>=75){wPerf["AI추천"].n++;wPerf["AI추천"].ret+=ret;if(ret>0)wPerf["AI추천"].w++;else wPerf["AI추천"].l++;}
+                const prevStC=[ago2?.st1Bull,ago2?.st2Bull,ago2?.st3Bull].filter(v=>v!=null).length;
+                let bkS=0;if(stC>prevStC)bkS++;if(macdUp&&!(ago2?.macd>ago2?.signal))bkS++;if(cloud&&!ago2?.aboveCloud)bkS++;if(ago.sqzOff&&!ago2?.sqzOff)bkS++;if(volR5>=200)bkS++;
+                if(bkS>=2){wPerf["돌파"].n++;wPerf["돌파"].ret+=ret;if(ret>0)wPerf["돌파"].w++;else wPerf["돌파"].l++;}
+                if(stC===3&&macdUp&&rsi>=50&&rsi<=70){wPerf["진입적기"].n++;wPerf["진입적기"].ret+=ret;if(ret>0)wPerf["진입적기"].w++;else wPerf["진입적기"].l++;}
+                const closes5=cd.slice(0,L-wk.d).map(x=>x.close);const pH5=closes5.length>5?Math.max(...closes5.slice(-20)):0;
+                const bPct5=ago.bodyPct||0;const uW5=ago.upperWickPct||0;
+                const d0c5=[ago.close>=pH5*0.98,bPct5>=stratCfg.d0.bodyPct,volR5>=stratCfg.d0.volMin,true,ago.isBull,ago.isBull&&uW5<20].filter(Boolean).length;
+                if(d0c5>=stratCfg.d0.minScore){wPerf["D+0"].n++;wPerf["D+0"].ret+=ret;if(ret>0)wPerf["D+0"].w++;else wPerf["D+0"].l++;}
+                const w52h5=closes5.length>0?Math.max(...closes5.slice(-252)):0;
+                const sjc5=[ago.close>=w52h5*(stratCfg.sj.highPct/100),ago.close>=pH5*(stratCfg.sj.highPct/100),ago.isBull&&volR5>=stratCfg.d0.volMin,volR5>=stratCfg.d0.volMin,ago.isBull&&uW5<20,ago.sqzOff||(!ago.sqzOn&&ago2?.sqzOn)].filter(Boolean).length;
+                if(sjc5>=stratCfg.sj.minScore){wPerf["6체크"].n++;wPerf["6체크"].ret+=ret;if(ret>0)wPerf["6체크"].w++;else wPerf["6체크"].l++;}
+                const rsiR5=rsi>(ago2?.rsi||0)&&rsi>(ago3?.rsi||0)&&rsi>=40;
+                const nearCl5=ago.nearCloud||ago.inCloud||(ago.spanHigh&&ago.close>=ago.spanLow*0.97&&ago.close<=ago.spanHigh*1.03);
+                const macdU5=(ago.macd>ago.signal)||(ago.hist>0&&ago2?.hist<=0)||(ago.hist>(ago2?.hist||0));
+                const trc5=[(stC>=2&&prevStC<stC)||stC===2,rsiR5,nearCl5,true,volR5>=stratCfg.tr.volMin,macdU5].filter(Boolean).length;
+                if(trc5>=stratCfg.tr.minScore){wPerf["전환초기"].n++;wPerf["전환초기"].ret+=ret;if(ret>0)wPerf["전환초기"].w++;else wPerf["전환초기"].l++;}
+                const ema20=ago.ema20||0,ema50=ago.ema50||0,ema200=ago.ema200||0;
+                const comboMap={"ST3/3":stC===3,"ST2/3":stC===2,"ST전환↑":stC>=prevStC+1&&stC>=2,"MACD양전":macdUp,"RSI50~70":rsi>=50&&rsi<=70,"구름위":!!cloud,"ADX25+":adxOk,"거래량150%+":volR5>=150,"스퀴즈해제":!!ago.sqzOff,"EMA정배열":ema20>ema50&&ema50>ema200&&ema200>0,"MA20위":ago.close>ema20&&ema20>0,"3연속양봉":ago.isBull&&ago2?.isBull&&ago3?.isBull,"거래량3↑":ago.volume>(ago2?.volume||0)&&(ago2?.volume||0)>(ago3?.volume||0),"RSI50돌파":rsi>=50&&rsi<=55&&(ago2?.rsi||0)<50,"갭상승":ago.open>(ago2?.close||0)*1.01,"20일신고":ago.close>=Math.max(...cd.slice(Math.max(0,L-1-wk.d-20),L-1-wk.d).map(x=>x.close)),"MACD가속":(ago.hist||0)>(ago2?.hist||0)&&(ago2?.hist||0)>(ago3?.hist||0),"OBV상승":(ago.obv||0)>(ago2?.obv||0)&&(ago2?.obv||0)>(ago3?.obv||0),"DI매수우위":(ago.plusDI||0)>(ago.minusDI||0),"MA200위":ago.close>(ago.ma200||0)&&(ago.ma200||0)>0,"모멘텀+":(ago.sqzMom||0)>0,"RSI상승":rsi>(ago2?.rsi||0)&&(ago2?.rsi||0)>(ago3?.rsi||0),"장대양봉":!!ago.bigBull,"구름돌파":!!cloud&&!ago2?.aboveCloud,"거래폭발":volR5>=200};
+                customCombos.slice(0,3).forEach(cc=>{
+                  const tag=cc.keys.slice(0,2).join("+");
+                  if(cc.keys.every(k=>comboMap[k])){wPerf[tag].n++;wPerf[tag].ret+=ret;if(ret>0)wPerf[tag].w++;else wPerf[tag].l++;}
+                });
+              });
+              leagueTagDefs.forEach(t=>{
+                const p=wPerf[t];
+                league[t].weeks.push({...p,avg:p.n>0?+(p.ret/p.n).toFixed(1):null});
+                league[t].totalW+=p.w;league[t].totalL+=p.l;league[t].totalRet+=p.ret;league[t].totalN+=p.n;
+              });
+            });
+            const leagueRanked=leagueTagDefs.map(t=>({tag:t,...league[t],avgRet:league[t].totalN>0?+(league[t].totalRet/league[t].totalN).toFixed(1):0,wr:league[t].totalN>0?Math.round(league[t].totalW/(league[t].totalW+league[t].totalL)*100):0})).sort((a,b)=>b.avgRet-a.avgRet);
+            const leagueByTag={};leagueRanked.forEach(r=>{leagueByTag[r.tag]=r;});
+
+            // ★ v2.4: 카드 정렬 — 5주 리그 avgRet 순 (엔벨로프는 리그 미포함 → 중간 고정)
+            const cardIds=["d0","sj","env","tr",...customCombos.slice(0,3).map((_,ci)=>"cc"+ci)];
+            const cardTagMap={d0:"D+0",sj:"6체크",env:null,tr:"전환초기",...Object.fromEntries(customCombos.slice(0,3).map((cc,ci)=>["cc"+ci,cc.keys.slice(0,2).join("+")]))};
+            const cardAvgRet=(id)=>{const tag=cardTagMap[id];if(!tag)return null;return leagueByTag[tag]?.avgRet??null;};
+            const sortedCardIds=[...cardIds].sort((a,b)=>{
+              const ra=cardAvgRet(a),rb=cardAvgRet(b);
+              // 리그 없는 카드(엔벨로프)는 항상 맨 아래
+              if(ra===null&&rb===null)return 0;
+              if(ra===null)return 1;
+              if(rb===null)return -1;
+              return rb-ra;
+            });
+
             return<>
-              {/* ── D+0 장대양봉 돌파 ── */}
-              <div style={css.card}>
+              {(()=>{
+                const cards={};
+                cards.d0=(<div style={css.card}>
                 <div onClick={()=>setScanCardOpen(p=>({...p,d0:!p.d0}))} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:4}}><span style={{fontSize:11,fontWeight:700,color:"#F97316"}}>🔥 D+0 돌파 ({d0hits.length})</span><span style={{fontSize:8,color:C.muted}}>{scanCardOpen.d0?"▲ 접기":"▼ 펼치기"}</span></div>
                 <div style={{display:scanCardOpen.d0===false?"none":"block"}}>
                 <div style={{fontSize:8,color:C.muted,marginBottom:8}}>전고점 돌파 + 장대양봉(5%+) + 거래량 폭발 + 주도섹터</div>
@@ -2378,10 +2456,9 @@ export default function App() {
                 </div>}
                 <div style={{fontSize:7,color:C.muted,marginTop:6}}>D+1: 내일 전일종가 눌림목에서 매수 검토 · 익절 5~10% · 손절 지지선-1%</div>
                 </div>
-              </div>
+              </div>);
 
-              {/* ── 신정재 6체크포인트 ── */}
-              <div style={css.card}>
+                cards.sj=(<div style={css.card}>
                 <div onClick={()=>setScanCardOpen(p=>({...p,sj:!p.sj}))} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:4}}><span style={{fontSize:11,fontWeight:700,color:C.emerald}}>✅ 6체크 ({sjhits.length})</span><span style={{fontSize:8,color:C.muted}}>{scanCardOpen.sj?"▲ 접기":"▼ 펼치기"}</span></div>
                 <div style={{display:scanCardOpen.sj===false?"none":"block"}}>
                 <div style={{fontSize:8,color:C.muted,marginBottom:8}}>신고가 + 이격좁음 + 양봉거래 + 거래↑ + 깔끔양봉 + 조정해제</div>
@@ -2406,10 +2483,9 @@ export default function App() {
                 </div>}
                 <div style={{fontSize:7,color:C.muted,marginTop:6}}>종가매수: 오후 3:18~20분 확인 후 매수 · 당일 저점 미이탈 확인 · 추세 믿고 눌림 매수</div>
                 </div>
-              </div>
+              </div>);
 
-              {/* ── 엔벨로프 하단 근접 ── */}
-              <div style={css.card}>
+                cards.env=(<div style={css.card}>
                 <div onClick={()=>setScanCardOpen(p=>({...p,env:!p.env}))} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:4}}><span style={{fontSize:11,fontWeight:700,color:C.purple}}>📐 엔벨로프 ({envhits.length})</span><span style={{fontSize:8,color:C.muted}}>{scanCardOpen.env?"▲ 접기":"▼ 펼치기"}</span></div>
                 <div style={{display:scanCardOpen.env===false?"none":"block"}}>
                 <div style={{fontSize:8,color:C.muted,marginBottom:8}}>Envelope(20,20) 하한선 2% 이내 근접 우량주</div>
@@ -2432,10 +2508,9 @@ export default function App() {
                 </div>}
                 <div style={{fontSize:7,color:C.muted,marginTop:6}}>MA20 × 0.80 기준 · 과매도 반등 매매 · 손절 엔벨로프 하단 이탈 시</div>
                 </div>
-              </div>
+              </div>);
 
-              {/* ── 추세 전환 초기 감지 ── */}
-              <div style={css.card}>
+                cards.tr=(<div style={css.card}>
                 <div onClick={()=>setScanCardOpen(p=>({...p,tr:!p.tr}))} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:4}}><span style={{fontSize:11,fontWeight:700,color:C.accent}}>🔄 전환초기 ({trhits.length})</span><span style={{fontSize:8,color:C.muted}}>{scanCardOpen.tr?"▲ 접기":"▼ 펼치기"}</span></div>
                 <div style={{display:scanCardOpen.tr===false?"none":"block"}}>
                 <div style={{fontSize:8,color:C.muted,marginBottom:8}}>ST 2/3 + RSI 우상향 + 구름 인접 + RS 강 + 거래량 110%+ + MACD↑ → 5/6 이상</div>
@@ -2460,10 +2535,9 @@ export default function App() {
                 </div>}
                 <div style={{fontSize:7,color:C.muted,marginTop:6}}>ST 3/3 완성 전 선점 · 구름 돌파 확인 후 매수 · 3/3 미완성 시 손절 -5%</div>
                 </div>
-              </div>
+              </div>);
 
-              {/* ── 📌 편입된 전략 카드 ── */}
-              {customCombos.slice(0,3).map((cc,ci)=>{
+              customCombos.slice(0,3).forEach((cc,ci)=>{
                 const ccTag=cc.keys.slice(0,2).join("+");
                 const ccKeyMap={st3:"ST3/3",st2:"ST2/3",stFlip:"ST전환↑",macd:"MACD양전",rsi70:"RSI50~70",cloud:"구름위",adx:"ADX25+",volHigh:"거래량150%+",sqzOff:"스퀴즈해제",emaAlign:"EMA정배열",above20:"MA20위",consUp:"3연속양봉",volUp3:"거래량3↑",rsi50x:"RSI50돌파",gapUp:"갭상승",highNew:"20일신고",histUp:"MACD가속",obvUp:"OBV상승",diPlus:"DI매수우위",abv200:"MA200위",sqzMomP:"모멘텀+",rsiUp:"RSI상승",bigCandle:"장대양봉",cloudBreak:"구름돌파",volBoom:"거래폭발"};
                 const revMap={};Object.entries(ccKeyMap).forEach(([k,v])=>{revMap[v]=k;});
@@ -2483,7 +2557,7 @@ export default function App() {
                   const chg=L>1?+((last.close-prev.close)/prev.close*100).toFixed(1):0;
                   return{ticker,label:info.label||ticker,price:last.close,changePct:chg,isKR:(ticker?.length||0)>5};
                 }).filter(Boolean).sort((a,b)=>(b.changePct||0)-(a.changePct||0));
-                return<div key={ci} style={css.card}>
+                cards["cc"+ci]=(<div style={css.card}>
                   <div onClick={()=>setScanCardOpen(p=>({...p,["cc"+ci]:!p["cc"+ci]}))} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:4}}>
                     <div style={{display:"flex",alignItems:"center",gap:4}}>
                       <span style={{fontSize:11,fontWeight:700,color:"#F59E0B"}}>📌 {ccTag}</span>
@@ -2511,66 +2585,18 @@ export default function App() {
                       </div>
                     ))}
                   </div>}
-                </div>;
-              })}
+                </div>);
+              });
+
+              return sortedCardIds.map(id=>cards[id]?React.cloneElement(cards[id],{key:id}):null);
+              })()}
 
               {/* ── 📊 5주 리그 대시보드 ── */}
               <div style={css.card}>
                 <div style={{fontSize:11,fontWeight:700,color:"#F59E0B",marginBottom:4}}>📊 5주 리그 — 기법별 성적표</div>
                 <div style={{fontSize:8,color:C.muted,marginBottom:8}}>5/10/15/20/25일 전 시점에서 각 기법이 추천했을 종목의 실제 수익률</div>
                 {(()=>{
-                  const weeks=[{d:5,label:"1주전"},{d:10,label:"2주전"},{d:15,label:"3주전"},{d:20,label:"4주전"},{d:25,label:"5주전"}];
-                  const tagDefs=["AI추천","돌파","진입적기","D+0","6체크","전환초기",...customCombos.slice(0,3).map((cc,i)=>cc.keys.slice(0,2).join("+"))];
-                  const comboTagMap={};customCombos.slice(0,3).forEach((cc,i)=>{comboTagMap[cc.keys.slice(0,2).join("+")]=cc;});
-                  const league={};
-                  tagDefs.forEach(t=>{league[t]={weeks:[],totalW:0,totalL:0,totalRet:0,totalN:0};});
-                  weeks.forEach(wk=>{
-                    const wPerf={};tagDefs.forEach(t=>{wPerf[t]={w:0,l:0,ret:0,n:0};});
-                    // ★ 전체 캔들 보유 종목에서 역산 (scanned가 아닌 charts 전체)
-                    Object.entries(charts).filter(([t,c])=>c?.real&&c?.data?.length>=wk.d+8).forEach(([ticker,chartObj])=>{
-                      const cd=chartObj.data;
-                      const L=cd.length;const ago=cd[L-1-wk.d];const ago2=cd[L-2-wk.d];const ago3=cd[L-3-wk.d];const now2=cd[L-1];
-                      if(!ago||!ago2||!now2)return;
-                      const ret=+((now2.close-ago.close)/ago.close*100).toFixed(2);
-                      const stC=[ago.st1Bull,ago.st2Bull,ago.st3Bull].filter(v=>v!=null).length;
-                      const macdUp=ago.macd>ago.signal;const rsi=ago.rsi||0;
-                      const cloud=ago.aboveCloud||ago.close>(ago.spanHigh||0);
-                      const adxOk=(ago.adx||0)>=25;
-                      const volR5=ago.volume&&cd.slice(L-1-wk.d-20,L-1-wk.d).length>0?Math.round(ago.volume/(cd.slice(L-1-wk.d-20,L-1-wk.d).reduce((a,x)=>a+(x.volume||0),0)/20||1)*100):100;
-                      const alphaS=(stC>=3?25:stC>=2?15:0)+(cloud?20:0)+(macdUp?15:0)+(adxOk?15:0)+(volR5>=150?15:0)+(rsi>=50&&rsi<=70?10:0);
-                      if(alphaS>=75){wPerf["AI추천"].n++;wPerf["AI추천"].ret+=ret;if(ret>0)wPerf["AI추천"].w++;else wPerf["AI추천"].l++;}
-                      const prevStC=[ago2?.st1Bull,ago2?.st2Bull,ago2?.st3Bull].filter(v=>v!=null).length;
-                      let bkS=0;if(stC>prevStC)bkS++;if(macdUp&&!(ago2?.macd>ago2?.signal))bkS++;if(cloud&&!ago2?.aboveCloud)bkS++;if(ago.sqzOff&&!ago2?.sqzOff)bkS++;if(volR5>=200)bkS++;
-                      if(bkS>=2){wPerf["돌파"].n++;wPerf["돌파"].ret+=ret;if(ret>0)wPerf["돌파"].w++;else wPerf["돌파"].l++;}
-                      if(stC===3&&macdUp&&rsi>=50&&rsi<=70){wPerf["진입적기"].n++;wPerf["진입적기"].ret+=ret;if(ret>0)wPerf["진입적기"].w++;else wPerf["진입적기"].l++;}
-                      const closes5=cd.slice(0,L-wk.d).map(x=>x.close);const pH5=closes5.length>5?Math.max(...closes5.slice(-20)):0;
-                      const bPct5=ago.bodyPct||0;const uW5=ago.upperWickPct||0;
-                      const d0c5=[ago.close>=pH5*0.98,bPct5>=stratCfg.d0.bodyPct,volR5>=stratCfg.d0.volMin,true,ago.isBull,ago.isBull&&uW5<20].filter(Boolean).length;
-                      if(d0c5>=stratCfg.d0.minScore){wPerf["D+0"].n++;wPerf["D+0"].ret+=ret;if(ret>0)wPerf["D+0"].w++;else wPerf["D+0"].l++;}
-                      const w52h5=Math.max(...closes5.slice(-252));
-                      const sjc5=[ago.close>=w52h5*(stratCfg.sj.highPct/100),ago.close>=pH5*(stratCfg.sj.highPct/100),ago.isBull&&volR5>=stratCfg.d0.volMin,volR5>=stratCfg.d0.volMin,ago.isBull&&uW5<20,ago.sqzOff||(!ago.sqzOn&&ago2?.sqzOn)].filter(Boolean).length;
-                      if(sjc5>=stratCfg.sj.minScore){wPerf["6체크"].n++;wPerf["6체크"].ret+=ret;if(ret>0)wPerf["6체크"].w++;else wPerf["6체크"].l++;}
-                      // 전환초기
-                      const rsiR5=rsi>(ago2?.rsi||0)&&rsi>(ago3?.rsi||0)&&rsi>=40;
-                      const nearCl5=ago.nearCloud||ago.inCloud||(ago.spanHigh&&ago.close>=ago.spanLow*0.97&&ago.close<=ago.spanHigh*1.03);
-                      const macdU5=(ago.macd>ago.signal)||(ago.hist>0&&ago2?.hist<=0)||(ago.hist>(ago2?.hist||0));
-                      const trc5=[(stC>=2&&prevStC<stC)||stC===2,rsiR5,nearCl5,true,volR5>=stratCfg.tr.volMin,macdU5].filter(Boolean).length;
-                      if(trc5>=stratCfg.tr.minScore){wPerf["전환초기"].n++;wPerf["전환초기"].ret+=ret;if(ret>0)wPerf["전환초기"].w++;else wPerf["전환초기"].l++;}
-                      // 편입 조합
-                      const ema20=ago.ema20||0,ema50=ago.ema50||0,ema200=ago.ema200||0;
-                      const comboMap={"ST3/3":stC===3,"ST2/3":stC===2,"ST전환↑":stC>=prevStC+1&&stC>=2,"MACD양전":macdUp,"RSI50~70":rsi>=50&&rsi<=70,"구름위":!!cloud,"ADX25+":adxOk,"거래량150%+":volR5>=150,"스퀴즈해제":!!ago.sqzOff,"EMA정배열":ema20>ema50&&ema50>ema200&&ema200>0,"MA20위":ago.close>ema20&&ema20>0,"3연속양봉":ago.isBull&&ago2?.isBull&&ago3?.isBull,"거래량3↑":ago.volume>(ago2?.volume||0)&&(ago2?.volume||0)>(ago3?.volume||0),"RSI50돌파":rsi>=50&&rsi<=55&&(ago2?.rsi||0)<50,"갭상승":ago.open>(ago2?.close||0)*1.01,"20일신고":ago.close>=Math.max(...cd.slice(Math.max(0,L-1-wk.d-20),L-1-wk.d).map(x=>x.close)),"MACD가속":(ago.hist||0)>(ago2?.hist||0)&&(ago2?.hist||0)>(ago3?.hist||0),"OBV상승":(ago.obv||0)>(ago2?.obv||0)&&(ago2?.obv||0)>(ago3?.obv||0),"DI매수우위":(ago.plusDI||0)>(ago.minusDI||0),"MA200위":ago.close>(ago.ma200||0)&&(ago.ma200||0)>0,"모멘텀+":(ago.sqzMom||0)>0,"RSI상승":rsi>(ago2?.rsi||0)&&(ago2?.rsi||0)>(ago3?.rsi||0),"장대양봉":!!ago.bigBull,"구름돌파":!!cloud&&!ago2?.aboveCloud,"거래폭발":volR5>=200};
-                      customCombos.slice(0,3).forEach((cc,ci)=>{
-                        const tag=cc.keys.slice(0,2).join("+");
-                        if(cc.keys.every(k=>comboMap[k])){wPerf[tag].n++;wPerf[tag].ret+=ret;if(ret>0)wPerf[tag].w++;else wPerf[tag].l++;}
-                      });
-                    });
-                    tagDefs.forEach(t=>{
-                      const p=wPerf[t];
-                      league[t].weeks.push({...p,avg:p.n>0?+(p.ret/p.n).toFixed(1):null});
-                      league[t].totalW+=p.w;league[t].totalL+=p.l;league[t].totalRet+=p.ret;league[t].totalN+=p.n;
-                    });
-                  });
-                  const ranked=tagDefs.map(t=>({tag:t,...league[t],avgRet:league[t].totalN>0?+(league[t].totalRet/league[t].totalN).toFixed(1):0,wr:league[t].totalN>0?Math.round(league[t].totalW/(league[t].totalW+league[t].totalL)*100):0})).sort((a,b)=>b.avgRet-a.avgRet);
+                  const weeks=leagueWeeks;const ranked=leagueRanked;
                   return<>
                   <div style={{overflowX:"auto"}}>
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:8,minWidth:380}}>
