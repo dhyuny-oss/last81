@@ -307,7 +307,7 @@ function buildChartData(candles){
     const allBull=r1?.trend===1&&r2?.trend===1&&r3.trend===1;
     const bullCount=[r1?.trend===1,r2?.trend===1,r3.trend===1].filter(Boolean).length;
     return{date:candles[ci].date,close:candles[ci].close,volume:candles[ci].volume,
-      open:ci>0?candles[ci-1].close:candles[ci].close,
+      open:candles[ci].open||(ci>0?candles[ci-1].close:candles[ci].close),
       st1Bull:allBull?r1.st:null,st1Bear:!allBull?r1.st:null,
       st2Bull:allBull?r2.st:null,st2Bear:!allBull?r2.st:null,
       st3Bull:allBull?r3.st:null,st3Bear:!allBull?r3.st:null,
@@ -1366,6 +1366,19 @@ export default function App() {
   const w52High  = charts[sel]?.data?.at(-1)?.w52High||0;
   const rrTarget2= stopPrice>0&&curPrice>stopPrice?+(curPrice+(curPrice-stopPrice)*2).toFixed(isKRSel?0:2):0;
   const rrTarget3= stopPrice>0&&curPrice>stopPrice?+(curPrice+(curPrice-stopPrice)*3).toFixed(isKRSel?0:2):0;
+  // ★ v2.4: 알고리즘 자동 레벨 — 분석탭 진입가능 카드와 동일 계산 (MA20/ATR 기반)
+  const autoLast=charts[sel]?.data?.at(-1);
+  const autoStop=(()=>{
+    if(!autoLast||!curPrice)return 0;
+    const ma20=autoLast.ma20||curPrice;
+    const atr=autoLast.atr||(curPrice*0.03);
+    return +Math.max(ma20*0.97,curPrice-2*atr).toFixed(isKRSel?0:2);
+  })();
+  const autoRisk=autoStop>0&&curPrice>autoStop?curPrice-autoStop:0;
+  const autoT1=autoRisk>0?+(curPrice+autoRisk).toFixed(isKRSel?0:2):0;
+  const autoT2=autoRisk>0?+(curPrice+2*autoRisk).toFixed(isKRSel?0:2):0;
+  const autoT3raw=autoRisk>0?+(curPrice+3*autoRisk).toFixed(isKRSel?0:2):0;
+  const autoT3=(w52High>autoT2&&w52High<autoT3raw*1.3)?+w52High.toFixed(isKRSel?0:2):autoT3raw;
   // ★ v2.3: 목표가 — 컨센서스 우선, 없으면 후보 중 최선
   const consTgtCalc = (()=>{
     if(userTargets[sel]>0) return {price:userTargets[sel], src:"사용자설정"};
@@ -2340,8 +2353,18 @@ export default function App() {
               const stopLoss=Math.max(stopByMA,stopByATR); // 더 가까운(tighter) 손절
               const stopPct=+((1-stopLoss/last.close)*100).toFixed(1);
               const entry=last.close;
-              const target=entry+2*(entry-stopLoss); // 1:2 RR
-              const targetPct=+((target/entry-1)*100).toFixed(1);
+              // ★ v2.4: 3단계 목표주가 사다리 (추세추종 잔파동 버티기용)
+              const risk=entry-stopLoss;
+              const target1=entry+risk;           // +1R — 도달시 25% 청산 + 손절→매수가
+              const target2=entry+2*risk;         // +2R — 도달시 50% 청산 + 손절→1차
+              const target3raw=entry+3*risk;      // +3R 기본값
+              // 52주 고점이 3R 안에 있으면 구조적 목표로 사용 (돌파 저항선 인식)
+              const w52hVal=last.w52High||w52h||0;
+              const target3=(w52hVal>target2&&w52hVal<target3raw*1.3)?w52hVal:target3raw;
+              const target1Pct=+((target1/entry-1)*100).toFixed(1);
+              const target2Pct=+((target2/entry-1)*100).toFixed(1);
+              const target3Pct=+((target3/entry-1)*100).toFixed(1);
+              const target3IsW52=target3===w52hVal&&w52hVal>0;
 
               // 진입 가능성 판정
               const validStop=stopPct>=2&&stopPct<=10; // 손절이 2~10% 사이면 유효
@@ -2358,7 +2381,7 @@ export default function App() {
               if(!liquid)warnings.push("유동성부족");
               if(!validStop)warnings.push("손절애매");
 
-              return{ticker,label:info.label||ticker,market:info.market,price:last.close,chg1,rs:+rs.toFixed(1),volR,bodyPct,upperWick,isBull,bigBull,cleanCandle,bigBullClean,w52h,isKR,mktCap:info.mktCap||0,changePct:info.changePct||0,tr_score,tr_checks,stCount,rsi_val:+rsi_val.toFixed(0),entry,stopLoss,stopPct,target,targetPct,canEnter,warnings,ma20:ma20Val,atr};
+              return{ticker,label:info.label||ticker,market:info.market,price:last.close,chg1,rs:+rs.toFixed(1),volR,bodyPct,upperWick,isBull,bigBull,cleanCandle,bigBullClean,w52h,isKR,mktCap:info.mktCap||0,changePct:info.changePct||0,tr_score,tr_checks,stCount,rsi_val:+rsi_val.toFixed(0),entry,stopLoss,stopPct,target1,target2,target3,target1Pct,target2Pct,target3Pct,target3IsW52,risk,canEnter,warnings,ma20:ma20Val,atr};
             }).filter(Boolean);
 
             // 추세 전환 초기
@@ -2468,16 +2491,22 @@ export default function App() {
                           <span style={{fontSize:7,padding:"1px 4px",borderRadius:2,background:"rgba(34,197,94,.12)",color:C.emerald,fontWeight:700}}>전환{s.tr_score}/6</span>
                         </div>
                       </div>
-                      <div style={{display:"flex",gap:8,fontSize:8,paddingLeft:20,alignItems:"center"}}>
+                      <div style={{display:"flex",gap:6,fontSize:8,paddingLeft:20,alignItems:"center",flexWrap:"wrap"}}>
                         <div><span style={{color:C.muted}}>매수</span> <b style={{color:C.accent}}>{s.isKR?"₩"+fmtKRW(s.entry):"$"+s.entry.toFixed(2)}</b></div>
                         <div><span style={{color:C.muted}}>손절</span> <b style={{color:C.red}}>{s.isKR?"₩"+fmtKRW(s.stopLoss):"$"+s.stopLoss.toFixed(2)}</b> <span style={{color:C.red,fontSize:7}}>-{s.stopPct}%</span></div>
-                        <div><span style={{color:C.muted}}>목표</span> <b style={{color:C.green}}>{s.isKR?"₩"+fmtKRW(s.target):"$"+s.target.toFixed(2)}</b> <span style={{color:C.green,fontSize:7}}>+{s.targetPct}%</span></div>
-                        <div style={{marginLeft:"auto",fontSize:7,color:C.muted}}>RR 1:2</div>
+                        <div style={{marginLeft:"auto",display:"flex",gap:6}}>
+                          <div><span style={{color:C.muted,fontSize:7}}>1차(25%)</span> <b style={{color:C.emerald,fontSize:8}}>+{s.target1Pct}%</b></div>
+                          <div><span style={{color:C.muted,fontSize:7}}>2차(50%)</span> <b style={{color:C.green,fontSize:8}}>+{s.target2Pct}%</b></div>
+                          <div><span style={{color:C.muted,fontSize:7}}>3차{s.target3IsW52?"(52W)":"(25%)"}</span> <b style={{color:"#F59E0B",fontSize:8}}>+{s.target3Pct}%</b></div>
+                        </div>
                       </div>
                     </div>
                   ))}
                 </div>}
-                <div style={{fontSize:7,color:C.muted,marginTop:6}}>필터: 오늘 +3% 미만 · MA20 +15% 이내 · 시총 {((entryCandidates[0]?.isKR)?"1000억+":"$5B+")} · 손절 2~10%</div>
+                <div style={{fontSize:7,color:C.muted,marginTop:6,lineHeight:1.5}}>
+                  <b>필터</b>: 오늘 +3% 미만 · MA20 +15% 이내 · 시총 (한국 1000억+ / 미국 $5B+) · 손절 2~10%<br/>
+                  <b>손절 래칫</b>: 1차 도달 → 손절을 매수가로(본전 확보) · 2차 도달 → 손절을 1차로(+1R 확정) · 3차 도달 → MA20 트레일링
+                </div>
                 </div>
               </div>);
 
@@ -3019,10 +3048,12 @@ export default function App() {
                 <Area yAxisId="p" type="monotone" dataKey="close" stroke="#ffffff" strokeWidth={2.5} fill="rgba(148,163,184,.03)" dot={false}/>
                 {chartOpts.st&&["st1Bull","st2Bull","st3Bull"].map((k,i)=><Line key={k} yAxisId="p" type="monotone" dataKey={k} stroke={C.emerald} strokeWidth={2.5-i*.5} dot={false} connectNulls={false} strokeOpacity={1-.2*i}/>)}
                 {chartOpts.st&&["st1Bear","st2Bear","st3Bear"].map((k,i)=><Line key={k} yAxisId="p" type="monotone" dataKey={k} stroke={C.red} strokeWidth={2.5-i*.5} dot={false} connectNulls={false} strokeOpacity={1-.2*i}/>)}
-                {/* v2.4: 실전 매매 레벨 — 매수/손절/목표 가시화 */}
-                {curPrice>0&&<ReferenceLine yAxisId="p" y={curPrice} stroke={C.accent} strokeWidth={1.2} strokeDasharray="3 3" label={{value:`매수 ${unit}${curPrice.toLocaleString()}`,fill:C.accent,fontSize:7,position:"insideRight"}}/>}
-                {consTgt>0&&<ReferenceLine yAxisId="p" y={consTgt} stroke={C.green} strokeWidth={1.2} strokeDasharray="5 3" label={{value:`목표 ${unit}${consTgt.toLocaleString()}`,fill:C.green,fontSize:7,position:"insideRight"}}/>}
-                {stopPrice>0&&<ReferenceLine yAxisId="p" y={stopPrice} stroke={C.red} strokeWidth={1.2} strokeDasharray="5 3" label={{value:`손절 ${unit}${stopPrice.toLocaleString()}`,fill:C.red,fontSize:7,position:"insideRight"}}/>}
+                {/* v2.4: 실전 매매 레벨 — 매수/알고리즘손절/3단계목표 가시화 */}
+                {curPrice>0&&<ReferenceLine yAxisId="p" y={curPrice} stroke={C.accent} strokeWidth={1.3} strokeDasharray="3 3" label={{value:`매수 ${unit}${curPrice.toLocaleString()}`,fill:C.accent,fontSize:7,position:"insideRight"}}/>}
+                {autoStop>0&&<ReferenceLine yAxisId="p" y={autoStop} stroke={C.red} strokeWidth={1.3} strokeDasharray="5 3" label={{value:`손절 ${unit}${autoStop.toLocaleString()}`,fill:C.red,fontSize:7,position:"insideRight"}}/>}
+                {autoT1>0&&<ReferenceLine yAxisId="p" y={autoT1} stroke={C.emerald} strokeWidth={1} strokeDasharray="2 4" strokeOpacity={0.7} label={{value:`1차(25%) ${unit}${autoT1.toLocaleString()}`,fill:C.emerald,fontSize:6,position:"insideRight"}}/>}
+                {autoT2>0&&<ReferenceLine yAxisId="p" y={autoT2} stroke={C.green} strokeWidth={1.2} strokeDasharray="4 3" label={{value:`2차(50%) ${unit}${autoT2.toLocaleString()}`,fill:C.green,fontSize:7,position:"insideRight"}}/>}
+                {autoT3>0&&<ReferenceLine yAxisId="p" y={autoT3} stroke="#F59E0B" strokeWidth={1} strokeDasharray="2 4" strokeOpacity={0.7} label={{value:`3차(25%) ${unit}${autoT3.toLocaleString()}`,fill:"#F59E0B",fontSize:6,position:"insideRight"}}/>}
                 {chartRefDate&&<ReferenceLine x={chartRefDate} stroke="#8B5CF6" strokeWidth={2} strokeDasharray="4 2" label={{value:"📌",fill:"#8B5CF6",fontSize:10,position:"top"}}/>}
                 <Scatter yAxisId="p" dataKey="buyStrong" fill="#4ade80" shape={<BuyDot dataKey="buyStrong"/>}/>
                 <Scatter yAxisId="p" dataKey="buyNormal" fill="#F59E0B" shape={<BuyDot dataKey="buyNormal"/>}/>
