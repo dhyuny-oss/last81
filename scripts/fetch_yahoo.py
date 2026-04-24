@@ -323,6 +323,7 @@ def parse_candles(raw):
         d = datetime.fromtimestamp(t, tz=timezone.utc)
         candles.append({
             "date":   f"{d.month}/{d.day}",
+            "open":   round(float(q["open"][i]  or close), 3),
             "close":  round(float(close), 3),
             "high":   round(float(q["high"][i]  or close), 3),
             "low":    round(float(q["low"][i]   or close), 3),
