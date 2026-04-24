@@ -2746,9 +2746,6 @@ export default function App() {
 
 
               {/* ── 🔬 시장 패턴 분석 (구 실험실) ── */}
-              <div style={css.card}>
-                <div style={{fontSize:11,fontWeight:700,color:C.purple,marginBottom:4}}>🔬 시장 패턴 — 뭐가 통하고 있나</div>
-                <div style={{fontSize:8,color:C.muted,marginBottom:8}}>최근 상승 종목의 공통 패턴 분석 → 지금 매칭 종목 탐색</div>
           {(()=>{
             const isKRticker=(t)=>(t?.length||0)>5;
             const analyzed = Object.entries(charts).filter(([t,c])=>c?.data?.length>=20&&c.real).filter(([t])=>focusMarket==="all"?true:focusMarket==="kr"?isKRticker(t):!isKRticker(t)).map(([ticker,c])=>{
