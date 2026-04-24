@@ -2467,18 +2467,22 @@ export default function App() {
                 const ccTag=cc.keys.slice(0,2).join("+");
                 const ccKeyMap={st3:"ST3/3",st2:"ST2/3",stFlip:"ST전환↑",macd:"MACD양전",rsi70:"RSI50~70",cloud:"구름위",adx:"ADX25+",volHigh:"거래량150%+",sqzOff:"스퀴즈해제",emaAlign:"EMA정배열",above20:"MA20위",consUp:"3연속양봉",volUp3:"거래량3↑",rsi50x:"RSI50돌파",gapUp:"갭상승",highNew:"20일신고",histUp:"MACD가속",obvUp:"OBV상승",diPlus:"DI매수우위",abv200:"MA200위",sqzMomP:"모멘텀+",rsiUp:"RSI상승",bigCandle:"장대양봉",cloudBreak:"구름돌파",volBoom:"거래폭발"};
                 const revMap={};Object.entries(ccKeyMap).forEach(([k,v])=>{revMap[v]=k;});
-                const ccStocks=scanned.filter(s=>{
-                  const cd=charts[s.ticker]?.data;if(!cd||cd.length<5)return false;
-                  const L=cd.length;const last=cd[L-1];const prev=cd[L-2];const prev3=cd[L-3];
-                  if(!last||!prev)return false;
+                const ccStocks=Object.entries(charts).filter(([t,c])=>c?.real&&c?.data?.length>=5).map(([ticker,chartObj])=>{
+                  const cd=chartObj.data;const L=cd.length;const last=cd[L-1];const prev=cd[L-2];const prev3=cd[L-3];
+                  if(!last||!prev)return null;
                   const stT=[last.st1Bull,last.st2Bull,last.st3Bull].filter(v=>v!=null).length;
                   const prevSt=[prev.st1Bull,prev.st2Bull,prev.st3Bull].filter(v=>v!=null).length;
                   const ema20=last.ema20||0,ema50=last.ema50||0,ema200=last.ema200||0;
-                  const volR=s.volRatio||s._volRatio||100;
+                  const vols=cd.slice(-21,-1).map(d2=>d2.volume||0).filter(v=>v>0);
+                  const avgVol=vols.length?vols.reduce((a,b)=>a+b,0)/vols.length:0;
+                  const volR=avgVol>0?Math.round(last.volume/avgVol*100):100;
                   const rsi=last.rsi||0;
+                  const info=stocks.find(s2=>s2.ticker===ticker)||pool[ticker]||{};
                   const chkMap={"ST3/3":stT===3,"ST2/3":stT===2,"ST전환↑":stT>=prevSt+1&&stT>=2,"MACD양전":last.macd>last.signal,"RSI50~70":rsi>=50&&rsi<=70,"구름위":!!last.aboveCloud,"ADX25+":(last.adx||0)>=25,"거래량150%+":volR>=150,"스퀴즈해제":!!last.sqzOff,"EMA정배열":ema20>ema50&&ema50>ema200&&ema200>0,"MA20위":last.close>ema20&&ema20>0,"3연속양봉":last.isBull&&prev?.isBull&&prev3?.isBull,"거래량3↑":last.volume>(prev?.volume||0)&&(prev?.volume||0)>(prev3?.volume||0),"RSI50돌파":rsi>=50&&rsi<=55&&(prev?.rsi||0)<50,"갭상승":last.open>(prev?.close||0)*1.01,"20일신고":last.close>=Math.max(...cd.slice(-21,-1).map(x=>x.close)),"MACD가속":(last.hist||0)>(prev?.hist||0)&&(prev?.hist||0)>(prev3?.hist||0),"OBV상승":(last.obv||0)>(prev?.obv||0)&&(prev?.obv||0)>(prev3?.obv||0),"DI매수우위":(last.plusDI||0)>(last.minusDI||0),"MA200위":last.close>(last.ma200||0)&&(last.ma200||0)>0,"모멘텀+":(last.sqzMom||0)>0,"RSI상승":rsi>(prev?.rsi||0)&&(prev?.rsi||0)>(prev3?.rsi||0),"장대양봉":!!last.bigBull,"구름돌파":!!last.aboveCloud&&!prev?.aboveCloud,"거래폭발":volR>=200};
-                  return cc.keys.every(k=>chkMap[k]);
-                }).sort((a,b)=>(b.changePct||0)-(a.changePct||0));
+                  if(!cc.keys.every(k=>chkMap[k]))return null;
+                  const chg=L>1?+((last.close-prev.close)/prev.close*100).toFixed(1):0;
+                  return{ticker,label:info.label||ticker,price:last.close,changePct:chg,isKR:(ticker?.length||0)>5};
+                }).filter(Boolean).sort((a,b)=>(b.changePct||0)-(a.changePct||0));
                 return<div key={ci} style={css.card}>
                   <div onClick={()=>setScanCardOpen(p=>({...p,["cc"+ci]:!p["cc"+ci]}))} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:4}}>
                     <div style={{display:"flex",alignItems:"center",gap:4}}>
