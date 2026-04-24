@@ -2005,8 +2005,8 @@ export default function App() {
             // 7. 편입된 커스텀 조합
             if(customCombos.length>0){
               const keyMap2={"ST3/3":stT===3,"ST2/3":stT===2,"ST전환↑":stT>=(prev?[prev.st1Bull,prev.st2Bull,prev.st3Bull].filter(v=>v!=null).length:0)+1&&stT>=2,"MACD양전":last.macd>last.signal,"RSI50~70":(last.rsi||0)>=50&&(last.rsi||0)<=70,"구름위":!!last.aboveCloud,"ADX25+":(last.adx||0)>=25,"거래량150%+":volR>=150,"스퀴즈해제":!!last.sqzOff,"EMA정배열":(last.ema20||0)>(last.ema50||0)&&(last.ema50||0)>(last.ema200||0)&&(last.ema200||0)>0,"MA20위":last.close>(last.ema20||0)&&(last.ema20||0)>0,"3연속양봉":last.isBull&&prev?.isBull&&(cd[L-3]?.isBull),"거래량3↑":last.volume>(prev?.volume||0)&&(prev?.volume||0)>(cd[L-3]?.volume||0),"RSI50돌파":(last.rsi||0)>=50&&(last.rsi||0)<=55&&(prev?.rsi||0)<50,"갭상승":last.open>(prev?.close||0)*1.01,"20일신고":last.close>=Math.max(...cd.slice(-21,-1).map(x=>x.close)),"MACD가속":(last.hist||0)>(prev?.hist||0)&&(prev?.hist||0)>(cd[L-3]?.hist||0),"OBV상승":(last.obv||0)>(prev?.obv||0)&&(prev?.obv||0)>(cd[L-3]?.obv||0),"DI매수우위":(last.plusDI||0)>(last.minusDI||0),"MA200위":last.close>(last.ma200||0)&&(last.ma200||0)>0,"모멘텀+":(last.sqzMom||0)>0,"RSI상승":(last.rsi||0)>(prev?.rsi||0)&&(prev?.rsi||0)>(cd[L-3]?.rsi||0),"장대양봉":!!last.bigBull,"구름돌파":!!last.aboveCloud&&!prev?.aboveCloud,"거래폭발":volR>=200};
-              customCombos.forEach((cc,ci)=>{
-                if(cc.keys.every(k=>keyMap2[k]))tags.push({tag:cc.keys.slice(0,2).join("+"),color:"#F59E0B",score:cc.keys.length+"조건"});
+              customCombos.slice(0,3).forEach((cc,ci)=>{
+                if(cc.keys.every(k=>keyMap2[k]))tags.push({tag:"📌발굴"+(ci+1),color:"#F59E0B",score:""});
               });
             }
             if(!tags.length)return null;
@@ -2462,6 +2462,54 @@ export default function App() {
                 </div>
               </div>
 
+              {/* ── 📌 편입된 전략 카드 ── */}
+              {customCombos.slice(0,3).map((cc,ci)=>{
+                const ccTag=cc.keys.slice(0,2).join("+");
+                const ccKeyMap={st3:"ST3/3",st2:"ST2/3",stFlip:"ST전환↑",macd:"MACD양전",rsi70:"RSI50~70",cloud:"구름위",adx:"ADX25+",volHigh:"거래량150%+",sqzOff:"스퀴즈해제",emaAlign:"EMA정배열",above20:"MA20위",consUp:"3연속양봉",volUp3:"거래량3↑",rsi50x:"RSI50돌파",gapUp:"갭상승",highNew:"20일신고",histUp:"MACD가속",obvUp:"OBV상승",diPlus:"DI매수우위",abv200:"MA200위",sqzMomP:"모멘텀+",rsiUp:"RSI상승",bigCandle:"장대양봉",cloudBreak:"구름돌파",volBoom:"거래폭발"};
+                const revMap={};Object.entries(ccKeyMap).forEach(([k,v])=>{revMap[v]=k;});
+                const ccStocks=scanned.filter(s=>{
+                  const cd=charts[s.ticker]?.data;if(!cd||cd.length<5)return false;
+                  const L=cd.length;const last=cd[L-1];const prev=cd[L-2];const prev3=cd[L-3];
+                  if(!last||!prev)return false;
+                  const stT=[last.st1Bull,last.st2Bull,last.st3Bull].filter(v=>v!=null).length;
+                  const prevSt=[prev.st1Bull,prev.st2Bull,prev.st3Bull].filter(v=>v!=null).length;
+                  const ema20=last.ema20||0,ema50=last.ema50||0,ema200=last.ema200||0;
+                  const volR=s.volRatio||s._volRatio||100;
+                  const rsi=last.rsi||0;
+                  const chkMap={"ST3/3":stT===3,"ST2/3":stT===2,"ST전환↑":stT>=prevSt+1&&stT>=2,"MACD양전":last.macd>last.signal,"RSI50~70":rsi>=50&&rsi<=70,"구름위":!!last.aboveCloud,"ADX25+":(last.adx||0)>=25,"거래량150%+":volR>=150,"스퀴즈해제":!!last.sqzOff,"EMA정배열":ema20>ema50&&ema50>ema200&&ema200>0,"MA20위":last.close>ema20&&ema20>0,"3연속양봉":last.isBull&&prev?.isBull&&prev3?.isBull,"거래량3↑":last.volume>(prev?.volume||0)&&(prev?.volume||0)>(prev3?.volume||0),"RSI50돌파":rsi>=50&&rsi<=55&&(prev?.rsi||0)<50,"갭상승":last.open>(prev?.close||0)*1.01,"20일신고":last.close>=Math.max(...cd.slice(-21,-1).map(x=>x.close)),"MACD가속":(last.hist||0)>(prev?.hist||0)&&(prev?.hist||0)>(prev3?.hist||0),"OBV상승":(last.obv||0)>(prev?.obv||0)&&(prev?.obv||0)>(prev3?.obv||0),"DI매수우위":(last.plusDI||0)>(last.minusDI||0),"MA200위":last.close>(last.ma200||0)&&(last.ma200||0)>0,"모멘텀+":(last.sqzMom||0)>0,"RSI상승":rsi>(prev?.rsi||0)&&(prev?.rsi||0)>(prev3?.rsi||0),"장대양봉":!!last.bigBull,"구름돌파":!!last.aboveCloud&&!prev?.aboveCloud,"거래폭발":volR>=200};
+                  return cc.keys.every(k=>chkMap[k]);
+                }).sort((a,b)=>(b.changePct||0)-(a.changePct||0));
+                return<div key={ci} style={css.card}>
+                  <div onClick={()=>setScanCardOpen(p=>({...p,["cc"+ci]:!p["cc"+ci]}))} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:4}}>
+                    <div style={{display:"flex",alignItems:"center",gap:4}}>
+                      <span style={{fontSize:11,fontWeight:700,color:"#F59E0B"}}>📌 {ccTag}</span>
+                      <span style={{fontSize:8,color:C.muted}}>({ccStocks.length})</span>
+                    </div>
+                    <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                      <button onClick={e=>{e.stopPropagation();setCustomCombos(p=>p.filter((_,i)=>i!==ci));setComboHistory(p=>[...p,{keys:cc.keys,action:"제거",date:new Date().toLocaleDateString("ko-KR")}]);}} style={{fontSize:7,padding:"1px 4px",borderRadius:2,border:`1px solid ${C.red}`,background:"transparent",color:C.red,cursor:"pointer"}}>제거</button>
+                      <span style={{fontSize:8,color:C.muted}}>{scanCardOpen["cc"+ci]?"▲":"▼"}</span>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:2,marginBottom:4,flexWrap:"wrap"}}>
+                    {cc.keys.map(k=><span key={k} style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:"rgba(245,158,11,.1)",color:"#F59E0B"}}>{k}</span>)}
+                  </div>
+                  {scanCardOpen["cc"+ci]!==false&&<div style={{maxHeight:250,overflowY:"auto"}}>
+                    {ccStocks.length===0?<div style={{textAlign:"center",padding:15,color:C.muted,fontSize:9}}>현재 이 조합 매칭 종목 없음</div>
+                    :ccStocks.slice(0,10).map((s,i)=>(
+                      <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s,"분석_편입")} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 6px",borderBottom:`1px solid rgba(148,163,184,.04)`,cursor:"pointer"}}>
+                        <span style={{fontSize:9,fontWeight:700,color:"#F59E0B",minWidth:14}}>{i+1}</span>
+                        <div style={{minWidth:55,maxWidth:72}}>
+                          <div style={{fontWeight:700,fontSize:9,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</div>
+                          <div style={{fontSize:7,color:C.muted}}>{s.isKR?"₩"+fmtKRW(s.price):"$"+(s.price||0).toFixed(1)}</div>
+                        </div>
+                        <div style={{flex:1}}/>
+                        <span style={{fontSize:9,fontWeight:700,color:(s.changePct||0)>=0?C.green:C.red}}>{(s.changePct||0)>=0?"+":""}{(s.changePct||0).toFixed(1)}%</span>
+                      </div>
+                    ))}
+                  </div>}
+                </div>;
+              })}
+
               {/* ── 📊 5주 리그 대시보드 ── */}
               <div style={css.card}>
                 <div style={{fontSize:11,fontWeight:700,color:"#F59E0B",marginBottom:4}}>📊 5주 리그 — 기법별 성적표</div>
@@ -2474,8 +2522,9 @@ export default function App() {
                   tagDefs.forEach(t=>{league[t]={weeks:[],totalW:0,totalL:0,totalRet:0,totalN:0};});
                   weeks.forEach(wk=>{
                     const wPerf={};tagDefs.forEach(t=>{wPerf[t]={w:0,l:0,ret:0,n:0};});
-                    scanned.forEach(s=>{
-                      const cd=charts[s.ticker]?.data;if(!cd||cd.length<wk.d+5)return;
+                    // ★ 전체 캔들 보유 종목에서 역산 (scanned가 아닌 charts 전체)
+                    Object.entries(charts).filter(([t,c])=>c?.real&&c?.data?.length>=wk.d+8).forEach(([ticker,chartObj])=>{
+                      const cd=chartObj.data;
                       const L=cd.length;const ago=cd[L-1-wk.d];const ago2=cd[L-2-wk.d];const ago3=cd[L-3-wk.d];const now2=cd[L-1];
                       if(!ago||!ago2||!now2)return;
                       const ret=+((now2.close-ago.close)/ago.close*100).toFixed(2);
