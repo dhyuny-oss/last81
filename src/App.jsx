@@ -5,6 +5,9 @@
  *       5주 리그 volR5 슬라이스 버그 수정 (per-candle volRatio 사용)
  *       분석탭 카드 자동 정렬 (5주 리그 avgRet 내림차순, 엔벨로프는 하단 고정)
  *       리그 계산 1회로 통합 (카드 정렬 + 대시보드 공용)
+ *       편입 조합 매칭 완화: 3-AND → N-1 허용 (3개 중 2개 이상 매칭 시 카운트)
+ *       리그 셀에 매칭 종목수 (n) 표시
+ *       빈 카드 자동 접힘 (사용자가 명시 조작 안 했을 때만, 조작 후엔 선택 존중)
  * v2.3: 데이터 범위 통합 (pool↔stocks 일관성)
  *       navigateToStock — pool 종목 클릭 시 자동 추가
  *       selInfo/labInfo/posInfo pool 폴백
@@ -2400,7 +2403,10 @@ export default function App() {
                 const comboMap={"ST3/3":stC===3,"ST2/3":stC===2,"ST전환↑":stC>=prevStC+1&&stC>=2,"MACD양전":macdUp,"RSI50~70":rsi>=50&&rsi<=70,"구름위":!!cloud,"ADX25+":adxOk,"거래량150%+":volR5>=150,"스퀴즈해제":!!ago.sqzOff,"EMA정배열":ema20>ema50&&ema50>ema200&&ema200>0,"MA20위":ago.close>ema20&&ema20>0,"3연속양봉":ago.isBull&&ago2?.isBull&&ago3?.isBull,"거래량3↑":ago.volume>(ago2?.volume||0)&&(ago2?.volume||0)>(ago3?.volume||0),"RSI50돌파":rsi>=50&&rsi<=55&&(ago2?.rsi||0)<50,"갭상승":ago.open>(ago2?.close||0)*1.01,"20일신고":ago.close>=Math.max(...cd.slice(Math.max(0,L-1-wk.d-20),L-1-wk.d).map(x=>x.close)),"MACD가속":(ago.hist||0)>(ago2?.hist||0)&&(ago2?.hist||0)>(ago3?.hist||0),"OBV상승":(ago.obv||0)>(ago2?.obv||0)&&(ago2?.obv||0)>(ago3?.obv||0),"DI매수우위":(ago.plusDI||0)>(ago.minusDI||0),"MA200위":ago.close>(ago.ma200||0)&&(ago.ma200||0)>0,"모멘텀+":(ago.sqzMom||0)>0,"RSI상승":rsi>(ago2?.rsi||0)&&(ago2?.rsi||0)>(ago3?.rsi||0),"장대양봉":!!ago.bigBull,"구름돌파":!!cloud&&!ago2?.aboveCloud,"거래폭발":volR5>=200};
                 customCombos.slice(0,3).forEach(cc=>{
                   const tag=cc.keys.slice(0,2).join("+");
-                  if(cc.keys.every(k=>comboMap[k])){wPerf[tag].n++;wPerf[tag].ret+=ret;if(ret>0)wPerf[tag].w++;else wPerf[tag].l++;}
+                  // v2.4: 3-AND → N-1 완화 (3개 중 2개 이상 매칭 시 카운트). 엄격 AND로는 과거 시점 표본이 희박해 빈칸 양산
+                  const matchCount=cc.keys.filter(k=>comboMap[k]).length;
+                  const required=Math.max(2,cc.keys.length-1);
+                  if(matchCount>=required){wPerf[tag].n++;wPerf[tag].ret+=ret;if(ret>0)wPerf[tag].w++;else wPerf[tag].l++;}
                 });
               });
               leagueTagDefs.forEach(t=>{
@@ -2428,9 +2434,11 @@ export default function App() {
             return<>
               {(()=>{
                 const cards={};
+                // v2.4: 빈 카드 자동 접힘. 사용자가 명시적으로 연/닫은 상태(true/false)면 존중, 미조작(undefined)이면 내용 유무로 결정
+                const isCardOpen=(id,hasContent)=>{const s=scanCardOpen[id];if(s===true)return true;if(s===false)return false;return hasContent;};
                 cards.d0=(<div style={css.card}>
-                <div onClick={()=>setScanCardOpen(p=>({...p,d0:!p.d0}))} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:4}}><span style={{fontSize:11,fontWeight:700,color:"#F97316"}}>🔥 D+0 돌파 ({d0hits.length})</span><span style={{fontSize:8,color:C.muted}}>{scanCardOpen.d0?"▲ 접기":"▼ 펼치기"}</span></div>
-                <div style={{display:scanCardOpen.d0===false?"none":"block"}}>
+                <div onClick={()=>setScanCardOpen(p=>({...p,d0:!isCardOpen("d0",d0hits.length>0)}))} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:4}}><span style={{fontSize:11,fontWeight:700,color:"#F97316"}}>🔥 D+0 돌파 ({d0hits.length})</span><span style={{fontSize:8,color:C.muted}}>{isCardOpen("d0",d0hits.length>0)?"▲ 접기":"▼ 펼치기"}</span></div>
+                <div style={{display:isCardOpen("d0",d0hits.length>0)?"block":"none"}}>
                 <div style={{fontSize:8,color:C.muted,marginBottom:8}}>전고점 돌파 + 장대양봉(5%+) + 거래량 폭발 + 주도섹터</div>
                 {d0hits.length===0?<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:9}}>현재 D+0 조건 충족 종목 없음</div>
                 :<div style={{maxHeight:350,overflowY:"auto"}}>
@@ -2459,8 +2467,8 @@ export default function App() {
               </div>);
 
                 cards.sj=(<div style={css.card}>
-                <div onClick={()=>setScanCardOpen(p=>({...p,sj:!p.sj}))} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:4}}><span style={{fontSize:11,fontWeight:700,color:C.emerald}}>✅ 6체크 ({sjhits.length})</span><span style={{fontSize:8,color:C.muted}}>{scanCardOpen.sj?"▲ 접기":"▼ 펼치기"}</span></div>
-                <div style={{display:scanCardOpen.sj===false?"none":"block"}}>
+                <div onClick={()=>setScanCardOpen(p=>({...p,sj:!isCardOpen("sj",sjhits.length>0)}))} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:4}}><span style={{fontSize:11,fontWeight:700,color:C.emerald}}>✅ 6체크 ({sjhits.length})</span><span style={{fontSize:8,color:C.muted}}>{isCardOpen("sj",sjhits.length>0)?"▲ 접기":"▼ 펼치기"}</span></div>
+                <div style={{display:isCardOpen("sj",sjhits.length>0)?"block":"none"}}>
                 <div style={{fontSize:8,color:C.muted,marginBottom:8}}>신고가 + 이격좁음 + 양봉거래 + 거래↑ + 깔끔양봉 + 조정해제</div>
                 {sjhits.length===0?<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:9}}>현재 4/6 이상 충족 종목 없음</div>
                 :<div style={{maxHeight:400,overflowY:"auto"}}>
@@ -2486,8 +2494,8 @@ export default function App() {
               </div>);
 
                 cards.env=(<div style={css.card}>
-                <div onClick={()=>setScanCardOpen(p=>({...p,env:!p.env}))} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:4}}><span style={{fontSize:11,fontWeight:700,color:C.purple}}>📐 엔벨로프 ({envhits.length})</span><span style={{fontSize:8,color:C.muted}}>{scanCardOpen.env?"▲ 접기":"▼ 펼치기"}</span></div>
-                <div style={{display:scanCardOpen.env===false?"none":"block"}}>
+                <div onClick={()=>setScanCardOpen(p=>({...p,env:!isCardOpen("env",envhits.length>0)}))} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:4}}><span style={{fontSize:11,fontWeight:700,color:C.purple}}>📐 엔벨로프 ({envhits.length})</span><span style={{fontSize:8,color:C.muted}}>{isCardOpen("env",envhits.length>0)?"▲ 접기":"▼ 펼치기"}</span></div>
+                <div style={{display:isCardOpen("env",envhits.length>0)?"block":"none"}}>
                 <div style={{fontSize:8,color:C.muted,marginBottom:8}}>Envelope(20,20) 하한선 2% 이내 근접 우량주</div>
                 {envhits.length===0?<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:9}}>현재 엔벨로프 하단 근접 종목 없음 — 시장이 강세일 수 있습니다</div>
                 :<div style={{maxHeight:300,overflowY:"auto"}}>
@@ -2511,8 +2519,8 @@ export default function App() {
               </div>);
 
                 cards.tr=(<div style={css.card}>
-                <div onClick={()=>setScanCardOpen(p=>({...p,tr:!p.tr}))} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:4}}><span style={{fontSize:11,fontWeight:700,color:C.accent}}>🔄 전환초기 ({trhits.length})</span><span style={{fontSize:8,color:C.muted}}>{scanCardOpen.tr?"▲ 접기":"▼ 펼치기"}</span></div>
-                <div style={{display:scanCardOpen.tr===false?"none":"block"}}>
+                <div onClick={()=>setScanCardOpen(p=>({...p,tr:!isCardOpen("tr",trhits.length>0)}))} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:4}}><span style={{fontSize:11,fontWeight:700,color:C.accent}}>🔄 전환초기 ({trhits.length})</span><span style={{fontSize:8,color:C.muted}}>{isCardOpen("tr",trhits.length>0)?"▲ 접기":"▼ 펼치기"}</span></div>
+                <div style={{display:isCardOpen("tr",trhits.length>0)?"block":"none"}}>
                 <div style={{fontSize:8,color:C.muted,marginBottom:8}}>ST 2/3 + RSI 우상향 + 구름 인접 + RS 강 + 거래량 110%+ + MACD↑ → 5/6 이상</div>
                 {trhits.length===0?<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:9}}>현재 추세 전환 초기 종목 없음</div>
                 :<div style={{maxHeight:350,overflowY:"auto"}}>
@@ -2558,20 +2566,20 @@ export default function App() {
                   return{ticker,label:info.label||ticker,price:last.close,changePct:chg,isKR:(ticker?.length||0)>5};
                 }).filter(Boolean).sort((a,b)=>(b.changePct||0)-(a.changePct||0));
                 cards["cc"+ci]=(<div style={css.card}>
-                  <div onClick={()=>setScanCardOpen(p=>({...p,["cc"+ci]:!p["cc"+ci]}))} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:4}}>
+                  <div onClick={()=>setScanCardOpen(p=>({...p,["cc"+ci]:!isCardOpen("cc"+ci,ccStocks.length>0)}))} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:4}}>
                     <div style={{display:"flex",alignItems:"center",gap:4}}>
                       <span style={{fontSize:11,fontWeight:700,color:"#F59E0B"}}>📌 {ccTag}</span>
                       <span style={{fontSize:8,color:C.muted}}>({ccStocks.length})</span>
                     </div>
                     <div style={{display:"flex",gap:4,alignItems:"center"}}>
                       <button onClick={e=>{e.stopPropagation();setCustomCombos(p=>p.filter((_,i)=>i!==ci));setComboHistory(p=>[...p,{keys:cc.keys,action:"제거",date:new Date().toLocaleDateString("ko-KR")}]);}} style={{fontSize:7,padding:"1px 4px",borderRadius:2,border:`1px solid ${C.red}`,background:"transparent",color:C.red,cursor:"pointer"}}>제거</button>
-                      <span style={{fontSize:8,color:C.muted}}>{scanCardOpen["cc"+ci]?"▲":"▼"}</span>
+                      <span style={{fontSize:8,color:C.muted}}>{isCardOpen("cc"+ci,ccStocks.length>0)?"▲":"▼"}</span>
                     </div>
                   </div>
                   <div style={{display:"flex",gap:2,marginBottom:4,flexWrap:"wrap"}}>
                     {cc.keys.map(k=><span key={k} style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:"rgba(245,158,11,.1)",color:"#F59E0B"}}>{k}</span>)}
                   </div>
-                  {scanCardOpen["cc"+ci]!==false&&<div style={{maxHeight:250,overflowY:"auto"}}>
+                  {isCardOpen("cc"+ci,ccStocks.length>0)&&<div style={{maxHeight:250,overflowY:"auto"}}>
                     {ccStocks.length===0?<div style={{textAlign:"center",padding:15,color:C.muted,fontSize:9}}>현재 이 조합 매칭 종목 없음</div>
                     :ccStocks.slice(0,10).map((s,i)=>(
                       <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s,"분석_편입")} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 6px",borderBottom:`1px solid rgba(148,163,184,.04)`,cursor:"pointer"}}>
@@ -2594,7 +2602,7 @@ export default function App() {
               {/* ── 📊 5주 리그 대시보드 ── */}
               <div style={css.card}>
                 <div style={{fontSize:11,fontWeight:700,color:"#F59E0B",marginBottom:4}}>📊 5주 리그 — 기법별 성적표</div>
-                <div style={{fontSize:8,color:C.muted,marginBottom:8}}>5/10/15/20/25일 전 시점에서 각 기법이 추천했을 종목의 실제 수익률</div>
+                <div style={{fontSize:8,color:C.muted,marginBottom:8}}>5/10/15/20/25일 전 시점에서 각 기법이 추천했을 종목의 실제 수익률 · 편입 조합은 N개 중 N-1 이상 매칭 포함 · 숫자 옆 (n) = 매칭 종목 수</div>
                 {(()=>{
                   const weeks=leagueWeeks;const ranked=leagueRanked;
                   return<>
@@ -2610,8 +2618,8 @@ export default function App() {
                       <tbody>{ranked.map((r,ri)=>(
                         <tr key={r.tag} style={{borderBottom:`1px solid ${C.border}`,background:ri===0?"rgba(34,197,94,.06)":"transparent"}}>
                           <td style={{padding:"5px 4px",fontWeight:700,fontSize:9,color:ri===0?C.emerald:C.text}}>{ri===0?"🏆 ":""}{r.tag}</td>
-                          {r.weeks.map((w,wi)=><td key={wi} style={{padding:"4px",textAlign:"center",color:w.avg===null?C.muted:w.avg>=0?C.green:C.red,fontWeight:700}}>{w.avg===null?"—":w.avg>=0?"+"+w.avg+"%":w.avg+"%"}</td>)}
-                          <td style={{padding:"4px",textAlign:"center",fontWeight:900,color:r.avgRet>=0?C.green:C.red}}>{r.avgRet>=0?"+":""}{r.avgRet}%</td>
+                          {r.weeks.map((w,wi)=><td key={wi} style={{padding:"4px",textAlign:"center",color:w.avg===null?C.muted:w.avg>=0?C.green:C.red,fontWeight:700}}>{w.avg===null?<>—<span style={{fontSize:6,color:C.muted,fontWeight:400,marginLeft:2}}>(0)</span></>:<>{w.avg>=0?"+":""}{w.avg}%<span style={{fontSize:6,color:C.muted,fontWeight:400,marginLeft:2}}>({w.n})</span></>}</td>)}
+                          <td style={{padding:"4px",textAlign:"center",fontWeight:900,color:r.avgRet>=0?C.green:C.red}}>{r.avgRet>=0?"+":""}{r.avgRet}%<span style={{fontSize:6,color:C.muted,fontWeight:400,marginLeft:2}}>({r.totalN})</span></td>
                           <td style={{padding:"4px",textAlign:"center",fontWeight:700,color:r.wr>=60?C.green:r.wr>=40?"#F59E0B":C.red}}>{r.wr}%</td>
                           <td style={{padding:"4px",textAlign:"center"}}>{(()=>{const recent=r.weeks.slice(0,3).filter(w=>w.avg!==null);const up=recent.filter(w=>w.avg>0).length;return up>=2?"↑":up===0?"↓":"→";})()}</td>
                         </tr>
