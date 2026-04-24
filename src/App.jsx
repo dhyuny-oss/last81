@@ -1,15 +1,18 @@
 /**
  * Alpha Terminal v2.4 — App.jsx
- * v2.4: per-candle 지표 완성 (ema20/ema200/aboveCloud/nearCloud/inCloud/volRatio)
- *       → 발굴탭 조합 탐지에서 구름/거래량/EMA계열 지표가 이제 과거 시점에도 평가됨
- *       5주 리그 volR5 슬라이스 버그 수정 (per-candle volRatio 사용)
- *       분석탭 카드 자동 정렬 (5주 리그 avgRet 내림차순)
- *       리그 계산 1회로 통합 (카드 정렬 + 대시보드 공용)
- *       편입 조합 매칭 완화: 3-AND → N-1 허용 (3개 중 2개 이상 매칭 시 카운트)
- *       리그 셀에 매칭 종목수 (n) 표시
- *       빈 카드 자동 접힘 (사용자가 명시 조작 안 했을 때만, 조작 후엔 선택 존중)
+ * v2.4: [투자 워크플로우 정렬 — 추세추종 실전용]
+ *       per-candle 지표 완성 (ema20/ema200/aboveCloud/nearCloud/inCloud/volRatio)
+ *       발굴탭 reference point 수정: d[L-6] (상승 중) → d[L-11] (상승 5일 전) → 선행 조건 포착
+ *       분석탭 카드 자동 정렬, 리그 계산 1회로 통합
+ *       편입 조합 매칭 완화 (3-AND → N-1 허용), 리그 셀에 (n) 매칭수 표시
+ *       빈 카드 자동 접힘, 레거시 공백 키 마이그레이션
+ *       🎯 진입 가능 카드 신설 — 매수가/손절가/목표가/RR 자동 계산
+ *         · 필터: 갭아님(+3%미만) + 과열아님(MA20+15%이내) + 유동성(한국 1000억·미국 $5B) + 손절 2~10%
+ *         · 손절: max(MA20×0.97, 종가-2×ATR) / 목표: 매수가+2×리스크 (1:2 RR)
+ *       집중탭 라벨 통합: AI추천/돌파 제거 → 🎯진입가능 (신호+필터 통합 태그)
+ *       차트탭에 매수/손절/목표 수평선 가시화 (파랑/빨강/초록 대시)
+ *       5주 리그 태그 재구성: 진입가능 / 진입적기 / 전환초기 / 편입조합
  *       D+0 / 6체크 / 엔벨로프 전략 제거 (종목 미출현 지속 → 편입 조합과 전환초기로 집중)
- *       stratCfg에서 d0/sj 설정 삭제, 튜너/해부/요약/집중탭태그/리그에서도 일괄 제거
  * v2.3: 데이터 범위 통합 (pool↔stocks 일관성)
  *       navigateToStock — pool 종목 클릭 시 자동 추가
  *       selInfo/labInfo/posInfo pool 폴백
@@ -1988,10 +1991,8 @@ export default function App() {
             const cd=charts[s.ticker]?.data;if(!cd||cd.length<10)return null;
             const L=cd.length;const last=cd[L-1];const prev=cd[L-2];if(!last||!prev)return null;
             const tags=[];
-            // 1. AI추천 (alphaScore 75+)
+            // 내부 스코어 (표시 안 함 — 진입가능 판정에만 사용)
             const asc=alphaScore(s,cd,idxRS);
-            if(asc.score>=75)tags.push({tag:"AI추천",color:C.purple,score:asc.score+"pt"});
-            // 2. 돌파감지 (신호 2개+ 동시)
             const stT=[last.st1Bull,last.st2Bull,last.st3Bull].filter(v=>v!=null).length;
             const stY=[prev.st1Bull,prev.st2Bull,prev.st3Bull].filter(v=>v!=null).length;
             let bkSigs=0;
@@ -2000,20 +2001,29 @@ export default function App() {
             const vols=cd.slice(-21,-1).map(d=>d.volume||0).filter(v=>v>0);
             const avgVol=vols.length?vols.reduce((a,b)=>a+b,0)/vols.length:0;
             if(avgVol>0&&last.volume>avgVol*2)bkSigs++;
-            if(bkSigs>=2)tags.push({tag:"돌파",color:C.emerald,score:bkSigs+"개"});
-            // 3. 진입적기 (⚡55+💪55+)
+            // 1. 진입적기 (⚡55+💪55+)
             const tm=calcEntryTiming(cd);const dr=calcTrendDurability(cd);
-            if(tm.score>=stratCfg.entry.timingMin&&dr.score>=stratCfg.entry.durMin)tags.push({tag:"진입적기",color:C.accent,score:"⚡"+tm.score});
-            // 4. 전환초기 (5/6+)
-            const closes=cd.map(x=>x.close);
+            const entryReady=tm.score>=stratCfg.entry.timingMin&&dr.score>=stratCfg.entry.durMin;
+            if(entryReady)tags.push({tag:"진입적기",color:C.accent,score:"⚡"+tm.score});
+            // 2. 전환초기 (5/6+) — 신호 소스
             const volR=s.volRatio||s._volRatio||100;
             const rs2=asc.rs||0;
             const rsiR=(last.rsi||0)>(prev.rsi||0)&&(last.rsi||0)>(cd[L-4]?.rsi||0)&&(last.rsi||0)>=40;
             const nearCl=last.nearCloud||last.inCloud||(last.spanHigh&&last.close>=last.spanLow*0.97&&last.close<=last.spanHigh*1.03);
             const macdU2=(last.macd>last.signal)||(last.hist>0&&prev?.hist<=0)||(last.hist>(prev?.hist||0));
             const trc=[(stT>=2&&stY<stT)||stT===2,rsiR,nearCl,rs2>0,volR>=stratCfg.tr.volMin,macdU2].filter(Boolean).length;
-            if(trc>=stratCfg.tr.minScore)tags.push({tag:"전환초기",color:C.accent,score:trc+"/6"});
-            // 5. 편입된 커스텀 조합
+            const trSignal=trc>=stratCfg.tr.minScore;
+            if(trSignal)tags.push({tag:"전환초기",color:C.accent,score:trc+"/6"});
+            // 3. 🎯 진입가능 (신호 + 갭업아님 + 과열아님 + 유동성) — 메인 실전 태그
+            const chg1Today=s.changePct||0;
+            const ma20=last.ma20||last.close;
+            const notGap=chg1Today<3;
+            const notOverext=last.close<ma20*1.15;
+            const liquid=(s.mktCap||0)>(((s.ticker?.length||0)>5)?1000:5);
+            const hasSignal=entryReady||trSignal||(asc.score>=75)||(bkSigs>=2);
+            const canEnter=hasSignal&&notGap&&notOverext&&liquid;
+            if(canEnter)tags.push({tag:"🎯진입가능",color:C.emerald,score:""});
+            // 4. 편입된 커스텀 조합
             if(customCombos.length>0){
               const keyMap2={"ST3/3":stT===3,"ST2/3":stT===2,"ST전환↑":stT>=(prev?[prev.st1Bull,prev.st2Bull,prev.st3Bull].filter(v=>v!=null).length:0)+1&&stT>=2,"MACD양전":last.macd>last.signal,"RSI50~70":(last.rsi||0)>=50&&(last.rsi||0)<=70,"구름위":!!last.aboveCloud,"ADX25+":(last.adx||0)>=25,"거래량150%+":volR>=150,"스퀴즈해제":!!last.sqzOff,"EMA정배열":(last.ema20||0)>(last.ema50||0)&&(last.ema50||0)>(last.ema200||0)&&(last.ema200||0)>0,"MA20위":last.close>(last.ema20||0)&&(last.ema20||0)>0,"3연속양봉":last.isBull&&prev?.isBull&&(cd[L-3]?.isBull),"거래량3↑":last.volume>(prev?.volume||0)&&(prev?.volume||0)>(cd[L-3]?.volume||0),"RSI50돌파":(last.rsi||0)>=50&&(last.rsi||0)<=55&&(prev?.rsi||0)<50,"갭상승":last.open>(prev?.close||0)*1.01,"20일신고":last.close>=Math.max(...cd.slice(-21,-1).map(x=>x.close)),"MACD가속":(last.hist||0)>(prev?.hist||0)&&(prev?.hist||0)>(cd[L-3]?.hist||0),"OBV상승":(last.obv||0)>(prev?.obv||0)&&(prev?.obv||0)>(cd[L-3]?.obv||0),"DI매수우위":(last.plusDI||0)>(last.minusDI||0),"MA200위":last.close>(last.ma200||0)&&(last.ma200||0)>0,"모멘텀+":(last.sqzMom||0)>0,"RSI상승":(last.rsi||0)>(prev?.rsi||0)&&(prev?.rsi||0)>(cd[L-3]?.rsi||0),"장대양봉":!!last.bigBull,"구름돌파":!!last.aboveCloud&&!prev?.aboveCloud,"거래폭발":volR>=200};
               customCombos.slice(0,3).forEach((cc,ci)=>{
@@ -2053,7 +2063,7 @@ export default function App() {
 
           {/* 기법 필터 */}
           <div style={{display:"flex",gap:3,marginBottom:10,flexWrap:"wrap"}}>
-            {[["all","전체",C.accent],["AI추천","AI추천",C.purple],["돌파","돌파",C.emerald],["진입적기","진입적기",C.accent],["전환초기","전환초기",C.accent]].map(([k,l,c])=>(
+            {[["all","전체",C.accent],["🎯진입가능","🎯진입가능",C.emerald],["진입적기","진입적기",C.accent],["전환초기","전환초기",C.accent]].map(([k,l,c])=>(
               <button key={k} onClick={()=>setFocusView(focusView===k?null:k)} style={{padding:"3px 8px",borderRadius:4,fontSize:8,fontWeight:focusView===k||(!focusView&&k==="all")?700:400,border:`1px solid ${focusView===k||((!focusView)&&k==="all")?c:C.border}`,background:focusView===k||((!focusView)&&k==="all")?c+"18":"transparent",color:focusView===k||((!focusView)&&k==="all")?c:C.muted,cursor:"pointer"}}>{l}</button>
             ))}
           </div>
@@ -2085,23 +2095,25 @@ export default function App() {
         </div>}
         {/* ══ TAB: 🔍 발굴 — TOP40 분석 + 패턴 발견 ══ */}
         {tab==="alpha"&&<div style={{padding:"12px 14px"}}>
-          <div style={{fontSize:13,fontWeight:900,color:C.emerald,marginBottom:4,borderLeft:`3px solid ${C.emerald}`,paddingLeft:8}}>🔍 발굴 — 상승주에서 패턴 찾기</div>
-          <div style={{fontSize:9,color:C.sub,marginBottom:8}}>캔들 데이터 보유 종목 중 최근 5일 상승 TOP 분석 → 공통 패턴 발견 → 분석탭에 편입</div>
+          <div style={{fontSize:13,fontWeight:900,color:C.emerald,marginBottom:4,borderLeft:`3px solid ${C.emerald}`,paddingLeft:8}}>🔍 발굴 — 상승 직전 패턴 찾기</div>
+          <div style={{fontSize:9,color:C.sub,marginBottom:8}}>최근 5일 상승 종목의 <b>상승 시작 5일 전</b> 공통 지표 → 미래 유사 신호 포착용 (과거 서술 아닌 선행 조건)</div>
           <div style={{display:"flex",gap:4,marginBottom:10}}>
             {[["all","전체 TOP80"],["kr","🇰🇷 한국 TOP40"],["us","🇺🇸 미국 TOP40"]].map(([v,l])=>(
               <button key={v} onClick={()=>setAlphaMarket(v)} style={{padding:"4px 12px",borderRadius:5,border:`1px solid ${alphaMarket===v?C.emerald:C.border}`,background:alphaMarket===v?"rgba(34,197,94,.1)":"transparent",color:alphaMarket===v?C.emerald:C.muted,fontSize:9,fontWeight:alphaMarket===v?700:400,cursor:"pointer"}}>{l}</button>
             ))}
           </div>
           {(()=>{
-            // TOP40 상승주 분석
+            // TOP40 상승주 분석 — v2.4 reference point을 L-11(상승 시작 5일 전)로 이동
+            // 이유: 기존 L-6은 이미 상승 중 → 서술적. L-11은 선행 조건 → 실전 진입 신호.
             const isKRticker=(t)=>(t?.length||0)>5;
-            const allReal=Object.entries(charts).filter(([t,c])=>c?.data?.length>=20&&c.real);
+            const allReal=Object.entries(charts).filter(([t,c])=>c?.data?.length>=25&&c.real);
             const filtered=allReal.filter(([t])=>alphaMarket==="all"?true:alphaMarket==="kr"?isKRticker(t):!isKRticker(t));
             const top40=filtered.map(([ticker,c])=>{
               const d=c.data;const L=d.length;
               const chg5=L>5?+((d[L-1].close-d[L-6].close)/d[L-6].close*100).toFixed(2):0;
               if(chg5<=0)return null;
-              const sp=d[Math.max(0,L-6)];const sp2=d[Math.max(0,L-7)];const sp3=d[Math.max(0,L-8)];
+              // sp=d[L-11] (상승 시작 5일 전) — 이 시점 지표가 이후 상승을 예견했는지 검증
+              const sp=d[Math.max(0,L-11)];const sp2=d[Math.max(0,L-12)];const sp3=d[Math.max(0,L-13)];
               if(!sp)return null;
               const info=stocks.find(s=>s.ticker===ticker)||pool[ticker]||{};
               const stC=[sp?.st1Bull,sp?.st2Bull,sp?.st3Bull].filter(v=>v!=null).length;
@@ -2119,7 +2131,7 @@ export default function App() {
                 volUp3:sp.volume>(sp2?.volume||0)&&(sp2?.volume||0)>(sp3?.volume||0)&&sp3?.volume>0,
                 rsi50x:rsi>=50&&rsi<=55&&(sp2?.rsi||0)<50,
                 gapUp:sp.open>(sp2?.close||0)*1.01,
-                highNew:sp.close>=Math.max(...d.slice(Math.max(0,L-26),L-6).map(x=>x.close)),
+                highNew:sp.close>=Math.max(...d.slice(Math.max(0,L-31),L-11).map(x=>x.close)),
                 histUp:(sp.hist||0)>(sp2?.hist||0)&&(sp2?.hist||0)>(sp3?.hist||0),
                 obvUp:(sp.obv||0)>(sp2?.obv||0)&&(sp2?.obv||0)>(sp3?.obv||0),
                 diPlus:(sp.plusDI||0)>(sp.minusDI||0),
@@ -2142,14 +2154,14 @@ export default function App() {
             Object.keys(indLabels).forEach(k=>{allStocksInds[k]=0;});
             let totalAll=0;
             filtered.forEach(([ticker,c])=>{
-              const d2=c.data;const L2=d2.length;if(L2<8)return;
-              const sp4=d2[Math.max(0,L2-6)];const sp5=d2[Math.max(0,L2-7)];const sp6=d2[Math.max(0,L2-8)];
+              const d2=c.data;const L2=d2.length;if(L2<13)return;
+              const sp4=d2[Math.max(0,L2-11)];const sp5=d2[Math.max(0,L2-12)];const sp6=d2[Math.max(0,L2-13)];
               if(!sp4)return;totalAll++;
               const stC2=[sp4?.st1Bull,sp4?.st2Bull,sp4?.st3Bull].filter(v=>v!=null).length;
               const prevStC2=sp5?[sp5.st1Bull,sp5.st2Bull,sp5.st3Bull].filter(v=>v!=null).length:0;
               const e20=sp4.ema20||0,e50=sp4.ema50||0,e200=sp4.ema200||0;
               const vR2=sp4.volRatio||100;const rsi2=sp4.rsi||0;
-              const baseInds={st3:stC2===3,st2:stC2===2,stFlip:stC2>=prevStC2+1&&stC2>=2,macd:sp4.macd>sp4.signal,rsi70:rsi2>=50&&rsi2<=70,cloud:!!sp4.aboveCloud,adx:(sp4.adx||0)>=25,volHigh:vR2>=150,sqzOff:!!sp4.sqzOff,emaAlign:e20>e50&&e50>e200&&e200>0,above20:sp4.close>e20&&e20>0,consUp:sp4.isBull&&sp5?.isBull&&sp6?.isBull,volUp3:sp4.volume>(sp5?.volume||0)&&(sp5?.volume||0)>(sp6?.volume||0),rsi50x:rsi2>=50&&rsi2<=55&&(sp5?.rsi||0)<50,gapUp:sp4.open>(sp5?.close||0)*1.01,highNew:sp4.close>=Math.max(...d2.slice(Math.max(0,L2-26),L2-6).map(x=>x.close)),histUp:(sp4.hist||0)>(sp5?.hist||0)&&(sp5?.hist||0)>(sp6?.hist||0),obvUp:(sp4.obv||0)>(sp5?.obv||0)&&(sp5?.obv||0)>(sp6?.obv||0),diPlus:(sp4.plusDI||0)>(sp4.minusDI||0),abv200:sp4.close>(sp4.ma200||0)&&(sp4.ma200||0)>0,sqzMomP:(sp4.sqzMom||0)>0,rsiUp:rsi2>(sp5?.rsi||0)&&(sp5?.rsi||0)>(sp6?.rsi||0),bigCandle:!!sp4.bigBull,cloudBreak:!!sp4.aboveCloud&&!sp5?.aboveCloud,volBoom:vR2>=200};
+              const baseInds={st3:stC2===3,st2:stC2===2,stFlip:stC2>=prevStC2+1&&stC2>=2,macd:sp4.macd>sp4.signal,rsi70:rsi2>=50&&rsi2<=70,cloud:!!sp4.aboveCloud,adx:(sp4.adx||0)>=25,volHigh:vR2>=150,sqzOff:!!sp4.sqzOff,emaAlign:e20>e50&&e50>e200&&e200>0,above20:sp4.close>e20&&e20>0,consUp:sp4.isBull&&sp5?.isBull&&sp6?.isBull,volUp3:sp4.volume>(sp5?.volume||0)&&(sp5?.volume||0)>(sp6?.volume||0),rsi50x:rsi2>=50&&rsi2<=55&&(sp5?.rsi||0)<50,gapUp:sp4.open>(sp5?.close||0)*1.01,highNew:sp4.close>=Math.max(...d2.slice(Math.max(0,L2-31),L2-11).map(x=>x.close)),histUp:(sp4.hist||0)>(sp5?.hist||0)&&(sp5?.hist||0)>(sp6?.hist||0),obvUp:(sp4.obv||0)>(sp5?.obv||0)&&(sp5?.obv||0)>(sp6?.obv||0),diPlus:(sp4.plusDI||0)>(sp4.minusDI||0),abv200:sp4.close>(sp4.ma200||0)&&(sp4.ma200||0)>0,sqzMomP:(sp4.sqzMom||0)>0,rsiUp:rsi2>(sp5?.rsi||0)&&(sp5?.rsi||0)>(sp6?.rsi||0),bigCandle:!!sp4.bigBull,cloudBreak:!!sp4.aboveCloud&&!sp5?.aboveCloud,volBoom:vR2>=200};
               Object.entries(baseInds).forEach(([k,v])=>{if(v)allStocksInds[k]++;});
             });
             const pats=Object.keys(indLabels).map(k=>{
@@ -2319,15 +2331,45 @@ export default function App() {
               ];
               const tr_score=tr_checks.filter(c=>c.ok).length;
 
-              return{ticker,label:info.label||ticker,market:info.market,price:last.close,chg1,rs:+rs.toFixed(1),volR,bodyPct,upperWick,isBull,bigBull,cleanCandle,bigBullClean,w52h,isKR,mktCap:info.mktCap||0,changePct:info.changePct||0,tr_score,tr_checks,stCount,rsi_val:+rsi_val.toFixed(0)};
+              // ★ v2.4: 실전 매매용 레벨 계산 — 진입/손절/목표
+              const atr=last.atr||(last.close*0.03);
+              const ma20Val=last.ma20||last.close;
+              // 손절: MA20*0.97 (추세 지지선) 또는 종가-2*ATR (변동성 기반) 중 타이트한 쪽
+              const stopByMA=ma20Val*0.97;
+              const stopByATR=last.close-2*atr;
+              const stopLoss=Math.max(stopByMA,stopByATR); // 더 가까운(tighter) 손절
+              const stopPct=+((1-stopLoss/last.close)*100).toFixed(1);
+              const entry=last.close;
+              const target=entry+2*(entry-stopLoss); // 1:2 RR
+              const targetPct=+((target/entry-1)*100).toFixed(1);
+
+              // 진입 가능성 판정
+              const validStop=stopPct>=2&&stopPct<=10; // 손절이 2~10% 사이면 유효
+              const notGap=chg1<3; // 오늘 +3% 미만 (갭/급등 후 진입 위험 회피)
+              const notOverext=last.close<ma20Val*1.15; // MA20 대비 15% 이내 (과열 아님)
+              const liquid=(info.mktCap||0)>(isKR?1000:5); // 한국 1000억+ / 미국 $5B+
+              // 신호: 전환초기 OR 편입조합 매칭 (scanned 시점에선 편입조합 매칭은 별도 계산 필요, 여기선 tr_score만 사용)
+              const trSignal=tr_score>=stratCfg.tr.minScore;
+              const canEnter=trSignal&&validStop&&notGap&&notOverext&&liquid;
+              // 경고 사유
+              const warnings=[];
+              if(!notGap)warnings.push(`갭+${chg1}%`);
+              if(!notOverext)warnings.push("MA20이격과대");
+              if(!liquid)warnings.push("유동성부족");
+              if(!validStop)warnings.push("손절애매");
+
+              return{ticker,label:info.label||ticker,market:info.market,price:last.close,chg1,rs:+rs.toFixed(1),volR,bodyPct,upperWick,isBull,bigBull,cleanCandle,bigBullClean,w52h,isKR,mktCap:info.mktCap||0,changePct:info.changePct||0,tr_score,tr_checks,stCount,rsi_val:+rsi_val.toFixed(0),entry,stopLoss,stopPct,target,targetPct,canEnter,warnings,ma20:ma20Val,atr};
             }).filter(Boolean);
 
             // 추세 전환 초기
             const trhits=scanned.filter(s=>s.tr_score>=stratCfg.tr.minScore).sort((a,b)=>b.tr_score-a.tr_score||b.rs-a.rs);
 
+            // 🎯 진입 가능 후보 — 신호 + 필터 통과 종목 (실전 매수 대상)
+            const entryCandidates=scanned.filter(s=>s.canEnter).sort((a,b)=>b.tr_score-a.tr_score||b.rs-a.rs);
+
             // ★ v2.4: 5주 리그 데이터 — 카드 정렬 + 대시보드 공용
             const leagueWeeks=[{d:5,label:"1주전"},{d:10,label:"2주전"},{d:15,label:"3주전"},{d:20,label:"4주전"},{d:25,label:"5주전"}];
-            const leagueTagDefs=["AI추천","돌파","진입적기","전환초기",...customCombos.slice(0,3).map(cc=>cc.keys.slice(0,2).join("+"))];
+            const leagueTagDefs=["진입가능","진입적기","전환초기",...customCombos.slice(0,3).map(cc=>cc.keys.slice(0,2).join("+"))];
             const league={};
             leagueTagDefs.forEach(t=>{league[t]={weeks:[],totalW:0,totalL:0,totalRet:0,totalN:0};});
             leagueWeeks.forEach(wk=>{
@@ -2342,22 +2384,32 @@ export default function App() {
                 const cloud=ago.aboveCloud||ago.close>(ago.spanHigh||0);
                 const adxOk=(ago.adx||0)>=25;
                 const volR5=ago.volRatio||100;
-                const alphaS=(stC>=3?25:stC>=2?15:0)+(cloud?20:0)+(macdUp?15:0)+(adxOk?15:0)+(volR5>=150?15:0)+(rsi>=50&&rsi<=70?10:0);
-                if(alphaS>=75){wPerf["AI추천"].n++;wPerf["AI추천"].ret+=ret;if(ret>0)wPerf["AI추천"].w++;else wPerf["AI추천"].l++;}
                 const prevStC=[ago2?.st1Bull,ago2?.st2Bull,ago2?.st3Bull].filter(v=>v!=null).length;
-                let bkS=0;if(stC>prevStC)bkS++;if(macdUp&&!(ago2?.macd>ago2?.signal))bkS++;if(cloud&&!ago2?.aboveCloud)bkS++;if(ago.sqzOff&&!ago2?.sqzOff)bkS++;if(volR5>=200)bkS++;
-                if(bkS>=2){wPerf["돌파"].n++;wPerf["돌파"].ret+=ret;if(ret>0)wPerf["돌파"].w++;else wPerf["돌파"].l++;}
-                if(stC===3&&macdUp&&rsi>=50&&rsi<=70){wPerf["진입적기"].n++;wPerf["진입적기"].ret+=ret;if(ret>0)wPerf["진입적기"].w++;else wPerf["진입적기"].l++;}
+                // 진입적기: ST 3/3 + MACD + RSI 건강
+                const entryReadyHist=stC===3&&macdUp&&rsi>=50&&rsi<=70;
+                if(entryReadyHist){wPerf["진입적기"].n++;wPerf["진입적기"].ret+=ret;if(ret>0)wPerf["진입적기"].w++;else wPerf["진입적기"].l++;}
+                // 전환초기: 5/6+
                 const rsiR5=rsi>(ago2?.rsi||0)&&rsi>(ago3?.rsi||0)&&rsi>=40;
                 const nearCl5=ago.nearCloud||ago.inCloud||(ago.spanHigh&&ago.close>=ago.spanLow*0.97&&ago.close<=ago.spanHigh*1.03);
                 const macdU5=(ago.macd>ago.signal)||(ago.hist>0&&ago2?.hist<=0)||(ago.hist>(ago2?.hist||0));
                 const trc5=[(stC>=2&&prevStC<stC)||stC===2,rsiR5,nearCl5,true,volR5>=stratCfg.tr.volMin,macdU5].filter(Boolean).length;
-                if(trc5>=stratCfg.tr.minScore){wPerf["전환초기"].n++;wPerf["전환초기"].ret+=ret;if(ret>0)wPerf["전환초기"].w++;else wPerf["전환초기"].l++;}
+                const trSignalHist=trc5>=stratCfg.tr.minScore;
+                if(trSignalHist){wPerf["전환초기"].n++;wPerf["전환초기"].ret+=ret;if(ret>0)wPerf["전환초기"].w++;else wPerf["전환초기"].l++;}
+                // 🎯 진입가능: 신호 + 갭업아님 + 과열아님 (과거 시점엔 유동성 체크 제외)
+                const chg1Hist=ago2?+((ago.close-ago2.close)/ago2.close*100).toFixed(2):0;
+                const ma20Hist=ago.ma20||ago.close;
+                const notGapHist=chg1Hist<3;
+                const notOverextHist=ago.close<ma20Hist*1.15;
+                const atrHist=ago.atr||(ago.close*0.03);
+                const stopHist=Math.max(ma20Hist*0.97,ago.close-2*atrHist);
+                const stopPctHist=(1-stopHist/ago.close)*100;
+                const validStopHist=stopPctHist>=2&&stopPctHist<=10;
+                const canEnterHist=(entryReadyHist||trSignalHist)&&notGapHist&&notOverextHist&&validStopHist;
+                if(canEnterHist){wPerf["진입가능"].n++;wPerf["진입가능"].ret+=ret;if(ret>0)wPerf["진입가능"].w++;else wPerf["진입가능"].l++;}
                 const ema20=ago.ema20||0,ema50=ago.ema50||0,ema200=ago.ema200||0;
                 const comboMap={"ST3/3":stC===3,"ST2/3":stC===2,"ST전환↑":stC>=prevStC+1&&stC>=2,"MACD양전":macdUp,"RSI50~70":rsi>=50&&rsi<=70,"구름위":!!cloud,"ADX25+":adxOk,"거래량150%+":volR5>=150,"스퀴즈해제":!!ago.sqzOff,"EMA정배열":ema20>ema50&&ema50>ema200&&ema200>0,"MA20위":ago.close>ema20&&ema20>0,"3연속양봉":ago.isBull&&ago2?.isBull&&ago3?.isBull,"거래량3↑":ago.volume>(ago2?.volume||0)&&(ago2?.volume||0)>(ago3?.volume||0),"RSI50돌파":rsi>=50&&rsi<=55&&(ago2?.rsi||0)<50,"갭상승":ago.open>(ago2?.close||0)*1.01,"20일신고":ago.close>=Math.max(...cd.slice(Math.max(0,L-1-wk.d-20),L-1-wk.d).map(x=>x.close)),"MACD가속":(ago.hist||0)>(ago2?.hist||0)&&(ago2?.hist||0)>(ago3?.hist||0),"OBV상승":(ago.obv||0)>(ago2?.obv||0)&&(ago2?.obv||0)>(ago3?.obv||0),"DI매수우위":(ago.plusDI||0)>(ago.minusDI||0),"MA200위":ago.close>(ago.ma200||0)&&(ago.ma200||0)>0,"모멘텀+":(ago.sqzMom||0)>0,"RSI상승":rsi>(ago2?.rsi||0)&&(ago2?.rsi||0)>(ago3?.rsi||0),"장대양봉":!!ago.bigBull,"구름돌파":!!cloud&&!ago2?.aboveCloud,"거래폭발":volR5>=200};
                 customCombos.slice(0,3).forEach(cc=>{
                   const tag=cc.keys.slice(0,2).join("+");
-                  // v2.4: 3-AND → N-1 완화 (3개 중 2개 이상 매칭 시 카운트). 엄격 AND로는 과거 시점 표본이 희박해 빈칸 양산
                   const matchCount=cc.keys.filter(k=>comboMap[k]).length;
                   const required=Math.max(2,cc.keys.length-1);
                   if(matchCount>=required){wPerf[tag].n++;wPerf[tag].ret+=ret;if(ret>0)wPerf[tag].w++;else wPerf[tag].l++;}
@@ -2372,11 +2424,14 @@ export default function App() {
             const leagueRanked=leagueTagDefs.map(t=>({tag:t,...league[t],avgRet:league[t].totalN>0?+(league[t].totalRet/league[t].totalN).toFixed(1):0,wr:league[t].totalN>0?Math.round(league[t].totalW/(league[t].totalW+league[t].totalL)*100):0})).sort((a,b)=>b.avgRet-a.avgRet);
             const leagueByTag={};leagueRanked.forEach(r=>{leagueByTag[r.tag]=r;});
 
-            // ★ v2.4: 카드 정렬 — 5주 리그 avgRet 순
-            const cardIds=["tr",...customCombos.slice(0,3).map((_,ci)=>"cc"+ci)];
-            const cardTagMap={tr:"전환초기",...Object.fromEntries(customCombos.slice(0,3).map((cc,ci)=>["cc"+ci,cc.keys.slice(0,2).join("+")]))};
+            // ★ v2.4: 카드 정렬 — 진입가능은 항상 최상단(실전 매매 우선), 나머지는 5주 리그 avgRet 순
+            const cardIds=["entry","tr",...customCombos.slice(0,3).map((_,ci)=>"cc"+ci)];
+            const cardTagMap={entry:"진입가능",tr:"전환초기",...Object.fromEntries(customCombos.slice(0,3).map((cc,ci)=>["cc"+ci,cc.keys.slice(0,2).join("+")]))};
             const cardAvgRet=(id)=>{const tag=cardTagMap[id];if(!tag)return null;return leagueByTag[tag]?.avgRet??null;};
             const sortedCardIds=[...cardIds].sort((a,b)=>{
+              // entry 카드는 항상 최상단
+              if(a==="entry")return -1;
+              if(b==="entry")return 1;
               const ra=cardAvgRet(a),rb=cardAvgRet(b);
               if(ra===null&&rb===null)return 0;
               if(ra===null)return 1;
@@ -2389,6 +2444,43 @@ export default function App() {
                 const cards={};
                 // v2.4: 빈 카드 자동 접힘. 사용자가 명시적으로 연/닫은 상태(true/false)면 존중, 미조작(undefined)이면 내용 유무로 결정
                 const isCardOpen=(id,hasContent)=>{const s=scanCardOpen[id];if(s===true)return true;if(s===false)return false;return hasContent;};
+
+                // 🎯 진입 가능 카드 — 실전 매매용 (매수가/손절가/목표가/RR 전부 계산됨)
+                cards.entry=(<div style={{...css.card,border:`1px solid ${entryCandidates.length>0?C.emerald:C.border}`}}>
+                <div onClick={()=>setScanCardOpen(p=>({...p,entry:!isCardOpen("entry",entryCandidates.length>0)}))} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:4}}>
+                  <span style={{fontSize:11,fontWeight:700,color:C.emerald}}>🎯 진입 가능 ({entryCandidates.length})</span>
+                  <span style={{fontSize:8,color:C.muted}}>{isCardOpen("entry",entryCandidates.length>0)?"▲ 접기":"▼ 펼치기"}</span>
+                </div>
+                <div style={{display:isCardOpen("entry",entryCandidates.length>0)?"block":"none"}}>
+                <div style={{fontSize:8,color:C.muted,marginBottom:8}}>신호 떴고 + 갭/과열/유동성 필터 통과 · 매수가/손절가/목표가 계산됨 (1:2 RR, 손절 2~10%)</div>
+                {entryCandidates.length===0?<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:9}}>지금 진입 가능한 후보 없음 — 신호 대기 또는 필터 완화 필요</div>
+                :<div style={{maxHeight:420,overflowY:"auto"}}>
+                  {entryCandidates.slice(0,15).map((s,i)=>(
+                    <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s,"진입")} style={{padding:"8px 10px",borderBottom:`1px solid rgba(148,163,184,.08)`,cursor:"pointer",background:i===0?"rgba(34,197,94,.04)":"transparent"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
+                        <span style={{fontSize:10,fontWeight:900,color:C.emerald,minWidth:14}}>{i+1}</span>
+                        <div style={{flex:1}}>
+                          <div style={{fontWeight:700,fontSize:10}}>{fmtName(s)}</div>
+                          <div style={{fontSize:7,color:C.muted}}>{s.isKR?"₩"+fmtKRW(s.price):"$"+s.price.toFixed(1)} · {s.chg1>=0?"+":""}{s.chg1}% 오늘</div>
+                        </div>
+                        <div style={{display:"flex",gap:3}}>
+                          <span style={{fontSize:7,padding:"1px 4px",borderRadius:2,background:"rgba(59,130,246,.12)",color:C.accent,fontWeight:700}}>ST{s.stCount}/3</span>
+                          <span style={{fontSize:7,padding:"1px 4px",borderRadius:2,background:"rgba(34,197,94,.12)",color:C.emerald,fontWeight:700}}>전환{s.tr_score}/6</span>
+                        </div>
+                      </div>
+                      <div style={{display:"flex",gap:8,fontSize:8,paddingLeft:20,alignItems:"center"}}>
+                        <div><span style={{color:C.muted}}>매수</span> <b style={{color:C.accent}}>{s.isKR?"₩"+fmtKRW(s.entry):"$"+s.entry.toFixed(2)}</b></div>
+                        <div><span style={{color:C.muted}}>손절</span> <b style={{color:C.red}}>{s.isKR?"₩"+fmtKRW(s.stopLoss):"$"+s.stopLoss.toFixed(2)}</b> <span style={{color:C.red,fontSize:7}}>-{s.stopPct}%</span></div>
+                        <div><span style={{color:C.muted}}>목표</span> <b style={{color:C.green}}>{s.isKR?"₩"+fmtKRW(s.target):"$"+s.target.toFixed(2)}</b> <span style={{color:C.green,fontSize:7}}>+{s.targetPct}%</span></div>
+                        <div style={{marginLeft:"auto",fontSize:7,color:C.muted}}>RR 1:2</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>}
+                <div style={{fontSize:7,color:C.muted,marginTop:6}}>필터: 오늘 +3% 미만 · MA20 +15% 이내 · 시총 {((entryCandidates[0]?.isKR)?"1000억+":"$5B+")} · 손절 2~10%</div>
+                </div>
+              </div>);
+
                 cards.tr=(<div style={css.card}>
                 <div onClick={()=>setScanCardOpen(p=>({...p,tr:!isCardOpen("tr",trhits.length>0)}))} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:4}}><span style={{fontSize:11,fontWeight:700,color:C.accent}}>🔄 전환초기 ({trhits.length})</span><span style={{fontSize:8,color:C.muted}}>{isCardOpen("tr",trhits.length>0)?"▲ 접기":"▼ 펼치기"}</span></div>
                 <div style={{display:isCardOpen("tr",trhits.length>0)?"block":"none"}}>
@@ -2473,7 +2565,7 @@ export default function App() {
               {/* ── 📊 5주 리그 대시보드 ── */}
               <div style={css.card}>
                 <div style={{fontSize:11,fontWeight:700,color:"#F59E0B",marginBottom:4}}>📊 5주 리그 — 기법별 성적표</div>
-                <div style={{fontSize:8,color:C.muted,marginBottom:8}}>5/10/15/20/25일 전 시점에서 각 기법이 추천했을 종목의 실제 수익률 · 편입 조합은 N개 중 N-1 이상 매칭 포함 · 숫자 옆 (n) = 매칭 종목 수</div>
+                <div style={{fontSize:8,color:C.muted,marginBottom:8}}>5/10/15/20/25일 전 시점에서 각 기법이 추천했을 종목의 실제 수익률 · 🎯진입가능 = 신호+갭/과열 필터 통과 · 편입 조합은 N-1 매칭 · (n) = 매칭 종목 수</div>
                 {(()=>{
                   const weeks=leagueWeeks;const ranked=leagueRanked;
                   return<>
@@ -2577,7 +2669,10 @@ export default function App() {
               <div style={{marginTop:10,padding:"10px 12px",background:"rgba(255,255,255,.02)",borderRadius:8,border:`1px solid ${C.border}`}}>
                 <div style={{fontSize:9,fontWeight:700,color:C.muted,marginBottom:6}}>📖 기법 요약</div>
                 <div style={{fontSize:8,color:C.sub,lineHeight:1.6}}>
-                  <b style={{color:C.accent}}>전환초기</b>: ST 1→2 + RSI↑ + 구름인접 + RS강 → 3/3 전 선점. 손절 -5%.
+                  <b style={{color:C.emerald}}>🎯진입가능</b>: 신호 + 갭아님(+3%미만) + 과열아님(MA20 +15%이내) + 유동성(한국 1000억·미국 $5B) → 실전 매수 대상. 매수가/손절가/목표가 자동 계산.
+                  <br/><b style={{color:C.accent}}>전환초기</b>: ST 1→2 + RSI↑ + 구름인접 + RS강 → 3/3 전 선점. 신호 소스.
+                  <br/><b style={{color:"#F59E0B"}}>편입조합</b>: 발굴탭에서 찾은 상승 직전 지표 조합. N-1 매칭(3개 중 2개 이상)으로 평가.
+                  <br/><span style={{color:C.muted}}>손절: max(MA20×0.97, 종가-2×ATR) · 목표: 매수가 + 2×리스크 (1:2 RR)</span>
                 </div>
               </div>
 
@@ -2924,8 +3019,10 @@ export default function App() {
                 <Area yAxisId="p" type="monotone" dataKey="close" stroke="#ffffff" strokeWidth={2.5} fill="rgba(148,163,184,.03)" dot={false}/>
                 {chartOpts.st&&["st1Bull","st2Bull","st3Bull"].map((k,i)=><Line key={k} yAxisId="p" type="monotone" dataKey={k} stroke={C.emerald} strokeWidth={2.5-i*.5} dot={false} connectNulls={false} strokeOpacity={1-.2*i}/>)}
                 {chartOpts.st&&["st1Bear","st2Bear","st3Bear"].map((k,i)=><Line key={k} yAxisId="p" type="monotone" dataKey={k} stroke={C.red} strokeWidth={2.5-i*.5} dot={false} connectNulls={false} strokeOpacity={1-.2*i}/>)}
-                {consTgt>0&&<ReferenceLine yAxisId="p" y={consTgt} stroke="transparent" label={{value:`▶ ${unit}${consTgt.toLocaleString()}`,fill:C.accent,fontSize:7,position:"insideRight"}}/>}
-                {stopPrice>0&&<ReferenceLine yAxisId="p" y={stopPrice} stroke="transparent" label={{value:`▶ 손절 ${unit}${stopPrice.toLocaleString()}`,fill:C.red,fontSize:7,position:"insideRight"}}/>}
+                {/* v2.4: 실전 매매 레벨 — 매수/손절/목표 가시화 */}
+                {curPrice>0&&<ReferenceLine yAxisId="p" y={curPrice} stroke={C.accent} strokeWidth={1.2} strokeDasharray="3 3" label={{value:`매수 ${unit}${curPrice.toLocaleString()}`,fill:C.accent,fontSize:7,position:"insideRight"}}/>}
+                {consTgt>0&&<ReferenceLine yAxisId="p" y={consTgt} stroke={C.green} strokeWidth={1.2} strokeDasharray="5 3" label={{value:`목표 ${unit}${consTgt.toLocaleString()}`,fill:C.green,fontSize:7,position:"insideRight"}}/>}
+                {stopPrice>0&&<ReferenceLine yAxisId="p" y={stopPrice} stroke={C.red} strokeWidth={1.2} strokeDasharray="5 3" label={{value:`손절 ${unit}${stopPrice.toLocaleString()}`,fill:C.red,fontSize:7,position:"insideRight"}}/>}
                 {chartRefDate&&<ReferenceLine x={chartRefDate} stroke="#8B5CF6" strokeWidth={2} strokeDasharray="4 2" label={{value:"📌",fill:"#8B5CF6",fontSize:10,position:"top"}}/>}
                 <Scatter yAxisId="p" dataKey="buyStrong" fill="#4ade80" shape={<BuyDot dataKey="buyStrong"/>}/>
                 <Scatter yAxisId="p" dataKey="buyNormal" fill="#F59E0B" shape={<BuyDot dataKey="buyNormal"/>}/>
