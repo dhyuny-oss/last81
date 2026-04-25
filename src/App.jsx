@@ -2307,6 +2307,40 @@ export default function App() {
             </div>
           </div>}
 
+          {/* ★ v2.3.1: ST 추세 건강 인디케이터 — 보유 결정 도구 (진입 신호 아님) */}
+          {cd&&cd.real&&cd.data?.length>=2&&(()=>{
+            const last=cd.data.at(-1);
+            const stC=[last.st1Bull,last.st2Bull,last.st3Bull].filter(v=>v!=null).length;
+            const ma20Val=last.ma20||0;
+            const aboveMa20=ma20Val>0&&last.close>ma20Val;
+            const adxVal=last.adx||0;
+            const adxStrong=adxVal>=20;
+            const checks=[stC>=2,aboveMa20,adxStrong].filter(Boolean).length;
+
+            let status,emoji,color,msg;
+            if(stC===3&&aboveMa20){
+              status="추세 확정"; emoji="✓"; color=C.emerald;
+              msg="강한 추세 — 안심 보유 · 잔파동 무시";
+            }else if(checks===3){
+              status="건재"; emoji="📈"; color=C.emerald;
+              msg="추세 양호 — 보유 유지";
+            }else if(checks===2){
+              status="약화"; emoji="⚠️"; color=C.yellow;
+              msg=stC<2?"ST 1/3↓ — 추세 약화 시작":"손절선 점검";
+            }else{
+              status="이탈"; emoji="🔴"; color=C.red;
+              msg="다수 지표 이탈 — 청산 검토";
+            }
+            return <div style={{background:`${color}12`,border:`1px solid ${color}40`,borderRadius:6,padding:"6px 12px",marginBottom:10,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+              <span style={{fontWeight:900,fontSize:11,color}}>{emoji} 추세 {status}</span>
+              <span style={{color:C.muted,fontSize:7}}>|</span>
+              <span style={{color:stC>=2?C.emerald:stC===0?C.red:C.muted,fontWeight:700,fontSize:9}}>{stC===3?"✓✓✓":stC===2?"✓✓·":stC===1?"✓··":"···"} ST {stC}/3</span>
+              <span style={{color:aboveMa20?C.emerald:C.red,fontWeight:700,fontSize:9}}>{aboveMa20?"✓":"✗"} MA20 {aboveMa20?`+${(((curPrice-ma20Val)/ma20Val)*100).toFixed(1)}%`:`${(((curPrice-ma20Val)/ma20Val)*100).toFixed(1)}%`}</span>
+              <span style={{color:adxStrong?C.emerald:C.muted,fontWeight:700,fontSize:9}}>{adxStrong?"✓":"·"} ADX {adxVal.toFixed(0)}</span>
+              <span style={{marginLeft:"auto",fontSize:7,color:C.muted}}>{msg}</span>
+            </div>;
+          })()}
+
           {/* ★ v2.3: 회사 정보 카드 — 기존 데이터 + 외부 링크 */}
           {companyInfo[sel]&&(()=>{
             const pi=pool[sel]||{};const si=selInfo||{};
@@ -2949,6 +2983,32 @@ export default function App() {
                       <span style={{fontSize:10,fontWeight:900,color:holdColor}}>{holdEmoji} {holdLabel}</span>
                       <span style={{fontSize:8,color:C.muted}}>{posLd?`ST${posStCount}/3`:"—"} · 수익 {pnl>=0?"+":""}{pnl.toFixed(1)}% · {nextPyramid?`다음 불타기 +${nextPyramid.targetPct}%`:"불타기 완료"}</span>
                     </div>
+                    {/* ★ v2.3.1: ST 안심도 — 보유 결정 도구 */}
+                    {posLd&&(()=>{
+                      const ma20Pos=posLd.ma20||0;
+                      const aboveMa=ma20Pos>0&&cur>ma20Pos;
+                      let stStatus,stColor,stBg,stMsg;
+                      if(posStCount===3&&aboveMa){
+                        stStatus="✓ 추세 확정"; stColor=C.emerald; stBg="rgba(48,209,88,.12)";
+                        stMsg="강한 추세 — 잔파동 무시하고 보유";
+                      }else if(posStCount===3){
+                        stStatus="✓ ST 풀충"; stColor=C.green; stBg="rgba(48,209,88,.08)";
+                        stMsg="3/3 유지 중 — 보유 OK";
+                      }else if(posStCount===2){
+                        stStatus="✓ 정상"; stColor=C.accent; stBg="rgba(10,132,255,.08)";
+                        stMsg="추세 진행 — 정상 보유";
+                      }else if(posStCount===1){
+                        stStatus="⚠️ 추세 약화"; stColor=C.yellow; stBg="rgba(250,204,21,.10)";
+                        stMsg="ST 1/3 — 손절선 끌어올려 점검";
+                      }else{
+                        stStatus="🔴 추세 이탈"; stColor=C.red; stBg="rgba(255,69,58,.12)";
+                        stMsg="ST 0/3 — 청산 검토 (이미 매도검토 신호)";
+                      }
+                      return <div style={{background:stBg,borderRadius:5,padding:"4px 10px",fontSize:8,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <span style={{color:stColor,fontWeight:900}}>{stStatus}</span>
+                        <span style={{color:C.muted,fontSize:7}}>{stMsg}</span>
+                      </div>;
+                    })()}
                     {near&&<div style={{background:"rgba(255,69,58,.15)",borderRadius:5,padding:"4px 8px",fontSize:8,color:C.red,fontWeight:700,marginBottom:8}}>🚨 손절선 근접 ({stopDist.toFixed(1)}%) — 즉시 확인!</div>}
                     {isTimeCut&&!near&&<div style={{background:"rgba(255,159,10,.12)",border:"1px solid rgba(255,159,10,.4)",borderRadius:5,padding:"6px 10px",fontSize:8,color:"#FF9F0A",fontWeight:700,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                       <span>⏰ 타임컷 경고 — {tc.daysHeld}일 보유, 손익 ±{tc.absPnl?.toFixed(1)}% (박스권 {trailSettings.timeCutDays}일/{trailSettings.timeCutPct}% 기준)</span>
@@ -3413,8 +3473,15 @@ export default function App() {
               .filter(([t])=>labMarket==="all"?true:labMarket==="kr"?isKRticker(t):!isKRticker(t))
               .map(([ticker,c])=>{
                 const d=c.data;const L=d.length;const last=d[L-1];
+                // 종가→종가 (낙관적, 갭 무시)
                 const chg5 = L>5 ? +((last.close-d[L-6].close)/d[L-6].close*100).toFixed(2) : 0;
                 if (chg5 <= 0) return null;
+                // ★ v2.3.1: 실현 가능 수익률 — 시가→종가 (갭 반영)
+                // 신호 D-6 종가 발견 → 진입은 D-5 시가 → 청산 D-1 종가 (4일 보유)
+                const entryBar = d[Math.max(0, L-5)]; // 진입 시점 = D-5
+                const realChg5 = (entryBar?.open && last.close) ?
+                  +((last.close - entryBar.open) / entryBar.open * 100).toFixed(2) : chg5;
+                const slippage = +(chg5 - realChg5).toFixed(2); // 갭 손실
                 // 시작점 = d[L-11] (상승 5일 전 시점, 미리 잡았어야 할 자리)
                 const sp = d[Math.max(0, L-11)];
                 if (!sp) return null;
@@ -3433,14 +3500,15 @@ export default function App() {
 
                 return {
                   ticker, label: info.label||ticker, market: info.market,
-                  chg5, price: last.close,
+                  chg5, realChg5, slippage, price: last.close,
                   sig_st, sig_macd, sig_rsi, sig_strong, sig_vol, sigCount, isHit,
                   stC, rsi: sp.rsi
                 };
               })
               .filter(Boolean);
 
-            const top40 = analyzed.sort((a,b)=>b.chg5-a.chg5).slice(0, 40);
+            // ★ v2.3.1: 정렬 기준 = 실현 수익률 (갭 손실 반영) — 낙관적 chg5 대신
+            const top40 = analyzed.sort((a,b)=>b.realChg5-a.realChg5).slice(0, 40);
             const totalTop = top40.length;
             if (!totalTop) return <div style={{textAlign:"center",padding:40,color:C.muted}}>실시간 차트 데이터가 충분하지 않습니다. Daily 실행 후 확인하세요.</div>;
 
@@ -3465,11 +3533,18 @@ export default function App() {
               ...s, pct: Math.round(hits.filter(h=>h[s.key]).length/hits.length*100)
             })).sort((a,b)=>b.pct-a.pct) : [];
 
+            // ★ v2.3.1: 평균 수익률 — 종가/실현 비교
+            const avgNaive = top40.length>0 ? +(top40.reduce((s,x)=>s+x.chg5,0)/top40.length).toFixed(1) : 0;
+            const avgReal = top40.length>0 ? +(top40.reduce((s,x)=>s+x.realChg5,0)/top40.length).toFixed(1) : 0;
+            const avgSlippage = +(avgNaive - avgReal).toFixed(1);
+            const hitsAvgReal = hits.length>0 ? +(hits.reduce((s,x)=>s+x.realChg5,0)/hits.length).toFixed(1) : 0;
+            const missesAvgReal = misses.length>0 ? +(misses.reduce((s,x)=>s+x.realChg5,0)/misses.length).toFixed(1) : 0;
+
             return <>
               {/* 적중률 메인 카드 */}
               <div style={{...css.card, border:`2px solid ${hitRate>=60?C.emerald:hitRate>=40?C.yellow:C.red}`, background:"linear-gradient(135deg,rgba(191,90,242,.04),rgba(48,209,88,.04))"}}>
                 <div style={{fontSize:10,fontWeight:700,color:C.purple,marginBottom:6}}>🎯 추천 적중률 — 상승 5일 전 시점 기준</div>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:10}}>
                   <div>
                     <div style={{fontSize:42,fontWeight:900,color:hitRate>=60?C.emerald:hitRate>=40?C.yellow:C.red, lineHeight:1}}>{hitRate}%</div>
                     <div style={{fontSize:8,color:C.muted,marginTop:4}}>TOP {totalTop} 상승 종목 중 <b>{hits.length}개</b> 우리 앱 시그널 충족</div>
@@ -3479,6 +3554,27 @@ export default function App() {
                     <div style={{fontSize:9,color:C.red,fontWeight:700}}>❌ MISS {misses.length}</div>
                     <div style={{fontSize:7,color:C.muted,marginTop:4}}>시그널 ≥ 3/5 = HIT</div>
                   </div>
+                </div>
+                {/* ★ v2.3.1: 실현 수익률 vs 표시 수익률 — 갭 손실 검증 */}
+                <div style={{borderTop:`1px solid ${C.border}`,paddingTop:8,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
+                  <div style={{textAlign:"center"}}>
+                    <div style={{fontSize:7,color:C.muted}}>표시 평균</div>
+                    <div style={{fontSize:14,fontWeight:900,color:C.muted}}>+{avgNaive}%</div>
+                    <div style={{fontSize:6,color:C.muted}}>종가→종가 (낙관)</div>
+                  </div>
+                  <div style={{textAlign:"center"}}>
+                    <div style={{fontSize:7,color:C.accent}}>실현 평균</div>
+                    <div style={{fontSize:14,fontWeight:900,color:C.accent}}>+{avgReal}%</div>
+                    <div style={{fontSize:6,color:C.accent}}>시가→종가 (실제)</div>
+                  </div>
+                  <div style={{textAlign:"center"}}>
+                    <div style={{fontSize:7,color:C.yellow}}>갭 손실</div>
+                    <div style={{fontSize:14,fontWeight:900,color:avgSlippage>3?C.red:avgSlippage>1?C.yellow:C.muted}}>-{avgSlippage}%</div>
+                    <div style={{fontSize:6,color:C.muted}}>{avgSlippage>3?"심각":avgSlippage>1?"주의":"양호"}</div>
+                  </div>
+                </div>
+                <div style={{fontSize:7,color:C.muted,marginTop:6,textAlign:"center"}}>
+                  HIT 실현 평균 <b style={{color:C.emerald}}>+{hitsAvgReal}%</b> · MISS 실현 평균 <b style={{color:misses.length>0?C.red:C.muted}}>+{missesAvgReal}%</b> · 차이가 클수록 시그널 효과 ↑
                 </div>
               </div>
 
@@ -3532,7 +3628,10 @@ export default function App() {
                         <span title="거래량 120%+" style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_vol?"rgba(255,159,10,.2)":"rgba(255,255,255,.04)",color:s.sig_vol?"#FF9F0A":C.muted,fontWeight:700}}>거래</span>
                       </div>
                       <span style={{fontSize:8,fontWeight:700,color:s.sigCount>=4?C.emerald:s.sigCount>=3?C.yellow:C.muted,minWidth:25,textAlign:"center"}}>{s.sigCount}/5</span>
-                      <span style={{fontSize:9,fontWeight:900,color:C.green,minWidth:42,textAlign:"right"}}>+{s.chg5.toFixed(1)}%</span>
+                      <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",minWidth:60}}>
+                        <span style={{fontSize:9,fontWeight:900,color:s.realChg5>0?C.green:C.red}}>+{s.realChg5.toFixed(1)}%</span>
+                        <span style={{fontSize:6,color:C.muted}}>표시 +{s.chg5.toFixed(1)}{s.slippage>1?<span style={{color:C.yellow}}> · 갭 -{s.slippage.toFixed(1)}</span>:""}</span>
+                      </div>
                     </div>;
                   })}
                 </div>
