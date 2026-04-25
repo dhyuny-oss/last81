@@ -1,8 +1,14 @@
 name: Daily Data Update
 on:
   schedule:
-    - cron: '0 7 * * 1-5'   # UTC 07:00 = KST 16:00 (한국 장마감 후)
-    - cron: '30 21 * * 1-5'  # UTC 21:30 = KST 06:30 (미국 장마감 후)
+    # 한국 장마감 후 (월~금)
+    - cron: '0 7 * * 1-5'    # UTC 07:00 = KST 16:00
+    # 미국 장마감 후 (월~금 미국시간 = 화~토 KST 새벽)
+    # cron의 1-5는 UTC 요일 → UTC 금요일 21:30 = KST 토요일 06:30 (금요일 미국장 마감)
+    - cron: '30 21 * * 1-5'  # UTC 21:30 = KST 다음날 06:30
+    # 백업 — GitHub free tier가 cron 가끔 스킵해서 토요일 09:00에 한 번 더 시도
+    # 금요일 미국장 데이터가 누락된 경우를 위한 안전망 (주 1회 추가, 한도 영향 미미)
+    - cron: '0 0 * * 6'      # UTC 00:00 토 = KST 09:00 토 (주말 백업)
   workflow_dispatch:
 
 jobs:
