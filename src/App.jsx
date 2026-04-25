@@ -1,11 +1,15 @@
 /**
  * Alpha Terminal v2.3.1 — App.jsx
- * v2.3.1: [데이터 품질 패치 — 새 기능/조건 추가 없음]
- *         캔들에 실제 시가 적용 (fetch_yahoo.py와 페어) + 합성 시가 fallback 유지
- *         per-candle 지표 누락 수정 (ema20/ema200/aboveCloud/nearCloud/inCloud/volRatio)
- *           → 발굴/리그/조합 평가에서 과거 시점에 항상 false였던 버그 해소
- *         차트탭 손절/목표 ReferenceLine 가시화 (transparent → 색상 dashed)
- *         손절 알림 음소거 강화 — 이탈 확정/근접 분리 + 8% 리셋 (잔파동 진동 차단)
+ * v2.3.1: [추세추종 정렬 — 기능 추가가 아닌 정리·정확도 개선]
+ *         [데이터 품질] 캔들 실제 시가 적용 (fetch_yahoo.py 페어) + 합성 시가 fallback
+ *         [데이터 품질] per-candle 지표 6종 보강 (ema20/ema200/aboveCloud/nearCloud/inCloud/volRatio)
+ *         [차트] 손절/참고가 ReferenceLine 가시화 (transparent → 색상 dashed)
+ *         [추적] 잔파동 알림 음소거 — 이탈 확정/근접 분리 + 8% 리셋
+ *         [철학] 목표가 → 참고가 — R:R 폐기, ATR×5/×10/52주고점 기반 진폭 참고로 교체
+ *                매도 트리거는 트레일링 스탑 단독 (목표가 도달 알림 제거)
+ *         [실험실] 패턴 분석형 → HIT/MISS 비교형 — 추천 적중률 + 놓친 이유 + 잘 잡은 패턴
+ *         [발굴] alpha 탭 정리 — 과매도/과매수 서브탭 제거 (평균회귀, 추세추종과 충돌)
+ *         [경고] 시뮬 차트 강한 경고 배너 — 가짜 캔들 기반 분석 금지 안내
  * v2.3: 데이터 범위 통합 (pool↔stocks 일관성)
  *       navigateToStock — pool 종목 클릭 시 자동 추가
  *       selInfo/labInfo/posInfo pool 폴백
@@ -767,7 +771,11 @@ export default function App() {
   const [fST, setFST]           = useState(0);
   const [fCloud, setFCloud]     = useState("all");
   const [fRS, setFRS]           = useState(0);
-  const [alphaTab, setAlphaTab] = useState("filter");
+  const [alphaTab, setAlphaTab] = useState(()=>{
+    // v2.3.1: oversold/overbought 제거 — 기존 사용자 마이그레이션
+    try{const s=localStorage.getItem("at_alpha_tab");return s&&["filter","compare"].includes(s)?s:"filter";}catch{return "filter";}
+  });
+  useEffect(()=>{try{localStorage.setItem("at_alpha_tab",alphaTab);}catch{}},[alphaTab]);
   const [chartOpts, setChartOpts] = useState({ichi:false, st:true, avwap:false, adx:false, obv:false});
   const [showIndicDetail, setShowIndicDetail] = useState(false);
   const [userTargets, setUserTargets] = useState({}); // {ticker: price}
@@ -2091,7 +2099,7 @@ export default function App() {
             ))}
           </div>
           <div style={{display:"flex",gap:4,marginBottom:12,overflowX:"auto"}}>
-            {[["filter","🔍 수급필터"],["oversold","📉 과매도"],["overbought","📈 과매수"],["compare","⚖️ 비교뷰"]].map(([k,l])=>(
+            {[["filter","🔍 수급필터"],["compare","⚖️ 비교뷰"]].map(([k,l])=>(
               <button key={k} onClick={()=>setAlphaTab(k)} style={{flex:1,padding:"7px 0",borderRadius:7,border:`1px solid ${alphaTab===k?C.accent:C.border}`,background:alphaTab===k?"rgba(10,132,255,.12)":"rgba(255,255,255,.03)",color:alphaTab===k?C.accent:C.muted,fontWeight:alphaTab===k?700:400,fontSize:9,cursor:"pointer",whiteSpace:"nowrap"}}>{l}</button>
             ))}
           </div>
@@ -2217,104 +2225,6 @@ export default function App() {
               </div>
             }          </div>}
 
-          {/* ★ v2.3: 과매도 탭 */}
-          {alphaTab==="oversold"&&<div>
-            <div style={css.card}>
-              <div style={{fontSize:11,fontWeight:700,color:C.emerald,marginBottom:4}}>📉 과매도 우량주 — 반등 매수 후보</div>
-              <div style={{fontSize:8,color:C.muted,marginBottom:10}}>RSI 40 이하 + 시총 상위 + 애널리스트 목표가 있는 종목</div>
-              {(()=>{
-                const all=Object.entries(charts).filter(([t,c])=>c?.data?.length>=20&&c.real).map(([ticker,c])=>{
-                  const d=c.data;const last=d.at(-1);const rsi=last?.rsi;
-                  if(!rsi||rsi>=40)return null;
-                  const info=stocks.find(s=>s.ticker===ticker)||pool[ticker]||{};
-                  const mktCap=info.mktCap||0;
-                  const isKR5=(ticker?.length||0)>5;
-                  if(alphaMarket==="kr"&&!isKR5)return null;
-                  if(alphaMarket==="us"&&isKR5)return null;
-                  // 시총 필터: KR 1000억+ / US 10B+
-                  if(isKR5&&mktCap<1000)return null;
-                  if(!isKR5&&mktCap<10)return null;
-                  const closes=d.map(x=>x.close);
-                  const w52h=Math.max(...closes);const w52l=Math.min(...closes);
-                  const ath=w52h;const athDist=+((info.price||last.close)/ath*100).toFixed(1);
-                  const tgt=info.targetPrice||consensus[ticker]?.data?.targetMean||0;
-                  const tgtUpside=tgt>0?+((tgt-(info.price||last.close))/(info.price||last.close)*100).toFixed(1):0;
-                  return{ticker,label:info.label||ticker,market:info.market,price:info.price||last.close,rsi:+rsi.toFixed(1),mktCap,w52h,w52l,ath,athDist,tgt,tgtUpside,changePct:info.changePct||0,isKR:isKR5};
-                }).filter(Boolean).sort((a,b)=>a.rsi-b.rsi);
-                if(!all.length)return<div style={{textAlign:"center",padding:30,color:C.muted,fontSize:9}}>현재 RSI 40 이하 우량주 없음 — 시장이 과열 상태일 수 있습니다</div>;
-                return<>
-                  <div style={{fontSize:8,color:C.accent,marginBottom:8}}>{all.length}개 발견 (RSI 낮은 순)</div>
-                  <div style={{overflowX:"auto"}}>
-                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:9,minWidth:450}}>
-                      <thead><tr style={{background:"rgba(255,255,255,.04)",borderBottom:`2px solid ${C.border}`}}>
-                        {["종목","현재가","RSI","시총","ATH대비","목표가",""].map(h=><th key={h} style={{padding:"5px 6px",textAlign:"left",color:C.emerald,fontSize:7,fontWeight:700}}>{h}</th>)}
-                      </tr></thead>
-                      <tbody>{all.slice(0,30).map((s,i)=>(
-                        <tr key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{borderBottom:`1px solid ${C.border}`,cursor:"pointer",background:s.rsi<30?"rgba(48,209,88,.06)":i%2===0?C.panel:C.panel2}}>
-                          <td style={{padding:"5px 6px"}}><div style={{fontWeight:700,fontSize:9,maxWidth:82,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s,8)}</div><div style={{fontSize:6,color:C.muted}}>{s.ticker}</div></td>
-                          <td style={{padding:"5px 4px",fontSize:9,color:C.text,fontWeight:600}}>{s.isKR?"₩"+fmtKRW(s.price):"$"+s.price.toFixed(1)}</td>
-                          <td style={{padding:"5px 4px"}}><span style={{fontWeight:900,fontSize:11,color:s.rsi<30?C.emerald:C.green}}>{s.rsi}</span></td>
-                          <td style={{padding:"5px 4px",fontSize:8,color:C.muted}}>{s.isKR?(s.mktCap>=10000?`${(s.mktCap/10000).toFixed(0)}조`:`${s.mktCap}억`):`$${s.mktCap.toFixed(0)}B`}</td>
-                          <td style={{padding:"5px 4px",fontSize:8,color:C.red,fontWeight:600}}>{s.athDist.toFixed(0)}%</td>
-                          <td style={{padding:"5px 4px"}}>{s.tgt>0?<div><div style={{fontSize:8,color:C.accent,fontWeight:700}}>{s.isKR?"₩"+fmtKRW(s.tgt):"$"+s.tgt.toFixed(0)}</div><div style={{fontSize:7,color:C.emerald}}>+{s.tgtUpside}%</div></div>:<span style={{fontSize:7,color:C.muted}}>—</span>}</td>
-                          <td style={{padding:"5px 4px"}} onClick={e=>e.stopPropagation()}><button onClick={()=>{setTracking(p=>[...p,{id:Date.now(),ticker:s.ticker,label:s.label,market:s.market,basePrice:s.price,addedDate:new Date().toLocaleDateString("ko-KR"),foundScore:0,foundSignals:["과매도 RSI"+s.rsi],oppScoreAt:oppScore}]);}} style={{background:"rgba(48,209,88,.08)",border:`1px solid ${C.emerald}`,color:C.emerald,borderRadius:4,padding:"2px 5px",cursor:"pointer",fontSize:7,fontWeight:700}}>👁 관찰</button></td>
-                        </tr>
-                      ))}</tbody>
-                    </table>
-                  </div>
-                </>;
-              })()}
-            </div>
-          </div>}
-
-          {/* ★ v2.3: 과매수 탭 */}
-          {alphaTab==="overbought"&&<div>
-            <div style={css.card}>
-              <div style={{fontSize:11,fontWeight:700,color:C.red,marginBottom:4}}>📈 과매수 우량주 — 매도 검토</div>
-              <div style={{fontSize:8,color:C.muted,marginBottom:10}}>RSI 75+ (🇰🇷 80+) + 시총 상위 → 차익실현 타이밍</div>
-              {(()=>{
-                const all=Object.entries(charts).filter(([t,c])=>c?.data?.length>=20&&c.real).map(([ticker,c])=>{
-                  const d=c.data;const last=d.at(-1);const rsi=last?.rsi;
-                  const isKR5=(ticker?.length||0)>5;
-                  if(alphaMarket==="kr"&&!isKR5)return null;
-                  if(alphaMarket==="us"&&isKR5)return null;
-                  const threshold=isKR5?80:75;
-                  if(!rsi||rsi<threshold)return null;
-                  const info=stocks.find(s=>s.ticker===ticker)||pool[ticker]||{};
-                  const mktCap=info.mktCap||0;
-                  if(isKR5&&mktCap<1000)return null;
-                  if(!isKR5&&mktCap<10)return null;
-                  const closes=d.map(x=>x.close);
-                  const w52h=Math.max(...closes);
-                  const chg5=d.length>5?+((last.close-d[d.length-6].close)/d[d.length-6].close*100).toFixed(1):0;
-                  const chg1m=d.length>20?+((last.close-d[d.length-21].close)/d[d.length-21].close*100).toFixed(1):0;
-                  return{ticker,label:info.label||ticker,market:info.market,price:info.price||last.close,rsi:+rsi.toFixed(1),mktCap,w52h,chg5,chg1m,changePct:info.changePct||0,isKR:isKR5};
-                }).filter(Boolean).sort((a,b)=>b.rsi-a.rsi);
-                if(!all.length)return<div style={{textAlign:"center",padding:30,color:C.muted,fontSize:9}}>현재 과매수 우량주 없음 — 시장이 조정 구간일 수 있습니다</div>;
-                return<>
-                  <div style={{fontSize:8,color:C.red,marginBottom:4}}>⚠️ {all.length}개 — RSI 높은 순 (매도 검토)</div>
-                  <div style={{fontSize:7,color:C.muted,marginBottom:8}}>노란색 = 강력 매도 검토 (RSI 85+)</div>
-                  <div style={{overflowX:"auto"}}>
-                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:9,minWidth:420}}>
-                      <thead><tr style={{background:"rgba(255,255,255,.04)",borderBottom:`2px solid ${C.border}`}}>
-                        {["종목","현재가","RSI","5D","1M","시총"].map(h=><th key={h} style={{padding:"5px 6px",textAlign:"left",color:C.red,fontSize:7,fontWeight:700}}>{h}</th>)}
-                      </tr></thead>
-                      <tbody>{all.slice(0,30).map((s,i)=>(
-                        <tr key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{borderBottom:`1px solid ${C.border}`,cursor:"pointer",background:s.rsi>=85?"rgba(255,214,10,.08)":i%2===0?C.panel:C.panel2}}>
-                          <td style={{padding:"5px 6px"}}><div style={{fontWeight:700,fontSize:9,maxWidth:82,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s,8)}</div></td>
-                          <td style={{padding:"5px 4px",fontSize:9,color:C.text,fontWeight:600}}>{s.isKR?"₩"+fmtKRW(s.price):"$"+s.price.toFixed(1)}</td>
-                          <td style={{padding:"5px 4px"}}><span style={{fontWeight:900,fontSize:11,color:s.rsi>=85?"#FFD60A":C.red}}>{s.rsi}</span></td>
-                          <td style={{padding:"5px 4px",fontSize:8,color:C.green,fontWeight:600}}>+{s.chg5}%</td>
-                          <td style={{padding:"5px 4px",fontSize:8,color:C.green,fontWeight:600}}>+{s.chg1m}%</td>
-                          <td style={{padding:"5px 4px",fontSize:8,color:C.muted}}>{s.isKR?(s.mktCap>=10000?`${(s.mktCap/10000).toFixed(0)}조`:`${s.mktCap}억`):`$${s.mktCap.toFixed(0)}B`}</td>
-                        </tr>
-                      ))}</tbody>
-                    </table>
-                  </div>
-                </>;
-              })()}
-            </div>
-          </div>}
 
           {alphaTab==="compare"&&<div style={css.card}>
             <div style={{fontSize:11,fontWeight:700,color:C.accent,marginBottom:4}}>⚖️ 관심종목 RS강도 비교</div>
