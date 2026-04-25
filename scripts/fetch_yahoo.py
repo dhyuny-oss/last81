@@ -1124,28 +1124,34 @@ def main():
 
             print(f"  ✅ 현재가 갱신: {updated}건 성공 / {failed}건 실패 / {total}건 전체")
 
-            # ★ v2.3: 상위 50종목 캔들 갱신 (장중 지표 업데이트)
-            print("\n📊 상위 종목 캔들 갱신...")
+            # ★ v2.3.1: 상위 종목 캔들 갱신 (장중 지표 업데이트) — 80 → 300으로 확대
+            print("\n📊 상위 종목 캔들 갱신 (확대 batch)...")
             candle_stocks = [(t,s) for t,s in output.get("stocks",{}).items() if s.get("candles") and len(s["candles"])>=10]
             candle_stocks.sort(key=lambda x: x[1].get("rsPctRank",0), reverse=True)
-            top50 = candle_stocks[:80]
+            TOP_N = 300  # v2.3.1: 80 → 300 (시간당 캔들 갱신 종목 수 최대화)
+            top_for_candle = candle_stocks[:TOP_N]
             candle_updated = 0
-            for ticker, stock in top50:
+            candle_failed = 0
+            print(f"  📊 {len(top_for_candle)}개 종목 캔들 갱신 시작...")
+            for idx, (ticker, stock) in enumerate(top_for_candle):
                 try:
                     isKR = (stock.get("market","") == "kr") or len(ticker) > 5
                     suffix = ".KS" if isKR and not ticker.endswith(".KS") else ""
                     yahoo_ticker = ticker + suffix if isKR else ticker
                     raw = fetch_yahoo(yahoo_ticker, range_="5d")
-                    if not raw: continue
+                    if not raw:
+                        candle_failed += 1
+                        continue
                     candles, meta = parse_candles(raw)
-                    if not candles: continue
+                    if not candles:
+                        candle_failed += 1
+                        continue
                     # 기존 캔들에 최신 캔들 병합 (날짜 기준)
                     old_candles = stock.get("candles", [])
                     old_dates = {c["date"] for c in old_candles}
                     merged = list(old_candles)
                     for nc in candles:
                         if nc["date"] in old_dates:
-                            # 같은 날짜면 업데이트 (장중 캔들 갱신)
                             merged = [nc if c["date"]==nc["date"] else c for c in merged]
                         else:
                             merged.append(nc)
@@ -1165,9 +1171,12 @@ def main():
                     output["stocks"][ticker]["updatedAt"] = now_str
                     candle_updated += 1
                 except Exception as e:
-                    pass
-                time.sleep(0.3)
-            print(f"  ✅ 캔들 갱신: {candle_updated}/{len(top50)}종목")
+                    candle_failed += 1
+                # 진행상황 (50개마다)
+                if (idx+1) % 50 == 0:
+                    print(f"    [{idx+1}/{len(top_for_candle)}] 완료 ({candle_updated}건 성공, {candle_failed}건 실패)")
+                time.sleep(0.2)  # v2.3.1: 0.3 → 0.2 (속도 개선)
+            print(f"  ✅ 캔들 갱신: {candle_updated}/{len(top_for_candle)}종목 ({candle_failed}건 실패)")
         else:
             # 한투 API 없으면 관심종목만 Yahoo로
             print("  ℹ️ 한투 API 없음 — 관심종목만 Yahoo 업데이트")
