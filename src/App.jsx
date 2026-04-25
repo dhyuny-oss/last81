@@ -1,15 +1,24 @@
 /**
  * Alpha Terminal v2.3.1 — App.jsx
- * v2.3.1: [추세추종 정렬 — 기능 추가가 아닌 정리·정확도 개선]
+ * v2.3.1: [추세추종 정렬 + UX 개선 — 새 시그널/조건 추가 없음]
  *         [데이터 품질] 캔들 실제 시가 적용 (fetch_yahoo.py 페어) + 합성 시가 fallback
  *         [데이터 품질] per-candle 지표 6종 보강 (ema20/ema200/aboveCloud/nearCloud/inCloud/volRatio)
  *         [차트] 손절/참고가 ReferenceLine 가시화 (transparent → 색상 dashed)
+ *         [차트] ST 추세 건강 인디케이터 — 보유 결정 도구 (✓ 추세 확정 / 건재 / 약화 / 이탈)
  *         [추적] 잔파동 알림 음소거 — 이탈 확정/근접 분리 + 8% 리셋
+ *         [추적] ST 안심도 라벨 — 보유 카드에 추세 상태 한 줄
  *         [철학] 목표가 → 참고가 — R:R 폐기, ATR×5/×10/52주고점 기반 진폭 참고로 교체
  *                매도 트리거는 트레일링 스탑 단독 (목표가 도달 알림 제거)
  *         [실험실] 패턴 분석형 → HIT/MISS 비교형 — 추천 적중률 + 놓친 이유 + 잘 잡은 패턴
+ *         [실험실] 갭 손실 자동 반영 — 시가→종가 모델 (실현 수익률) + 종가→종가 (표시) 비교
  *         [발굴] alpha 탭 정리 — 과매도/과매수 서브탭 제거 (평균회귀, 추세추종과 충돌)
- *         [경고] 시뮬 차트 강한 경고 배너 — 가짜 캔들 기반 분석 금지 안내
+ *         [발굴] 종목 카드에 👁 관찰 등록 버튼 — 차트탭 안 거치고 바로 추적탭 등록
+ *         [발굴] 가속도 라벨 범례 — 7개 라벨 의미 안내 (sort=accel일 때만)
+ *         [추적] 외부 매수 수동 입력 모달 — 다른 증권사 매수 종목 추가 가능
+ *         [추적] 청산 기록 사후 메모 — 회고 메모를 행마다 저장
+ *         [라벨] "보초" → "🌱 시드" / "목표 → 참고가" 등 일관성 정리
+ *         [경고] 시뮬 차트 강한 경고 배너 — 가짜 캔들 기반 분석 금지
+ *         [종목풀] ★ 별표 → 발굴탭 비교뷰 동기화 안내
  * v2.3: 데이터 범위 통합 (pool↔stocks 일관성)
  *       navigateToStock — pool 종목 클릭 시 자동 추가
  *       selInfo/labInfo/posInfo pool 폴백
@@ -49,13 +58,13 @@ const INITIAL = [];
 // ★ v2.2: 불타기 룰 (30/30/25/15 — 빠른 손절 전제)
 // ★ v2.2: 불타기 룰 (기본/특별 모드)
 const PYRAMID_BASIC = [
-  { pct: 10, label: "보초", targetPct: 0 },
+  { pct: 10, label: "🌱 시드", targetPct: 0 },
   { pct: 40, label: "1차 진입", targetPct: 2 },
   { pct: 40, label: "2차 추가", targetPct: 3 },
   { pct: 10, label: "3차 마무리", targetPct: 5 },
 ];
 const PYRAMID_SPECIAL = [
-  { pct: 5,  label: "보초", targetPct: 0 },
+  { pct: 5,  label: "🌱 시드", targetPct: 0 },
   { pct: 20, label: "1차 진입", targetPct: 2 },
   { pct: 20, label: "2차 추가", targetPct: 3 },
   { pct: 40, label: "3차 본격", targetPct: 5 },
@@ -804,6 +813,9 @@ export default function App() {
     catch{return{totalCapital:5000000,specialCapital:10000000,maxPositions:10,maxWeightPct:100,investMode:"basic"};}
   });
   const [showRiskPanel, setShowRiskPanel] = useState(false);
+  // ★ v2.3.1: 외부 매수 수동 입력 모달
+  const [showManualEntry, setShowManualEntry] = useState(false);
+  const [manualEntryDraft, setManualEntryDraft] = useState({ticker:"",label:"",market:"us",entry:"",date:new Date().toLocaleDateString("ko-KR"),qty:""});
 
   // ── 12번: 불타기 + 트레일링컷 설정 ──────────────────────
   const [trailSettings, setTrailSettings] = useState(()=>{
@@ -1206,6 +1218,32 @@ export default function App() {
     // (발굴탭과 차트탭 점수 불일치 방지)
   }
 
+  // ★ v2.3.1: 빠른 관찰 등록 — 발굴/집중탭에서 차트 안 거치고 바로 등록
+  function quickAddToWatch(stock, oppScore) {
+    const exists = tracking.find(t => t.ticker === stock.ticker);
+    if (exists) {
+      setAddMsg(`⚠️ ${stock.label||stock.ticker} 이미 관찰 중`);
+      setTimeout(()=>setAddMsg(""), 2000);
+      return;
+    }
+    setTracking(p => [...p, {
+      id: Date.now(),
+      ticker: stock.ticker,
+      label: stock.label || stock.ticker,
+      market: stock.market,
+      basePrice: stock.price || 0,
+      addedDate: new Date().toLocaleDateString("ko-KR"),
+      foundScore: stock.score || 0,
+      foundSignals: stock.signals || [],
+      foundRS: stock.rs || 0,
+      foundTiming: stock.timing,
+      foundDurability: stock.durability,
+      oppScoreAt: oppScore || 0,
+    }]);
+    setAddMsg(`👁 ${stock.label||stock.ticker} 관찰 등록`);
+    setTimeout(()=>setAddMsg(""), 2000);
+  }
+
   // ── Phase 5: 백테스트 엔진 ──────────────────────────────
   function runBacktest() {
     const trades = [];
@@ -1533,6 +1571,95 @@ export default function App() {
         </div>
         {addMsg&&<div style={{fontSize:8,color:C.green,marginBottom:4}}>{addMsg}</div>}
         {/* 리스크 설정 패널 */}
+        {/* ★ v2.3.1: 외부 매수 수동 입력 모달 */}
+        {showManualEntry&&<div style={{position:"absolute",top:"100%",left:14,right:14,background:"#1C1C1E",border:`1px solid ${C.emerald}`,borderRadius:14,padding:16,zIndex:101,boxShadow:"0 8px 32px rgba(0,0,0,.8)",maxHeight:"80vh",overflowY:"auto"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div style={{fontSize:12,fontWeight:900,color:C.emerald}}>📝 외부 매수 직접 입력</div>
+            <button onClick={()=>setShowManualEntry(false)} style={{background:"none",border:"none",color:C.muted,fontSize:14,cursor:"pointer"}}>✕</button>
+          </div>
+          <div style={{fontSize:8,color:C.muted,marginBottom:12,padding:"6px 10px",background:"rgba(48,209,88,.05)",borderRadius:6,lineHeight:1.5}}>
+            💡 다른 증권사에서 산 종목을 추적탭에 등록합니다. 손절가는 매수가의 -{trailSettings.initialStopPct}%로 자동 설정. 체크리스트 없이 바로 보유 등록됩니다.
+          </div>
+
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            <div>
+              <div style={{fontSize:8,color:C.muted,marginBottom:3}}>티커</div>
+              <input type="text" value={manualEntryDraft.ticker} onChange={e=>setManualEntryDraft(p=>({...p,ticker:e.target.value.toUpperCase()}))} placeholder="예: NVDA, 005930" style={{width:"100%",padding:"6px 10px",background:"rgba(255,255,255,.05)",border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:11,boxSizing:"border-box"}}/>
+            </div>
+            <div>
+              <div style={{fontSize:8,color:C.muted,marginBottom:3}}>종목명</div>
+              <input type="text" value={manualEntryDraft.label} onChange={e=>setManualEntryDraft(p=>({...p,label:e.target.value}))} placeholder="예: NVIDIA, 삼성전자" style={{width:"100%",padding:"6px 10px",background:"rgba(255,255,255,.05)",border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:11,boxSizing:"border-box"}}/>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <div style={{flex:1}}>
+                <div style={{fontSize:8,color:C.muted,marginBottom:3}}>시장</div>
+                <div style={{display:"flex",gap:4}}>
+                  {[["us","🇺🇸 미국"],["kr","🇰🇷 한국"]].map(([k,l])=>(
+                    <button key={k} onClick={()=>setManualEntryDraft(p=>({...p,market:k}))} style={{flex:1,padding:"6px",borderRadius:5,border:`1px solid ${manualEntryDraft.market===k?C.accent:C.border}`,background:manualEntryDraft.market===k?"rgba(10,132,255,.12)":"transparent",color:manualEntryDraft.market===k?C.accent:C.muted,fontSize:9,cursor:"pointer"}}>{l}</button>
+                  ))}
+                </div>
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:8,color:C.muted,marginBottom:3}}>매수일</div>
+                <input type="text" value={manualEntryDraft.date} onChange={e=>setManualEntryDraft(p=>({...p,date:e.target.value}))} placeholder="YYYY. M. D." style={{width:"100%",padding:"6px 10px",background:"rgba(255,255,255,.05)",border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:11,boxSizing:"border-box"}}/>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <div style={{flex:1}}>
+                <div style={{fontSize:8,color:C.muted,marginBottom:3}}>매수가 ({manualEntryDraft.market==="kr"?"원":"USD"})</div>
+                <input type="number" value={manualEntryDraft.entry} onChange={e=>setManualEntryDraft(p=>({...p,entry:e.target.value}))} placeholder="예: 50000 또는 150.50" style={{width:"100%",padding:"6px 10px",background:"rgba(255,255,255,.05)",border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:11,boxSizing:"border-box"}}/>
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:8,color:C.muted,marginBottom:3}}>수량 (선택)</div>
+                <input type="number" value={manualEntryDraft.qty} onChange={e=>setManualEntryDraft(p=>({...p,qty:e.target.value}))} placeholder="비워도 OK" style={{width:"100%",padding:"6px 10px",background:"rgba(255,255,255,.05)",border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:11,boxSizing:"border-box"}}/>
+              </div>
+            </div>
+
+            {manualEntryDraft.entry>0&&<div style={{padding:"8px 10px",background:"rgba(255,69,58,.06)",border:`1px solid rgba(255,69,58,.2)`,borderRadius:6,fontSize:8}}>
+              <div style={{color:C.muted,marginBottom:2}}>자동 설정될 손절가:</div>
+              <div style={{color:C.red,fontWeight:700,fontSize:10}}>{manualEntryDraft.market==="kr"?"₩":"$"}{(+manualEntryDraft.entry*(1-trailSettings.initialStopPct/100)).toFixed(manualEntryDraft.market==="kr"?0:2)} (-{trailSettings.initialStopPct}%)</div>
+            </div>}
+
+            <div style={{display:"flex",gap:8,marginTop:6}}>
+              <button onClick={()=>{setShowManualEntry(false);setManualEntryDraft({ticker:"",label:"",market:"us",entry:"",date:new Date().toLocaleDateString("ko-KR"),qty:""});}} style={{flex:1,padding:"8px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontSize:10,cursor:"pointer"}}>취소</button>
+              <button onClick={()=>{
+                const d=manualEntryDraft;
+                if(!d.ticker||!d.entry||+d.entry<=0){setAddMsg("⚠️ 티커와 매수가 필수");setTimeout(()=>setAddMsg(""),2000);return;}
+                const exists=positions.find(p=>p.ticker===d.ticker);
+                if(exists){setAddMsg(`⚠️ ${d.ticker} 이미 보유 중`);setTimeout(()=>setAddMsg(""),2000);return;}
+                const isKR=d.market==="kr";
+                const entry=+d.entry;
+                const trailStop=+(entry*(1-trailSettings.initialStopPct/100)).toFixed(isKR?0:2);
+                setPositions(p=>[...p,{
+                  id:Date.now(),
+                  ticker:d.ticker,
+                  label:d.label||d.ticker,
+                  market:d.market,
+                  entry,
+                  current:entry,
+                  max:entry,
+                  trailStop,
+                  trailMode:false,
+                  target:0,
+                  pnl:0,
+                  date:d.date||new Date().toLocaleDateString("ko-KR"),
+                  entryTime:new Date().toLocaleTimeString("ko-KR"),
+                  qty:+d.qty||0,
+                  manualEntry:true,
+                  foundScore:0,foundSignals:["수동"],foundRS:0,
+                  oppScoreAt:0,
+                  investMode:"basic",
+                  pyramid:[],
+                }]);
+                setShowManualEntry(false);
+                setManualEntryDraft({ticker:"",label:"",market:"us",entry:"",date:new Date().toLocaleDateString("ko-KR"),qty:""});
+                setAddMsg(`📝 ${d.label||d.ticker} 외부 매수 등록`);
+                setTimeout(()=>setAddMsg(""),2500);
+              }} style={{flex:2,padding:"8px",borderRadius:6,border:`1px solid ${C.emerald}`,background:"rgba(48,209,88,.12)",color:C.emerald,fontSize:10,fontWeight:700,cursor:"pointer"}}>📝 보유 등록</button>
+            </div>
+          </div>
+        </div>}
+
         {showRiskPanel&&<div style={{position:"absolute",top:"100%",left:14,right:14,background:"#1C1C1E",border:`1px solid ${C.accent}`,borderRadius:14,padding:16,zIndex:100,boxShadow:"0 8px 32px rgba(0,0,0,.8)",maxHeight:"80vh",overflowY:"auto"}}>
           <div style={{fontSize:12,fontWeight:900,color:C.accent,marginBottom:12}}>⚙ 리스크 관리 센터</div>
 
@@ -1618,7 +1745,7 @@ export default function App() {
             {/* 손절 금액 표시 */}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
               <div style={{background:"rgba(255,69,58,.06)",borderRadius:6,padding:"6px",textAlign:"center"}}>
-                <div style={{fontSize:7,color:C.red}}>보초 손절 (-{trailSettings.initialStopPct}%)</div>
+                <div style={{fontSize:7,color:C.red}}>시드 손절 (-{trailSettings.initialStopPct}%)</div>
                 <div style={{fontSize:12,fontWeight:900,color:C.red}}>-₩{fmtKRW(Math.round(pyramidAmts[0]*trailSettings.initialStopPct/100))}</div>
                 <div style={{fontSize:7,color:C.muted}}>₩{fmtKRW(pyramidAmts[0])}의 {trailSettings.initialStopPct}%</div>
               </div>
@@ -1834,7 +1961,7 @@ export default function App() {
         {/* ══ TAB: 집중 — 오늘 볼 종목 ══ */}
         {tab==="focus"&&<div style={{padding:"12px 14px"}}>
           <div style={{fontSize:13,fontWeight:900,color:C.accent,marginBottom:4,borderLeft:`3px solid ${C.accent}`,paddingLeft:8}}>🎯 오늘의 집중 종목</div>
-          <div style={{fontSize:9,color:C.sub,marginBottom:8}}>추천 · 돌파 · 진입적기 — 실시간 데이터 기반</div>
+          <div style={{fontSize:9,color:C.sub,marginBottom:8}}>종합추천 · 돌파감지 · 진입적기 — 실시간 데이터 기반</div>
           <div style={{display:"flex",gap:4,marginBottom:10}}>
             {[["all","전체"],["kr","🇰🇷 한국"],["us","🇺🇸 미국"]].map(([v,l])=>(
               <button key={v} onClick={()=>setFocusMarket(v)} style={{padding:"4px 12px",borderRadius:5,border:`1px solid ${focusMarket===v?C.accent:C.border}`,background:focusMarket===v?"rgba(10,132,255,.12)":"transparent",color:focusMarket===v?C.accent:C.muted,fontSize:9,fontWeight:focusMarket===v?700:400,cursor:"pointer"}}>{l}</button>
@@ -1996,6 +2123,7 @@ export default function App() {
                       <span style={{fontSize:7,color:(s.chg3d||0)>=0?C.green:C.red}}>3D {(s.chg3d||0)>=0?"+":""}{(s.chg3d||0).toFixed(1)}%</span>
                     </div>
                   </div>
+                  <button onClick={e=>{e.stopPropagation();quickAddToWatch(s,oppScore);}} title="관찰 등록 (차트탭 안 거치고)" style={{background:tracking.find(t=>t.ticker===s.ticker)?"rgba(48,209,88,.15)":"rgba(48,209,88,.06)",border:`1px solid ${tracking.find(t=>t.ticker===s.ticker)?C.emerald:"rgba(48,209,88,.3)"}`,color:C.emerald,borderRadius:4,padding:"4px 6px",cursor:"pointer",fontSize:9,fontWeight:700,marginLeft:4}}>{tracking.find(t=>t.ticker===s.ticker)?"✓":"👁"}</button>
                 </div>;
               });
             })()}
@@ -2157,6 +2285,17 @@ export default function App() {
                     <button key={k} onClick={()=>setAlphaSort(k)} style={{padding:"3px 8px",borderRadius:4,fontSize:8,fontWeight:alphaSort===k?700:400,border:`1px solid ${alphaSort===k?C.accent:C.border}`,background:alphaSort===k?"rgba(10,132,255,.12)":"transparent",color:alphaSort===k?C.accent:C.muted,cursor:"pointer"}}>{l}</button>
                   ))}
                 </div>
+                {/* ★ v2.3.1: 가속도 라벨 범례 — 가속 정렬 선택 시 의미 안내 */}
+                {alphaSort==="accel"&&<div style={{background:"rgba(255,159,10,.06)",border:"1px solid rgba(255,159,10,.2)",borderRadius:6,padding:"6px 10px",marginBottom:8,fontSize:7,color:C.muted,lineHeight:1.6}}>
+                  <span style={{color:"#FF9F0A",fontWeight:700}}>🔥 가속 라벨 의미</span>
+                  &nbsp;·&nbsp; <b style={{color:C.text}}>🚀가속</b> 3D&gt;5D 추세 가속
+                  &nbsp; <b style={{color:C.text}}>⚡급등</b> 3D +2%↑
+                  &nbsp; <b style={{color:C.text}}>📈ST↑</b> ST 점등 증가
+                  &nbsp; <b style={{color:C.text}}>🔥ST풀</b> ST 3/3 신규 도달
+                  &nbsp; <b style={{color:C.text}}>⚡MACD↑</b> MACD 골든크로스
+                  &nbsp; <b style={{color:C.text}}>💥거래량</b> 200%+
+                  &nbsp; <b style={{color:C.text}}>💎스퀴즈</b> 스퀴즈 해제
+                </div>}
                 <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}>
                   <span style={{fontSize:8,color:C.muted}}>최소 점수:</span>
                   <input type="range" min={0} max={80} step={10} value={alphaMinScore} onChange={e=>setAlphaMinScore(+e.target.value)} style={{flex:1,maxWidth:120,accentColor:C.accent}}/>
@@ -2233,7 +2372,7 @@ export default function App() {
               :<div style={{overflowX:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,minWidth:400}}>
                   <thead><tr style={{background:"rgba(255,255,255,.04)"}}>
-                    {["종목","현재가","3D","5D","vs시장","⚡타이밍","💪강도"].map(h=>(
+                    {["종목","현재가","3D","5D","vs시장","⚡타이밍","💪강도","관찰"].map(h=>(
                       <th key={h} style={{padding:"6px 8px",textAlign:"left",color:C.muted,fontSize:8,fontWeight:700,borderBottom:`1px solid ${C.border}`}}>{h}</th>
                     ))}
                   </tr></thead>
@@ -2252,6 +2391,9 @@ export default function App() {
                           <td style={{padding:"6px 8px",color:(stock.rs||0)>=0?C.emerald:C.red,fontWeight:700}}>{(stock.rs||0)>=0?"+":""}{(stock.rs||0).toFixed(1)}%p</td>
                           <td style={{padding:"6px 8px"}}><span style={{fontWeight:900,color:tm2.score>=40?"#FF9F0A":C.muted}}>{tm2.score}</span></td>
                           <td style={{padding:"6px 8px"}}><span style={{fontWeight:900,color:dr2.score>=50?C.emerald:C.muted}}>{dr2.score}</span></td>
+                          <td style={{padding:"6px 8px"}}>
+                            <button onClick={e=>{e.stopPropagation();quickAddToWatch({...stock,timing:tm2.score,durability:dr2.score},oppScore);}} title="관찰 등록" style={{background:tracking.find(t=>t.ticker===stock.ticker)?"rgba(48,209,88,.15)":"transparent",border:`1px solid ${tracking.find(t=>t.ticker===stock.ticker)?C.emerald:"rgba(48,209,88,.3)"}`,color:C.emerald,borderRadius:4,padding:"3px 6px",cursor:"pointer",fontSize:8,fontWeight:700}}>{tracking.find(t=>t.ticker===stock.ticker)?"✓":"👁"}</button>
+                          </td>
                         </tr>
                       );
                     })}
@@ -2497,11 +2639,11 @@ export default function App() {
                     <div style={{fontSize:10,fontWeight:900,color:c.consensus?.includes("Buy")?C.emerald:c.consensus?.includes("Sell")?C.red:C.yellow}}>{c.consensus||"—"}</div>
                   </div>
                   <div style={{textAlign:"center"}}>
-                    <div style={{fontSize:7,color:C.muted}}>목표 상단</div>
+                    <div style={{fontSize:7,color:C.muted}}>컨센 상단</div>
                     <div style={{fontSize:10,fontWeight:700,color:C.green}}>{c.targetHigh?`${unit}${fmtPrice(c.targetHigh,isKRSel)}`:"—"}</div>
                   </div>
                   <div style={{textAlign:"center"}}>
-                    <div style={{fontSize:7,color:C.muted}}>목표 하단</div>
+                    <div style={{fontSize:7,color:C.muted}}>컨센 하단</div>
                     <div style={{fontSize:10,fontWeight:700,color:C.red}}>{c.targetLow?`${unit}${fmtPrice(c.targetLow,isKRSel)}`:"—"}</div>
                   </div>
                   <div style={{textAlign:"center"}}>
@@ -2598,7 +2740,7 @@ export default function App() {
               <div style={{display:"flex",justifyContent:"space-between",fontSize:7,color:C.muted,marginBottom:8}}>
                 <span>레인지 {pct.toFixed(0)}% 위치</span>
                 {toHigh>0&&<span>전고점까지 +{toHigh}%</span>}
-                {toTarget>0&&<span style={{color:C.purple}}>목표까지 +{toTarget}%</span>}
+                {toTarget>0&&<span style={{color:C.purple}}>참고가까지 +{toTarget}%</span>}
               </div>
               {/* 모멘텀 인사이트 */}
               <div style={{padding:"6px 10px",borderRadius:6,background:`${momColor}08`,border:`1px solid ${momColor}30`,marginBottom:6}}>
@@ -2840,9 +2982,9 @@ export default function App() {
             const autoCap=autoMode==="special"?(riskSettings.specialCapital||10000000):(riskSettings.totalCapital||5000000);
             const autoPyr=autoMode==="special"?PYRAMID_SPECIAL:PYRAMID_BASIC;
             setPositions(p=>[...p,{id:Date.now(),ticker:sel,label:selInfo.label,market:selInfo.market,entry:curPrice,current:curPrice,max:curPrice,trailStop:+(curPrice*(1-trailSettings.initialStopPct/100)).toFixed(isKRSel?0:2),trailMode:false,target:consTgt,pnl:0,date:new Date().toLocaleDateString("ko-KR"),entryTime:new Date().toLocaleTimeString("ko-KR"),foundScore:entryScore.score,foundSignals:entryScore.breakdown.filter(b=>b.ok).map(b=>b.label),foundTiming:selTiming.score,foundDurability:selDurability.score,snapshot:snap,oppScoreAt:oppScore,investMode:autoMode,pyramid:autoPyr.map((r,i)=>({step:i+1,label:r.label,pct:r.pct,targetPct:r.targetPct,triggered:i===0,amount:Math.round(autoCap*r.pct/100),actualAmount:i===0?realAmt:0,executedAt:i===0?new Date().toLocaleDateString("ko-KR"):""}))}]);
-            setTab("track");setTrackTab("hold");setAddMsg(`📌 ${selInfo.label} ₩${fmtKRW(realAmt)} 보초 매수 (${autoMode==="special"?"⭐특별":"기본"})`);setTimeout(()=>setAddMsg(""),3000);
+            setTab("track");setTrackTab("hold");setAddMsg(`📌 ${selInfo.label} ₩${fmtKRW(realAmt)} 시드 매수 (${autoMode==="special"?"⭐특별":"기본"})`);setTimeout(()=>setAddMsg(""),3000);
           }} style={{width:"100%",background:checkOk?"linear-gradient(135deg,#30D158,#28a745)":"rgba(255,255,255,.05)",border:`1px solid ${checkOk?C.emerald:C.border}`,borderRadius:10,padding:"14px 16px",color:checkOk?"#000":C.muted,fontWeight:900,fontSize:12,cursor:checkOk?"pointer":"not-allowed",opacity:checkOk?1:0.5}}>
-            {checkOk?"📈 보초 매수 등록":"✅ 체크리스트를 먼저 완료하세요"}
+            {checkOk?"🌱 시드 매수 등록":"✅ 체크리스트를 먼저 완료하세요"}
           </button>
         </div>}
         {tab==="sniper"&&!selInfo&&<div style={{padding:"40px 20px",textAlign:"center",color:C.muted}}><div style={{fontSize:24,marginBottom:8}}>🎯</div><div>발굴탭에서 종목을 선택하거나 검색해주세요</div></div>}
@@ -2945,11 +3087,12 @@ export default function App() {
               <span style={{fontSize:8,color:C.yellow}}>│ 트레일링 고점-{trailSettings.trailPct}%</span>
               <span style={{fontSize:8,color:C.emerald}}>│ +{trailSettings.switchPct}% 달성 시 전환</span>
               <span style={{fontSize:8,color:"#FF9F0A"}}>│ ⏰ 타임컷 {trailSettings.timeCutDays||14}일/±{trailSettings.timeCutPct||3}%</span>
-              <button onClick={()=>setShowRiskPanel(true)} style={{...css.btn(),fontSize:7,padding:"1px 6px",marginLeft:"auto"}}>변경</button>
+              <button onClick={()=>setShowManualEntry(true)} style={{...css.btn(),fontSize:7,padding:"1px 6px",marginLeft:"auto",borderColor:C.emerald,color:C.emerald}}>📝 직접 입력</button>
+              <button onClick={()=>setShowRiskPanel(true)} style={{...css.btn(),fontSize:7,padding:"1px 6px"}}>변경</button>
             </div>
             {overPositions&&<div style={{background:"rgba(255,69,58,.08)",border:`1px solid rgba(255,69,58,.3)`,borderRadius:7,padding:"6px 10px",marginBottom:10,fontSize:9,color:C.red,fontWeight:700}}>⚠ 최대 종목수 초과 ({positions.length}/{riskSettings.maxPositions}) — 일부 포지션 청산 고려</div>}
             {positions.length===0
-              ?<div style={{textAlign:"center",padding:"40px 0",color:C.muted}}><div style={{fontSize:28,marginBottom:8}}>💼</div><div>차트에서 "매수 등록" 또는 관찰중에서 "매수 전환"</div></div>
+              ?<div style={{textAlign:"center",padding:"40px 0",color:C.muted}}><div style={{fontSize:28,marginBottom:8}}>💼</div><div>차트에서 "시드 매수" / 관찰탭에서 "매수 전환" / "📝 직접 입력"으로 외부 매수 추가</div></div>
               :<div style={{display:"flex",flexDirection:"column",gap:12}}>
                 {positions.map(pos=>{
                   const cur=pos.current,pnl=pos.pnl||0,trailStop=pos.trailStop;
@@ -3023,7 +3166,7 @@ export default function App() {
                     {/* 불타기 알림 */}
                     {pendingPyramid.map(lv=>(
                       <div key={lv.level} style={{background:"rgba(48,209,88,.12)",border:`1px solid ${C.emerald}`,borderRadius:5,padding:"4px 8px",fontSize:8,color:C.emerald,fontWeight:700,marginBottom:6}}>
-                        🔥 불타기 {lv.level}차 목표 +{lv.targetPct}% 달성! ({lv.triggeredAt}) — 추가 매수 고려
+                        🔥 불타기 {lv.level}차 +{lv.targetPct}% 도달! ({lv.triggeredAt}) — 추가 매수 고려
                       </div>
                     ))}
 
@@ -3150,7 +3293,7 @@ export default function App() {
                       <div style={{display:"flex",justifyContent:"space-between",fontSize:7,color:C.muted}}>
                         <span>진입 {u}{pos.entry.toLocaleString()}</span>
                         <span style={{color:C.accent}}>{prog.toFixed(0)}%</span>
-                        <span>목표 {u}{pos.target.toLocaleString()}</span>
+                        <span>참고 {u}{pos.target.toLocaleString()}</span>
                       </div>
                     </>}
                   </div>;
@@ -3174,8 +3317,8 @@ export default function App() {
             {closedLog.length===0
               ?<div style={{textAlign:"center",padding:"30px 0",color:C.muted}}>청산 기록 없음</div>
               :<div style={{...css.card,padding:0,overflow:"hidden"}}>
-                <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 0.7fr 0.8fr",padding:"6px 10px",background:"rgba(255,255,255,.03)",fontSize:8,color:C.muted,fontWeight:700}}>
-                  <span>종목</span><span>매수가</span><span>청산가</span><span>손익</span><span>보유</span><span>이유</span>
+                <div style={{display:"grid",gridTemplateColumns:"1.8fr 0.9fr 0.9fr 0.8fr 0.6fr 0.7fr 0.5fr",padding:"6px 10px",background:"rgba(255,255,255,.03)",fontSize:8,color:C.muted,fontWeight:700}}>
+                  <span>종목</span><span>매수가</span><span>청산가</span><span>손익</span><span>보유</span><span>이유</span><span>📝</span>
                 </div>
                 {closedLog.map((h,i)=>{
                   const pnl=parseFloat(h.pnl||h.finalPnl||0);
@@ -3183,13 +3326,19 @@ export default function App() {
                   const u=isKR?"₩":"$";
                   const entry=h.entry||h.basePrice||0;
                   const exit=h.exitPrice||h.current||0;
-                  return<div key={i} style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 0.7fr 0.8fr",padding:"8px 10px",borderTop:"1px solid rgba(255,255,255,.04)",fontSize:9,background:pnl>=0?"rgba(34,197,94,.03)":"rgba(255,69,58,.03)"}}>
-                    <div><div style={{fontWeight:700}}>{fmtName(h,8)}</div><div style={{fontSize:7,color:C.muted}}>{h.addedDate||h.date} → {h.exitDate}</div></div>
+                  return<div key={i} style={{display:"grid",gridTemplateColumns:"1.8fr 0.9fr 0.9fr 0.8fr 0.6fr 0.7fr 0.5fr",padding:"8px 10px",borderTop:"1px solid rgba(255,255,255,.04)",fontSize:9,background:pnl>=0?"rgba(34,197,94,.03)":"rgba(255,69,58,.03)",alignItems:"center"}}>
+                    <div><div style={{fontWeight:700}}>{fmtName(h,8)}</div><div style={{fontSize:7,color:C.muted}}>{h.addedDate||h.date} → {h.exitDate}</div>{h.memo&&<div style={{fontSize:7,color:C.accent,marginTop:2,fontStyle:"italic"}}>💭 {h.memo}</div>}</div>
                     <span>{u}{isKR?fmtKRW(entry):entry.toLocaleString()}</span>
                     <span>{u}{isKR?fmtKRW(exit):exit.toLocaleString()}</span>
                     <span style={{color:pnl>=0?C.green:C.red,fontWeight:700}}>{pnl>=0?"+":""}{pnl.toFixed(2)}%</span>
                     <span style={{color:C.muted,fontSize:8}}>{h.holdDays?`${h.holdDays}일`:"—"}</span>
                     <span style={{color:h.reason==="타임컷"?"#FF9F0A":C.muted,fontSize:8}}>{h.reason||"수동"}</span>
+                    <button onClick={()=>{
+                      const cur=h.memo||"";
+                      const v=prompt("회고 메모 (왜 팔았는지, 잘했는지 등):",cur);
+                      if(v===null)return; // 취소
+                      setClosedLog(prev=>prev.map((x,j)=>j===i?{...x,memo:v.trim()}:x));
+                    }} title={h.memo?"메모 수정":"메모 추가"} style={{background:h.memo?"rgba(10,132,255,.15)":"transparent",border:`1px solid ${h.memo?C.accent:"rgba(255,255,255,.1)"}`,color:h.memo?C.accent:C.muted,borderRadius:4,padding:"3px 6px",cursor:"pointer",fontSize:9}}>{h.memo?"✏️":"📝"}</button>
                   </div>;
                 })}
               </div>
@@ -3655,13 +3804,17 @@ export default function App() {
         {/* ══ TAB 5: 종목풀 ══ */}
         {tab==="pool"&&<div style={{padding:"12px 14px"}}>
           <div style={{fontSize:12,fontWeight:900,color:C.accent,marginBottom:4}}>🗂 종목풀 관리</div>
-          <div style={{fontSize:9,color:C.sub,marginBottom:12}}>
+          <div style={{fontSize:9,color:C.sub,marginBottom:6}}>
             {(()=>{
               const entries=Object.entries(pool);
               const kr=entries.filter(([t,v])=>/^\d{6}$/.test(t)||v.market==="kr").length;
               const us=entries.length-kr;
               return`총 ${entries.length}개 (🇰🇷${kr} · 🇺🇸${us})${us<10?" ⚠️ US종목 부족":""}`;
             })()}
+          </div>
+          {/* ★ v2.3.1: 별표 동기화 안내 */}
+          <div style={{fontSize:7,color:C.muted,marginBottom:12,padding:"5px 8px",background:"rgba(10,132,255,.05)",border:`1px solid ${C.border}`,borderRadius:5,lineHeight:1.5}}>
+            💡 <b style={{color:C.accent}}>★ 별표</b>를 누르면 <b style={{color:C.accent}}>관심종목 ⭐</b>으로 등록되어, <b>발굴탭 → 비교뷰</b>에서 RS 강도를 비교할 수 있습니다. 시장탭/집중탭에서도 ★ 별표로 동일하게 등록 가능합니다.
           </div>
           <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
             <input value={poolFilter} onChange={e=>setPoolFilter(e.target.value)} placeholder="종목명/티커 검색..." style={{flex:1,minWidth:120,background:"rgba(255,255,255,.05)",border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.text,fontSize:10,outline:"none"}}/>
