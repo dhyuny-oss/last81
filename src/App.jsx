@@ -1,5 +1,11 @@
 /**
- * Alpha Terminal v2.3.2 — App.jsx
+ * Alpha Terminal v2.3.3 — App.jsx
+ * v2.3.3: [RSI 기울기 + 실험실 진단 정렬]
+ *         [지표] RSI 강세 판정 강화 — 위치(45~70) + 기울기 상승 종합 (isRSIStrong 헬퍼)
+ *         [점수] alphaScore RSI 점수 재구성 — 50 돌파근접/강세진입/지속/둔화 차등
+ *         [실험실] 시그널 5개를 우리 시스템 핵심 필터로 교체 — 진짜 진단 가능
+ *                  α(alphaScore≥60) + 진입적기(타이밍+지속력) + 수급(ST+거래량) + 강도(구름·ADX) + RSI강세
+ *         [실험실] 시작 시점 점수 실측 — alphaScore/calcEntryTiming/calcTrendDurability 재계산
  * v2.3.2: [Market Regime + 적응형 손절 — 받은 자료에서 흡수]
  *         [시장] VIX 4단계 임계값 (16/22/30) — 안정/보통/주의/위기 라벨
  *         [시장] Market Regime 카드 — 4신호 가중 합산 (VIX35%+추세30%+신용20%+금리커브15%)
@@ -170,6 +176,16 @@ function calcRSI(closes,p=14){
   let ag=g/p,al=l/p;rsi.push(al===0?100:+(100-100/(1+ag/al)).toFixed(2));
   for(let i=p+1;i<closes.length;i++){const d=closes[i]-closes[i-1];ag=(ag*(p-1)+(d>0?d:0))/p;al=(al*(p-1)+(d<0?-d:0))/p;rsi.push(al===0?100:+(100-100/(1+ag/al)).toFixed(2));}
   return rsi;
+}
+// ★ v2.3.3: RSI 강세 판정 — 위치 합리(45~70) + 기울기 상승 (직전 3봉보다 위)
+// 추세추종에서 가장 좋은 진입은 RSI 45 영역에서 상승 시작 → 50 돌파 → 강세 진입
+// 70 위는 과열 (단기 조정 위험), 45 아래는 아직 약세, 횡보/하락은 매수세 둔화
+function isRSIStrong(d, idx) {
+  if (!d || idx == null || idx < 3) return false;
+  const cur = d[idx]?.rsi;
+  const prev3 = d[idx-3]?.rsi;
+  if (cur == null || prev3 == null) return false;
+  return cur >= 45 && cur <= 70 && cur > prev3;
 }
 function calcMACD(closes,fast=12,slow=26,sig=9){
   const ef=calcEMA(closes,fast),es=calcEMA(closes,slow);
@@ -491,13 +507,18 @@ function calcTrendDurability(chartData) {
     signals.push("EMA역배열");
   }
 
-  // ⑥ RSI 건강 구간 (최대 15pt)
+  // ⑥ RSI 강세 (최대 15pt) — v2.3.3: 위치 + 기울기 종합
   const rsi = last.rsi;
-  if (rsi >= 50 && rsi <= 65) { score += 15; signals.push(`RSI${rsi?.toFixed(0)}최적`); }
-  else if (rsi > 65 && rsi <= 75) { score += 10; signals.push(`RSI${rsi?.toFixed(0)}강세`); }
-  else if (rsi > 40 && rsi < 50) { score += 5; signals.push(`RSI${rsi?.toFixed(0)}약세`); }
-  else if (rsi > 75) { score += 3; signals.push(`RSI${rsi?.toFixed(0)}과열`); }
-  else if (rsi != null) { signals.push(`RSI${rsi?.toFixed(0)}저조`); }
+  const rsi3 = d[L-4]?.rsi; // 직전 3봉
+  const rising = rsi != null && rsi3 != null && rsi > rsi3;
+  if (rsi >= 50 && rsi <= 65 && rising) { score += 15; signals.push(`RSI${rsi?.toFixed(0)}↑강세진입`); }
+  else if (rsi >= 50 && rsi <= 65) { score += 8; signals.push(`RSI${rsi?.toFixed(0)}건강(둔화)`); }
+  else if (rsi >= 45 && rsi < 50 && rising) { score += 12; signals.push(`RSI${rsi?.toFixed(0)}↑돌파근접`); }
+  else if (rsi > 65 && rsi <= 75 && rising) { score += 7; signals.push(`RSI${rsi?.toFixed(0)}강세지속`); }
+  else if (rsi > 65 && rsi <= 75) { score += 4; signals.push(`RSI${rsi?.toFixed(0)}둔화경고`); }
+  else if (rsi > 75) { score += 2; signals.push(`RSI${rsi?.toFixed(0)}과열`); }
+  else if (rsi != null && rsi < 45) { signals.push(`RSI${rsi?.toFixed(0)}약세`); }
+  else if (rsi != null) { signals.push(`RSI${rsi?.toFixed(0)}`); }
 
   // ⑦ ST 유지 기간 보너스 (최대 10pt) — 오래 유지 = 안정적
   let stDays = 0;
@@ -3797,7 +3818,7 @@ export default function App() {
         {/* ══ TAB: 실험실 — 추천 적중률 검증 ══ */}
         {tab==="lab"&&<div style={{padding:"12px 14px"}}>
           <div style={{fontSize:12,fontWeight:900,color:C.purple,marginBottom:4}}>🔬 실험실 — 추천 vs 실제 비교</div>
-          <div style={{fontSize:9,color:C.sub,marginBottom:8}}>최근 오른 종목들의 <b>상승 5일 전 시점</b>에서 우리 앱이 추천했었나? 놓친 이유는?</div>
+          <div style={{fontSize:9,color:C.sub,marginBottom:8}}>최근 오른 종목들의 <b>상승 5일 전 시점</b>에서 우리 앱의 <b>실제 매수 필터</b>가 잘 작동했나? (alphaScore · 진입적기 · 수급필터 · 추세강도 · RSI강세)</div>
           <div style={{display:"flex",gap:4,marginBottom:10}}>
             {[["all","전체"],["kr","🇰🇷 한국"],["us","🇺🇸 미국"]].map(([v,l])=>(
               <button key={v} onClick={()=>setLabMarket(v)} style={{padding:"4px 12px",borderRadius:5,border:`1px solid ${labMarket===v?C.purple:C.border}`,background:labMarket===v?"rgba(191,90,242,.12)":"transparent",color:labMarket===v?C.purple:C.muted,fontSize:9,fontWeight:labMarket===v?700:400,cursor:"pointer"}}>{l}</button>
@@ -3824,24 +3845,45 @@ export default function App() {
                 // 시작점 = d[L-11] (상승 5일 전 시점, 미리 잡았어야 할 자리)
                 const sp = d[Math.max(0, L-11)];
                 if (!sp) return null;
+                const spIdx = Math.max(0, L-11);
                 const info = stocks.find(s=>s.ticker===ticker)||pool[ticker]||{};
 
-                // 시작점 시그널 5개 (각 1pt)
-                const stC = [sp.st1Bull, sp.st2Bull, sp.st3Bull].filter(v=>v!=null).length;
-                const sig_st     = stC >= 2;
-                const sig_macd   = sp.macd > sp.signal;
-                const sig_rsi    = (sp.rsi||0) >= 40 && (sp.rsi||0) <= 70;
-                const sig_strong = !!sp.aboveCloud || (sp.adx||0) >= 20;
-                const sig_vol    = (sp.volRatio||100) >= 120;
+                // ★ v2.3.3: 우리 시스템 핵심 시그널 5개 — 진짜 매수 결정 기준
+                // 시작점(d-11)까지의 데이터로 우리 앱이 그때 어떻게 판단했을지 계산
+                const dataAtSp = d.slice(0, spIdx + 1);
+                // 1) alphaScore — 시작점에서 우리 앱 종합점수 ≥ 60? (집중탭 75컷 살짝 완화 — 진단용)
+                let spAlphaScore = 0;
+                try {
+                  const stockAtSp = {...info, ticker, price: sp.close, changePct: 0, chg3d: 0, chg5d: 0};
+                  const result = alphaScore(stockAtSp, dataAtSp, idxRS);
+                  spAlphaScore = result.score || 0;
+                } catch(e) { spAlphaScore = 0; }
+                const sig_alpha = spAlphaScore >= 60;
 
-                const sigCount = [sig_st, sig_macd, sig_rsi, sig_strong, sig_vol].filter(Boolean).length;
+                // 2) 진입적기 — calcEntryTiming ≥ 50 AND calcTrendDurability ≥ 50 (살짝 완화)
+                let spTiming = 0, spDurability = 0;
+                try { spTiming = calcEntryTiming(dataAtSp).score || 0; } catch{}
+                try { spDurability = calcTrendDurability(dataAtSp).score || 0; } catch{}
+                const sig_entry = spTiming >= 50 && spDurability >= 50;
+
+                // 3) 수급필터 통과 — ST≥2 + 거래량≥130% (발굴탭 슬라이더 기본값)
+                const stC = [sp.st1Bull, sp.st2Bull, sp.st3Bull].filter(v=>v!=null).length;
+                const sig_supply = stC >= 2 && (sp.volRatio||100) >= 130;
+
+                // 4) 추세 강도 — 구름 위 OR ADX ≥ 20 (시장환경+섹터 대신 종목 자체 강도)
+                const sig_strong = !!sp.aboveCloud || (sp.adx||0) >= 20;
+
+                // 5) RSI 강세 진입 — 위치 합리(45~70) + 기울기 상승 (NEW v2.3.3)
+                const sig_rsi = isRSIStrong(d, spIdx);
+
+                const sigCount = [sig_alpha, sig_entry, sig_supply, sig_strong, sig_rsi].filter(Boolean).length;
                 const isHit = sigCount >= 3;
 
                 return {
                   ticker, label: info.label||ticker, market: info.market,
                   chg5, realChg5, slippage, price: last.close,
-                  sig_st, sig_macd, sig_rsi, sig_strong, sig_vol, sigCount, isHit,
-                  stC, rsi: sp.rsi
+                  sig_alpha, sig_entry, sig_supply, sig_strong, sig_rsi, sigCount, isHit,
+                  stC, rsi: sp.rsi, alphaPt: spAlphaScore, timingPt: spTiming, durPt: spDurability
                 };
               })
               .filter(Boolean);
@@ -3857,11 +3899,11 @@ export default function App() {
 
             // 놓친 이유 — MISS 종목에서 어느 시그널이 가장 약했나 (낮은 충족률 = 놓친 이유)
             const sigDefs = [
-              {key:"sig_st",     label:"ST 2/3+"},
-              {key:"sig_macd",   label:"MACD 양전"},
-              {key:"sig_rsi",    label:"RSI 40~70"},
-              {key:"sig_strong", label:"구름·ADX"},
-              {key:"sig_vol",    label:"거래량 120%+"},
+              {key:"sig_alpha",  label:"종합점수 60+"},
+              {key:"sig_entry",  label:"진입적기"},
+              {key:"sig_supply", label:"수급필터"},
+              {key:"sig_strong", label:"추세강도"},
+              {key:"sig_rsi",    label:"RSI 강세진입"},
             ];
             const missAnalysis = misses.length>0 ? sigDefs.map(s=>({
               ...s, pct: Math.round(misses.filter(m=>m[s.key]).length/misses.length*100)
@@ -3949,8 +3991,8 @@ export default function App() {
 
               {/* TOP 종목 목록 — HIT/MISS 표시 + 시그널 디테일 */}
               <div style={css.card}>
-                <div style={{fontSize:10,fontWeight:700,color:"#FF9F0A",marginBottom:4}}>🏆 최근 5일 상승 TOP {totalTop} — 시작 시점(d-11) 시그널 검증</div>
-                <div style={{fontSize:7,color:C.muted,marginBottom:8}}>HIT = 우리 앱이 추천했었던 종목 · MISS = 놓친 종목 · 5개 점등 = 시그널 활성</div>
+                <div style={{fontSize:10,fontWeight:700,color:"#FF9F0A",marginBottom:4}}>🏆 최근 5일 상승 TOP {totalTop} — 시작 시점(d-11)에서 우리 5필터 통과 여부</div>
+                <div style={{fontSize:7,color:C.muted,marginBottom:8}}>α=alphaScore60+ · 적기=진입적기 · 수급=ST2+거래량130% · 강도=구름·ADX · RSI=강세진입</div>
                 <div style={{maxHeight:400,overflowY:"auto"}}>
                   {top40.map((s,i)=>{
                     const isKR4=(s.ticker?.length||0)>5;
@@ -3960,11 +4002,11 @@ export default function App() {
                       <span style={{fontWeight:700,fontSize:9,minWidth:55,maxWidth:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</span>
                       <span style={{fontSize:7,color:C.muted,minWidth:42}}>{isKR4?"₩"+fmtKRW(s.price||0):"$"+(s.price||0).toFixed(1)}</span>
                       <div style={{display:"flex",gap:1,flex:1}}>
-                        <span title="ST 2/3+" style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_st?"rgba(48,209,88,.2)":"rgba(255,255,255,.04)",color:s.sig_st?C.emerald:C.muted,fontWeight:700}}>ST</span>
-                        <span title="MACD 양전" style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_macd?"rgba(10,132,255,.2)":"rgba(255,255,255,.04)",color:s.sig_macd?C.accent:C.muted,fontWeight:700}}>MACD</span>
-                        <span title="RSI 40~70" style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_rsi?"rgba(48,209,88,.2)":"rgba(255,255,255,.04)",color:s.sig_rsi?C.green:C.muted,fontWeight:700}}>RSI</span>
-                        <span title="구름위 또는 ADX≥20" style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_strong?"rgba(100,210,255,.2)":"rgba(255,255,255,.04)",color:s.sig_strong?"#64D2FF":C.muted,fontWeight:700}}>강도</span>
-                        <span title="거래량 120%+" style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_vol?"rgba(255,159,10,.2)":"rgba(255,255,255,.04)",color:s.sig_vol?"#FF9F0A":C.muted,fontWeight:700}}>거래</span>
+                        <span title={`종합점수 ≥ 60 (현재 ${s.alphaPt})`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_alpha?"rgba(10,132,255,.2)":"rgba(255,255,255,.04)",color:s.sig_alpha?C.accent:C.muted,fontWeight:700}}>α</span>
+                        <span title={`진입적기 (타이밍 ${s.timingPt} + 지속력 ${s.durPt})`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_entry?"rgba(255,159,10,.2)":"rgba(255,255,255,.04)",color:s.sig_entry?"#FF9F0A":C.muted,fontWeight:700}}>적기</span>
+                        <span title={`수급필터 (ST≥2 + 거래량≥130%)`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_supply?"rgba(48,209,88,.2)":"rgba(255,255,255,.04)",color:s.sig_supply?C.emerald:C.muted,fontWeight:700}}>수급</span>
+                        <span title={`추세강도 (구름 위 또는 ADX≥20)`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_strong?"rgba(100,210,255,.2)":"rgba(255,255,255,.04)",color:s.sig_strong?"#64D2FF":C.muted,fontWeight:700}}>강도</span>
+                        <span title={`RSI 강세진입 (45~70 + 상승 중, 현재 ${s.rsi?.toFixed(0)||"—"})`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_rsi?"rgba(191,90,242,.2)":"rgba(255,255,255,.04)",color:s.sig_rsi?C.purple:C.muted,fontWeight:700}}>RSI</span>
                       </div>
                       <span style={{fontSize:8,fontWeight:700,color:s.sigCount>=4?C.emerald:s.sigCount>=3?C.yellow:C.muted,minWidth:25,textAlign:"center"}}>{s.sigCount}/5</span>
                       <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",minWidth:60}}>
