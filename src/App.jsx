@@ -1,5 +1,30 @@
 /**
- * Alpha Terminal v2.3.16 — App.jsx
+ * Alpha Terminal v2.4.1 — App.jsx
+ * v2.4.1: [거래량 측정 안정화 — 지속 매수세 확인]
+ *          [본질] 당일 1봉 거래량 → 최근 3봉 중 2봉 이상 105%↑ 변경
+ *                 일시 폭증 필터링 + 진짜 매수 추세 확인
+ *          [임계값] 130% (단봉) → 105% (3봉 중 2봉) — 약한 상승세로 조정
+ *          [영향] 돌파/적기 시그널의 거래량 결합 조건 모두 변경
+ *                 helper · 집중탭 카드 1/2/3 · 확장뷰 · 차트 매수 마커
+ *                 종목 행 거래량 배지: "거래량 N%" → "거래량 N/3" (지속성)
+ * v2.4.0: [시그널 시스템 재정의 — 수급 폐지 + 거래량 통합]
+ *          [본질] 시그널 3개 → 2개로 단순화
+ *                 수급 시그널 자체는 제거 (역할이 모호했음)
+ *                 거래량 정보(120%↑)는 돌파/적기에 필수 조건으로 통합
+ *          [핵심 2시그널]
+ *                 💎 돌파: (ST flip / MACD골든 / 구름돌파 / 스퀴즈오프 중 2+) AND 거래량 120%↑
+ *                 ⚡ 적기: (ST 3/3 + MACD + MA20 + 모멘텀 중 3+) AND 거래량 120%↑
+ *          [데이터 근거] v2.3.14 Precision 측정 결과:
+ *                       수급+적기 조합 = 손실 32~41% (가장 위험)
+ *                       돌파+적기 조합 = 손실 1.5% (가장 안전)
+ *                 → 수급 시그널의 차별성 약함, 거래량 정보만 가치 있음
+ *          [영향 범위] App.jsx 9곳 + fetch_yahoo.py 3곳 변경
+ *                     종목 행 배지: 핵심 3개 → 2개 (N/3 → N/2)
+ *                     집중탭: "🟢 핵심매수" = 돌파+적기 (둘 다 충족)
+ *                     실험실: 시그널 조합 7가지 → 4가지 (수급 빠진 조합)
+ *                     차트: 매수 마커 5필터 → 4필터 (거래량 필수 + 나머지 4개)
+ *                     알림: 슈퍼 등급 = 돌파+적기 (3 → 2 시그널 모두 충족)
+ *          [호환성] sig_supply, supplyScore 변수 유지 (실험실 컴포넌트 카드 호환)
  * v2.3.16: [ST 전환 패턴 4종 측정 — 사용자 분 매수 철학 검증]
  *          [철학] "오르자마자 X, 계속 가겠네 싶을 때 매수" — ST 2→3 전환이 진짜 매수 타점
  *          [실험실] 컴포넌트 카드에 4개 전환 패턴 추가:
@@ -474,22 +499,28 @@ function buildChartData(candles){
       d.volRatio=avg>0?+(vols[ci3]/avg*100).toFixed(0):100;
     }
   });
-  // ★ v2.3.5: 매수 마커 — 5신호 종합 등급 (기존: ST flip + MACD only)
-  // 🟢 강력 (5/5) / 🟡 보통 (3~4/5) / 🔵 약함 (ST flip만, 토글 옵션)
+  // ★ v2.4.1: 매수 마커 — 거래량 지속 (3봉 중 2봉 105%↑) 필수 + 4신호 종합 등급
+  // 🟢 강력 (4/4) / 🟡 보통 (2~3/4) / 🔵 약함 (ST flip만)
   for (let i = 1; i < data.length; i++) {
     const c = data[i], p = data[i-1];
-    const stFlip   = c.bullCount === 3 && p.bullCount < 3;          // ST 0~2 → 3 전환
-    if (!stFlip) continue;  // ST 풀충 전환 없으면 신호 없음
+    const stFlip   = c.bullCount === 3 && p.bullCount < 3;
+    if (!stFlip) continue;
+    // ★ v2.4.1: 거래량 지속성 (최근 3봉 중 2봉 이상 105%↑)
+    let volSust = 0;
+    for (let j = Math.max(0, i-2); j <= i; j++) {
+      if ((data[j]?.volRatio || 0) >= 105) volSust++;
+    }
+    const volOK = volSust >= 2;
+    if (!volOK) continue;  // 거래량 지속 미충족 = 마커 없음
     const macdOK   = c.macd != null && c.signal != null && c.hist != null && c.macd > c.signal && c.hist > 0;
-    const rsiOK    = isRSIStrong(data, i);                          // 45~70 + 직전 3봉보다 상승
-    const volOK    = (c.volRatio || 0) >= 130;                      // 거래량 130%+
-    const cloudOK  = !!c.aboveCloud || !!c.nearCloud;                // 구름 접근 이상 (위 OR 3% 이내 근접)
-    const sigCount = [stFlip, macdOK, rsiOK, volOK, cloudOK].filter(Boolean).length;
+    const rsiOK    = isRSIStrong(data, i);
+    const cloudOK  = !!c.aboveCloud || !!c.nearCloud;
+    const sigCount = [stFlip, macdOK, rsiOK, cloudOK].filter(Boolean).length;
     c.buySigCount  = sigCount;
-    c.buySigDetail = { stFlip, macdOK, rsiOK, volOK, cloudOK };
-    if (sigCount >= 5)      c.buyStrong = c.close;   // 🟢 강력 (5/5)
-    else if (sigCount >= 3) c.buyNormal = c.close;   // 🟡 보통 (3~4/5)
-    else                    c.buyWeak   = c.close;   // 🔵 약함 (ST flip만)
+    c.buySigDetail = { stFlip, macdOK, rsiOK, volOK, cloudOK, volSust };
+    if (sigCount >= 4)      c.buyStrong = c.close;
+    else if (sigCount >= 2) c.buyNormal = c.close;
+    else                    c.buyWeak   = c.close;
   }
   return data;
 }
@@ -2303,7 +2334,7 @@ export default function App() {
         {/* ══ TAB: 집중 — 오늘 볼 종목 ══ */}
         {tab==="focus"&&<div style={{padding:"12px 14px"}}>
           <div style={{fontSize:13,fontWeight:900,color:C.accent,marginBottom:4,borderLeft:`3px solid ${C.accent}`,paddingLeft:8}}>🎯 오늘의 집중 종목</div>
-          <div style={{fontSize:9,color:C.sub,marginBottom:8}}>실험실 검증 결과 핵심 3시그널 — 🟢 수급필터 · 🟢 진입적기 · 💎 돌파감지</div>
+          <div style={{fontSize:9,color:C.sub,marginBottom:8}}>핵심 2시그널 (거래량 105%↑ 지속) — 💎 돌파감지 · ⚡ 진입적기</div>
           <div style={{display:"flex",gap:4,marginBottom:10}}>
             {[["all","전체"],["kr","🇰🇷 한국"],["us","🇺🇸 미국"]].map(([v,l])=>(
               <button key={v} onClick={()=>setFocusMarket(v)} style={{padding:"4px 12px",borderRadius:5,border:`1px solid ${focusMarket===v?C.accent:C.border}`,background:focusMarket===v?"rgba(10,132,255,.12)":"transparent",color:focusMarket===v?C.accent:C.muted,fontSize:9,fontWeight:focusMarket===v?700:400,cursor:"pointer"}}>{l}</button>
@@ -2321,18 +2352,18 @@ export default function App() {
             <div onClick={()=>setFocusView(focusView==="ranked"?null:"ranked")} style={{background:focusView==="ranked"?"rgba(191,90,242,.15)":"rgba(191,90,242,.06)",border:`2px solid ${focusView==="ranked"?C.purple:"rgba(191,90,242,.2)"}`,borderRadius:8,padding:"8px",textAlign:"center",cursor:"pointer"}}>
               <div style={{fontSize:8,color:C.purple}}>🟢 핵심 매수</div>
               <div style={{fontSize:22,fontWeight:900,color:C.purple}}>{realStocks.filter(s=>{
-                // ★ v2.3.11: 핵심 3시그널 (수급+적기+돌파) 중 2개+ 충족
-                // 데이터 검증: 수급 HIT79/MISS6 + 적기 HIT46/MISS0 + 돌파 HIT58/MISS0
+                // ★ v2.4.1: 핵심 매수 = 돌파 + 적기 둘 다 충족 (거래량 지속 — 3봉 중 2봉 105%↑)
                 const cData = charts[s.ticker]?.data;
                 if (!cData || cData.length < 30) return false;
                 const last = cData.at(-1);
                 const prev = cData.length >= 2 ? cData.at(-2) : null;
+                // 거래량 지속성 (최근 3봉 중 2봉 105%↑)
+                let volSust = 0;
+                for (let i = Math.max(0, cData.length-3); i < cData.length; i++) {
+                  if ((cData[i]?.volRatio || 0) >= 105) volSust++;
+                }
+                if (volSust < 2) return false;
                 const stC = [last.st1Bull,last.st2Bull,last.st3Bull].filter(v=>v!=null).length;
-                const supplyOk = stC >= 2 && (last.volRatio||100) >= 130;
-                let timing=0, dur=0;
-                try { timing = calcEntryTiming(cData).score || 0; } catch{}
-                try { dur = calcTrendDurability(cData).score || 0; } catch{}
-                const entryOk = timing >= 50 && dur >= 50;
                 let breakoutCount = 0;
                 if (prev) {
                   const stPrev = [prev.st1Bull, prev.st2Bull, prev.st3Bull].filter(v=>v!=null).length;
@@ -2342,37 +2373,57 @@ export default function App() {
                   if (last.sqzOff && prev.sqzOn) breakoutCount++;
                 }
                 const breakoutOk = breakoutCount >= 2;
-                const coreCount = [supplyOk, entryOk, breakoutOk].filter(Boolean).length;
-                return coreCount >= 2;
+                const ma20Now = last.ma20;
+                const aboveMa20 = ma20Now != null && last.close > ma20Now;
+                const macdOK = last.macd != null && last.signal != null && last.macd > last.signal;
+                const momentumOK = cData.length >= 4 ? last.close > cData[cData.length-4].close : false;
+                const entryOk = [stC===3,macdOK,aboveMa20,momentumOK].filter(Boolean).length >= 3;
+                return breakoutOk && entryOk;
               }).length}</div>
-              <div style={{fontSize:7,color:focusView==="ranked"?C.purple:C.muted}}>{focusView==="ranked"?"▲ 접기":"수급·적기·돌파 중 2+"}</div>
+              <div style={{fontSize:7,color:focusView==="ranked"?C.purple:C.muted}}>{focusView==="ranked"?"▲ 접기":"돌파+적기 (거래량 지속)"}</div>
             </div>
             <div onClick={()=>setFocusView(focusView==="breakout"?null:"breakout")} style={{background:focusView==="breakout"?"rgba(48,209,88,.15)":"rgba(48,209,88,.06)",border:`2px solid ${focusView==="breakout"?C.emerald:"rgba(48,209,88,.2)"}`,borderRadius:8,padding:"8px",textAlign:"center",cursor:"pointer"}}>
               <div style={{fontSize:8,color:C.emerald}}>💎 돌파감지</div>
-              <div style={{fontSize:22,fontWeight:900,color:C.emerald}}>{(()=>{let c=0;realStocks.forEach(s=>{const d=charts[s.ticker]?.data;if(!d||d.length<2)return;const t=d.at(-1),y=d.at(-2);const stT=[t.st1Bull,t.st2Bull,t.st3Bull].filter(v=>v!=null).length;const stY=[y.st1Bull,y.st2Bull,y.st3Bull].filter(v=>v!=null).length;let sigs=0;if(stT>stY)sigs++;if(t.macd>t.signal&&y.macd<=y.signal)sigs++;if(t.aboveCloud&&!y.aboveCloud)sigs++;if(t.sqzOff&&y.sqzOn)sigs++;if(sigs>=2)c++;});return c;})()}</div>
-              <div style={{fontSize:7,color:focusView==="breakout"?C.emerald:C.muted}}>{focusView==="breakout"?"▲ 접기":"4개 중 2+ 동시돌파"}</div>
+              <div style={{fontSize:22,fontWeight:900,color:C.emerald}}>{(()=>{let c=0;realStocks.forEach(s=>{const d=charts[s.ticker]?.data;if(!d||d.length<3)return;const t=d.at(-1),y=d.at(-2);let volSust=0;for(let i=Math.max(0,d.length-3);i<d.length;i++){if((d[i]?.volRatio||0)>=105)volSust++;}if(volSust<2)return;const stT=[t.st1Bull,t.st2Bull,t.st3Bull].filter(v=>v!=null).length;const stY=[y.st1Bull,y.st2Bull,y.st3Bull].filter(v=>v!=null).length;let sigs=0;if(stT>stY)sigs++;if(t.macd>t.signal&&y.macd<=y.signal)sigs++;if(t.aboveCloud&&!y.aboveCloud)sigs++;if(t.sqzOff&&y.sqzOn)sigs++;if(sigs>=2)c++;});return c;})()}</div>
+              <div style={{fontSize:7,color:focusView==="breakout"?C.emerald:C.muted}}>{focusView==="breakout"?"▲ 접기":"4개 중 2+ AND 거래량 지속"}</div>
             </div>
             <div onClick={()=>setFocusView(focusView==="entry"?null:"entry")} style={{background:focusView==="entry"?"rgba(10,132,255,.15)":"rgba(10,132,255,.06)",border:`2px solid ${focusView==="entry"?C.accent:"rgba(10,132,255,.2)"}`,borderRadius:8,padding:"8px",textAlign:"center",cursor:"pointer"}}>
-              <div style={{fontSize:8,color:C.accent}}>진입적기</div>
-              <div style={{fontSize:22,fontWeight:900,color:C.accent}}>{realStocks.filter(s=>{const d=charts[s.ticker]?.data;if(!d||d.length<10)return false;const t=calcEntryTiming(d);const dr=calcTrendDurability(d);return t.score>=55&&dr.score>=55;}).length}</div>
-              <div style={{fontSize:7,color:focusView==="entry"?C.accent:C.muted}}>{focusView==="entry"?"▲ 접기":"⚡55+💪55+ 보기"}</div>
+              <div style={{fontSize:8,color:C.accent}}>⚡ 진입적기</div>
+              <div style={{fontSize:22,fontWeight:900,color:C.accent}}>{realStocks.filter(s=>{
+                const d=charts[s.ticker]?.data;
+                if(!d||d.length<10)return false;
+                const last=d.at(-1);
+                let volSust=0;
+                for(let i=Math.max(0,d.length-3);i<d.length;i++){if((d[i]?.volRatio||0)>=105)volSust++;}
+                if(volSust<2)return false;
+                const stC=[last.st1Bull,last.st2Bull,last.st3Bull].filter(v=>v!=null).length;
+                const ma20=last.ma20;
+                const aboveMa20=ma20!=null&&last.close>ma20;
+                const macdOK=last.macd!=null&&last.signal!=null&&last.macd>last.signal;
+                const momentumOK=d.length>=4?last.close>d[d.length-4].close:false;
+                return [stC===3,macdOK,aboveMa20,momentumOK].filter(Boolean).length>=3;
+              }).length}</div>
+              <div style={{fontSize:7,color:focusView==="entry"?C.accent:C.muted}}>{focusView==="entry"?"▲ 접기":"4개 중 3+ AND 거래량 지속"}</div>
             </div>
           </div>
           {realCount>0&&<div style={{fontSize:7,color:C.muted,textAlign:"right",marginTop:-10,marginBottom:8}}>실시간 {realCount}종목 기준</div>}
 
-          {/* ★ v2.3.11: 핵심매수 → 핵심 3시그널 (수급+적기+돌파) 중 2+ 충족 */}
+          {/* ★ v2.4.1: 핵심매수 = 돌파+적기 둘 다 충족 (거래량 지속 — 3봉 중 2봉 105%↑) */}
           {focusView==="ranked"&&(()=>{
             const all=realStocks.map(s=>{
               const cData=charts[s.ticker]?.data;
               if(!cData||cData.length<30) return null;
               const last=cData.at(-1);
               const prev=cData.length>=2 ? cData.at(-2) : null;
+              const volR = last.volRatio || 0;
+              // 거래량 지속성 (3봉 중 2봉 105%↑)
+              let volSust = 0;
+              for (let i = Math.max(0, cData.length-3); i < cData.length; i++) {
+                if ((cData[i]?.volRatio || 0) >= 105) volSust++;
+              }
+              if (volSust < 2) return null;
               const stC=[last.st1Bull,last.st2Bull,last.st3Bull].filter(v=>v!=null).length;
-              const supplyOk=stC>=2 && (last.volRatio||100)>=130;
-              let timing=0, dur=0;
-              try { timing=calcEntryTiming(cData).score||0; } catch{}
-              try { dur=calcTrendDurability(cData).score||0; } catch{}
-              const entryOk=timing>=50 && dur>=50;
+              // 돌파
               let breakoutCount = 0;
               if (prev) {
                 const stPrev = [prev.st1Bull, prev.st2Bull, prev.st3Bull].filter(v=>v!=null).length;
@@ -2382,25 +2433,32 @@ export default function App() {
                 if (last.sqzOff && prev.sqzOn) breakoutCount++;
               }
               const breakoutOk = breakoutCount >= 2;
-              const coreCount = [supplyOk, entryOk, breakoutOk].filter(Boolean).length;
-              if(coreCount < 2) return null;
+              // 적기
+              const ma20Now = last.ma20;
+              const aboveMa20 = ma20Now != null && last.close > ma20Now;
+              const macdOK = last.macd != null && last.signal != null && last.macd > last.signal;
+              const momentumOK = cData.length >= 4 ? last.close > cData[cData.length-4].close : false;
+              const entryComponents = [stC === 3, macdOK, aboveMa20, momentumOK];
+              const entryScore = entryComponents.filter(Boolean).length;
+              const entryOk = entryScore >= 3;
+              if(!(breakoutOk && entryOk)) return null;
               const r=alphaScore(s,cData,idxRS);
-              return{...s,score:r.score,signals:r.signals,rs:r.rs,timing,durability:dur,supplyOk,entryOk,breakoutOk,coreCount,isSuper:coreCount===3};
-            }).filter(Boolean).sort((a,b)=>{
-              if (b.coreCount !== a.coreCount) return b.coreCount - a.coreCount;  // 슈퍼(3/3) 먼저
-              return b.score - a.score;  // 그 다음 alphaScore
-            });
-            const superCount = all.filter(s=>s.isSuper).length;
+              let timing=0, dur=0;
+              try { timing=calcEntryTiming(cData).score||0; } catch{}
+              try { dur=calcTrendDurability(cData).score||0; } catch{}
+              return{...s,score:r.score,signals:r.signals,rs:r.rs,timing,durability:dur,breakoutOk,entryOk,volR,volSust,breakoutCount,entryScore};
+            }).filter(Boolean).sort((a,b)=>b.score-a.score);
             return<div style={css.card}>
-              <div style={{fontSize:11,fontWeight:700,color:C.purple,marginBottom:4}}>🟢 핵심 매수 ({all.length}개){superCount>0&&<span style={{color:"#FFD60A",marginLeft:6}}>· 🚀 슈퍼 {superCount}개</span>}</div>
-              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>핵심 3시그널 (수급HIT79·적기HIT46·돌파HIT58 vs 모두 MISS≤6) 중 2+ 충족 · 3/3 충족 시 🚀 슈퍼 매수</div>
+              <div style={{fontSize:11,fontWeight:700,color:C.purple,marginBottom:4}}>🟢 핵심 매수 — 돌파+적기 ({all.length}개)</div>
+              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>v2.4.1: 거래량 지속 (3봉 중 2봉↑ 105%) + 돌파(4개 중 2+) + 적기(4개 중 3+) 모두 충족 · 종합점수순 정렬</div>
               <div style={{maxHeight:400,overflowY:"auto"}}>
                 {all.map((s,i)=>(
-                  <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 8px",borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer",background:s.isSuper?"rgba(255,214,10,.05)":"transparent"}}>
-                    <span style={{fontSize:10,fontWeight:900,color:s.isSuper?"#FFD60A":C.purple,minWidth:16}}>{s.isSuper?"🚀":i+1}</span>
+                  <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 8px",borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer"}}>
+                    <span style={{fontSize:10,fontWeight:900,color:C.purple,minWidth:16}}>{i+1}</span>
                     <span style={{fontWeight:700,fontSize:9,minWidth:60,maxWidth:82,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</span>
-                    <span style={{fontSize:8,fontWeight:900,color:s.timing>=55?"#FF9F0A":C.muted,padding:"1px 3px",borderRadius:2,background:"rgba(255,159,10,.06)"}}>⚡{s.timing}</span>
-                    <span style={{fontSize:8,fontWeight:900,color:s.durability>=55?C.emerald:C.muted,padding:"1px 3px",borderRadius:2,background:"rgba(48,209,88,.06)"}}>💪{s.durability}</span>
+                    <span title={`돌파 ${s.breakoutCount}/4`} style={{fontSize:8,fontWeight:900,color:"#64D2FF",padding:"1px 3px",borderRadius:2,background:"rgba(100,210,255,.06)"}}>💎{s.breakoutCount}</span>
+                    <span title={`적기 ${s.entryScore}/4`} style={{fontSize:8,fontWeight:900,color:"#FF9F0A",padding:"1px 3px",borderRadius:2,background:"rgba(255,159,10,.06)"}}>⚡{s.entryScore}</span>
+                    <span title={`거래량 지속성 ${s.volSust}/3봉 (105%↑) · 현재 ${s.volR}%`} style={{fontSize:8,fontWeight:900,color:C.emerald,padding:"1px 3px",borderRadius:2,background:"rgba(48,209,88,.06)"}}>📊{s.volSust}/3</span>
                     <div style={{flex:1}}/>
                     <div style={{textAlign:"right"}}>
                       <div style={{fontSize:13,fontWeight:900,color:C.accent}}>{s.score}<span style={{fontSize:8,color:C.muted}}>pt</span></div>
@@ -4119,20 +4177,27 @@ export default function App() {
                   try { durPt = calcTrendDurability(dCut).score || 0; } catch{}
 
                   const stC = [candle.st1Bull, candle.st2Bull, candle.st3Bull].filter(v=>v!=null).length;
+                  const volR = candle.volRatio || 0;
+
+                  // ★ v2.4.0: 수급 시그널 제거 + 거래량 120%↑를 돌파/적기 필수 조건으로 통합
+                  // ★ v2.4.1: 거래량 지속 매수세 — 최근 3봉 중 2봉 이상이 105% ↑
+                  let volSustainedCount = 0;
+                  for (let i = Math.max(0, idx-2); i <= idx; i++) {
+                    if ((d[i]?.volRatio || 0) >= 105) volSustainedCount++;
+                  }
+                  const volOK = volSustainedCount >= 2;
 
                   const sig_alpha  = alphaPt >= 60;
-                  const sig_entry  = timingPt >= 50 && durPt >= 50;
-                  const sig_supply = stC >= 2 && (candle.volRatio||100) >= 130;
                   const sig_strong = !!candle.aboveCloud || (candle.adx||0) >= 20;
                   const sig_rsi    = isRSIStrong(d, idx);
-                  // ★ v2.3.13 (B 강도 점수화): 각 시그널 0~4점
-                  // 수급 강도: 거래량 단계 + ST 단계
-                  const volR = candle.volRatio || 0;
+                  // 호환성용: sig_supply (실험실 컴포넌트 카드용)
+                  const sig_supply = stC >= 2 && volR >= 130;
+                  // ★ v2.3.13 (B 강도 점수화): 각 시그널 0~4점 (호환성용)
                   let supplyScore = 0;
                   if (volR >= 130 && volR < 200) supplyScore += 1;
                   else if (volR >= 200 && volR < 300) supplyScore += 2;
                   else if (volR >= 300) supplyScore += 3;
-                  if (stC === 3) supplyScore += 1;  // ST 3/3 보너스
+                  if (stC === 3) supplyScore += 1;
                   // 돌파 강도: 4개 중 충족 개수
                   const prev = idx > 0 ? d[idx-1] : null;
                   let breakoutCount = 0;
@@ -4144,7 +4209,8 @@ export default function App() {
                     if (candle.sqzOff && prev.sqzOn) breakoutCount++;
                   }
                   const breakoutScore = breakoutCount;
-                  const sig_breakout = breakoutCount >= 2;
+                  // ★ v2.4.0: 돌파 = 4개 중 2+ AND 거래량 120%↑ 필수
+                  const sig_breakout = breakoutCount >= 2 && volOK;
                   // 적기 강도: 4개 중 충족 개수
                   const ma20Now = candle.ma20;
                   const aboveMa20 = ma20Now != null && candle.close > ma20Now;
@@ -4152,10 +4218,12 @@ export default function App() {
                   const momentumOK = idx >= 3 ? candle.close > d[idx-3].close : false;
                   const entryComponents = [stC === 3, macdOK, aboveMa20, momentumOK];
                   const entryScore = entryComponents.filter(Boolean).length;
+                  // ★ v2.4.0: 적기 = 4개 중 3+ AND 거래량 120%↑ 필수
+                  const sig_entry = entryScore >= 3 && volOK;
 
                   const sigs = [sig_alpha, sig_entry, sig_supply, sig_strong, sig_rsi];
                   const sigCount = sigs.filter(Boolean).length;
-                  const totalIntensity = supplyScore + breakoutScore + entryScore; // 0~12
+                  const totalIntensity = supplyScore + breakoutScore + entryScore;
 
                   // ★ v2.3.15 (D): 10개 컴포넌트 개별 플래그 — 재조합 검토용
                   let macdGoldenCross = false, cloudBreak = false, sqzOff = false;
@@ -4176,6 +4244,7 @@ export default function App() {
 
                   return { idx, candle, sig_alpha, sig_entry, sig_supply, sig_strong, sig_rsi, sig_breakout, sigCount, stC, rsi: candle.rsi, alphaPt, timingPt, durPt,
                     supplyScore, breakoutScore, entryScore, totalIntensity, volR,
+                    volSustainedCount, // v2.4.1: 최근 3봉 중 105%↑ 충족 봉 수 (거래량 지속성)
                     // 컴포넌트 플래그 (10개)
                     c_st2: stC >= 2,                   // 1. ST 카운트 ≥ 2 (수급)
                     c_vol: volR >= 130,                // 2. 거래량 ≥ 130% (수급)
@@ -4263,6 +4332,7 @@ export default function App() {
                   entryScore: sigDay.entryScore,       // 0~4
                   totalIntensity: sigDay.totalIntensity, // 0~12
                   volR: sigDay.volR,
+                  volSustainedCount: sigDay.volSustainedCount, // v2.4.1: 거래량 지속 봉 수
                   // 신규/지속 — 최근 3일 내 첫 발생 = 신규
                   supplyFresh: firstSupplyIdx !== null && (L - 1 - firstSupplyIdx) <= 3,
                   breakoutFresh: firstBreakoutIdx !== null && (L - 1 - firstBreakoutIdx) <= 3,
@@ -4298,15 +4368,12 @@ export default function App() {
               const loss5 = +(returns.filter(r => r <= -5).length / returns.length * 100).toFixed(0);
               return { count: valid.length, avg, median: +median.toFixed(1), winRate, big10, loss5 };
             };
-            // 시그널 조합 분류
+            // 시그널 조합 분류 (v2.4.0: 수급 시그널 폐지 → 4조합)
             const combos = [
-              {name:"🚀 슈퍼 (수급+적기+돌파)", filter:(b)=>b.sig_supply&&b.sig_entry&&b.sig_breakout, color:"#FFD60A"},
-              {name:"🟢 수급+돌파",              filter:(b)=>b.sig_supply&&b.sig_breakout&&!b.sig_entry, color:C.emerald},
-              {name:"🟢 수급+적기",              filter:(b)=>b.sig_supply&&b.sig_entry&&!b.sig_breakout, color:C.emerald},
-              {name:"🟢 돌파+적기",              filter:(b)=>b.sig_breakout&&b.sig_entry&&!b.sig_supply, color:C.emerald},
-              {name:"🟡 수급 단독",              filter:(b)=>b.sig_supply&&!b.sig_breakout&&!b.sig_entry, color:"#FF9F0A"},
-              {name:"🟡 돌파 단독",              filter:(b)=>b.sig_breakout&&!b.sig_supply&&!b.sig_entry, color:"#FF9F0A"},
-              {name:"🟡 적기 단독",              filter:(b)=>b.sig_entry&&!b.sig_supply&&!b.sig_breakout, color:"#FF9F0A"},
+              {name:"🚀 슈퍼 (돌파+적기)", filter:(b)=>b.sig_breakout&&b.sig_entry, color:"#FFD60A"},
+              {name:"💎 돌파 단독",        filter:(b)=>b.sig_breakout&&!b.sig_entry, color:"#64D2FF"},
+              {name:"⚡ 적기 단독",        filter:(b)=>b.sig_entry&&!b.sig_breakout, color:"#FF9F0A"},
+              {name:"⬜ 둘 다 미충족",     filter:(b)=>!b.sig_breakout&&!b.sig_entry, color:C.muted},
             ];
             const comboStats = combos.map(c => {
               const matchedBars = allBars.filter(c.filter);
@@ -4354,12 +4421,11 @@ export default function App() {
 
             // 놓친 이유 — MISS 종목에서 어느 시그널이 가장 약했나 (낮은 충족률 = 놓친 이유)
             const sigDefs = [
-              {key:"sig_supply", label:"🟢 수급필터", isCore:true},   // 핵심 1 — HIT 79% vs MISS 6%
-              {key:"sig_entry",  label:"🟢 진입적기", isCore:true},   // 핵심 2 — HIT 46% vs MISS 0%
-              {key:"sig_breakout", label:"💎 돌파감지", isCore:true}, // 핵심 3 — HIT 58% vs MISS 0% (검증 완료)
-              {key:"sig_strong", label:"추세강도", isCore:false},
-              {key:"sig_rsi",    label:"RSI 강세진입", isCore:false},
-              {key:"sig_alpha",  label:"종합점수 60+", isCore:false},
+              {key:"sig_breakout", label:"💎 돌파감지", isCore:true}, // 핵심 1 (v2.4.0: 거래량 120% 필수)
+              {key:"sig_entry",    label:"⚡ 진입적기", isCore:true},   // 핵심 2 (v2.4.0: 거래량 120% 필수)
+              {key:"sig_strong",   label:"추세강도", isCore:false},
+              {key:"sig_rsi",      label:"RSI 강세진입", isCore:false},
+              {key:"sig_alpha",    label:"종합점수 60+", isCore:false},
             ];
             const missAnalysis = misses.length>0 ? sigDefs.map(s=>({
               ...s, pct: Math.round(misses.filter(m=>m[s.key]).length/misses.length*100)
@@ -4480,7 +4546,7 @@ export default function App() {
               {misses.length>0 && <div style={css.card}>
                 <div style={{fontSize:10,fontWeight:700,color:C.red,marginBottom:4}}>❌ 놓친 이유 — MISS {misses.length}개의 시작 시점 시그널 충족률</div>
                 <div style={{fontSize:8,color:C.muted,marginBottom:8}}>가장 자주 빠진 지표가 곧 '놓친 이유' · 임계값 완화 시 더 잡힐 수 있음</div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:4}}>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:4}}>
                   {missAnalysis.map((m,i)=>(
                     <div key={m.key} style={{background:m.isCore?(m.pct<=40?"rgba(255,69,58,.12)":"rgba(48,209,88,.04)"):"rgba(0,0,0,.4)",border:m.isCore?`1.5px solid ${m.pct<=40?C.red:C.emerald}`:`1px solid rgba(255,255,255,.05)`,borderRadius:6,padding:"6px",textAlign:"center"}}>
                       <div style={{fontSize:7,color:m.isCore?C.text:C.muted,marginBottom:2,fontWeight:m.isCore?700:400}}>{m.label}</div>
@@ -4495,7 +4561,7 @@ export default function App() {
               {hits.length>0 && <div style={css.card}>
                 <div style={{fontSize:10,fontWeight:700,color:C.emerald,marginBottom:4}}>✅ 잘 잡은 패턴 — HIT {hits.length}개의 시작 시점 충족률</div>
                 <div style={{fontSize:8,color:C.muted,marginBottom:8}}>가장 자주 충족한 지표가 곧 '효과적 시그널' · 핵심 필터 후보</div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:4}}>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:4}}>
                   {hitAnalysis.map((m,i)=>(
                     <div key={m.key} style={{background:m.isCore?(m.pct>=70?"rgba(48,209,88,.12)":"rgba(255,159,10,.06)"):"rgba(0,0,0,.4)",border:m.isCore?`1.5px solid ${m.pct>=70?C.emerald:"#FF9F0A"}`:`1px solid rgba(255,255,255,.05)`,borderRadius:6,padding:"6px",textAlign:"center"}}>
                       <div style={{fontSize:7,color:m.isCore?C.text:C.muted,marginBottom:2,fontWeight:m.isCore?700:400}}>{m.label}</div>
@@ -4518,18 +4584,18 @@ export default function App() {
                       <span style={{fontSize:8,fontWeight:900,padding:"1px 5px",borderRadius:3,minWidth:35,textAlign:"center",background:s.isHit?"rgba(48,209,88,.15)":"rgba(255,69,58,.15)",color:s.isHit?C.emerald:C.red}}>{s.isHit?"HIT":"MISS"}</span>
                       <span style={{fontWeight:700,fontSize:9,minWidth:55,maxWidth:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</span>
                       <span style={{fontSize:7,color:C.muted,minWidth:42}}>{isKR4?"₩"+fmtKRW(s.price||0):"$"+(s.price||0).toFixed(1)}</span>
-                      {/* ★ v2.3.13: 핵심 3시그널 강도 + 신규/지속 표시 */}
+                      {/* ★ v2.4.0: 핵심 2시그널 (수급 제거, 거래량은 돌파/적기 필수 조건) */}
                       <div style={{display:"flex",gap:2,flexShrink:0}}>
-                        <span title={`수급 강도 ${s.supplyScore}/4 (거래량 ${s.volR}%, ST ${s.stC}/3)${s.supplyFresh?" — 🆕 최근 신규":" — 지속"}`} style={{fontSize:7,padding:"2px 5px",borderRadius:3,background:s.supplyScore>=3?"rgba(48,209,88,.25)":s.supplyScore>=1?"rgba(48,209,88,.10)":"rgba(255,69,58,.08)",color:s.supplyScore>=3?C.emerald:s.supplyScore>=1?C.green:C.red,fontWeight:900,border:`1px solid ${s.supplyScore>=3?C.emerald:s.supplyScore>=1?"rgba(48,209,88,.4)":"rgba(255,69,58,.3)"}`}}>{s.supplyFresh&&s.sig_supply?"🆕":""}수급{s.supplyScore}</span>
-                        <span title={`진입적기 강도 ${s.entryScore}/4 (타이밍 ${s.timingPt}+지속력 ${s.durPt})${s.entryFresh?" — 🆕 최근 신규":" — 지속"}`} style={{fontSize:7,padding:"2px 5px",borderRadius:3,background:s.entryScore>=3?"rgba(255,159,10,.25)":s.entryScore>=1?"rgba(255,159,10,.10)":"rgba(255,69,58,.08)",color:s.entryScore>=3?"#FF9F0A":s.entryScore>=1?"#FFB84D":C.red,fontWeight:900,border:`1px solid ${s.entryScore>=3?"#FF9F0A":s.entryScore>=1?"rgba(255,159,10,.4)":"rgba(255,69,58,.3)"}`}}>{s.entryFresh&&s.sig_entry?"🆕":""}적기{s.entryScore}</span>
-                        <span title={`돌파 강도 ${s.breakoutScore}/4 (ST flip+MACD골든+구름돌파+스퀴즈오프 중 충족)${s.breakoutFresh?" — 🆕 최근 신규":" — 지속"}`} style={{fontSize:7,padding:"2px 5px",borderRadius:3,background:s.breakoutScore>=3?"rgba(100,210,255,.25)":s.breakoutScore>=1?"rgba(100,210,255,.10)":"rgba(255,69,58,.08)",color:s.breakoutScore>=3?"#64D2FF":s.breakoutScore>=1?"#8DDBFF":C.red,fontWeight:900,border:`1px solid ${s.breakoutScore>=3?"#64D2FF":s.breakoutScore>=1?"rgba(100,210,255,.4)":"rgba(255,69,58,.3)"}`}}>{s.breakoutFresh&&s.sig_breakout?"🆕":""}돌파{s.breakoutScore}</span>
+                        <span title={`💎 돌파 = 4개 중 2+ AND 거래량 지속 (3봉 중 2봉↑ 105%) — 강도 ${s.breakoutScore}/4, 거래량 지속 ${s.volSustainedCount}/3${s.breakoutFresh?" — 🆕 최근 신규":" — 지속"}`} style={{fontSize:7,padding:"2px 5px",borderRadius:3,background:s.sig_breakout?"rgba(100,210,255,.25)":"rgba(255,69,58,.08)",color:s.sig_breakout?"#64D2FF":C.red,fontWeight:900,border:`1px solid ${s.sig_breakout?"#64D2FF":"rgba(255,69,58,.3)"}`}}>{s.breakoutFresh&&s.sig_breakout?"🆕":""}돌파{s.breakoutScore}</span>
+                        <span title={`⚡ 적기 = 4개 중 3+ AND 거래량 지속 (3봉 중 2봉↑ 105%) — 강도 ${s.entryScore}/4, 거래량 지속 ${s.volSustainedCount}/3${s.entryFresh?" — 🆕 최근 신규":" — 지속"}`} style={{fontSize:7,padding:"2px 5px",borderRadius:3,background:s.sig_entry?"rgba(255,159,10,.25)":"rgba(255,69,58,.08)",color:s.sig_entry?"#FF9F0A":C.red,fontWeight:900,border:`1px solid ${s.sig_entry?"#FF9F0A":"rgba(255,69,58,.3)"}`}}>{s.entryFresh&&s.sig_entry?"🆕":""}적기{s.entryScore}</span>
                       </div>
                       <div style={{display:"flex",gap:1,flex:1}}>
-                        <span title={`추세강도 (구름·ADX≥20) — 보조 (식별력 약함)`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_strong?"rgba(100,210,255,.10)":"rgba(255,255,255,.04)",color:s.sig_strong?"#64D2FF":C.muted,fontWeight:700}}>강도</span>
-                        <span title={`RSI 강세진입 (현재 ${s.rsi?.toFixed(0)||"—"}) — 보조 (식별력 0)`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_rsi?"rgba(191,90,242,.10)":"rgba(255,255,255,.04)",color:s.sig_rsi?C.purple:C.muted,fontWeight:700}}>RSI</span>
-                        <span title={`종합점수 ${s.alphaPt} — 보조 (식별력 0)`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_alpha?"rgba(10,132,255,.10)":"rgba(255,255,255,.04)",color:s.sig_alpha?C.accent:C.muted,fontWeight:700}}>α</span>
+                        <span title={`거래량 지속성 ${s.volSustainedCount}/3봉 (105%↑) — 현재 ${s.volR}% · 2/3 이상 = 시그널 충족 가능`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.volSustainedCount>=2?"rgba(48,209,88,.15)":"rgba(255,255,255,.04)",color:s.volSustainedCount>=2?C.emerald:C.muted,fontWeight:700}}>거래량{s.volSustainedCount}/3</span>
+                        <span title={`추세강도 (구름·ADX≥20) — 보조`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_strong?"rgba(100,210,255,.10)":"rgba(255,255,255,.04)",color:s.sig_strong?"#64D2FF":C.muted,fontWeight:700}}>강도</span>
+                        <span title={`RSI 강세진입 (현재 ${s.rsi?.toFixed(0)||"—"}) — 보조`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_rsi?"rgba(191,90,242,.10)":"rgba(255,255,255,.04)",color:s.sig_rsi?C.purple:C.muted,fontWeight:700}}>RSI</span>
+                        <span title={`종합점수 ${s.alphaPt} — 보조`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_alpha?"rgba(10,132,255,.10)":"rgba(255,255,255,.04)",color:s.sig_alpha?C.accent:C.muted,fontWeight:700}}>α</span>
                       </div>
-                      <span title={`총 강도 ${s.totalIntensity}/12`} style={{fontSize:8,fontWeight:700,color:s.totalIntensity>=8?C.emerald:s.totalIntensity>=5?"#FF9F0A":s.totalIntensity>=3?C.yellow:C.muted,minWidth:25,textAlign:"center"}}>{s.totalIntensity}/12</span>
+                      <span title="핵심 2시그널 충족 (돌파/적기)" style={{fontSize:8,fontWeight:700,color:[s.sig_breakout,s.sig_entry].filter(Boolean).length===2?C.emerald:[s.sig_breakout,s.sig_entry].filter(Boolean).length===1?"#FF9F0A":C.muted,minWidth:25,textAlign:"center"}}>{[s.sig_breakout,s.sig_entry].filter(Boolean).length}/2</span>
                       {s.isHit&&<span title="신호 발생 며칠 전" style={{fontSize:7,fontWeight:700,color:C.accent,minWidth:24,textAlign:"center",padding:"1px 3px",background:"rgba(10,132,255,.08)",borderRadius:3}}>d-{s.daysAgo}</span>}
                       <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",minWidth:60}}>
                         <span style={{fontSize:9,fontWeight:900,color:s.realChg5>0?C.green:C.red}}>+{s.realChg5.toFixed(1)}%</span>
