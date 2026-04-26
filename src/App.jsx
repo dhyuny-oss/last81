@@ -1,5 +1,14 @@
 /**
- * Alpha Terminal v2.3.15 — App.jsx
+ * Alpha Terminal v2.3.16 — App.jsx
+ * v2.3.16: [ST 전환 패턴 4종 측정 — 사용자 분 매수 철학 검증]
+ *          [철학] "오르자마자 X, 계속 가겠네 싶을 때 매수" — ST 2→3 전환이 진짜 매수 타점
+ *          [실험실] 컴포넌트 카드에 4개 전환 패턴 추가:
+ *                   ⭐ ST 2→3 전환 (사용자 분 매수 타점)
+ *                   ST 1→2 전환 (오르자마자, 위험)
+ *                   ST 약세→3 점프 (드물지만 강력 가능)
+ *                   ST 3/3 유지 (이미 추세, 추격은 위험)
+ *          [목적] 진짜 매수 타점 vs 추격 매수 데이터로 분리
+ *                 ST flip (광범위) → 4종 패턴 (정밀) 진화
  * v2.3.15: [컴포넌트별 단독 효과 측정 — 재조합 검토용 데이터]
  *          [실험실] 10개 컴포넌트 개별 플래그 측정 (helper에서 추적)
  *                   수급 내부 (2): ST≥2 / 거래량≥130%
@@ -4157,6 +4166,14 @@ export default function App() {
                   }
                   const stFlip = prev ? (stC > [prev.st1Bull,prev.st2Bull,prev.st3Bull].filter(v=>v!=null).length) : false;
 
+                  // ★ v2.3.16: ST 전환 패턴 분리 (사용자 분 매수 철학)
+                  // "계속 가겠네 싶을 때 사는 것" = ST 2→3 전환이 진짜 매수 타점
+                  const stPrevCount = prev ? [prev.st1Bull, prev.st2Bull, prev.st3Bull].filter(v=>v!=null).length : 0;
+                  const c_st_2to3 = (stPrevCount === 2 && stC === 3);  // 사용자 분 매수 타점
+                  const c_st_1to2 = (stPrevCount === 1 && stC === 2);  // 오르자마자 (위험)
+                  const c_st_0to3 = (stPrevCount <= 1 && stC === 3);   // 약세→3 점프 (드물지만 강력)
+                  const c_st_3hold = (stPrevCount === 3 && stC === 3); // 이미 추세 중 (추격)
+
                   return { idx, candle, sig_alpha, sig_entry, sig_supply, sig_strong, sig_rsi, sig_breakout, sigCount, stC, rsi: candle.rsi, alphaPt, timingPt, durPt,
                     supplyScore, breakoutScore, entryScore, totalIntensity, volR,
                     // 컴포넌트 플래그 (10개)
@@ -4170,6 +4187,11 @@ export default function App() {
                     c_macdPos: macdOK,                 // 8. MACD > Signal (적기)
                     c_aboveMa20: aboveMa20,            // 9. 가격 > MA20 (적기)
                     c_momentum: momentumOK,            // 10. 가격 > 3봉전 (적기)
+                    // ★ v2.3.16: ST 전환 패턴 4종 (사용자 분 매수 철학)
+                    c_st_2to3: c_st_2to3,              // 11. ST 2→3 전환 (사용자 분 매수 타점)
+                    c_st_1to2: c_st_1to2,              // 12. ST 1→2 전환 (오르자마자)
+                    c_st_0to3: c_st_0to3,              // 13. ST 약세→3 점프
+                    c_st_3hold: c_st_3hold,            // 14. ST 3/3 유지 (이미 추세)
                   };
                 };
 
@@ -4309,6 +4331,11 @@ export default function App() {
               {key:"c_macdPos",    label:"MACD > Signal",  group:"적기", color:"#FF9F0A"},
               {key:"c_aboveMa20",  label:"가격 > MA20",     group:"적기", color:"#FF9F0A"},
               {key:"c_momentum",   label:"가격 > 3봉전",    group:"적기", color:"#FF9F0A"},
+              // ★ v2.3.16: ST 전환 패턴 4종 (사용자 분 매수 철학 검증)
+              {key:"c_st_2to3",    label:"⭐ ST 2→3 전환",  group:"전환", color:"#FFD60A"},
+              {key:"c_st_1to2",    label:"ST 1→2 전환",    group:"전환", color:"#FFD60A"},
+              {key:"c_st_0to3",    label:"ST 약세→3 점프", group:"전환", color:"#FFD60A"},
+              {key:"c_st_3hold",   label:"ST 3/3 유지",    group:"전환", color:"#FFD60A"},
             ];
             const componentStats = components.map(c => {
               const matchedBars = allBars.filter(b => b[c.key]);
