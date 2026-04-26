@@ -508,6 +508,204 @@ def kis_get_kr_volume_top(n=300):
     print(f"    📊 한투 API 총 {len(stocks)}개")
     return stocks
 
+# ── ★ v2.3.5: 매수 신호 검색 (App.jsx의 5필터 Python 재현) ──────────
+def calc_rsi(closes, period=14):
+    """RSI 14 — 마지막 값과 직전 3봉 값 반환"""
+    if len(closes) < period + 4:
+        return None, None
+    gains = [max(closes[i] - closes[i-1], 0) for i in range(1, len(closes))]
+    losses = [max(closes[i-1] - closes[i], 0) for i in range(1, len(closes))]
+    if len(gains) < period:
+        return None, None
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+    rsi_series = []
+    for i in range(period, len(gains)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+        if avg_loss == 0:
+            rsi_series.append(100)
+        else:
+            rs = avg_gain / avg_loss
+            rsi_series.append(round(100 - 100 / (1 + rs), 2))
+    if len(rsi_series) < 4:
+        return None, None
+    return rsi_series[-1], rsi_series[-4]
+
+def calc_macd(closes):
+    if len(closes) < 35:
+        return None, None, None
+    ema12 = calc_ema(closes, 12)
+    ema26 = calc_ema(closes, 26)
+    if not ema12 or not ema26:
+        return None, None, None
+    macd_line = [(e12 - e26) if e12 and e26 else None for e12, e26 in zip(ema12, ema26)]
+    macd_valid = [m for m in macd_line if m is not None]
+    if len(macd_valid) < 9:
+        return None, None, None
+    signal_line = calc_ema(macd_valid, 9)
+    if not signal_line or signal_line[-1] is None:
+        return None, None, None
+    hist = macd_valid[-1] - signal_line[-1]
+    return macd_valid[-1], signal_line[-1], hist
+
+def calc_supertrend_count(candles):
+    if len(candles) < 20:
+        return 0, 0
+    def st_bull(period, mult):
+        results = []
+        prev_fu, prev_fl, prev_close = None, None, None
+        for i in range(len(candles)):
+            if i < period:
+                results.append(None); continue
+            trs = []
+            for j in range(i - period + 1, i + 1):
+                if j == 0: continue
+                h, l = candles[j]["high"], candles[j]["low"]
+                pc = candles[j-1]["close"]
+                trs.append(max(h - l, abs(h - pc), abs(l - pc)))
+            atr = sum(trs) / len(trs) if trs else None
+            if atr is None:
+                results.append(None); continue
+            hl2 = (candles[i]["high"] + candles[i]["low"]) / 2
+            bu, bl = hl2 + mult * atr, hl2 - mult * atr
+            if prev_fu is None:
+                fu, fl = bu, bl
+            else:
+                fu = bu if (bu < prev_fu or prev_close > prev_fu) else prev_fu
+                fl = bl if (bl > prev_fl or prev_close < prev_fl) else prev_fl
+            close = candles[i]["close"]
+            results.append(close > fu)
+            prev_fu, prev_fl, prev_close = fu, fl, close
+        return results
+    st1, st2, st3 = st_bull(10, 1), st_bull(11, 2), st_bull(12, 3)
+    cur = sum(1 for s in [st1[-1], st2[-1], st3[-1]] if s)
+    prev = sum(1 for s in [st1[-2], st2[-2], st3[-2]] if s) if len(candles) >= 2 else 0
+    return cur, prev
+
+def calc_cloud_status(closes, highs, lows):
+    if len(closes) < 52:
+        return "below"
+    tenkan = (max(highs[-9:]) + min(lows[-9:])) / 2
+    kijun = (max(highs[-26:]) + min(lows[-26:])) / 2
+    span_a = (tenkan + kijun) / 2
+    span_b = (max(highs[-52:]) + min(lows[-52:])) / 2
+    cloud_top = max(span_a, span_b); cloud_bot = min(span_a, span_b)
+    close = closes[-1]
+    if close > cloud_top: return "above"
+    elif close >= cloud_top * 0.97: return "near"
+    elif close >= cloud_bot: return "in"
+    else: return "below"
+
+def detect_buy_signal(candles, intraday=False):
+    if len(candles) < 60:
+        return None
+    closes = [c["close"] for c in candles]
+    highs = [c["high"] for c in candles]
+    lows = [c["low"] for c in candles]
+    st_cur, st_prev = calc_supertrend_count(candles)
+    st_flip = (st_cur == 3 and st_prev < 3)
+    if not st_flip:
+        return None
+    macd, signal, hist = calc_macd(closes)
+    macd_ok = (macd is not None and signal is not None and hist is not None and macd > signal and hist > 0)
+    rsi_cur, rsi_prev3 = calc_rsi(closes, 14)
+    rsi_ok = (rsi_cur is not None and rsi_prev3 is not None and 45 <= rsi_cur <= 70 and rsi_cur > rsi_prev3)
+    vol_ratio = calc_vol_ratio(candles)
+    vol_ok = vol_ratio >= 130
+    cloud_st = calc_cloud_status(closes, highs, lows)
+    cloud_ok = cloud_st in ("above", "near")
+    if intraday:
+        sigs = [st_flip, macd_ok, rsi_ok, cloud_ok]
+        count = sum(sigs); max_count = 4
+        if count == 4: tier = "candidate_strong"
+        elif count >= 2: tier = "candidate_normal"
+        else: return None
+    else:
+        sigs = [st_flip, macd_ok, rsi_ok, vol_ok, cloud_ok]
+        count = sum(sigs); max_count = 5
+        if count == 5: tier = "confirmed_strong"
+        elif count >= 3: tier = "confirmed_normal"
+        else: return None
+    return {"tier": tier, "count": count, "max": max_count, "filters": {
+        "st_flip": st_flip, "macd": macd_ok, "rsi": rsi_ok, "vol": vol_ok, "cloud": cloud_ok,
+        "rsi_val": rsi_cur, "vol_val": vol_ratio, "cloud_st": cloud_st, "st_count": st_cur,
+    }}
+
+def load_alert_state():
+    state_file = "public/data/alert_state.json"
+    try:
+        with open(state_file, "r") as f:
+            state = json.load(f)
+        now_ts = datetime.datetime.now().timestamp()
+        return {k: v for k, v in state.items() if (now_ts - v.get("ts", 0)) < 86400}
+    except Exception:
+        return {}
+
+def save_alert_state(state):
+    state_file = "public/data/alert_state.json"
+    try:
+        os.makedirs("public/data", exist_ok=True)
+        with open(state_file, "w") as f:
+            json.dump(state, f)
+    except Exception as e:
+        print(f"⚠️ alert state save fail: {e}")
+
+def send_buy_alerts(stocks_data, market_filter="all", intraday=False):
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        print("  ⚠️ Telegram 미설정 — 알림 스킵")
+        return
+    state = load_alert_state()
+    now_ts = datetime.datetime.now().timestamp()
+    candidates = []
+    for ticker, stock in stocks_data.items():
+        market = stock.get("market", "us")
+        if market_filter != "all" and market != market_filter:
+            continue
+        candles = stock.get("candles", [])
+        if len(candles) < 60:
+            continue
+        key = f"{ticker}_{'intraday' if intraday else 'confirmed'}"
+        if key in state:
+            continue
+        try:
+            sig = detect_buy_signal(candles, intraday=intraday)
+            if sig and sig["tier"] in ("confirmed_strong", "candidate_strong"):
+                candidates.append({"ticker": ticker, "stock": stock, "sig": sig, "key": key})
+        except Exception:
+            continue
+    max_alerts = 5 if intraday else 10
+    candidates = candidates[:max_alerts]
+    if not candidates:
+        print(f"  ℹ️ {market_filter} 강력 신호 0개 — 알림 스킵")
+        return
+    market_label = "🇰🇷 한국" if market_filter == "kr" else "🇺🇸 미국" if market_filter == "us" else "전체"
+    if intraday:
+        header = f"🔵 <b>{market_label}장 진행 중 후보</b> — {datetime.datetime.now().strftime('%m/%d %H:%M')} KST\n<i>4/4 충족 (거래량 장 마감 시 확정 필요)</i>\n\n"
+    else:
+        header = f"🟢 <b>{market_label} 종가 확정 신호</b> — {datetime.datetime.now().strftime('%m/%d %H:%M')} KST\n<i>5/5 충족 — 다음 거래일 시가 매수 검토</i>\n\n"
+    body_lines = []
+    for i, c in enumerate(candidates, 1):
+        ticker = c["ticker"]; s = c["stock"]; sig = c["sig"]["filters"]
+        label = s.get("label", ticker); price = s.get("price", 0); chg = s.get("changePct", 0)
+        is_kr = (s.get("market") == "kr")
+        price_str = f"₩{int(price):,}" if is_kr else f"${price:.2f}"
+        line = f"{i}. <b>{label}</b> ({ticker}) {price_str} ({'+' if chg>=0 else ''}{chg:.1f}%)\n"
+        line += f"   ✓ ST {sig['st_count']}/3"
+        line += f" · {'✓' if sig['macd'] else '·'} MACD"
+        line += f" · {'✓' if sig['rsi'] else '·'} RSI{int(sig['rsi_val'] or 0)}"
+        if not intraday:
+            line += f" · {'✓' if sig['vol'] else '·'} 거래량{sig['vol_val']}%"
+        line += f" · {'✓' if sig['cloud'] else '·'} 구름{sig['cloud_st']}"
+        body_lines.append(line)
+        state[c["key"]] = {"ts": now_ts, "ticker": ticker}
+    msg = header + "\n".join(body_lines)
+    if len(msg) > 3500:
+        msg = msg[:3500] + "\n..."
+    send_telegram(msg)
+    save_alert_state(state)
+    print(f"  ✅ {len(candidates)}개 알림 발송")
+
 def alpha_scan(ticker, info, candles):
     if len(candles) < 20:
         return None
@@ -1288,6 +1486,28 @@ def main():
             send_telegram(report)
         except Exception as e:
             print(f"  ⚠️ 텔레그램 리포트 생성 실패: {e}")
+
+    # ★ v2.3.5: 매수 신호 알림 (5필터 5/5 또는 4/4)
+    try:
+        stocks_data = output.get("stocks", {})
+        if MODE == "daily":
+            # 종가 확정 신호 — 5/5 충족 시
+            print("\n📢 매수 신호 검색 (종가 확정 5/5)...")
+            send_buy_alerts(stocks_data, market_filter="kr", intraday=False)
+            send_buy_alerts(stocks_data, market_filter="us", intraday=False)
+        elif MODE == "hourly":
+            # 장중 진행 중 후보 — 4/4 충족 시 (거래량 제외)
+            print("\n📢 장중 후보 검색 (4/4 충족)...")
+            now = datetime.datetime.now()
+            hour = now.hour
+            # 한국 장중 (09~15시 KST) = UTC 0~6
+            if 9 <= hour <= 15:
+                send_buy_alerts(stocks_data, market_filter="kr", intraday=True)
+            # 미국 장중 (23~05시 KST)
+            if hour >= 23 or hour <= 5:
+                send_buy_alerts(stocks_data, market_filter="us", intraday=True)
+    except Exception as e:
+        print(f"  ⚠️ 매수 신호 알림 실패: {e}")
 
 if __name__ == "__main__":
     main()
