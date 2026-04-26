@@ -1,5 +1,13 @@
 /**
- * Alpha Terminal v2.3.13 — App.jsx
+ * Alpha Terminal v2.3.14 — App.jsx
+ * v2.3.14: [시그널 → 결과 측정 (Precision) + 스캔 범위 확장]
+ *          [실험실] 스캔 범위 d-15 → d-30으로 확장 (시그널 발생이 d-15 근처 잘림 의심 해소)
+ *          [실험실] 시그널 조합별 정확도 카드 추가 — Precision 측정
+ *                   "시그널 뜬 봉의 N일 후 실제 결과" → 신호 가치 진짜 입증
+ *                   슈퍼/조합/단독 7가지 분류 × 3/5/7/10일 토글
+ *                   표본 / 평균 / 승률 / +10%↑ / -5%↓ 5개 지표
+ *          [목적] HIT/MISS는 Recall (오른 종목 중 잡은 비율)
+ *                 새 카드는 Precision (잡은 봉 중 오른 비율) — 진짜 매수 가치
  * v2.3.13: [강도 점수화 (B) + 신규/지속 구분 (C)]
  *          [실험실] 시그널 이진(✓/✗) → 강도 점수 (각 0~4점, 총 0~12점)
  *                   수급: 거래량 단계(130/200/300%) + ST 3/3 보너스
@@ -884,6 +892,7 @@ export default function App() {
   const [labStock, setLabStock] = useState(null);
   const [labPoint, setLabPoint] = useState(null);
   const [labMarket, setLabMarket] = useState("all"); // all | kr | us
+  const [labReturnDays, setLabReturnDays] = useState(5); // ★ v2.3.14: 정확도 측정 기간 토글
   // ★ v2.3: 집중탭 뷰 전환
   const [focusView, setFocusView] = useState(null); // null=기본 | "ranked" | "breakout" | "entry"
   const [focusMarket, setFocusMarket] = useState("all"); // all | kr | us
@@ -4138,12 +4147,25 @@ export default function App() {
                 let bestDay = null; // 시그널 못 찾으면 가장 점수 높은 날
                 // ★ v2.3.12: 각 핵심 시그널의 첫 발생 시점 추적 (가설: 순서 있음)
                 let firstSupplyIdx = null, firstBreakoutIdx = null, firstEntryIdx = null;
-                const scanStart = Math.max(0, L - 16);
+                // ★ v2.3.14: 스캔 범위 d-15 → d-30 확장 (잘림 방지)
+                const scanStart = Math.max(0, L - 31);
                 const scanEnd = L - 2;
                 const scanResults = []; // 모든 봉의 시그널 상태 저장 (수익률 계산용)
                 for (let i = scanStart; i <= scanEnd; i++) {
                   const r = helper(i);
                   if (!r) continue;
+                  // ★ v2.3.14: 각 봉의 미래 수익률 측정 (3일/5일/7일/10일 후)
+                  // 진입 = 다음 봉 시가 (현실적)
+                  const entryBar = d[i + 1];
+                  const entryPrice = entryBar?.open || d[i].close;
+                  const after3 = i + 4 < L ? +((d[i+4].close - entryPrice) / entryPrice * 100).toFixed(2) : null;
+                  const after5 = i + 6 < L ? +((d[i+6].close - entryPrice) / entryPrice * 100).toFixed(2) : null;
+                  const after7 = i + 8 < L ? +((d[i+8].close - entryPrice) / entryPrice * 100).toFixed(2) : null;
+                  const after10 = i + 11 < L ? +((d[i+11].close - entryPrice) / entryPrice * 100).toFixed(2) : null;
+                  r.return3 = after3;
+                  r.return5 = after5;
+                  r.return7 = after7;
+                  r.return10 = after10;
                   scanResults.push(r);
                   if (firstSupplyIdx === null && r.sig_supply) firstSupplyIdx = i;
                   if (firstBreakoutIdx === null && r.sig_breakout) firstBreakoutIdx = i;
@@ -4192,6 +4214,7 @@ export default function App() {
                   supplyFresh: firstSupplyIdx !== null && (L - 1 - firstSupplyIdx) <= 3,
                   breakoutFresh: firstBreakoutIdx !== null && (L - 1 - firstBreakoutIdx) <= 3,
                   entryFresh: firstEntryIdx !== null && (L - 1 - firstEntryIdx) <= 3,
+                  scanResults, // ★ v2.3.14: 시그널 조합별 정확도 측정용
                 };
               })
               .filter(Boolean);
@@ -4200,6 +4223,48 @@ export default function App() {
             const top40 = analyzed.sort((a,b)=>b.realChg5-a.realChg5).slice(0, 40);
             const totalTop = top40.length;
             if (!totalTop) return <div style={{textAlign:"center",padding:40,color:C.muted}}>실시간 차트 데이터가 충분하지 않습니다. Daily 실행 후 확인하세요.</div>;
+
+            // ★ v2.3.14: 시그널 조합별 정확도 측정 (모든 종목의 봉 합쳐서)
+            // 시그널이 떴을 때 N일 후 실제 결과 → Precision (잡은 종목 중 얼마나 올랐나)
+            const allBars = [];
+            analyzed.forEach(stock => {
+              if (stock.scanResults) {
+                stock.scanResults.forEach(bar => {
+                  allBars.push({...bar, ticker: stock.ticker, market: stock.market});
+                });
+              }
+            });
+            const calcStats = (bars, dayKey) => {
+              const valid = bars.filter(b => b[dayKey] !== null && b[dayKey] !== undefined);
+              if (valid.length === 0) return null;
+              const returns = valid.map(b => b[dayKey]).sort((a,b) => a-b);
+              const avg = +(returns.reduce((s,x) => s+x, 0) / returns.length).toFixed(1);
+              const median = returns[Math.floor(returns.length/2)];
+              const winRate = +(returns.filter(r => r > 0).length / returns.length * 100).toFixed(0);
+              const big10 = +(returns.filter(r => r >= 10).length / returns.length * 100).toFixed(0);
+              const loss5 = +(returns.filter(r => r <= -5).length / returns.length * 100).toFixed(0);
+              return { count: valid.length, avg, median: +median.toFixed(1), winRate, big10, loss5 };
+            };
+            // 시그널 조합 분류
+            const combos = [
+              {name:"🚀 슈퍼 (수급+적기+돌파)", filter:(b)=>b.sig_supply&&b.sig_entry&&b.sig_breakout, color:"#FFD60A"},
+              {name:"🟢 수급+돌파",              filter:(b)=>b.sig_supply&&b.sig_breakout&&!b.sig_entry, color:C.emerald},
+              {name:"🟢 수급+적기",              filter:(b)=>b.sig_supply&&b.sig_entry&&!b.sig_breakout, color:C.emerald},
+              {name:"🟢 돌파+적기",              filter:(b)=>b.sig_breakout&&b.sig_entry&&!b.sig_supply, color:C.emerald},
+              {name:"🟡 수급 단독",              filter:(b)=>b.sig_supply&&!b.sig_breakout&&!b.sig_entry, color:"#FF9F0A"},
+              {name:"🟡 돌파 단독",              filter:(b)=>b.sig_breakout&&!b.sig_supply&&!b.sig_entry, color:"#FF9F0A"},
+              {name:"🟡 적기 단독",              filter:(b)=>b.sig_entry&&!b.sig_supply&&!b.sig_breakout, color:"#FF9F0A"},
+            ];
+            const comboStats = combos.map(c => {
+              const matchedBars = allBars.filter(c.filter);
+              return {
+                ...c,
+                stats5: calcStats(matchedBars, 'return5'),
+                stats3: calcStats(matchedBars, 'return3'),
+                stats7: calcStats(matchedBars, 'return7'),
+                stats10: calcStats(matchedBars, 'return10'),
+              };
+            });
 
             const hits = top40.filter(s => s.isHit);
             const misses = top40.filter(s => !s.isHit);
@@ -4390,6 +4455,57 @@ export default function App() {
                       </div>
                     </div>;
                   })}
+                </div>
+              </div>
+
+              {/* ★ v2.3.14: 시그널 조합별 정확도 — 시그널 뜬 봉의 실제 N일 후 결과 */}
+              <div style={css.card}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+                  <div style={{fontSize:10,fontWeight:700,color:"#FFD60A"}}>📊 시그널 조합별 정확도 — Precision (시그널 → 결과)</div>
+                  <div style={{display:"flex",gap:4}}>
+                    {[3,5,7,10].map(d => (
+                      <button key={d} onClick={()=>setLabReturnDays(d)} style={{fontSize:8,padding:"3px 6px",borderRadius:4,border:`1px solid ${labReturnDays===d?"#FFD60A":C.border}`,background:labReturnDays===d?"rgba(255,214,10,.15)":"transparent",color:labReturnDays===d?"#FFD60A":C.muted,cursor:"pointer",fontWeight:700}}>{d}일</button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{fontSize:8,color:C.muted,marginBottom:10}}>
+                  시그널 뜬 봉의 다음 봉 시가 매수 → {labReturnDays}일 후 종가 청산 가정 · 표본 = 종목별 d-30~d-2 모든 봉 누적
+                </div>
+                <div style={{display:"grid",gap:4}}>
+                  {/* 헤더 */}
+                  <div style={{display:"grid",gridTemplateColumns:"2fr 0.7fr 0.8fr 0.7fr 0.7fr 0.7fr",gap:4,padding:"4px 8px",fontSize:7,color:C.muted,borderBottom:`1px solid ${C.border}`}}>
+                    <div>조합</div>
+                    <div style={{textAlign:"center"}}>표본</div>
+                    <div style={{textAlign:"center"}}>평균</div>
+                    <div style={{textAlign:"center"}}>승률</div>
+                    <div style={{textAlign:"center"}}>+10%↑</div>
+                    <div style={{textAlign:"center"}}>-5%↓</div>
+                  </div>
+                  {comboStats.map(c => {
+                    const stat = c[`stats${labReturnDays}`];
+                    return <div key={c.name} style={{display:"grid",gridTemplateColumns:"2fr 0.7fr 0.8fr 0.7fr 0.7fr 0.7fr",gap:4,padding:"5px 8px",fontSize:9,background:`${c.color}06`,border:`1px solid ${c.color}20`,borderRadius:4,alignItems:"center"}}>
+                      <div style={{color:c.color,fontWeight:700,fontSize:8}}>{c.name}</div>
+                      <div style={{textAlign:"center",color:!stat?C.muted:stat.count<10?C.yellow:C.text,fontSize:8}}>
+                        {!stat?"—":stat.count<10?`${stat.count}⚠`:stat.count}
+                      </div>
+                      <div style={{textAlign:"center",fontWeight:900,color:!stat?C.muted:stat.avg>=10?C.emerald:stat.avg>=5?C.green:stat.avg>=0?C.yellow:C.red}}>
+                        {!stat?"—":(stat.avg>=0?"+":"")+stat.avg+"%"}
+                      </div>
+                      <div style={{textAlign:"center",color:!stat?C.muted:stat.winRate>=70?C.emerald:stat.winRate>=55?C.yellow:C.red,fontSize:8}}>
+                        {!stat?"—":stat.winRate+"%"}
+                      </div>
+                      <div style={{textAlign:"center",color:!stat?C.muted:stat.big10>=40?C.emerald:stat.big10>=20?C.yellow:C.muted,fontSize:8}}>
+                        {!stat?"—":stat.big10+"%"}
+                      </div>
+                      <div style={{textAlign:"center",color:!stat?C.muted:stat.loss5>=20?C.red:stat.loss5>=10?C.yellow:C.muted,fontSize:8}}>
+                        {!stat?"—":stat.loss5+"%"}
+                      </div>
+                    </div>;
+                  })}
+                </div>
+                <div style={{fontSize:7,color:C.muted,marginTop:8,padding:"6px 8px",background:"rgba(0,0,0,.3)",borderRadius:4,lineHeight:1.5}}>
+                  <b>해석법</b>: <b style={{color:C.emerald}}>승률</b>=양수 비율 · <b style={{color:C.emerald}}>+10%↑</b>=대박 비율 · <b style={{color:C.red}}>-5%↓</b>=손실 위험 비율 · <b style={{color:C.yellow}}>표본⚠</b>=10개 미만 (참고용)<br/>
+                  <b>비교 포인트</b>: 슈퍼 종목이 단독보다 결과 좋은가? 시그널 조합이 승률 올리는가?
                 </div>
               </div>
 
