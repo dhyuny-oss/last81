@@ -1,5 +1,12 @@
 /**
- * Alpha Terminal v2.3.8 — App.jsx
+ * Alpha Terminal v2.3.9 — App.jsx
+ * v2.3.9: [집중탭 일관성 — 실험실 진단 결과를 추천 컷에 반영]
+ *         [집중탭] "종합추천 75pt+" → "🟢 핵심 매수 (수급+적기)"로 변경
+ *                  컷: alphaScore ≥ 75 (실험상 무의미) → 수급필터 + 진입적기 동시 충족
+ *                  정렬: alphaScore 점수 그대로 (강한 종목 우선)
+ *         [점검] 발굴탭/차트탭은 alphaScore 사용이 정렬/표시용이라 변경 불필요
+ *         [점검] 차트탭 체크리스트는 진입적기 기반이라 변경 불필요 (이미 일관)
+ *         [점검] 텔레그램 알림(fetch_yahoo.py)은 v2.3.8에서 이미 핵심 2시그널 기반
  * v2.3.8: [핵심 2시그널 강조 — 데이터 기반 식별력 차등화]
  *         [실험실] v2.3.7 분석 결과: 수급필터 (HIT79% vs MISS6%) + 진입적기 (HIT46% vs MISS0%)
  *                  이 둘이 진짜 식별력 있는 핵심 시그널 — 다른 3개는 보조
@@ -2247,9 +2254,21 @@ export default function App() {
 
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:14}}>
             <div onClick={()=>setFocusView(focusView==="ranked"?null:"ranked")} style={{background:focusView==="ranked"?"rgba(191,90,242,.15)":"rgba(191,90,242,.06)",border:`2px solid ${focusView==="ranked"?C.purple:"rgba(191,90,242,.2)"}`,borderRadius:8,padding:"8px",textAlign:"center",cursor:"pointer"}}>
-              <div style={{fontSize:8,color:C.purple}}>종합추천</div>
-              <div style={{fontSize:22,fontWeight:900,color:C.purple}}>{realStocks.filter(s=>{const r=alphaScore(s,charts[s.ticker]?.data,idxRS);return r.score>=75;}).length}</div>
-              <div style={{fontSize:7,color:focusView==="ranked"?C.purple:C.muted}}>{focusView==="ranked"?"▲ 접기":"75pt+ 전체보기"}</div>
+              <div style={{fontSize:8,color:C.purple}}>🟢 핵심 매수</div>
+              <div style={{fontSize:22,fontWeight:900,color:C.purple}}>{realStocks.filter(s=>{
+                // ★ v2.3.9: 종합추천 → 수급+적기 핵심 2시그널 (실험상 HIT 79%/46% vs MISS 6%/0%)
+                const cData = charts[s.ticker]?.data;
+                if (!cData || cData.length < 30) return false;
+                const last = cData.at(-1);
+                const stC = [last.st1Bull,last.st2Bull,last.st3Bull].filter(v=>v!=null).length;
+                const supplyOk = stC >= 2 && (last.volRatio||100) >= 130;
+                let timing=0, dur=0;
+                try { timing = calcEntryTiming(cData).score || 0; } catch{}
+                try { dur = calcTrendDurability(cData).score || 0; } catch{}
+                const entryOk = timing >= 50 && dur >= 50;
+                return supplyOk && entryOk;
+              }).length}</div>
+              <div style={{fontSize:7,color:focusView==="ranked"?C.purple:C.muted}}>{focusView==="ranked"?"▲ 접기":"수급+적기 동시 충족"}</div>
             </div>
             <div onClick={()=>setFocusView(focusView==="breakout"?null:"breakout")} style={{background:focusView==="breakout"?"rgba(48,209,88,.15)":"rgba(48,209,88,.06)",border:`2px solid ${focusView==="breakout"?C.emerald:"rgba(48,209,88,.2)"}`,borderRadius:8,padding:"8px",textAlign:"center",cursor:"pointer"}}>
               <div style={{fontSize:8,color:C.emerald}}>돌파감지</div>
@@ -2264,15 +2283,25 @@ export default function App() {
           </div>
           {realCount>0&&<div style={{fontSize:7,color:C.muted,textAlign:"right",marginTop:-10,marginBottom:8}}>실시간 {realCount}종목 기준</div>}
 
-          {/* ★ v2.3: 확장 뷰 — 카드 클릭 시 전체 목록 */}
+          {/* ★ v2.3.9: 종합추천 → 핵심 매수 (수급+적기 컷, alphaScore 정렬) */}
           {focusView==="ranked"&&(()=>{
             const all=realStocks.map(s=>{
-              const cData=charts[s.ticker]?.data;const r=alphaScore(s,cData,idxRS);
-              const tm=calcEntryTiming(cData);const dr=calcTrendDurability(cData);
-              return{...s,score:r.score,signals:r.signals,rs:r.rs,timing:tm.score,durability:dr.score};
-            }).filter(s=>s.score>=75).sort((a,b)=>b.score-a.score);
+              const cData=charts[s.ticker]?.data;
+              if(!cData||cData.length<30) return null;
+              const last=cData.at(-1);
+              const stC=[last.st1Bull,last.st2Bull,last.st3Bull].filter(v=>v!=null).length;
+              const supplyOk=stC>=2 && (last.volRatio||100)>=130;
+              let timing=0, dur=0;
+              try { timing=calcEntryTiming(cData).score||0; } catch{}
+              try { dur=calcTrendDurability(cData).score||0; } catch{}
+              const entryOk=timing>=50 && dur>=50;
+              if(!(supplyOk && entryOk)) return null;
+              const r=alphaScore(s,cData,idxRS);
+              return{...s,score:r.score,signals:r.signals,rs:r.rs,timing,durability:dur,supplyOk,entryOk};
+            }).filter(Boolean).sort((a,b)=>b.score-a.score);
             return<div style={css.card}>
-              <div style={{fontSize:11,fontWeight:700,color:C.purple,marginBottom:8}}>🏆 종합추천 75pt+ ({all.length}개)</div>
+              <div style={{fontSize:11,fontWeight:700,color:C.purple,marginBottom:4}}>🟢 핵심 매수 — 수급+적기 ({all.length}개)</div>
+              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>실험상 HIT 종목들의 핵심 시그널 (수급필터 79% · 진입적기 46%) 동시 충족 · 정렬은 종합점수순</div>
               <div style={{maxHeight:400,overflowY:"auto"}}>
                 {all.map((s,i)=>(
                   <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 8px",borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer"}}>
