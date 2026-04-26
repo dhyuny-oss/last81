@@ -1,5 +1,10 @@
 /**
- * Alpha Terminal v2.3.9 — App.jsx
+ * Alpha Terminal v2.3.10 — App.jsx
+ * v2.3.10: [돌파감지 시그널 검증 — 데이터 기반 의사결정]
+ *          [실험실] 6번째 시그널 추가 — 돌파감지 (집중탭 카드와 동일 정의)
+ *                   ST flip + MACD 골든 + 구름 돌파 + 스퀴즈 오프 중 2개+
+ *          [실험실] MISS/HIT 카드 6개 칼럼으로 확장 — "검증중" 라벨로 명시
+ *          [목적] 돌파감지의 HIT vs MISS 식별력 데이터 측정 후 집중탭 정리 결정
  * v2.3.9: [집중탭 일관성 — 실험실 진단 결과를 추천 컷에 반영]
  *         [집중탭] "종합추천 75pt+" → "🟢 핵심 매수 (수급+적기)"로 변경
  *                  컷: alphaScore ≥ 75 (실험상 무의미) → 수급필터 + 진입적기 동시 충족
@@ -4033,10 +4038,22 @@ export default function App() {
                   const sig_supply = stC >= 2 && (candle.volRatio||100) >= 130;
                   const sig_strong = !!candle.aboveCloud || (candle.adx||0) >= 20;
                   const sig_rsi    = isRSIStrong(d, idx);
+                  // ★ v2.3.10 검증용: 돌파감지 (집중탭 카드와 동일 정의) — 4개 중 2개+
+                  const prev = idx > 0 ? d[idx-1] : null;
+                  let breakoutCount = 0;
+                  if (prev) {
+                    const stPrev = [prev.st1Bull, prev.st2Bull, prev.st3Bull].filter(v=>v!=null).length;
+                    if (stC > stPrev) breakoutCount++;                                              // ST flip
+                    if (candle.macd > candle.signal && prev.macd <= prev.signal) breakoutCount++;   // MACD 골든
+                    if (candle.aboveCloud && !prev.aboveCloud) breakoutCount++;                     // 구름 돌파
+                    if (candle.sqzOff && prev.sqzOn) breakoutCount++;                               // 스퀴즈 오프
+                  }
+                  const sig_breakout = breakoutCount >= 2;
+
                   const sigs = [sig_alpha, sig_entry, sig_supply, sig_strong, sig_rsi];
                   const sigCount = sigs.filter(Boolean).length;
 
-                  return { idx, candle, sig_alpha, sig_entry, sig_supply, sig_strong, sig_rsi, sigCount, stC, rsi: candle.rsi, alphaPt, timingPt, durPt };
+                  return { idx, candle, sig_alpha, sig_entry, sig_supply, sig_strong, sig_rsi, sig_breakout, sigCount, stC, rsi: candle.rsi, alphaPt, timingPt, durPt };
                 };
 
                 // d-15 ~ d-2 스캔 — 첫 3+ 시그널 충족 봉 찾기 (가장 빠른 진입 시점)
@@ -4073,7 +4090,7 @@ export default function App() {
                   chg5, realChg5: realChg, slippage, price: last.close,
                   sig_alpha: sigDay.sig_alpha, sig_entry: sigDay.sig_entry,
                   sig_supply: sigDay.sig_supply, sig_strong: sigDay.sig_strong,
-                  sig_rsi: sigDay.sig_rsi, sigCount: sigDay.sigCount, isHit,
+                  sig_rsi: sigDay.sig_rsi, sig_breakout: sigDay.sig_breakout, sigCount: sigDay.sigCount, isHit,
                   stC: sigDay.stC, rsi: sigDay.rsi,
                   alphaPt: sigDay.alphaPt, timingPt: sigDay.timingPt, durPt: sigDay.durPt,
                   daysAgo, // 신호 발생 며칠 전
@@ -4097,6 +4114,7 @@ export default function App() {
               {key:"sig_strong", label:"추세강도", isCore:false},
               {key:"sig_rsi",    label:"RSI 강세진입", isCore:false},
               {key:"sig_alpha",  label:"종합점수 60+", isCore:false},
+              {key:"sig_breakout", label:"💎 돌파감지", isCore:false}, // v2.3.10 검증 — 4개 중 2개+
             ];
             const missAnalysis = misses.length>0 ? sigDefs.map(s=>({
               ...s, pct: Math.round(misses.filter(m=>m[s.key]).length/misses.length*100)
@@ -4178,12 +4196,13 @@ export default function App() {
               {misses.length>0 && <div style={css.card}>
                 <div style={{fontSize:10,fontWeight:700,color:C.red,marginBottom:4}}>❌ 놓친 이유 — MISS {misses.length}개의 시작 시점 시그널 충족률</div>
                 <div style={{fontSize:8,color:C.muted,marginBottom:8}}>가장 자주 빠진 지표가 곧 '놓친 이유' · 임계값 완화 시 더 잡힐 수 있음</div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:4}}>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:4}}>
                   {missAnalysis.map((m,i)=>(
                     <div key={m.key} style={{background:m.isCore?(m.pct<=40?"rgba(255,69,58,.12)":"rgba(48,209,88,.04)"):"rgba(0,0,0,.4)",border:m.isCore?`1.5px solid ${m.pct<=40?C.red:C.emerald}`:`1px solid rgba(255,255,255,.05)`,borderRadius:6,padding:"6px",textAlign:"center"}}>
                       <div style={{fontSize:7,color:m.isCore?C.text:C.muted,marginBottom:2,fontWeight:m.isCore?700:400}}>{m.label}</div>
                       <div style={{fontSize:m.isCore?16:13,fontWeight:900,color:m.pct<=40?C.red:m.pct<=60?C.yellow:C.muted}}>{m.pct}%</div>
                       {m.isCore&&<div style={{fontSize:6,color:C.accent,marginTop:1}}>핵심</div>}
+                      {m.key==="sig_breakout"&&<div style={{fontSize:6,color:C.yellow,marginTop:1}}>검증중</div>}
                     </div>
                   ))}
                 </div>
@@ -4193,12 +4212,13 @@ export default function App() {
               {hits.length>0 && <div style={css.card}>
                 <div style={{fontSize:10,fontWeight:700,color:C.emerald,marginBottom:4}}>✅ 잘 잡은 패턴 — HIT {hits.length}개의 시작 시점 충족률</div>
                 <div style={{fontSize:8,color:C.muted,marginBottom:8}}>가장 자주 충족한 지표가 곧 '효과적 시그널' · 핵심 필터 후보</div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:4}}>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:4}}>
                   {hitAnalysis.map((m,i)=>(
                     <div key={m.key} style={{background:m.isCore?(m.pct>=70?"rgba(48,209,88,.12)":"rgba(255,159,10,.06)"):"rgba(0,0,0,.4)",border:m.isCore?`1.5px solid ${m.pct>=70?C.emerald:"#FF9F0A"}`:`1px solid rgba(255,255,255,.05)`,borderRadius:6,padding:"6px",textAlign:"center"}}>
                       <div style={{fontSize:7,color:m.isCore?C.text:C.muted,marginBottom:2,fontWeight:m.isCore?700:400}}>{m.label}</div>
                       <div style={{fontSize:m.isCore?16:13,fontWeight:900,color:m.pct>=80?C.emerald:m.pct>=60?C.green:C.muted}}>{m.pct}%</div>
                       {m.isCore&&<div style={{fontSize:6,color:C.accent,marginTop:1}}>핵심</div>}
+                      {m.key==="sig_breakout"&&<div style={{fontSize:6,color:C.yellow,marginTop:1}}>검증중</div>}
                     </div>
                   ))}
                 </div>
