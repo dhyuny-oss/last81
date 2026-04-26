@@ -1,5 +1,13 @@
 /**
- * Alpha Terminal v2.3.1 — App.jsx
+ * Alpha Terminal v2.3.2 — App.jsx
+ * v2.3.2: [Market Regime + 적응형 손절 — 받은 자료에서 흡수]
+ *         [시장] VIX 4단계 임계값 (16/22/30) — 안정/보통/주의/위기 라벨
+ *         [시장] Market Regime 카드 — 4신호 가중 합산 (VIX35%+추세30%+신용20%+금리커브15%)
+ *                4단계 분류 (위험선호/중립/위험회피/공포장세) + 신뢰도 % + 처방
+ *         [데이터] HYG/IEF/^IRX 3개 티커 추가 (신용스프레드 + 단기금리)
+ *         [추적] 체제 적응형 손절 (옵션) — 시장 체제에 따라 자동 조정
+ *                위험선호 -10% / 중립 -8% / 위험회피 -5% / 공포장세 -3%
+ *                기본 OFF — 사용자 토글로 활성화
  * v2.3.1: [추세추종 정렬 + UX 개선 — 새 시그널/조건 추가 없음]
  *         [데이터 품질] 캔들 실제 시가 적용 (fetch_yahoo.py 페어) + 합성 시가 fallback
  *         [데이터 품질] per-candle 지표 6종 보강 (ema20/ema200/aboveCloud/nearCloud/inCloud/volRatio)
@@ -819,8 +827,9 @@ export default function App() {
 
   // ── 12번: 불타기 + 트레일링컷 설정 ──────────────────────
   const [trailSettings, setTrailSettings] = useState(()=>{
-    try{const s=localStorage.getItem("at_trail");return s?JSON.parse(s):{initialStopPct:5,trailPct:8,switchPct:10,timeCutDays:14,timeCutPct:3};}
-    catch{return{initialStopPct:5,trailPct:8,switchPct:10,timeCutDays:14,timeCutPct:3};}
+    const defaults = {initialStopPct:5,trailPct:8,switchPct:10,timeCutDays:14,timeCutPct:3,adaptiveStop:false};
+    try{const s=localStorage.getItem("at_trail");return s?{...defaults,...JSON.parse(s)}:defaults;}
+    catch{return defaults;}
   });
 
   // ★ v2.2: 투자모드에 따른 불타기룰
@@ -1387,6 +1396,31 @@ export default function App() {
   const oppLabel    = oppScore>=70?"HIGH":oppScore>=45?"MODERATE":"LOW";
   const oppColor    = oppScore>=70?C.emerald:oppScore>=45?C.yellow:C.red;
 
+  // ★ v2.3.2: Market Regime — 4신호 가중 합산
+  const regimeData = (()=>{
+    const hyg = parseFloat(indicesData["HYG"]?.price || 0);
+    const ief = parseFloat(indicesData["IEF"]?.price || 0);
+    const tnx = parseFloat(indicesData["^TNX"]?.price || 0);
+    const irx = parseFloat(indicesData["^IRX"]?.price || 0);
+    let vixR = !vixVal ? 1 : vixVal<16 ? 0 : vixVal<22 ? 1 : vixVal<30 ? 2 : 3;
+    let trendR = spChg3d>1 ? 0 : spChg3d>-1 ? 1 : spChg3d>-3 ? 2 : 3;
+    const cr = hyg>0&&ief>0 ? hyg/ief : 0;
+    let creditR = !cr ? 1 : cr>0.85 ? 0 : cr>0.80 ? 1 : cr>0.75 ? 2 : 3;
+    const ys = tnx>0&&irx>0 ? tnx-irx : null;
+    let yieldR = ys===null ? 1 : ys>1.0 ? 0 : ys>0 ? 1 : ys>-0.5 ? 2 : 3;
+    const w = vixR*0.35 + trendR*0.30 + creditR*0.20 + yieldR*0.15;
+    let regime, stopPctSuggest;
+    if (w<0.75) { regime="risk_on"; stopPctSuggest=10; }
+    else if (w<1.5) { regime="neutral"; stopPctSuggest=8; }
+    else if (w<2.25) { regime="risk_off"; stopPctSuggest=5; }
+    else { regime="crisis"; stopPctSuggest=3; }
+    return { regime, score:w, stopPctSuggest, hasFullData: hyg>0 && tnx>0 };
+  })();
+  // 적응형 손절 — adaptiveStop 켜져있고 데이터 충분할 때만 체제 추천값, 아니면 사용자 설정값 유지
+  const effectiveStopPct = trailSettings.adaptiveStop && regimeData.hasFullData
+    ? regimeData.stopPctSuggest
+    : trailSettings.initialStopPct;
+
   // ★ v2.2: US/KR 분리 점수
   const oppScoreUS  = calcOppScoreUS(vixVal,spChg3d,SECTOR_RS);
   const oppScoreKR  = calcOppScoreKR(kospiChg3d,SECTOR_RS);
@@ -1586,7 +1620,7 @@ export default function App() {
             <button onClick={()=>setShowManualEntry(false)} style={{background:"none",border:"none",color:C.muted,fontSize:14,cursor:"pointer"}}>✕</button>
           </div>
           <div style={{fontSize:8,color:C.muted,marginBottom:12,padding:"6px 10px",background:"rgba(48,209,88,.05)",borderRadius:6,lineHeight:1.5}}>
-            💡 다른 증권사에서 산 종목을 추적탭에 등록합니다. 손절가는 매수가의 -{trailSettings.initialStopPct}%로 자동 설정. 체크리스트 없이 바로 보유 등록됩니다.
+            💡 다른 증권사에서 산 종목을 추적탭에 등록합니다. 손절가는 매수가의 -{effectiveStopPct}%로 자동 설정 {trailSettings.adaptiveStop&&regimeData.hasFullData?`(체제 적응형: ${regimeData.regime})`:""}. 체크리스트 없이 바로 보유 등록됩니다.
           </div>
 
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -1625,7 +1659,7 @@ export default function App() {
 
             {manualEntryDraft.entry>0&&<div style={{padding:"8px 10px",background:"rgba(255,69,58,.06)",border:`1px solid rgba(255,69,58,.2)`,borderRadius:6,fontSize:8}}>
               <div style={{color:C.muted,marginBottom:2}}>자동 설정될 손절가:</div>
-              <div style={{color:C.red,fontWeight:700,fontSize:10}}>{manualEntryDraft.market==="kr"?"₩":"$"}{(+manualEntryDraft.entry*(1-trailSettings.initialStopPct/100)).toFixed(manualEntryDraft.market==="kr"?0:2)} (-{trailSettings.initialStopPct}%)</div>
+              <div style={{color:C.red,fontWeight:700,fontSize:10}}>{manualEntryDraft.market==="kr"?"₩":"$"}{(+manualEntryDraft.entry*(1-effectiveStopPct/100)).toFixed(manualEntryDraft.market==="kr"?0:2)} (-{effectiveStopPct}%) {trailSettings.adaptiveStop&&regimeData.hasFullData?<span style={{color:C.accent,fontSize:7}}>🌊 체제</span>:""}</div>
             </div>}
 
             <div style={{display:"flex",gap:8,marginTop:6}}>
@@ -1637,7 +1671,7 @@ export default function App() {
                 if(exists){setAddMsg(`⚠️ ${d.ticker} 이미 보유 중`);setTimeout(()=>setAddMsg(""),2000);return;}
                 const isKR=d.market==="kr";
                 const entry=+d.entry;
-                const trailStop=+(entry*(1-trailSettings.initialStopPct/100)).toFixed(isKR?0:2);
+                const trailStop=+(entry*(1-effectiveStopPct/100)).toFixed(isKR?0:2);
                 setPositions(p=>[...p,{
                   id:Date.now(),
                   ticker:d.ticker,
@@ -1731,6 +1765,28 @@ export default function App() {
               <input type="range" min="1" max="8" step="0.5" value={trailSettings.timeCutPct||3} onChange={e=>setTrailSettings(p=>({...p,timeCutPct:+e.target.value}))} style={{width:"100%",accentColor:"#FF9F0A"}}/>
               <div style={{fontSize:11,fontWeight:700,color:"#FF9F0A",textAlign:"center"}}>±{trailSettings.timeCutPct||3}%</div>
             </div>
+          </div>
+
+          {/* ★ v2.3.2: 체제 적응형 손절 토글 */}
+          <div style={{marginTop:12,padding:"10px 12px",background:"rgba(10,132,255,.04)",border:`1px solid ${trailSettings.adaptiveStop?C.accent:C.border}`,borderRadius:8}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+              <div>
+                <div style={{fontSize:10,fontWeight:700,color:trailSettings.adaptiveStop?C.accent:C.text}}>🌊 체제 적응형 손절</div>
+                <div style={{fontSize:7,color:C.muted,marginTop:2}}>시장 체제(시장탭)에 따라 시드 매수 시 손절폭 자동 조정</div>
+              </div>
+              <button onClick={()=>setTrailSettings(p=>({...p,adaptiveStop:!p.adaptiveStop}))} style={{width:48,height:24,borderRadius:12,background:trailSettings.adaptiveStop?C.accent:"rgba(255,255,255,.1)",border:"none",cursor:"pointer",position:"relative",transition:"all .2s"}}>
+                <div style={{position:"absolute",top:2,left:trailSettings.adaptiveStop?26:2,width:20,height:20,borderRadius:10,background:"#fff",transition:"left .2s"}}/>
+              </button>
+            </div>
+            {trailSettings.adaptiveStop&&<div style={{fontSize:7,color:C.muted,paddingTop:6,borderTop:`1px solid ${C.border}`,display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4}}>
+              <div style={{textAlign:"center"}}><div style={{color:C.emerald,fontWeight:700}}>🟢 위험선호</div><div>-10%</div></div>
+              <div style={{textAlign:"center"}}><div style={{color:C.yellow,fontWeight:700}}>🟡 중립</div><div>-8%</div></div>
+              <div style={{textAlign:"center"}}><div style={{color:"#FF9F0A",fontWeight:700}}>🟠 위험회피</div><div>-5%</div></div>
+              <div style={{textAlign:"center"}}><div style={{color:C.red,fontWeight:700}}>🔴 공포장세</div><div>-3%</div></div>
+            </div>}
+            {trailSettings.adaptiveStop&&regimeData.hasFullData&&<div style={{fontSize:8,color:C.accent,marginTop:6,padding:"4px 8px",background:"rgba(10,132,255,.08)",borderRadius:5,textAlign:"center",fontWeight:700}}>
+              현재 체제: {regimeData.regime==="risk_on"?"🟢 위험선호":regimeData.regime==="neutral"?"🟡 중립":regimeData.regime==="risk_off"?"🟠 위험회피":"🔴 공포장세"} → 손절 -{regimeData.stopPctSuggest}% 자동 적용
+            </div>}
           </div>
 
           {/* ★ 불타기 룰 시뮬레이션 (10,000원 기준 예시) */}
@@ -1834,6 +1890,117 @@ export default function App() {
 
         {/* ══ TAB 1: 시장레이더 ══ */}
         {tab==="radar"&&<div style={{padding:"10px 10px"}}>
+          {/* ★ v2.3.2: Market Regime — VIX/추세/신용/금리 4신호 종합 */}
+          {(()=>{
+            const vix = parseFloat(indicesData["^VIX"]?.price || 0);
+            const spy = indicesData["^GSPC"];
+            const hyg = parseFloat(indicesData["HYG"]?.price || 0);
+            const ief = parseFloat(indicesData["IEF"]?.price || 0);
+            const tnx = parseFloat(indicesData["^TNX"]?.price || 0);
+            const irx = parseFloat(indicesData["^IRX"]?.price || 0);
+
+            // 점수: risk_on=0, neutral=1, risk_off=2, crisis=3
+            // VIX 신호 — 4단계
+            let vixSig, vixR;
+            if (!vix) { vixSig = "neutral"; vixR = 1; }
+            else if (vix < 16) { vixSig = "risk_on"; vixR = 0; }
+            else if (vix < 22) { vixSig = "neutral"; vixR = 1; }
+            else if (vix < 30) { vixSig = "risk_off"; vixR = 2; }
+            else { vixSig = "crisis"; vixR = 3; }
+
+            // 추세 신호 — SPY 3D 변동
+            const spyChg3d = spy?.chg3d ?? 0;
+            let trendSig, trendR;
+            if (spyChg3d > 1) { trendSig = "risk_on"; trendR = 0; }
+            else if (spyChg3d > -1) { trendSig = "neutral"; trendR = 1; }
+            else if (spyChg3d > -3) { trendSig = "risk_off"; trendR = 2; }
+            else { trendSig = "crisis"; trendR = 3; }
+
+            // 신용 신호 — HYG/IEF 비율
+            const creditRatio = hyg > 0 && ief > 0 ? hyg / ief : 0;
+            let creditSig, creditR;
+            if (!creditRatio) { creditSig = "neutral"; creditR = 1; }
+            else if (creditRatio > 0.85) { creditSig = "risk_on"; creditR = 0; }
+            else if (creditRatio > 0.80) { creditSig = "neutral"; creditR = 1; }
+            else if (creditRatio > 0.75) { creditSig = "risk_off"; creditR = 2; }
+            else { creditSig = "crisis"; creditR = 3; }
+
+            // 금리커브 신호 — 10Y - 3M 스프레드
+            const yieldSpread = tnx > 0 && irx > 0 ? tnx - irx : null;
+            let yieldSig, yieldR;
+            if (yieldSpread === null) { yieldSig = "neutral"; yieldR = 1; }
+            else if (yieldSpread > 1.0) { yieldSig = "risk_on"; yieldR = 0; }
+            else if (yieldSpread > 0) { yieldSig = "neutral"; yieldR = 1; }
+            else if (yieldSpread > -0.5) { yieldSig = "risk_off"; yieldR = 2; }
+            else { yieldSig = "crisis"; yieldR = 3; }
+
+            // 가중 합산 (VIX 0.35, 추세 0.30, 신용 0.20, 금리 0.15)
+            const weighted = vixR*0.35 + trendR*0.30 + creditR*0.20 + yieldR*0.15;
+            let finalRegime, regimeColor, regimeEmoji, advice;
+            if (weighted < 0.75) {
+              finalRegime = "risk_on"; regimeColor = C.emerald; regimeEmoji = "🟢";
+              advice = "위험 선호 — 적극 매수, 손절 -10%";
+            } else if (weighted < 1.5) {
+              finalRegime = "neutral"; regimeColor = C.yellow; regimeEmoji = "🟡";
+              advice = "중립 — 선별 매수, 손절 -8%";
+            } else if (weighted < 2.25) {
+              finalRegime = "risk_off"; regimeColor = "#FF9F0A"; regimeEmoji = "🟠";
+              advice = "위험 회피 — 보수 매수, 손절 -5%";
+            } else {
+              finalRegime = "crisis"; regimeColor = C.red; regimeEmoji = "🔴";
+              advice = "공포 장세 — 신규 매수 자제, 손절 -3%";
+            }
+
+            // 신뢰도 = 최종 체제와 일치하는 신호 비율
+            const sigs = [vixSig, trendSig, creditSig, yieldSig];
+            const matchCount = sigs.filter(s => s === finalRegime).length;
+            const confidence = Math.round(matchCount / 4 * 100);
+
+            const sigLabel = (s) => s==="risk_on"?"🟢위험선호":s==="neutral"?"🟡중립":s==="risk_off"?"🟠위험회피":"🔴공포";
+            const sigColor = (s) => s==="risk_on"?C.emerald:s==="neutral"?C.yellow:s==="risk_off"?"#FF9F0A":C.red;
+
+            return <div style={{background:`linear-gradient(135deg, ${regimeColor}10, ${regimeColor}05)`,border:`1.5px solid ${regimeColor}50`,borderRadius:10,padding:"10px 12px",marginBottom:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div>
+                  <div style={{fontSize:9,color:C.muted,fontWeight:700}}>📊 시장 체제 (Market Regime)</div>
+                  <div style={{fontSize:18,fontWeight:900,color:regimeColor,marginTop:2}}>{regimeEmoji} {finalRegime==="risk_on"?"위험 선호":finalRegime==="neutral"?"중립":finalRegime==="risk_off"?"위험 회피":"공포 장세"}</div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:8,color:C.muted}}>신뢰도</div>
+                  <div style={{fontSize:14,fontWeight:900,color:regimeColor}}>{confidence}%</div>
+                  <div style={{fontSize:7,color:C.muted}}>점수 {weighted.toFixed(2)}/3.0</div>
+                </div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4,marginBottom:6}}>
+                <div style={{background:"rgba(0,0,0,.3)",borderRadius:5,padding:"4px 6px",textAlign:"center"}}>
+                  <div style={{fontSize:6,color:C.muted}}>VIX</div>
+                  <div style={{fontSize:9,fontWeight:700,color:sigColor(vixSig)}}>{vix?vix.toFixed(1):"—"}</div>
+                  <div style={{fontSize:6,color:sigColor(vixSig)}}>{sigLabel(vixSig)}</div>
+                </div>
+                <div style={{background:"rgba(0,0,0,.3)",borderRadius:5,padding:"4px 6px",textAlign:"center"}}>
+                  <div style={{fontSize:6,color:C.muted}}>SPY 3D</div>
+                  <div style={{fontSize:9,fontWeight:700,color:sigColor(trendSig)}}>{spyChg3d>=0?"+":""}{spyChg3d.toFixed(1)}%</div>
+                  <div style={{fontSize:6,color:sigColor(trendSig)}}>{sigLabel(trendSig)}</div>
+                </div>
+                <div style={{background:"rgba(0,0,0,.3)",borderRadius:5,padding:"4px 6px",textAlign:"center"}}>
+                  <div style={{fontSize:6,color:C.muted}}>신용 H/I</div>
+                  <div style={{fontSize:9,fontWeight:700,color:sigColor(creditSig)}}>{creditRatio?creditRatio.toFixed(3):"—"}</div>
+                  <div style={{fontSize:6,color:sigColor(creditSig)}}>{sigLabel(creditSig)}</div>
+                </div>
+                <div style={{background:"rgba(0,0,0,.3)",borderRadius:5,padding:"4px 6px",textAlign:"center"}}>
+                  <div style={{fontSize:6,color:C.muted}}>10Y-3M</div>
+                  <div style={{fontSize:9,fontWeight:700,color:sigColor(yieldSig)}}>{yieldSpread!==null?(yieldSpread>=0?"+":"")+yieldSpread.toFixed(2):"—"}</div>
+                  <div style={{fontSize:6,color:sigColor(yieldSig)}}>{sigLabel(yieldSig)}</div>
+                </div>
+              </div>
+              <div style={{fontSize:8,color:regimeColor,fontWeight:700,padding:"4px 8px",background:`${regimeColor}10`,borderRadius:5,textAlign:"center"}}>
+                💡 {advice}
+              </div>
+              <div style={{fontSize:6,color:C.muted,marginTop:4,textAlign:"center"}}>
+                신호 4개: VIX(35%) + 추세(30%) + 신용(20%) + 금리커브(15%) — 가중 합산 후 4단계 분류
+              </div>
+            </div>;
+          })()}
           <div style={{fontSize:10,fontWeight:700,color:C.accent,marginBottom:8,borderLeft:`3px solid ${C.accent}`,paddingLeft:8}}>글로벌 지수 현황</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:6}}>
             {[["^GSPC","S&P","🇺🇸"],["^IXIC","NDQ","🇺🇸"],["^KS11","KOSPI","🇰🇷"]].map(([k,name,flag])=>{
@@ -1847,15 +2014,16 @@ export default function App() {
             })}
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4,marginBottom:6}}>
-            {[["^VIX","VIX","⚡",v=>v<20?"안정":v<30?"주의":"위험",v=>v<20?C.emerald:v<30?C.yellow:C.red],
-              ["KRW=X","원/달러","💱",v=>`${v?.toFixed(0)||"—"}`,()=>C.text],
-              ["^TNX","10Y","📈",v=>`${v?.toFixed(2)||"—"}%`,v=>v>4.5?C.red:v>3.5?C.yellow:C.emerald],
-              ["GC=F","금","🥇",v=>`$${v?.toLocaleString()||"—"}`,()=>C.text],
-            ].map(([k,name,flag,fmt,color])=>{
+            {[["^VIX","VIX","⚡",v=>v?.toFixed(1),v=>v<16?C.emerald:v<22?C.yellow:v<30?"#FF9F0A":C.red,v=>v<16?"🟢 안정":v<22?"🟡 보통":v<30?"🟠 주의":"🔴 위기"],
+              ["KRW=X","원/달러","💱",v=>`${v?.toFixed(0)||"—"}`,()=>C.text,null],
+              ["^TNX","10Y","📈",v=>`${v?.toFixed(2)||"—"}%`,v=>v>4.5?C.red:v>3.5?C.yellow:C.emerald,null],
+              ["GC=F","금","🥇",v=>`$${v?.toLocaleString()||"—"}`,()=>C.text,null],
+            ].map(([k,name,flag,fmt,color,subLabel])=>{
               const d=indicesData[k];const val=d?.price;const pct=d?.changePct??0;
               return<div key={k} onClick={()=>setSelIndex(selIndex===k?null:k)} style={{border:`1px solid ${selIndex===k?C.accent:C.border}`,borderRadius:7,padding:"5px 6px",background:selIndex===k?"rgba(10,132,255,.08)":C.panel2,cursor:"pointer"}}>
                 <div style={{fontSize:7,color:C.muted,marginBottom:1}}>{flag}{name}</div>
                 <div style={{fontSize:11,fontWeight:900,color:color(val)}}>{val?fmt(val):"—"}</div>
+                {subLabel&&val&&<div style={{fontSize:7,color:color(val),fontWeight:700,marginTop:1}}>{subLabel(val)}</div>}
                 <div style={{fontSize:8,color:pct>=0?C.green:C.red,fontWeight:700}}>{pct>=0?"+":""}{(pct||0).toFixed(1)}%</div>
               </div>;
             })}
@@ -3003,7 +3171,7 @@ export default function App() {
             const autoMode=realAmt>(riskSettings.totalCapital||5000000)?"special":"basic";
             const autoCap=autoMode==="special"?(riskSettings.specialCapital||10000000):(riskSettings.totalCapital||5000000);
             const autoPyr=autoMode==="special"?PYRAMID_SPECIAL:PYRAMID_BASIC;
-            setPositions(p=>[...p,{id:Date.now(),ticker:sel,label:selInfo.label,market:selInfo.market,entry:curPrice,current:curPrice,max:curPrice,trailStop:+(curPrice*(1-trailSettings.initialStopPct/100)).toFixed(isKRSel?0:2),trailMode:false,target:consTgt,pnl:0,date:new Date().toLocaleDateString("ko-KR"),entryTime:new Date().toLocaleTimeString("ko-KR"),foundScore:entryScore.score,foundSignals:entryScore.breakdown.filter(b=>b.ok).map(b=>b.label),foundTiming:selTiming.score,foundDurability:selDurability.score,snapshot:snap,oppScoreAt:oppScore,investMode:autoMode,pyramid:autoPyr.map((r,i)=>({step:i+1,label:r.label,pct:r.pct,targetPct:r.targetPct,triggered:i===0,amount:Math.round(autoCap*r.pct/100),actualAmount:i===0?realAmt:0,executedAt:i===0?new Date().toLocaleDateString("ko-KR"):""}))}]);
+            setPositions(p=>[...p,{id:Date.now(),ticker:sel,label:selInfo.label,market:selInfo.market,entry:curPrice,current:curPrice,max:curPrice,trailStop:+(curPrice*(1-effectiveStopPct/100)).toFixed(isKRSel?0:2),trailMode:false,target:consTgt,pnl:0,date:new Date().toLocaleDateString("ko-KR"),entryTime:new Date().toLocaleTimeString("ko-KR"),foundScore:entryScore.score,foundSignals:entryScore.breakdown.filter(b=>b.ok).map(b=>b.label),foundTiming:selTiming.score,foundDurability:selDurability.score,snapshot:snap,oppScoreAt:oppScore,regimeAt:regimeData.regime,stopPctAt:effectiveStopPct,investMode:autoMode,pyramid:autoPyr.map((r,i)=>({step:i+1,label:r.label,pct:r.pct,targetPct:r.targetPct,triggered:i===0,amount:Math.round(autoCap*r.pct/100),actualAmount:i===0?realAmt:0,executedAt:i===0?new Date().toLocaleDateString("ko-KR"):""}))}]);
             setTab("track");setTrackTab("hold");setAddMsg(`📌 ${selInfo.label} ₩${fmtKRW(realAmt)} 시드 매수 (${autoMode==="special"?"⭐특별":"기본"})`);setTimeout(()=>setAddMsg(""),3000);
           }} style={{width:"100%",background:checkOk?"linear-gradient(135deg,#30D158,#28a745)":"rgba(255,255,255,.05)",border:`1px solid ${checkOk?C.emerald:C.border}`,borderRadius:10,padding:"14px 16px",color:checkOk?"#000":C.muted,fontWeight:900,fontSize:12,cursor:checkOk?"pointer":"not-allowed",opacity:checkOk?1:0.5}}>
             {checkOk?"🌱 시드 매수 등록":"✅ 체크리스트를 먼저 완료하세요"}
