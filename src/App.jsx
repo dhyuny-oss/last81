@@ -1,5 +1,13 @@
 /**
- * Alpha Terminal v2.3.7 — App.jsx
+ * Alpha Terminal v2.3.8 — App.jsx
+ * v2.3.8: [핵심 2시그널 강조 — 데이터 기반 식별력 차등화]
+ *         [실험실] v2.3.7 분석 결과: 수급필터 (HIT79% vs MISS6%) + 진입적기 (HIT46% vs MISS0%)
+ *                  이 둘이 진짜 식별력 있는 핵심 시그널 — 다른 3개는 보조
+ *         [실험실] 종목 행에 핵심 2시그널 큰 배지 (앞쪽), 보조 3개 작은 배지 (뒤쪽)
+ *         [실험실] MISS/HIT 카드에 핵심 시그널 강조 (큰 폰트 + 굵은 테두리 + "핵심" 라벨)
+ *         [텔레그램] 알림 조건 — 핵심 2개 모두 충족 + 보조 2+ → 강력
+ *                    핵심 1개 + 보조 3개 → 보통 (예외 케이스 허용)
+ *         [텔레그램] 메시지 포맷 — 핵심 시그널 굵게 + 앞쪽, 보조는 별도 줄
  * v2.3.7: [실험실 시그널 자동 탐색 — 진단 정확도 대폭 개선]
  *         [실험실] 시작 시점 d-11 고정 → d-15~d-2 자동 스캔으로 변경
  *                  종목별로 5필터 3+ 충족된 첫 봉 자동 탐색 (= 실제 진입 가능 시점)
@@ -4055,11 +4063,11 @@ export default function App() {
 
             // 놓친 이유 — MISS 종목에서 어느 시그널이 가장 약했나 (낮은 충족률 = 놓친 이유)
             const sigDefs = [
-              {key:"sig_alpha",  label:"종합점수 60+"},
-              {key:"sig_entry",  label:"진입적기"},
-              {key:"sig_supply", label:"수급필터"},
-              {key:"sig_strong", label:"추세강도"},
-              {key:"sig_rsi",    label:"RSI 강세진입"},
+              {key:"sig_supply", label:"🟢 수급필터", isCore:true},   // 핵심 1 — HIT 79% vs MISS 6%
+              {key:"sig_entry",  label:"🟢 진입적기", isCore:true},   // 핵심 2 — HIT 46% vs MISS 0%
+              {key:"sig_strong", label:"추세강도", isCore:false},
+              {key:"sig_rsi",    label:"RSI 강세진입", isCore:false},
+              {key:"sig_alpha",  label:"종합점수 60+", isCore:false},
             ];
             const missAnalysis = misses.length>0 ? sigDefs.map(s=>({
               ...s, pct: Math.round(misses.filter(m=>m[s.key]).length/misses.length*100)
@@ -4143,10 +4151,10 @@ export default function App() {
                 <div style={{fontSize:8,color:C.muted,marginBottom:8}}>가장 자주 빠진 지표가 곧 '놓친 이유' · 임계값 완화 시 더 잡힐 수 있음</div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:4}}>
                   {missAnalysis.map((m,i)=>(
-                    <div key={m.key} style={{background:i===0?"rgba(255,69,58,.08)":"rgba(0,0,0,.4)",border:i===0?`1px solid ${C.red}`:`1px solid rgba(255,255,255,.05)`,borderRadius:6,padding:"6px",textAlign:"center"}}>
-                      <div style={{fontSize:7,color:C.muted,marginBottom:2}}>{m.label}</div>
-                      <div style={{fontSize:14,fontWeight:900,color:m.pct<=40?C.red:m.pct<=60?C.yellow:C.muted}}>{m.pct}%</div>
-                      {i===0&&<div style={{fontSize:6,color:C.red,marginTop:1}}>가장 약함</div>}
+                    <div key={m.key} style={{background:m.isCore?(m.pct<=40?"rgba(255,69,58,.12)":"rgba(48,209,88,.04)"):"rgba(0,0,0,.4)",border:m.isCore?`1.5px solid ${m.pct<=40?C.red:C.emerald}`:`1px solid rgba(255,255,255,.05)`,borderRadius:6,padding:"6px",textAlign:"center"}}>
+                      <div style={{fontSize:7,color:m.isCore?C.text:C.muted,marginBottom:2,fontWeight:m.isCore?700:400}}>{m.label}</div>
+                      <div style={{fontSize:m.isCore?16:13,fontWeight:900,color:m.pct<=40?C.red:m.pct<=60?C.yellow:C.muted}}>{m.pct}%</div>
+                      {m.isCore&&<div style={{fontSize:6,color:C.accent,marginTop:1}}>핵심</div>}
                     </div>
                   ))}
                 </div>
@@ -4158,10 +4166,10 @@ export default function App() {
                 <div style={{fontSize:8,color:C.muted,marginBottom:8}}>가장 자주 충족한 지표가 곧 '효과적 시그널' · 핵심 필터 후보</div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:4}}>
                   {hitAnalysis.map((m,i)=>(
-                    <div key={m.key} style={{background:i===0?"rgba(48,209,88,.08)":"rgba(0,0,0,.4)",border:i===0?`1px solid ${C.emerald}`:`1px solid rgba(255,255,255,.05)`,borderRadius:6,padding:"6px",textAlign:"center"}}>
-                      <div style={{fontSize:7,color:C.muted,marginBottom:2}}>{m.label}</div>
-                      <div style={{fontSize:14,fontWeight:900,color:m.pct>=80?C.emerald:m.pct>=60?C.green:C.muted}}>{m.pct}%</div>
-                      {i===0&&<div style={{fontSize:6,color:C.emerald,marginTop:1}}>가장 강함</div>}
+                    <div key={m.key} style={{background:m.isCore?(m.pct>=70?"rgba(48,209,88,.12)":"rgba(255,159,10,.06)"):"rgba(0,0,0,.4)",border:m.isCore?`1.5px solid ${m.pct>=70?C.emerald:"#FF9F0A"}`:`1px solid rgba(255,255,255,.05)`,borderRadius:6,padding:"6px",textAlign:"center"}}>
+                      <div style={{fontSize:7,color:m.isCore?C.text:C.muted,marginBottom:2,fontWeight:m.isCore?700:400}}>{m.label}</div>
+                      <div style={{fontSize:m.isCore?16:13,fontWeight:900,color:m.pct>=80?C.emerald:m.pct>=60?C.green:C.muted}}>{m.pct}%</div>
+                      {m.isCore&&<div style={{fontSize:6,color:C.accent,marginTop:1}}>핵심</div>}
                     </div>
                   ))}
                 </div>
@@ -4179,12 +4187,15 @@ export default function App() {
                       <span style={{fontSize:8,fontWeight:900,padding:"1px 5px",borderRadius:3,minWidth:35,textAlign:"center",background:s.isHit?"rgba(48,209,88,.15)":"rgba(255,69,58,.15)",color:s.isHit?C.emerald:C.red}}>{s.isHit?"HIT":"MISS"}</span>
                       <span style={{fontWeight:700,fontSize:9,minWidth:55,maxWidth:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</span>
                       <span style={{fontSize:7,color:C.muted,minWidth:42}}>{isKR4?"₩"+fmtKRW(s.price||0):"$"+(s.price||0).toFixed(1)}</span>
+                      {/* ★ v2.3.8: 핵심 2시그널을 앞에 큰 배지로 — 데이터 기반 가장 강한 식별력 */}
+                      <div style={{display:"flex",gap:2,flexShrink:0}}>
+                        <span title={`수급필터 (ST≥2 + 거래량≥130%) — 핵심 시그널`} style={{fontSize:7,padding:"2px 5px",borderRadius:3,background:s.sig_supply?"rgba(48,209,88,.25)":"rgba(255,69,58,.08)",color:s.sig_supply?C.emerald:C.red,fontWeight:900,border:`1px solid ${s.sig_supply?C.emerald:"rgba(255,69,58,.3)"}`}}>{s.sig_supply?"✓":"✗"}수급</span>
+                        <span title={`진입적기 (타이밍 ${s.timingPt} + 지속력 ${s.durPt}) — 핵심 시그널`} style={{fontSize:7,padding:"2px 5px",borderRadius:3,background:s.sig_entry?"rgba(255,159,10,.25)":"rgba(255,69,58,.08)",color:s.sig_entry?"#FF9F0A":C.red,fontWeight:900,border:`1px solid ${s.sig_entry?"#FF9F0A":"rgba(255,69,58,.3)"}`}}>{s.sig_entry?"✓":"✗"}적기</span>
+                      </div>
                       <div style={{display:"flex",gap:1,flex:1}}>
-                        <span title={`종합점수 ≥ 60 (현재 ${s.alphaPt})`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_alpha?"rgba(10,132,255,.2)":"rgba(255,255,255,.04)",color:s.sig_alpha?C.accent:C.muted,fontWeight:700}}>α</span>
-                        <span title={`진입적기 (타이밍 ${s.timingPt} + 지속력 ${s.durPt})`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_entry?"rgba(255,159,10,.2)":"rgba(255,255,255,.04)",color:s.sig_entry?"#FF9F0A":C.muted,fontWeight:700}}>적기</span>
-                        <span title={`수급필터 (ST≥2 + 거래량≥130%)`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_supply?"rgba(48,209,88,.2)":"rgba(255,255,255,.04)",color:s.sig_supply?C.emerald:C.muted,fontWeight:700}}>수급</span>
-                        <span title={`추세강도 (구름 위 또는 ADX≥20)`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_strong?"rgba(100,210,255,.2)":"rgba(255,255,255,.04)",color:s.sig_strong?"#64D2FF":C.muted,fontWeight:700}}>강도</span>
-                        <span title={`RSI 강세진입 (45~70 + 상승 중, 현재 ${s.rsi?.toFixed(0)||"—"})`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_rsi?"rgba(191,90,242,.2)":"rgba(255,255,255,.04)",color:s.sig_rsi?C.purple:C.muted,fontWeight:700}}>RSI</span>
+                        <span title={`추세강도 (구름 위 또는 ADX≥20) — 보조`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_strong?"rgba(100,210,255,.15)":"rgba(255,255,255,.04)",color:s.sig_strong?"#64D2FF":C.muted,fontWeight:700}}>강도</span>
+                        <span title={`RSI 강세진입 (45~70 + 상승, 현재 ${s.rsi?.toFixed(0)||"—"}) — 보조`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_rsi?"rgba(191,90,242,.15)":"rgba(255,255,255,.04)",color:s.sig_rsi?C.purple:C.muted,fontWeight:700}}>RSI</span>
+                        <span title={`종합점수 ≥ 60 (현재 ${s.alphaPt}) — 보조`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_alpha?"rgba(10,132,255,.15)":"rgba(255,255,255,.04)",color:s.sig_alpha?C.accent:C.muted,fontWeight:700}}>α</span>
                       </div>
                       <span style={{fontSize:8,fontWeight:700,color:s.sigCount>=4?C.emerald:s.sigCount>=3?C.yellow:C.muted,minWidth:25,textAlign:"center"}}>{s.sigCount}/5</span>
                       {s.isHit&&<span title="신호 발생 며칠 전" style={{fontSize:7,fontWeight:700,color:C.accent,minWidth:24,textAlign:"center",padding:"1px 3px",background:"rgba(10,132,255,.08)",borderRadius:3}}>d-{s.daysAgo}</span>}
