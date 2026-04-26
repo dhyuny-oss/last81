@@ -1,5 +1,19 @@
 /**
- * Alpha Terminal v2.3.4 — App.jsx
+ * Alpha Terminal v2.3.6 — App.jsx
+ * v2.3.6: [텔레그램 매수 알림 시스템 — fetch_yahoo.py + hourly.yml 변경]
+ *         [알림] 종가 확정 알림 — daily 워크플로우 끝 (16:00/06:30 KST)
+ *                5/5 충족 종목 → 한국/미국 분리 발송 → "다음 거래일 시가 매수 검토"
+ *         [알림] 장중 후보 알림 — hourly 워크플로우 끝 (매시간)
+ *                4/4 충족 (거래량 제외) → 시간대별 한/미 자동 판별 → "장 마감 시 확정 필요"
+ *         [알림] 24h 중복 방지 — alert_state.json으로 같은 종목 재알람 차단
+ *         [알림] 한 번에 최대 5개(장중) / 10개(장 후) — 알림 피로 방지
+ *         [데이터] Python에 ST/RSI/MACD/구름 계산 함수 신설 (App.jsx 5필터 재현)
+ * v2.3.5: [매수 신호 정밀화 — 가짜 신호 대폭 감소]
+ *         [차트] 매수 마커 5필터 종합 등급 (기존 ST flip + MACD 단순 → 5/5 점수제)
+ *                ST flip + MACD양전 + RSI강세 + 거래량 130% + 구름 접근 이상
+ *                🟢 강력 (5/5) / 🟡 보통 (3~4/5) / 🔵 약함 (ST flip만, 토글)
+ *         [차트] 매수 신호 디테일 패널 — 현재 봉 5필터 라이트 + 최근 20봉 마지막 신호
+ *         [차트] 약한 신호 표시 토글 (기본 OFF — 가짜 신호 시각적 노이즈 제거)
  * v2.3.4: [추적탭 UI 정리 + 일관성 점검]
  *         [추적] 보유 카드 종목명을 최상단으로 이동 — 한눈에 식별
  *         [추적] 불타기 계획 카드 재설계 — 도달 단계 압축(✓ 한 줄), 미도달 강조
@@ -343,7 +357,6 @@ function buildChartData(candles){
       sqzOn:sqzData[ci]?.sqzOn, sqzOff:sqzData[ci]?.sqzOff, sqzMom:sqzData[ci]?.mom, sqzMomUp:sqzData[ci]?.momUp,
       avwap:avwap[ci]||null};
   });
-  for(let i=1;i<data.length;i++){const c=data[i],p=data[i-1];const flip=c.bullCount===3&&p.bullCount<3,mx=c.macd>c.signal&&p.macd<=p.signal;if(flip&&mx)c.buyStrong=c.close;else if(flip)c.buyNormal=c.close;}
   const ac=data.map(d=>d.close);
   data.forEach((d,i)=>{d.ma20=i>=19?+(ac.slice(i-19,i+1).reduce((a,b)=>a+b)/20).toFixed(2):null;d.ma200=i>=199?+(ac.slice(i-199,i+1).reduce((a,b)=>a+b)/200).toFixed(2):null;});
   const adxData=calcADX(candles);const obvData=calcOBV(candles);
@@ -375,6 +388,23 @@ function buildChartData(candles){
       d.volRatio=avg>0?+(vols[ci3]/avg*100).toFixed(0):100;
     }
   });
+  // ★ v2.3.5: 매수 마커 — 5신호 종합 등급 (기존: ST flip + MACD only)
+  // 🟢 강력 (5/5) / 🟡 보통 (3~4/5) / 🔵 약함 (ST flip만, 토글 옵션)
+  for (let i = 1; i < data.length; i++) {
+    const c = data[i], p = data[i-1];
+    const stFlip   = c.bullCount === 3 && p.bullCount < 3;          // ST 0~2 → 3 전환
+    if (!stFlip) continue;  // ST 풀충 전환 없으면 신호 없음
+    const macdOK   = c.macd != null && c.signal != null && c.hist != null && c.macd > c.signal && c.hist > 0;
+    const rsiOK    = isRSIStrong(data, i);                          // 45~70 + 직전 3봉보다 상승
+    const volOK    = (c.volRatio || 0) >= 130;                      // 거래량 130%+
+    const cloudOK  = !!c.aboveCloud || !!c.nearCloud;                // 구름 접근 이상 (위 OR 3% 이내 근접)
+    const sigCount = [stFlip, macdOK, rsiOK, volOK, cloudOK].filter(Boolean).length;
+    c.buySigCount  = sigCount;
+    c.buySigDetail = { stFlip, macdOK, rsiOK, volOK, cloudOK };
+    if (sigCount >= 5)      c.buyStrong = c.close;   // 🟢 강력 (5/5)
+    else if (sigCount >= 3) c.buyNormal = c.close;   // 🟡 보통 (3~4/5)
+    else                    c.buyWeak   = c.close;   // 🔵 약함 (ST flip만)
+  }
   return data;
 }
 
@@ -723,7 +753,11 @@ function Tip({active,payload,label}){
   if(!active||!payload?.length)return null;
   return<div style={{background:"#0a0f1e",border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 12px",fontSize:10}}><div style={{color:C.sub,marginBottom:4,fontWeight:700}}>{label}</div>{payload.filter(p=>p.value!=null).map((p,i)=><div key={i} style={{color:p.color||C.text}}>{p.name}: <b>{typeof p.value==="number"?p.value.toLocaleString(undefined,{maximumFractionDigits:2}):p.value}</b></div>)}</div>;
 }
-function BuyDot({cx,cy,payload,dataKey}){if(!payload?.[dataKey])return null;const c=dataKey==="buyStrong"?"#4ade80":"#FFD60A",sz=dataKey==="buyStrong"?11:8;return<g><polygon points={`${cx},${cy-sz} ${cx-sz*.8},${cy+sz*.5} ${cx+sz*.8},${cy+sz*.5}`} fill={c} stroke="#000" strokeWidth="1" opacity=".9"/></g>;}
+function BuyDot({cx,cy,payload,dataKey}){
+  if(!payload?.[dataKey])return null;
+  const cfg={buyStrong:{c:"#30D158",sz:13},buyNormal:{c:"#FFD60A",sz:9},buyWeak:{c:"#64D2FF",sz:6}}[dataKey]||{c:"#999",sz:6};
+  return<g><polygon points={`${cx},${cy-cfg.sz} ${cx-cfg.sz*.8},${cy+cfg.sz*.5} ${cx+cfg.sz*.8},${cy+cfg.sz*.5}`} fill={cfg.c} stroke="#000" strokeWidth="1" opacity=".9"/></g>;
+}
 function HistBar({x,y,width,height,value}){if(value==null)return null;const h=Math.abs(height),pos=value>0;return<rect x={x} y={pos?y:y+height-h} width={Math.max(1,width)} height={h} fill={pos?"rgba(34,197,94,.7)":"rgba(255,69,58,.7)"} rx={1}/>;}
 
 // ── 가격 포맷 (★ v2.2: K단위 통일) ─────────────
@@ -822,6 +856,7 @@ export default function App() {
   useEffect(()=>{try{localStorage.setItem("at_alpha_tab",alphaTab);}catch{}},[alphaTab]);
   const [chartOpts, setChartOpts] = useState({ichi:false, st:true, avwap:false, adx:false, obv:false});
   const [showIndicDetail, setShowIndicDetail] = useState(false);
+  const [showWeakSignals, setShowWeakSignals] = useState(false); // v2.3.5: 약한 신호(🔵 ST flip만) 차트 표시 토글
   const [userTargets, setUserTargets] = useState({}); // {ticker: price}
   const [alphaHitsRemote, setAlphaHitsRemote] = useState([]);
   const [pool, setPool]         = useState({});
@@ -2703,6 +2738,61 @@ export default function App() {
             </div>;
           })()}
 
+          {/* ★ v2.3.5: 매수 신호 디테일 패널 — 5필터 라이트 + 마지막 신호 정보 */}
+          {cd&&cd.real&&cd.data?.length>=2&&(()=>{
+            const last = cd.data.at(-1);
+            const last20 = cd.data.slice(-20);
+            // 최근 20봉에서 가장 최근 신호 찾기
+            const recentStrong = [...last20].reverse().findIndex(d => d.buyStrong);
+            const recentNormal = [...last20].reverse().findIndex(d => d.buyNormal);
+            const recentWeak = [...last20].reverse().findIndex(d => d.buyWeak);
+
+            // 현재 봉의 5필터 상태 — 신호가 안 떴을 때도 표시
+            const stCount = [last.st1Bull, last.st2Bull, last.st3Bull].filter(v=>v!=null).length;
+            const macdOK = last.macd != null && last.signal != null && last.macd > last.signal && (last.hist || 0) > 0;
+            const rsiOK = isRSIStrong(cd.data, cd.data.length - 1);
+            const volOK = (last.volRatio || 0) >= 130;
+            const cloudOK = !!last.aboveCloud || !!last.nearCloud;
+            const filters = [
+              {ok:stCount>=2, label:"ST", val:`${stCount}/3`, full:"슈퍼트랜드"},
+              {ok:macdOK, label:"MACD", val:macdOK?"양":"음", full:"MACD 양전+히스토 양"},
+              {ok:rsiOK, label:"RSI", val:`${last.rsi?.toFixed(0)||"—"}`, full:"RSI 강세진입(45~70 + 상승)"},
+              {ok:volOK, label:"거래", val:`${last.volRatio||"—"}%`, full:"거래량 130%+"},
+              {ok:cloudOK, label:"구름", val:last.aboveCloud?"위":last.nearCloud?"근접":"아래", full:"구름 접근 이상"},
+            ];
+            const okCount = filters.filter(f=>f.ok).length;
+
+            return <div style={{background:"rgba(0,0,0,.3)",border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 12px",marginBottom:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                <div style={{fontSize:9,fontWeight:700,color:C.text}}>🎯 매수 신호 — 현재 봉 5필터</div>
+                <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                  <span style={{fontSize:8,color:okCount>=5?"#30D158":okCount>=3?"#FFD60A":C.muted,fontWeight:900}}>
+                    {okCount===5?"🟢 강력":okCount>=3?"🟡 보통":okCount>=1?"🔵 약함":"⚪ 없음"} {okCount}/5
+                  </span>
+                  <button onClick={()=>setShowWeakSignals(v=>!v)} style={{fontSize:7,padding:"2px 6px",borderRadius:4,border:`1px solid ${showWeakSignals?C.accent:C.border}`,background:showWeakSignals?"rgba(10,132,255,.1)":"transparent",color:showWeakSignals?C.accent:C.muted,cursor:"pointer"}}>{showWeakSignals?"✓":""} 약한신호 표시</button>
+                </div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:4,marginBottom:6}}>
+                {filters.map(f=>(
+                  <div key={f.label} title={f.full} style={{background:f.ok?"rgba(48,209,88,.10)":"rgba(0,0,0,.4)",border:`1px solid ${f.ok?"rgba(48,209,88,.4)":"rgba(255,255,255,.05)"}`,borderRadius:5,padding:"4px",textAlign:"center"}}>
+                    <div style={{fontSize:7,color:f.ok?C.emerald:C.muted,fontWeight:700}}>{f.ok?"✓":"·"} {f.label}</div>
+                    <div style={{fontSize:8,color:f.ok?C.text:C.muted,fontWeight:600}}>{f.val}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{fontSize:7,color:C.muted,paddingTop:4,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between"}}>
+                <span>
+                  최근 20봉 신호: 
+                  {recentStrong>=0&&<span style={{color:"#30D158",fontWeight:700,marginLeft:4}}>🟢 강력 ({recentStrong===0?"오늘":recentStrong+"일전"})</span>}
+                  {recentNormal>=0&&recentStrong<0&&<span style={{color:"#FFD60A",fontWeight:700,marginLeft:4}}>🟡 보통 ({recentNormal===0?"오늘":recentNormal+"일전"})</span>}
+                  {recentWeak>=0&&recentStrong<0&&recentNormal<0&&<span style={{color:"#64D2FF",fontWeight:700,marginLeft:4}}>🔵 약함 ({recentWeak===0?"오늘":recentWeak+"일전"})</span>}
+                  {recentStrong<0&&recentNormal<0&&recentWeak<0&&<span style={{marginLeft:4}}>없음</span>}
+                </span>
+                <span>차트의 ▲ 표시 = 매수 신호 발생일</span>
+              </div>
+            </div>;
+          })()}
+
           {/* ★ v2.3: 회사 정보 카드 — 기존 데이터 + 외부 링크 */}
           {companyInfo[sel]&&(()=>{
             const pi=pool[sel]||{};const si=selInfo||{};
@@ -3009,8 +3099,9 @@ export default function App() {
                 {chartOpts.st&&["st1Bear","st2Bear","st3Bear"].map((k,i)=><Line key={k} yAxisId="p" type="monotone" dataKey={k} stroke={C.red} strokeWidth={2.5-i*.5} dot={false} connectNulls={false} strokeOpacity={1-.2*i}/>)}
                 {consTgt>0&&<ReferenceLine yAxisId="p" y={consTgt} stroke={C.green} strokeWidth={1.2} strokeDasharray="5 3" label={{value:`참고 ${unit}${consTgt.toLocaleString()}`,fill:C.green,fontSize:7,position:"insideRight"}}/>}
                 {stopPrice>0&&<ReferenceLine yAxisId="p" y={stopPrice} stroke={C.red} strokeWidth={1.2} strokeDasharray="5 3" label={{value:`손절 ${unit}${stopPrice.toLocaleString()}`,fill:C.red,fontSize:7,position:"insideRight"}}/>}
-                <Scatter yAxisId="p" dataKey="buyStrong" fill="#4ade80" shape={<BuyDot dataKey="buyStrong"/>}/>
+                <Scatter yAxisId="p" dataKey="buyStrong" fill="#30D158" shape={<BuyDot dataKey="buyStrong"/>}/>
                 <Scatter yAxisId="p" dataKey="buyNormal" fill="#FFD60A" shape={<BuyDot dataKey="buyNormal"/>}/>
+                {showWeakSignals&&<Scatter yAxisId="p" dataKey="buyWeak" fill="#64D2FF" shape={<BuyDot dataKey="buyWeak"/>}/>}
               </ComposedChart>
             </ResponsiveContainer>
           </div>
