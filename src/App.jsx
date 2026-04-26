@@ -1544,14 +1544,22 @@ export default function App() {
               const now=new Date();const h=now.getHours(),m=now.getMinutes(),t=h*60+m;
               const krOpen=t>=540&&t<=930;const usOpen=t>=1410||t<=360;
               const upd=lastUpdated?new Date(lastUpdated):null;
-              const updH=upd?upd.getHours():0;const updT=upd?(updH*60+upd.getMinutes()):0;
-              const krLabel=!upd?"—":updT>=930?"종가":updT>=540?"장중":"전일";
-              const usLabel=!upd?"—":updT>=360&&updT<1410?"종가":updT>=1410?"장중":"전일";
+              // ★ v2.3.1: 신선도 기반 라벨 — 현재 시각 기준 데이터 경과시간으로 판단
+              // 기존 버그: 라벨이 갱신 시각의 분 단위만 보고 결정됨 → 일요일에도 "장중" 표시되는 문제
+              const ageMin = upd ? Math.floor((now - upd) / 60000) : Infinity;
+              const ageH = ageMin / 60;
+              const stale = ageMin === Infinity ? {emoji:"⚪",label:"없음",color:C.muted}
+                : ageMin < 90 ? {emoji:"🟢",label:`${ageMin}분전`,color:C.emerald}
+                : ageH < 9 ? {emoji:"🟡",label:`${ageH.toFixed(0)}시간전`,color:C.yellow}
+                : ageH < 24 ? {emoji:"🟠",label:`${ageH.toFixed(0)}시간전`,color:"#FF9F0A"}
+                : ageH < 48 ? {emoji:"🔴",label:`${ageH.toFixed(0)}시간전`,color:C.red}
+                : {emoji:"🔴",label:`${(ageH/24).toFixed(1)}일전`,color:C.red};
               const updFmt=upd?`${upd.getMonth()+1}/${upd.getDate()} ${upd.toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit"})}`:"";
               return<>
-                <span style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:krOpen?"rgba(48,209,88,.12)":"rgba(255,255,255,.04)",color:krOpen?C.green:C.muted,fontWeight:600}}>🇰🇷 {krOpen?"장중":krLabel}</span>
-                <span style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:usOpen?"rgba(48,209,88,.12)":"rgba(255,255,255,.04)",color:usOpen?C.green:C.muted,fontWeight:600}}>🇺🇸 {usOpen?"장중":usLabel}</span>
-                {updFmt&&<span style={{fontSize:8,color:C.muted}}>{updFmt}</span>}
+                <span style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:krOpen?"rgba(48,209,88,.12)":"rgba(255,255,255,.04)",color:krOpen?C.green:C.muted,fontWeight:600}}>🇰🇷 {krOpen?"장중":"휴장"}</span>
+                <span style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:usOpen?"rgba(48,209,88,.12)":"rgba(255,255,255,.04)",color:usOpen?C.green:C.muted,fontWeight:600}}>🇺🇸 {usOpen?"장중":"휴장"}</span>
+                <span title={`마지막 갱신: ${updFmt}`} style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:`${stale.color}15`,color:stale.color,fontWeight:700,border:`1px solid ${stale.color}40`}}>{stale.emoji} {stale.label}</span>
+                {updFmt&&<span style={{fontSize:7,color:C.muted}}>{updFmt}</span>}
               </>;
             })()}
             {dataStatus==="sim"&&<span style={{fontSize:9,color:C.yellow}}>🟡 시뮬</span>}
@@ -1766,6 +1774,20 @@ export default function App() {
             <button onClick={()=>setShowRiskPanel(false)} style={{...css.btn(true),fontSize:10,padding:"6px 16px"}}>닫기</button>
           </div>
         </div>}
+        {/* ★ v2.3.1: 데이터 24시간 이상 노후화 시 강력 경고 — 잘못된 분석 방지 */}
+        {dataStatus==="real"&&lastUpdated&&(()=>{
+          const ageH = (Date.now() - new Date(lastUpdated).getTime()) / 3600000;
+          if (ageH < 24) return null;
+          // ageH가 30이면 "1.3일", 50이면 "2.1일" 같이 정확히
+          const ageDisplay = ageH < 48 ? `${ageH.toFixed(0)}시간` : `${(ageH/24).toFixed(1)}일`;
+          return <div style={{background:"rgba(255,69,58,.12)",border:`1px solid ${C.red}`,borderRadius:6,padding:"6px 10px",margin:"6px 0",display:"flex",alignItems:"center",gap:8,fontSize:9}}>
+            <span style={{fontSize:13}}>⚠️</span>
+            <div style={{flex:1}}>
+              <div style={{color:C.red,fontWeight:900}}>데이터가 {ageDisplay} 지났어요</div>
+              <div style={{fontSize:7,color:C.muted,marginTop:1}}>워크플로우 누락 가능성 — GitHub Actions에서 수동 실행 필요. 실시간 분석/매매 판단 보류 권장.</div>
+            </div>
+          </div>;
+        })()}
         {/* 2행: 탭바 */}
         <div style={{display:"flex",borderRadius:6,overflow:"hidden",border:`1px solid ${C.border}`,overflowX:"auto"}}>
           {TABS.map(([k,l])=><button key={k} onClick={()=>setTab(k)} style={{background:tab===k?"rgba(56,189,248,.18)":"transparent",color:tab===k?C.accent:C.muted,border:"none",padding:"5px 7px",cursor:"pointer",fontSize:8,fontWeight:tab===k?700:400,whiteSpace:"nowrap"}}>{l}</button>)}
