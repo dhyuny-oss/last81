@@ -118,6 +118,10 @@ INDICES = {
     "^TNX":   {"label":"미국10Y금리","market":"us", "type":"rate"},
     "GC=F":   {"label":"금",         "market":"us", "type":"commodity"},
     "CL=F":   {"label":"유가",       "market":"us", "type":"commodity"},
+    # ★ v2.3.2: Market Regime 신호용 (신용스프레드 + 금리커브)
+    "HYG":    {"label":"하이일드회사채", "market":"us", "type":"credit"},
+    "IEF":    {"label":"미국7-10Y국채",  "market":"us", "type":"credit"},
+    "^IRX":   {"label":"미국3M금리",     "market":"us", "type":"rate"},
 }
 
 # 미국 섹터 ETF
