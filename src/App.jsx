@@ -1,5 +1,11 @@
 /**
- * Alpha Terminal v2.3.3 — App.jsx
+ * Alpha Terminal v2.3.4 — App.jsx
+ * v2.3.4: [추적탭 UI 정리 + 일관성 점검]
+ *         [추적] 보유 카드 종목명을 최상단으로 이동 — 한눈에 식별
+ *         [추적] 불타기 계획 카드 재설계 — 도달 단계 압축(✓ 한 줄), 미도달 강조
+ *                도달 가능 단계는 🎯 표시 + 실행 버튼 강조
+ *         [점검] Market Regime 처방 안내 — 적응형 손절 토글 상태별 차별화
+ *                ON: "체제 손절 -X% 적용 중" / OFF: "추천 -X%, 사용자 -Y% 적용"
  * v2.3.3: [RSI 기울기 + 실험실 진단 정렬]
  *         [지표] RSI 강세 판정 강화 — 위치(45~70) + 기울기 상승 종합 (isRSIStrong 헬퍼)
  *         [점수] alphaScore RSI 점수 재구성 — 50 돌파근접/강세진입/지속/둔화 차등
@@ -1957,19 +1963,22 @@ export default function App() {
 
             // 가중 합산 (VIX 0.35, 추세 0.30, 신용 0.20, 금리 0.15)
             const weighted = vixR*0.35 + trendR*0.30 + creditR*0.20 + yieldR*0.15;
+            const stopHint = trailSettings.adaptiveStop && regimeData.hasFullData
+              ? ` (체제 손절 -${regimeData.stopPctSuggest}% 적용 중)`
+              : ` (체제 추천 손절 -${regimeData.stopPctSuggest}% — 적응형 OFF, 사용자 -${trailSettings.initialStopPct}% 적용)`;
             let finalRegime, regimeColor, regimeEmoji, advice;
             if (weighted < 0.75) {
               finalRegime = "risk_on"; regimeColor = C.emerald; regimeEmoji = "🟢";
-              advice = "위험 선호 — 적극 매수, 손절 -10%";
+              advice = "위험 선호 — 적극 매수" + stopHint;
             } else if (weighted < 1.5) {
               finalRegime = "neutral"; regimeColor = C.yellow; regimeEmoji = "🟡";
-              advice = "중립 — 선별 매수, 손절 -8%";
+              advice = "중립 — 선별 매수" + stopHint;
             } else if (weighted < 2.25) {
               finalRegime = "risk_off"; regimeColor = "#FF9F0A"; regimeEmoji = "🟠";
-              advice = "위험 회피 — 보수 매수, 손절 -5%";
+              advice = "위험 회피 — 보수 매수" + stopHint;
             } else {
               finalRegime = "crisis"; regimeColor = C.red; regimeEmoji = "🔴";
-              advice = "공포 장세 — 신규 매수 자제, 손절 -3%";
+              advice = "공포 장세 — 신규 매수 자제" + stopHint;
             }
 
             // 신뢰도 = 최종 체제와 일치하는 신호 비율
@@ -3332,6 +3341,31 @@ export default function App() {
                   const holdEmoji=holdSignal==="SELL"?"🔴":holdSignal==="ADD"?"🟢":"🟡";
                   const holdLabel=holdSignal==="SELL"?"매도검토":holdSignal==="ADD"?"추가매수":"홀드";
                   return<div key={pos.id} style={{...css.card,border:`2px solid ${near?"rgba(255,69,58,.8)":isTimeCut?"rgba(255,159,10,.7)":volDrop?"rgba(250,204,21,.6)":pos.trailMode?"rgba(250,204,21,.5)":C.border}`,animation:near?"ap 2s infinite":""}}>
+                    {/* ★ v2.3.3: 종목명 + 수익률 — 카드 최상단으로 이동 (한눈에 인식) */}
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:8,paddingBottom:8,borderBottom:`1px solid ${C.border}`}}>
+                      <div>
+                        <div style={{fontWeight:900,fontSize:14}}>{fmtName(pos,8)}</div>
+                        <div style={{fontSize:9,color:C.muted,marginTop:2}}>진입 {u}{u==="₩"?fmtKRW(pos.entry):pos.entry.toLocaleString()} · {pos.date} <span style={{color:(pos.timeCutInfo?.daysHeld||0)>=(trailSettings.timeCutDays||14)?"#FF9F0A":C.muted}}>({pos.timeCutInfo?.daysHeld||0}일째)</span></div>
+                        <div style={{display:"flex",gap:5,marginTop:3}}>
+                          {pos.foundGrade&&(()=>{const gc={S:C.emerald,A:C.green,B:C.yellow,C:"#FF9F0A",D:C.red}[pos.foundGrade]||C.muted;return<span style={{fontSize:7,background:`${gc}18`,color:gc,border:`1px solid ${gc}`,borderRadius:3,padding:"1px 4px"}}>진입 {pos.foundGrade}등급</span>;})()}
+                          {pos.trailMode&&<span style={{fontSize:7,background:"rgba(250,204,21,.12)",color:C.yellow,border:`1px solid rgba(250,204,21,.3)`,borderRadius:3,padding:"1px 4px"}}>🔄 트레일링</span>}
+                          <span style={{fontSize:7,background:`${holdColor}15`,color:holdColor,border:`1px solid ${holdColor}`,borderRadius:3,padding:"1px 4px",fontWeight:700}}>{holdEmoji} {holdLabel}</span>
+                        </div>
+                      </div>
+                      <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+                        <div style={{textAlign:"right"}}>
+                          <div style={{fontSize:24,fontWeight:900,color:pnl>=0?C.green:C.red}}>{pnl>=0?"+":""}{pnl.toFixed?.(2)||0}%</div>
+                          <div style={{fontSize:9,color:C.sub}}>{u}{u==="₩"?fmtKRW(cur):cur.toLocaleString()}</div>
+                          <div style={{fontSize:8,color:rs>=0?C.emerald:C.red}}>RS {rs>=0?"+":""}{rs.toFixed(1)}%p</div>
+                        </div>
+                        <button onClick={()=>{
+                          if(window.confirm(`${pos.label} 포지션을 청산하시겠어요?`)){
+                            setClosedLog(h=>[{...pos,exitPrice:cur,exitDate:new Date().toLocaleDateString("ko-KR"),finalPnl:pnl,reason:"수동청산",phase:"hold",holdDays:pos.timeCutInfo?.daysHeld||0},...h]);
+                            setPositions(p=>p.filter(x=>x.id!==pos.id));
+                          }
+                        }} style={{background:"rgba(255,69,58,.1)",border:"1px solid rgba(255,69,58,.3)",color:C.red,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:9,fontWeight:700,flexShrink:0}}>청산 ✕</button>
+                      </div>
+                    </div>
                     {/* 매매 신호 배너 */}
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,padding:"5px 10px",borderRadius:6,background:`${holdColor}10`,border:`1px solid ${holdColor}30`}}>
                       <span style={{fontSize:10,fontWeight:900,color:holdColor}}>{holdEmoji} {holdLabel}</span>
@@ -3414,32 +3448,7 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
-                      <div>
-                        <div style={{fontWeight:900,fontSize:12}}>{fmtName(pos,8)}</div>
-                        <div style={{fontSize:9,color:C.muted}}>진입 {u}{u==="₩"?fmtKRW(pos.entry):pos.entry.toLocaleString()} · {pos.date} <span style={{color:(pos.timeCutInfo?.daysHeld||0)>=(trailSettings.timeCutDays||14)?"#FF9F0A":C.muted}}>({pos.timeCutInfo?.daysHeld||0}일째)</span></div>
-                        <div style={{display:"flex",gap:5,marginTop:3}}>
-                          {pos.foundGrade&&(()=>{const gc={S:C.emerald,A:C.green,B:C.yellow,C:"#FF9F0A",D:C.red}[pos.foundGrade]||C.muted;return<span style={{fontSize:7,background:`${gc}18`,color:gc,border:`1px solid ${gc}`,borderRadius:3,padding:"1px 4px"}}>진입 {pos.foundGrade}등급</span>;})()}
-                          {pos.trailMode&&<span style={{fontSize:7,background:"rgba(250,204,21,.12)",color:C.yellow,border:`1px solid rgba(250,204,21,.3)`,borderRadius:3,padding:"1px 4px"}}>🔄 트레일링</span>}
-                          <span style={{fontSize:7,background:`${holdColor}15`,color:holdColor,border:`1px solid ${holdColor}`,borderRadius:3,padding:"1px 4px",fontWeight:700}}>{holdEmoji} {holdLabel}</span>
-                        </div>
-                      </div>
-                      <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
-                        <div style={{textAlign:"right"}}>
-                          <div style={{fontSize:22,fontWeight:900,color:pnl>=0?C.green:C.red}}>{pnl>=0?"+":""}{pnl.toFixed?.(2)||0}%</div>
-                          <div style={{fontSize:9,color:C.sub}}>{u}{u==="₩"?fmtKRW(cur):cur.toLocaleString()}</div>
-                          <div style={{fontSize:8,color:rs>=0?C.emerald:C.red}}>RS {rs>=0?"+":""}{rs.toFixed(1)}%p</div>
-                        </div>
-                        <button onClick={()=>{
-                          if(window.confirm(`${pos.label} 포지션을 청산하시겠어요?`)){
-                            setClosedLog(h=>[{...pos,exitPrice:cur,exitDate:new Date().toLocaleDateString("ko-KR"),finalPnl:pnl,reason:"수동청산",phase:"hold",holdDays:pos.timeCutInfo?.daysHeld||0},...h]);
-                            setPositions(p=>p.filter(x=>x.id!==pos.id));
-                          }
-                        }} style={{background:"rgba(255,69,58,.1)",border:"1px solid rgba(255,69,58,.3)",color:C.red,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:9,fontWeight:700,flexShrink:0}}>청산 ✕</button>
-                      </div>
-                    </div>
-
-                    {/* 12번: 불타기 단계 */}
+                    {/* ★ v2.3.4: 불타기 단계 — 도달 단계 압축 + 다음 단계 강조 */}
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
                       <div style={{fontSize:9,color:C.muted,fontWeight:700}}>🔥 불타기 계획</div>
                       <div style={{display:"flex",gap:3}}>
@@ -3453,32 +3462,57 @@ export default function App() {
                       const posPyr=posMode==="special"?PYRAMID_SPECIAL:PYRAMID_BASIC;
                       const posCap=posMode==="special"?(riskSettings.specialCapital||10000000):(riskSettings.totalCapital||5000000);
                       const posAmts=posPyr.map(r=>Math.round(posCap*r.pct/100));
-                      return <div style={{display:"grid",gridTemplateColumns:`repeat(${posPyr.length},1fr)`,gap:4,marginBottom:10}}>
-                        {posPyr.map((r,i)=>{
-                          const step=pos.pyramid?.[i]||{};
-                          const triggered=step.triggered||false;
-                          const targetPx=i===0?pos.entry:+(pos.entry*(1+r.targetPct/100)).toFixed(pos.ticker.length>5?0:2);
-                          const actualAmt=step.actualAmount||0;
-                          return<div key={i} style={{borderRadius:7,padding:"6px 4px",border:`1px solid ${triggered?"rgba(48,209,88,.4)":"rgba(255,255,255,.08)"}`,background:triggered?"rgba(48,209,88,.06)":C.panel2,textAlign:"center"}}>
-                            <div style={{fontSize:7,color:triggered?C.green:C.muted,fontWeight:700,marginBottom:2}}>{triggered?"✅":"⏳"} {r.label}</div>
-                            <div style={{fontSize:9,fontWeight:700,color:triggered?C.green:C.sub}}>{i===0?"진입가":`평단+${r.targetPct}%`}</div>
-                            <div style={{fontSize:7,color:C.muted}}>{u}{u==="₩"?fmtKRW(targetPx):targetPx.toLocaleString()}</div>
-                            <div style={{fontSize:8,color:C.accent,fontWeight:700}}>₩{fmtKRW(posAmts[i])}</div>
-                            {triggered&&actualAmt>0&&<div style={{fontSize:7,color:C.emerald,marginTop:2}}>실투 ₩{fmtKRW(actualAmt)}</div>}
-                            {!triggered&&i>0&&<button onClick={()=>{
-                              const amt=prompt(`${r.label} 실제 투입 금액 (만원 단위, 예: 200):`);
-                              if(amt){
-                                const realAmt=parseInt(amt)*10000;
-                                setPositions(p=>p.map(x=>{
-                                  if(x.id!==pos.id)return x;
-                                  const newPyr=[...(x.pyramid||[])];
-                                  if(newPyr[i])newPyr[i]={...newPyr[i],triggered:true,actualAmount:realAmt,executedAt:new Date().toLocaleDateString("ko-KR")};
-                                  return{...x,pyramid:newPyr};
-                                }));
-                              }
-                            }} style={{marginTop:3,fontSize:7,padding:"2px 6px",borderRadius:3,border:`1px solid ${C.accent}`,background:"rgba(10,132,255,.1)",color:C.accent,cursor:"pointer",fontWeight:700}}>실행</button>}
-                          </div>;
-                        })}
+                      // 도달/미도달 분리
+                      const triggeredSteps = [];
+                      const pendingSteps = [];
+                      posPyr.forEach((r,i) => {
+                        const step = pos.pyramid?.[i]||{};
+                        const triggered = step.triggered||false;
+                        const item = {r, i, step, triggered, targetPx: i===0?pos.entry:+(pos.entry*(1+r.targetPct/100)).toFixed(pos.ticker.length>5?0:2)};
+                        if (triggered) triggeredSteps.push(item);
+                        else pendingSteps.push(item);
+                      });
+                      const totalActualAmt = triggeredSteps.reduce((sum, t) => sum + (t.step.actualAmount||0), 0);
+
+                      return <div style={{marginBottom:10}}>
+                        {/* 도달한 단계 — 압축 한 줄 */}
+                        {triggeredSteps.length>0 && <div style={{background:"rgba(48,209,88,.04)",border:"1px solid rgba(48,209,88,.2)",borderRadius:6,padding:"5px 8px",marginBottom:5,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                          <span style={{fontSize:8,color:C.green,fontWeight:700}}>✅ 진행 {triggeredSteps.length}/{posPyr.length}</span>
+                          {triggeredSteps.map(t => (
+                            <span key={t.i} style={{fontSize:7,color:C.green,padding:"1px 5px",background:"rgba(48,209,88,.08)",borderRadius:3}}>
+                              {t.r.label} {t.step.actualAmount>0?`₩${fmtKRW(t.step.actualAmount)}`:"미입력"}
+                            </span>
+                          ))}
+                          {totalActualAmt>0 && <span style={{fontSize:7,color:C.muted,marginLeft:"auto"}}>총 ₩{fmtKRW(totalActualAmt)}</span>}
+                        </div>}
+
+                        {/* 다음 1~2 단계 — 강조 카드 */}
+                        {pendingSteps.length>0 && <div style={{display:"grid",gridTemplateColumns:`repeat(${Math.min(pendingSteps.length, 3)},1fr)`,gap:4}}>
+                          {pendingSteps.slice(0, 3).map((t, idx) => {
+                            const isNext = idx===0;
+                            const reachable = pnl >= t.r.targetPct;
+                            return <div key={t.i} style={{borderRadius:7,padding:"6px 4px",border:`1px solid ${reachable?"rgba(48,209,88,.5)":isNext?"rgba(255,159,10,.3)":"rgba(255,255,255,.08)"}`,background:reachable?"rgba(48,209,88,.08)":isNext?"rgba(255,159,10,.04)":C.panel2,textAlign:"center"}}>
+                              <div style={{fontSize:7,color:reachable?C.emerald:isNext?"#FF9F0A":C.muted,fontWeight:700,marginBottom:2}}>{reachable?"🎯":isNext?"⏳":"⚪"} {t.r.label}</div>
+                              <div style={{fontSize:9,fontWeight:700,color:reachable?C.emerald:isNext?"#FF9F0A":C.sub}}>평단+{t.r.targetPct}%</div>
+                              <div style={{fontSize:7,color:C.muted}}>{u}{u==="₩"?fmtKRW(t.targetPx):t.targetPx.toLocaleString()}</div>
+                              <div style={{fontSize:8,color:C.accent,fontWeight:700}}>₩{fmtKRW(posAmts[t.i])}</div>
+                              {reachable&&<button onClick={()=>{
+                                const amt=prompt(`${t.r.label} 실제 투입 금액 (만원 단위, 예: 200):`);
+                                if(amt){
+                                  const realAmt=parseInt(amt)*10000;
+                                  setPositions(p=>p.map(x=>{
+                                    if(x.id!==pos.id)return x;
+                                    const newPyr=[...(x.pyramid||[])];
+                                    if(newPyr[t.i])newPyr[t.i]={...newPyr[t.i],triggered:true,actualAmount:realAmt,executedAt:new Date().toLocaleDateString("ko-KR")};
+                                    return{...x,pyramid:newPyr};
+                                  }));
+                                }
+                              }} style={{marginTop:3,fontSize:7,padding:"2px 6px",borderRadius:3,border:`1px solid ${C.emerald}`,background:"rgba(48,209,88,.15)",color:C.emerald,cursor:"pointer",fontWeight:700}}>실행</button>}
+                            </div>;
+                          })}
+                        </div>}
+
+                        {pendingSteps.length===0 && <div style={{textAlign:"center",fontSize:8,color:C.emerald,padding:"6px",background:"rgba(48,209,88,.04)",borderRadius:5}}>✅ 모든 단계 진행 완료</div>}
                       </div>;
                     })()}
 
