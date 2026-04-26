@@ -598,38 +598,91 @@ def calc_cloud_status(closes, highs, lows):
     else: return "below"
 
 def detect_buy_signal(candles, intraday=False):
+    """
+    실험실 데이터 기반 (v2.3.7 분석 결과 적용):
+    - 핵심 2시그널: 수급필터 (HIT 79% vs MISS 6%) + 진입적기 (HIT 46% vs MISS 0%)
+    - 보조 3시그널: ST flip / MACD / RSI / 구름 (보조 점수)
+    
+    intraday=True: 거래량 미확정 → 핵심 1.5개 + 보조 (느슨)
+    intraday=False: 핵심 2개 모두 충족 + 보조 1개+ → 강력 (엄격)
+    """
     if len(candles) < 60:
         return None
     closes = [c["close"] for c in candles]
     highs = [c["high"] for c in candles]
     lows = [c["low"] for c in candles]
+    
+    # ── 핵심 시그널 1: 수급필터 (ST 2/3+ AND 거래량 130%+) ──
+    # HIT 79% vs MISS 6% — 압도적 식별력
     st_cur, st_prev = calc_supertrend_count(candles)
-    st_flip = (st_cur == 3 and st_prev < 3)
-    if not st_flip:
-        return None
-    macd, signal, hist = calc_macd(closes)
-    macd_ok = (macd is not None and signal is not None and hist is not None and macd > signal and hist > 0)
-    rsi_cur, rsi_prev3 = calc_rsi(closes, 14)
-    rsi_ok = (rsi_cur is not None and rsi_prev3 is not None and 45 <= rsi_cur <= 70 and rsi_cur > rsi_prev3)
+    st_count_ok = st_cur >= 2  # ST 2/3+ 매수
+    st_flip = (st_cur == 3 and st_prev < 3)  # ST 풀충 전환 (보조)
     vol_ratio = calc_vol_ratio(candles)
     vol_ok = vol_ratio >= 130
+    supply_ok = st_count_ok and vol_ok  # 핵심 시그널 1
+    
+    # ── 핵심 시그널 2: 진입적기 (간소화 — 추세 확정 + 가속) ──
+    # 우리 calcEntryTiming/calcTrendDurability 둘 다 50+ 가 너무 까다로움
+    # Python에서 단순화: ST 3/3 + MACD 양전 + 가격이 ma20 위 + 최근 3봉 모멘텀
+    macd, signal, hist = calc_macd(closes)
+    macd_ok = (macd is not None and signal is not None and hist is not None and macd > signal and hist > 0)
+    
+    # MA20 대비 현재가
+    if len(closes) >= 20:
+        ma20 = sum(closes[-20:]) / 20
+        above_ma20 = closes[-1] > ma20
+    else:
+        above_ma20 = False
+    
+    # 최근 3봉 모멘텀 (현재가 > 3봉 전)
+    momentum_ok = closes[-1] > closes[-4] if len(closes) >= 4 else False
+    
+    # 진입적기 = ST 3/3 + MACD 양전 + MA20 위 + 모멘텀 (4개 중 3개+)
+    entry_components = [st_cur == 3, macd_ok, above_ma20, momentum_ok]
+    entry_ok = sum(entry_components) >= 3
+    
+    # ── 보조 시그널 ──
+    rsi_cur, rsi_prev3 = calc_rsi(closes, 14)
+    rsi_ok = (rsi_cur is not None and rsi_prev3 is not None and 45 <= rsi_cur <= 70 and rsi_cur > rsi_prev3)
+    
     cloud_st = calc_cloud_status(closes, highs, lows)
     cloud_ok = cloud_st in ("above", "near")
+    
+    # ── 등급 판정 ──
+    core_count = sum([supply_ok, entry_ok])  # 0/1/2
+    aux_count = sum([macd_ok, rsi_ok, cloud_ok])  # 0/1/2/3
+    
     if intraday:
-        sigs = [st_flip, macd_ok, rsi_ok, cloud_ok]
-        count = sum(sigs); max_count = 4
-        if count == 4: tier = "candidate_strong"
-        elif count >= 2: tier = "candidate_normal"
-        else: return None
+        # 장중 = 거래량 미확정 → 수급필터 완화 (ST 2/3+ 만)
+        supply_loose = st_count_ok  # 거래량 빼고
+        core_count_intra = sum([supply_loose, entry_ok])
+        if core_count_intra >= 2 and aux_count >= 2:
+            tier = "candidate_strong"
+        elif core_count_intra >= 1 and aux_count >= 2:
+            tier = "candidate_normal"
+        else:
+            return None
+        count = core_count_intra * 2 + aux_count  # 가중치 표시용
+        max_count = 7
     else:
-        sigs = [st_flip, macd_ok, rsi_ok, vol_ok, cloud_ok]
-        count = sum(sigs); max_count = 5
-        if count == 5: tier = "confirmed_strong"
-        elif count >= 3: tier = "confirmed_normal"
-        else: return None
-    return {"tier": tier, "count": count, "max": max_count, "filters": {
-        "st_flip": st_flip, "macd": macd_ok, "rsi": rsi_ok, "vol": vol_ok, "cloud": cloud_ok,
-        "rsi_val": rsi_cur, "vol_val": vol_ratio, "cloud_st": cloud_st, "st_count": st_cur,
+        # 종가 확정 = 엄격 — 핵심 2개 모두 + 보조 2개+
+        if core_count == 2 and aux_count >= 2:
+            tier = "confirmed_strong"  # 🟢 핵심 2/2 + 보조 2+
+        elif core_count == 2 and aux_count >= 1:
+            tier = "confirmed_normal"  # 🟡 핵심 2/2 + 보조 1
+        elif core_count == 1 and aux_count >= 3:
+            tier = "confirmed_normal"  # 🟡 핵심 1 + 보조 3 (수급/적기 중 하나만)
+        else:
+            return None
+        count = core_count * 2 + aux_count
+        max_count = 7
+    
+    return {"tier": tier, "count": count, "max": max_count,
+        "core": {"supply": supply_ok, "entry": entry_ok, "count": core_count},
+        "filters": {
+            "st_flip": st_flip, "macd": macd_ok, "rsi": rsi_ok, "vol": vol_ok, "cloud": cloud_ok,
+            "rsi_val": rsi_cur, "vol_val": vol_ratio, "cloud_st": cloud_st, "st_count": st_cur,
+            "supply": supply_ok, "entry": entry_ok,
     }}
 
 def load_alert_state():
@@ -690,8 +743,14 @@ def send_buy_alerts(stocks_data, market_filter="all", intraday=False):
         label = s.get("label", ticker); price = s.get("price", 0); chg = s.get("changePct", 0)
         is_kr = (s.get("market") == "kr")
         price_str = f"₩{int(price):,}" if is_kr else f"${price:.2f}"
+        # ★ v2.3.8: 핵심 시그널 우선 표시 (수급 + 진입적기) - 데이터 기반 가장 강한 식별력
         line = f"{i}. <b>{label}</b> ({ticker}) {price_str} ({'+' if chg>=0 else ''}{chg:.1f}%)\n"
-        line += f"   ✓ ST {sig['st_count']}/3"
+        # 핵심 2시그널을 굵게 + 앞에
+        supply_mark = "🟢 수급" if sig.get("supply") else "🔴 수급"
+        entry_mark = "🟢 적기" if sig.get("entry") else "🔴 적기"
+        line += f"   <b>{supply_mark}</b> + <b>{entry_mark}</b>\n"
+        # 보조 지표
+        line += f"   보조: ST{sig['st_count']}/3"
         line += f" · {'✓' if sig['macd'] else '·'} MACD"
         line += f" · {'✓' if sig['rsi'] else '·'} RSI{int(sig['rsi_val'] or 0)}"
         if not intraday:
