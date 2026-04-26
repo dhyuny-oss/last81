@@ -1,6 +1,24 @@
 /**
- * Alpha Terminal v2.3.12 — App.jsx
- * v2.3.12: [시그널 순서 가설 검증 — 수급 → 돌파 → 적기]
+ * Alpha Terminal v2.3.13 — App.jsx
+ * v2.3.13: [강도 점수화 (B) + 신규/지속 구분 (C)]
+ *          [실험실] 시그널 이진(✓/✗) → 강도 점수 (각 0~4점, 총 0~12점)
+ *                   수급: 거래량 단계(130/200/300%) + ST 3/3 보너스
+ *                   돌파: 4개 중 충족 개수
+ *                   적기: 4개 중 충족 개수 (ST3/3+MACD+MA20위+모멘텀)
+ *          [실험실] 신규/지속 구분 — 최근 3일 내 첫 발생 = 🆕 신규
+ *          [실험실] 종목 행 배지: "수급3 🆕" / "돌파2" 형태로 강도 + 신규 동시 표시
+ *          [실험실] 총 강도 N/12 표시 — 등급 판정 기준
+ *          [목적] 같은 ✓라도 강도 다름 + 신규(타점) vs 지속(추격) 구분
+ * v2.3.12: [시그널 순서 가설 검증 — 데이터로 가설 B 입증]
+ *          [실험실] 시그널 이진(✓/✗) → 강도 점수 (각 0~4점, 총 0~12점)
+ *                   수급: 거래량 단계(130/200/300%) + ST 3/3 보너스
+ *                   돌파: 4개 중 충족 개수
+ *                   적기: 4개 중 충족 개수 (ST3/3+MACD+MA20위+모멘텀)
+ *          [실험실] 신규/지속 구분 — 최근 3일 내 첫 발생 = 🆕 신규
+ *          [실험실] 종목 행 배지: "수급3 🆕" / "돌파2" 형태로 강도 + 신규 동시 표시
+ *          [실험실] 총 강도 N/12 표시 — 등급 판정 기준
+ *          [목적] 같은 ✓라도 강도 다름 + 신규(타점) vs 지속(추격) 구분
+ * v2.3.12: [시그널 순서 가설 검증 — 데이터로 가설 B 입증]
  *          [실험실] 각 핵심 시그널의 첫 발생 시점 별도 추적 — supplyDaysAgo / breakoutDaysAgo / entryDaysAgo
  *          [실험실] 시그널 순서 카드 추가 — 단계별 평균 d-X 표시
  *          [실험실] 가설 검증 자동 메시지 — 입증/부분/미입증 데이터로 판정
@@ -4079,22 +4097,40 @@ export default function App() {
                   const sig_supply = stC >= 2 && (candle.volRatio||100) >= 130;
                   const sig_strong = !!candle.aboveCloud || (candle.adx||0) >= 20;
                   const sig_rsi    = isRSIStrong(d, idx);
-                  // ★ v2.3.10 검증용: 돌파감지 (집중탭 카드와 동일 정의) — 4개 중 2개+
+                  // ★ v2.3.13 (B 강도 점수화): 각 시그널 0~4점
+                  // 수급 강도: 거래량 단계 + ST 단계
+                  const volR = candle.volRatio || 0;
+                  let supplyScore = 0;
+                  if (volR >= 130 && volR < 200) supplyScore += 1;
+                  else if (volR >= 200 && volR < 300) supplyScore += 2;
+                  else if (volR >= 300) supplyScore += 3;
+                  if (stC === 3) supplyScore += 1;  // ST 3/3 보너스
+                  // 돌파 강도: 4개 중 충족 개수
                   const prev = idx > 0 ? d[idx-1] : null;
                   let breakoutCount = 0;
                   if (prev) {
                     const stPrev = [prev.st1Bull, prev.st2Bull, prev.st3Bull].filter(v=>v!=null).length;
-                    if (stC > stPrev) breakoutCount++;                                              // ST flip
-                    if (candle.macd > candle.signal && prev.macd <= prev.signal) breakoutCount++;   // MACD 골든
-                    if (candle.aboveCloud && !prev.aboveCloud) breakoutCount++;                     // 구름 돌파
-                    if (candle.sqzOff && prev.sqzOn) breakoutCount++;                               // 스퀴즈 오프
+                    if (stC > stPrev) breakoutCount++;
+                    if (candle.macd > candle.signal && prev.macd <= prev.signal) breakoutCount++;
+                    if (candle.aboveCloud && !prev.aboveCloud) breakoutCount++;
+                    if (candle.sqzOff && prev.sqzOn) breakoutCount++;
                   }
+                  const breakoutScore = breakoutCount;
                   const sig_breakout = breakoutCount >= 2;
+                  // 적기 강도: 4개 중 충족 개수
+                  const ma20Now = candle.ma20;
+                  const aboveMa20 = ma20Now != null && candle.close > ma20Now;
+                  const macdOK = candle.macd != null && candle.signal != null && candle.macd > candle.signal;
+                  const momentumOK = idx >= 3 ? candle.close > d[idx-3].close : false;
+                  const entryComponents = [stC === 3, macdOK, aboveMa20, momentumOK];
+                  const entryScore = entryComponents.filter(Boolean).length;
 
                   const sigs = [sig_alpha, sig_entry, sig_supply, sig_strong, sig_rsi];
                   const sigCount = sigs.filter(Boolean).length;
+                  const totalIntensity = supplyScore + breakoutScore + entryScore; // 0~12
 
-                  return { idx, candle, sig_alpha, sig_entry, sig_supply, sig_strong, sig_rsi, sig_breakout, sigCount, stC, rsi: candle.rsi, alphaPt, timingPt, durPt };
+                  return { idx, candle, sig_alpha, sig_entry, sig_supply, sig_strong, sig_rsi, sig_breakout, sigCount, stC, rsi: candle.rsi, alphaPt, timingPt, durPt,
+                    supplyScore, breakoutScore, entryScore, totalIntensity, volR };
                 };
 
                 // d-15 ~ d-2 스캔 — 첫 3+ 시그널 충족 봉 찾기 (가장 빠른 진입 시점)
@@ -4142,10 +4178,20 @@ export default function App() {
                   stC: sigDay.stC, rsi: sigDay.rsi,
                   alphaPt: sigDay.alphaPt, timingPt: sigDay.timingPt, durPt: sigDay.durPt,
                   daysAgo, // 신호 발생 며칠 전
-                  // ★ v2.3.12: 각 시그널 첫 발생 시점 (가설 검증용)
+                  // ★ v2.3.12: 각 시그널 첫 발생 시점
                   supplyDaysAgo: firstSupplyIdx !== null ? L - 1 - firstSupplyIdx : null,
                   breakoutDaysAgo: firstBreakoutIdx !== null ? L - 1 - firstBreakoutIdx : null,
                   entryDaysAgo: firstEntryIdx !== null ? L - 1 - firstEntryIdx : null,
+                  // ★ v2.3.13 (B 강도 + C 신규/지속)
+                  supplyScore: sigDay.supplyScore,    // 0~4
+                  breakoutScore: sigDay.breakoutScore, // 0~4
+                  entryScore: sigDay.entryScore,       // 0~4
+                  totalIntensity: sigDay.totalIntensity, // 0~12
+                  volR: sigDay.volR,
+                  // 신규/지속 — 최근 3일 내 첫 발생 = 신규
+                  supplyFresh: firstSupplyIdx !== null && (L - 1 - firstSupplyIdx) <= 3,
+                  breakoutFresh: firstBreakoutIdx !== null && (L - 1 - firstBreakoutIdx) <= 3,
+                  entryFresh: firstEntryIdx !== null && (L - 1 - firstEntryIdx) <= 3,
                 };
               })
               .filter(Boolean);
@@ -4192,6 +4238,7 @@ export default function App() {
             const avgSupplyDays = supplyHits.length>0 ? +(supplyHits.reduce((s,x)=>s+x.supplyDaysAgo,0)/supplyHits.length).toFixed(1) : null;
             const avgBreakoutDays = breakoutHits.length>0 ? +(breakoutHits.reduce((s,x)=>s+x.breakoutDaysAgo,0)/breakoutHits.length).toFixed(1) : null;
             const avgEntryDays = entryHits.length>0 ? +(entryHits.reduce((s,x)=>s+x.entryDaysAgo,0)/entryHits.length).toFixed(1) : null;
+
             const hitsAvgReal = hits.length>0 ? +(hits.reduce((s,x)=>s+x.realChg5,0)/hits.length).toFixed(1) : 0;
             const missesAvgReal = misses.length>0 ? +(misses.reduce((s,x)=>s+x.realChg5,0)/misses.length).toFixed(1) : 0;
 
@@ -4324,18 +4371,18 @@ export default function App() {
                       <span style={{fontSize:8,fontWeight:900,padding:"1px 5px",borderRadius:3,minWidth:35,textAlign:"center",background:s.isHit?"rgba(48,209,88,.15)":"rgba(255,69,58,.15)",color:s.isHit?C.emerald:C.red}}>{s.isHit?"HIT":"MISS"}</span>
                       <span style={{fontWeight:700,fontSize:9,minWidth:55,maxWidth:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</span>
                       <span style={{fontSize:7,color:C.muted,minWidth:42}}>{isKR4?"₩"+fmtKRW(s.price||0):"$"+(s.price||0).toFixed(1)}</span>
-                      {/* ★ v2.3.11: 검증 결과 — 핵심 3시그널 (수급/적기/돌파감지) 큰 배지로 */}
+                      {/* ★ v2.3.13: 핵심 3시그널 강도 + 신규/지속 표시 */}
                       <div style={{display:"flex",gap:2,flexShrink:0}}>
-                        <span title={`수급필터 (ST≥2 + 거래량≥130%) — 핵심 (HIT 79% vs MISS 6%)`} style={{fontSize:7,padding:"2px 5px",borderRadius:3,background:s.sig_supply?"rgba(48,209,88,.25)":"rgba(255,69,58,.08)",color:s.sig_supply?C.emerald:C.red,fontWeight:900,border:`1px solid ${s.sig_supply?C.emerald:"rgba(255,69,58,.3)"}`}}>{s.sig_supply?"✓":"✗"}수급</span>
-                        <span title={`진입적기 (타이밍 ${s.timingPt} + 지속력 ${s.durPt}) — 핵심 (HIT 46% vs MISS 0%)`} style={{fontSize:7,padding:"2px 5px",borderRadius:3,background:s.sig_entry?"rgba(255,159,10,.25)":"rgba(255,69,58,.08)",color:s.sig_entry?"#FF9F0A":C.red,fontWeight:900,border:`1px solid ${s.sig_entry?"#FF9F0A":"rgba(255,69,58,.3)"}`}}>{s.sig_entry?"✓":"✗"}적기</span>
-                        <span title={`돌파감지 (ST flip / MACD골든 / 구름돌파 / 스퀴즈오프 중 2개+) — 핵심 (HIT 58% vs MISS 0%)`} style={{fontSize:7,padding:"2px 5px",borderRadius:3,background:s.sig_breakout?"rgba(100,210,255,.25)":"rgba(255,69,58,.08)",color:s.sig_breakout?"#64D2FF":C.red,fontWeight:900,border:`1px solid ${s.sig_breakout?"#64D2FF":"rgba(255,69,58,.3)"}`}}>{s.sig_breakout?"💎":"✗"}돌파</span>
+                        <span title={`수급 강도 ${s.supplyScore}/4 (거래량 ${s.volR}%, ST ${s.stC}/3)${s.supplyFresh?" — 🆕 최근 신규":" — 지속"}`} style={{fontSize:7,padding:"2px 5px",borderRadius:3,background:s.supplyScore>=3?"rgba(48,209,88,.25)":s.supplyScore>=1?"rgba(48,209,88,.10)":"rgba(255,69,58,.08)",color:s.supplyScore>=3?C.emerald:s.supplyScore>=1?C.green:C.red,fontWeight:900,border:`1px solid ${s.supplyScore>=3?C.emerald:s.supplyScore>=1?"rgba(48,209,88,.4)":"rgba(255,69,58,.3)"}`}}>{s.supplyFresh&&s.sig_supply?"🆕":""}수급{s.supplyScore}</span>
+                        <span title={`진입적기 강도 ${s.entryScore}/4 (타이밍 ${s.timingPt}+지속력 ${s.durPt})${s.entryFresh?" — 🆕 최근 신규":" — 지속"}`} style={{fontSize:7,padding:"2px 5px",borderRadius:3,background:s.entryScore>=3?"rgba(255,159,10,.25)":s.entryScore>=1?"rgba(255,159,10,.10)":"rgba(255,69,58,.08)",color:s.entryScore>=3?"#FF9F0A":s.entryScore>=1?"#FFB84D":C.red,fontWeight:900,border:`1px solid ${s.entryScore>=3?"#FF9F0A":s.entryScore>=1?"rgba(255,159,10,.4)":"rgba(255,69,58,.3)"}`}}>{s.entryFresh&&s.sig_entry?"🆕":""}적기{s.entryScore}</span>
+                        <span title={`돌파 강도 ${s.breakoutScore}/4 (ST flip+MACD골든+구름돌파+스퀴즈오프 중 충족)${s.breakoutFresh?" — 🆕 최근 신규":" — 지속"}`} style={{fontSize:7,padding:"2px 5px",borderRadius:3,background:s.breakoutScore>=3?"rgba(100,210,255,.25)":s.breakoutScore>=1?"rgba(100,210,255,.10)":"rgba(255,69,58,.08)",color:s.breakoutScore>=3?"#64D2FF":s.breakoutScore>=1?"#8DDBFF":C.red,fontWeight:900,border:`1px solid ${s.breakoutScore>=3?"#64D2FF":s.breakoutScore>=1?"rgba(100,210,255,.4)":"rgba(255,69,58,.3)"}`}}>{s.breakoutFresh&&s.sig_breakout?"🆕":""}돌파{s.breakoutScore}</span>
                       </div>
                       <div style={{display:"flex",gap:1,flex:1}}>
-                        <span title={`추세강도 (구름 위 또는 ADX≥20) — 보조 (식별력 약함)`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_strong?"rgba(100,210,255,.15)":"rgba(255,255,255,.04)",color:s.sig_strong?"#64D2FF":C.muted,fontWeight:700}}>강도</span>
-                        <span title={`RSI 강세진입 (45~70 + 상승, 현재 ${s.rsi?.toFixed(0)||"—"}) — 보조 (식별력 0)`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_rsi?"rgba(191,90,242,.15)":"rgba(255,255,255,.04)",color:s.sig_rsi?C.purple:C.muted,fontWeight:700}}>RSI</span>
-                        <span title={`종합점수 ≥ 60 (현재 ${s.alphaPt}) — 보조 (식별력 0)`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_alpha?"rgba(10,132,255,.15)":"rgba(255,255,255,.04)",color:s.sig_alpha?C.accent:C.muted,fontWeight:700}}>α</span>
+                        <span title={`추세강도 (구름·ADX≥20) — 보조 (식별력 약함)`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_strong?"rgba(100,210,255,.10)":"rgba(255,255,255,.04)",color:s.sig_strong?"#64D2FF":C.muted,fontWeight:700}}>강도</span>
+                        <span title={`RSI 강세진입 (현재 ${s.rsi?.toFixed(0)||"—"}) — 보조 (식별력 0)`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_rsi?"rgba(191,90,242,.10)":"rgba(255,255,255,.04)",color:s.sig_rsi?C.purple:C.muted,fontWeight:700}}>RSI</span>
+                        <span title={`종합점수 ${s.alphaPt} — 보조 (식별력 0)`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_alpha?"rgba(10,132,255,.10)":"rgba(255,255,255,.04)",color:s.sig_alpha?C.accent:C.muted,fontWeight:700}}>α</span>
                       </div>
-                      <span title="핵심 3시그널 충족 개수" style={{fontSize:8,fontWeight:700,color:[s.sig_supply,s.sig_entry,s.sig_breakout].filter(Boolean).length>=3?C.emerald:[s.sig_supply,s.sig_entry,s.sig_breakout].filter(Boolean).length>=2?"#FF9F0A":[s.sig_supply,s.sig_entry,s.sig_breakout].filter(Boolean).length>=1?C.yellow:C.muted,minWidth:25,textAlign:"center"}}>{[s.sig_supply,s.sig_entry,s.sig_breakout].filter(Boolean).length}/3</span>
+                      <span title={`총 강도 ${s.totalIntensity}/12`} style={{fontSize:8,fontWeight:700,color:s.totalIntensity>=8?C.emerald:s.totalIntensity>=5?"#FF9F0A":s.totalIntensity>=3?C.yellow:C.muted,minWidth:25,textAlign:"center"}}>{s.totalIntensity}/12</span>
                       {s.isHit&&<span title="신호 발생 며칠 전" style={{fontSize:7,fontWeight:700,color:C.accent,minWidth:24,textAlign:"center",padding:"1px 3px",background:"rgba(10,132,255,.08)",borderRadius:3}}>d-{s.daysAgo}</span>}
                       <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",minWidth:60}}>
                         <span style={{fontSize:9,fontWeight:900,color:s.realChg5>0?C.green:C.red}}>+{s.realChg5.toFixed(1)}%</span>
