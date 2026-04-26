@@ -599,12 +599,13 @@ def calc_cloud_status(closes, highs, lows):
 
 def detect_buy_signal(candles, intraday=False):
     """
-    실험실 데이터 기반 (v2.3.7 분석 결과 적용):
-    - 핵심 2시그널: 수급필터 (HIT 79% vs MISS 6%) + 진입적기 (HIT 46% vs MISS 0%)
-    - 보조 3시그널: ST flip / MACD / RSI / 구름 (보조 점수)
+    실험실 데이터 검증 결과 (v2.3.7~v2.3.10):
+    - 핵심 3시그널: 수급필터 (HIT79/MISS6) + 진입적기 (HIT46/MISS0) + 돌파감지 (HIT58/MISS0)
+    - 보조: MACD / RSI / 구름
     
-    intraday=True: 거래량 미확정 → 핵심 1.5개 + 보조 (느슨)
-    intraday=False: 핵심 2개 모두 충족 + 보조 1개+ → 강력 (엄격)
+    🚀 슈퍼: 핵심 3/3 + 보조 1+ (가장 강력)
+    🟢 강력: 핵심 2/3 + 보조 2+
+    🟡 보통: 핵심 1/3 + 보조 3
     """
     if len(candles) < 60:
         return None
@@ -613,33 +614,45 @@ def detect_buy_signal(candles, intraday=False):
     lows = [c["low"] for c in candles]
     
     # ── 핵심 시그널 1: 수급필터 (ST 2/3+ AND 거래량 130%+) ──
-    # HIT 79% vs MISS 6% — 압도적 식별력
     st_cur, st_prev = calc_supertrend_count(candles)
-    st_count_ok = st_cur >= 2  # ST 2/3+ 매수
-    st_flip = (st_cur == 3 and st_prev < 3)  # ST 풀충 전환 (보조)
+    st_count_ok = st_cur >= 2
+    st_flip = (st_cur == 3 and st_prev < 3)
     vol_ratio = calc_vol_ratio(candles)
     vol_ok = vol_ratio >= 130
-    supply_ok = st_count_ok and vol_ok  # 핵심 시그널 1
+    supply_ok = st_count_ok and vol_ok
     
-    # ── 핵심 시그널 2: 진입적기 (간소화 — 추세 확정 + 가속) ──
-    # 우리 calcEntryTiming/calcTrendDurability 둘 다 50+ 가 너무 까다로움
-    # Python에서 단순화: ST 3/3 + MACD 양전 + 가격이 ma20 위 + 최근 3봉 모멘텀
+    # ── 핵심 시그널 2: 진입적기 (간소화) ──
     macd, signal, hist = calc_macd(closes)
     macd_ok = (macd is not None and signal is not None and hist is not None and macd > signal and hist > 0)
     
-    # MA20 대비 현재가
     if len(closes) >= 20:
         ma20 = sum(closes[-20:]) / 20
         above_ma20 = closes[-1] > ma20
     else:
         above_ma20 = False
     
-    # 최근 3봉 모멘텀 (현재가 > 3봉 전)
     momentum_ok = closes[-1] > closes[-4] if len(closes) >= 4 else False
-    
-    # 진입적기 = ST 3/3 + MACD 양전 + MA20 위 + 모멘텀 (4개 중 3개+)
     entry_components = [st_cur == 3, macd_ok, above_ma20, momentum_ok]
     entry_ok = sum(entry_components) >= 3
+    
+    # ── 핵심 시그널 3: 돌파감지 (ST flip / MACD 골든 / 구름 돌파 / 스퀴즈오프 중 2개+) ──
+    # 스퀴즈는 Python에 미구현이라 ST/MACD/구름 3개로 단순화 (2+)
+    breakout_count = 0
+    if st_flip:
+        breakout_count += 1
+    # MACD 골든크로스 (직전봉 음 → 현재 양)
+    if len(closes) >= 36:
+        prev_macd_arr = calc_macd(closes[:-1])
+        if prev_macd_arr[0] is not None and prev_macd_arr[1] is not None and macd is not None and signal is not None:
+            if macd > signal and prev_macd_arr[0] <= prev_macd_arr[1]:
+                breakout_count += 1
+    # 구름 돌파 (직전 봉 below/in → 현재 above)
+    if len(closes) >= 53:
+        prev_cloud_st = calc_cloud_status(closes[:-1], highs[:-1], lows[:-1])
+        cloud_st_now = calc_cloud_status(closes, highs, lows)
+        if cloud_st_now == "above" and prev_cloud_st in ("below", "in"):
+            breakout_count += 1
+    breakout_ok = breakout_count >= 2
     
     # ── 보조 시그널 ──
     rsi_cur, rsi_prev3 = calc_rsi(closes, 14)
@@ -649,40 +662,42 @@ def detect_buy_signal(candles, intraday=False):
     cloud_ok = cloud_st in ("above", "near")
     
     # ── 등급 판정 ──
-    core_count = sum([supply_ok, entry_ok])  # 0/1/2
+    core_count = sum([supply_ok, entry_ok, breakout_ok])  # 0/1/2/3
     aux_count = sum([macd_ok, rsi_ok, cloud_ok])  # 0/1/2/3
     
     if intraday:
-        # 장중 = 거래량 미확정 → 수급필터 완화 (ST 2/3+ 만)
-        supply_loose = st_count_ok  # 거래량 빼고
-        core_count_intra = sum([supply_loose, entry_ok])
-        if core_count_intra >= 2 and aux_count >= 2:
+        # 장중 = 거래량 미확정 → 수급필터 완화
+        supply_loose = st_count_ok
+        core_count_intra = sum([supply_loose, entry_ok, breakout_ok])
+        if core_count_intra >= 3 and aux_count >= 1:
+            tier = "candidate_super"  # 🚀 장중 슈퍼
+        elif core_count_intra >= 2 and aux_count >= 2:
             tier = "candidate_strong"
         elif core_count_intra >= 1 and aux_count >= 2:
             tier = "candidate_normal"
         else:
             return None
-        count = core_count_intra * 2 + aux_count  # 가중치 표시용
-        max_count = 7
+        count = core_count_intra * 2 + aux_count
+        max_count = 9
     else:
-        # 종가 확정 = 엄격 — 핵심 2개 모두 + 보조 2개+
-        if core_count == 2 and aux_count >= 2:
-            tier = "confirmed_strong"  # 🟢 핵심 2/2 + 보조 2+
-        elif core_count == 2 and aux_count >= 1:
-            tier = "confirmed_normal"  # 🟡 핵심 2/2 + 보조 1
-        elif core_count == 1 and aux_count >= 3:
-            tier = "confirmed_normal"  # 🟡 핵심 1 + 보조 3 (수급/적기 중 하나만)
+        # 종가 확정 = 엄격
+        if core_count == 3 and aux_count >= 1:
+            tier = "confirmed_super"   # 🚀 슈퍼 (3/3 + 보조)
+        elif core_count >= 2 and aux_count >= 2:
+            tier = "confirmed_strong"  # 🟢 강력 (2/3 + 보조 2+)
+        elif core_count >= 1 and aux_count >= 3:
+            tier = "confirmed_normal"  # 🟡 보통 (1/3 + 보조 3)
         else:
             return None
         count = core_count * 2 + aux_count
-        max_count = 7
+        max_count = 9
     
     return {"tier": tier, "count": count, "max": max_count,
-        "core": {"supply": supply_ok, "entry": entry_ok, "count": core_count},
+        "core": {"supply": supply_ok, "entry": entry_ok, "breakout": breakout_ok, "count": core_count},
         "filters": {
             "st_flip": st_flip, "macd": macd_ok, "rsi": rsi_ok, "vol": vol_ok, "cloud": cloud_ok,
             "rsi_val": rsi_cur, "vol_val": vol_ratio, "cloud_st": cloud_st, "st_count": st_cur,
-            "supply": supply_ok, "entry": entry_ok,
+            "supply": supply_ok, "entry": entry_ok, "breakout": breakout_ok,
     }}
 
 def load_alert_state():
@@ -723,32 +738,50 @@ def send_buy_alerts(stocks_data, market_filter="all", intraday=False):
             continue
         try:
             sig = detect_buy_signal(candles, intraday=intraday)
-            if sig and sig["tier"] in ("confirmed_strong", "candidate_strong"):
+            if sig and sig["tier"] in ("confirmed_super", "confirmed_strong", "candidate_super", "candidate_strong"):
                 candidates.append({"ticker": ticker, "stock": stock, "sig": sig, "key": key})
         except Exception:
             continue
+    # 슈퍼 먼저, 강력 그 다음 — 정렬
+    candidates.sort(key=lambda c: (
+        0 if c["sig"]["tier"] in ("confirmed_super", "candidate_super") else 1,
+        -c["sig"]["count"]
+    ))
     max_alerts = 5 if intraday else 10
     candidates = candidates[:max_alerts]
     if not candidates:
         print(f"  ℹ️ {market_filter} 강력 신호 0개 — 알림 스킵")
         return
+    super_count = sum(1 for c in candidates if c["sig"]["tier"] in ("confirmed_super", "candidate_super"))
     market_label = "🇰🇷 한국" if market_filter == "kr" else "🇺🇸 미국" if market_filter == "us" else "전체"
     if intraday:
-        header = f"🔵 <b>{market_label}장 진행 중 후보</b> — {datetime.datetime.now().strftime('%m/%d %H:%M')} KST\n<i>4/4 충족 (거래량 장 마감 시 확정 필요)</i>\n\n"
+        header = f"🔵 <b>{market_label}장 진행 중 후보</b> — {datetime.datetime.now().strftime('%m/%d %H:%M')} KST\n"
+        if super_count > 0:
+            header += f"<b>🚀 슈퍼 {super_count}개</b> + 강력 후보 (거래량 장 마감 시 확정)\n\n"
+        else:
+            header += "<i>핵심 2+ 충족 후보 (거래량 미확정)</i>\n\n"
     else:
-        header = f"🟢 <b>{market_label} 종가 확정 신호</b> — {datetime.datetime.now().strftime('%m/%d %H:%M')} KST\n<i>5/5 충족 — 다음 거래일 시가 매수 검토</i>\n\n"
+        header = f"🟢 <b>{market_label} 종가 확정 신호</b> — {datetime.datetime.now().strftime('%m/%d %H:%M')} KST\n"
+        if super_count > 0:
+            header += f"<b>🚀 슈퍼 {super_count}개</b> (핵심 3/3 충족) — 최고 등급\n<i>다음 거래일 시가 매수 검토</i>\n\n"
+        else:
+            header += "<i>핵심 2+ 충족 — 다음 거래일 시가 매수 검토</i>\n\n"
     body_lines = []
     for i, c in enumerate(candidates, 1):
         ticker = c["ticker"]; s = c["stock"]; sig = c["sig"]["filters"]
+        tier = c["sig"]["tier"]
+        is_super = tier in ("confirmed_super", "candidate_super")
         label = s.get("label", ticker); price = s.get("price", 0); chg = s.get("changePct", 0)
         is_kr = (s.get("market") == "kr")
         price_str = f"₩{int(price):,}" if is_kr else f"${price:.2f}"
-        # ★ v2.3.8: 핵심 시그널 우선 표시 (수급 + 진입적기) - 데이터 기반 가장 강한 식별력
-        line = f"{i}. <b>{label}</b> ({ticker}) {price_str} ({'+' if chg>=0 else ''}{chg:.1f}%)\n"
-        # 핵심 2시그널을 굵게 + 앞에
+        # ★ v2.3.11: 슈퍼/강력 등급 + 핵심 3시그널 표시
+        prefix = "🚀" if is_super else f"{i}."
+        line = f"{prefix} <b>{label}</b> ({ticker}) {price_str} ({'+' if chg>=0 else ''}{chg:.1f}%)\n"
+        # 핵심 3시그널을 굵게 + 앞에
         supply_mark = "🟢 수급" if sig.get("supply") else "🔴 수급"
         entry_mark = "🟢 적기" if sig.get("entry") else "🔴 적기"
-        line += f"   <b>{supply_mark}</b> + <b>{entry_mark}</b>\n"
+        breakout_mark = "💎 돌파" if sig.get("breakout") else "🔴 돌파"
+        line += f"   <b>{supply_mark}</b> + <b>{entry_mark}</b> + <b>{breakout_mark}</b>\n"
         # 보조 지표
         line += f"   보조: ST{sig['st_count']}/3"
         line += f" · {'✓' if sig['macd'] else '·'} MACD"
