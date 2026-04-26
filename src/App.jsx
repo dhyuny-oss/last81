@@ -1,5 +1,15 @@
 /**
- * Alpha Terminal v2.3.14 — App.jsx
+ * Alpha Terminal v2.3.15 — App.jsx
+ * v2.3.15: [컴포넌트별 단독 효과 측정 — 재조합 검토용 데이터]
+ *          [실험실] 10개 컴포넌트 개별 플래그 측정 (helper에서 추적)
+ *                   수급 내부 (2): ST≥2 / 거래량≥130%
+ *                   돌파 내부 (4): ST flip / MACD골든 / 구름돌파 / 스퀴즈오프
+ *                   적기 내부 (4): ST 3/3 / MACD>Signal / 가격>MA20 / 가격>3봉전
+ *          [실험실] 컴포넌트별 단독 효과 카드 추가 — 표본/평균/승률/+10%/-5%
+ *          [측정] "그 컴포넌트가 충족된 모든 봉"의 N일 후 결과
+ *                 측정 기간 토글 (위 정확도 카드와 연동)
+ *          [목적] 어떤 컴포넌트가 진짜 효과 있는지 데이터로 판단
+ *                 효과 큰 것만 남기고 재조합 (사건/지속/다른시각)
  * v2.3.14: [시그널 → 결과 측정 (Precision) + 스캔 범위 확장]
  *          [실험실] 스캔 범위 d-15 → d-30으로 확장 (시그널 발생이 d-15 근처 잘림 의심 해소)
  *          [실험실] 시그널 조합별 정확도 카드 추가 — Precision 측정
@@ -4138,8 +4148,29 @@ export default function App() {
                   const sigCount = sigs.filter(Boolean).length;
                   const totalIntensity = supplyScore + breakoutScore + entryScore; // 0~12
 
+                  // ★ v2.3.15 (D): 10개 컴포넌트 개별 플래그 — 재조합 검토용
+                  let macdGoldenCross = false, cloudBreak = false, sqzOff = false;
+                  if (prev) {
+                    macdGoldenCross = (candle.macd > candle.signal && prev.macd <= prev.signal);
+                    cloudBreak = (candle.aboveCloud && !prev.aboveCloud);
+                    sqzOff = (candle.sqzOff && prev.sqzOn);
+                  }
+                  const stFlip = prev ? (stC > [prev.st1Bull,prev.st2Bull,prev.st3Bull].filter(v=>v!=null).length) : false;
+
                   return { idx, candle, sig_alpha, sig_entry, sig_supply, sig_strong, sig_rsi, sig_breakout, sigCount, stC, rsi: candle.rsi, alphaPt, timingPt, durPt,
-                    supplyScore, breakoutScore, entryScore, totalIntensity, volR };
+                    supplyScore, breakoutScore, entryScore, totalIntensity, volR,
+                    // 컴포넌트 플래그 (10개)
+                    c_st2: stC >= 2,                   // 1. ST 카운트 ≥ 2 (수급)
+                    c_vol: volR >= 130,                // 2. 거래량 ≥ 130% (수급)
+                    c_stFlip: stFlip,                  // 3. ST flip (돌파)
+                    c_macdGolden: macdGoldenCross,     // 4. MACD 골든크로스 (돌파)
+                    c_cloudBreak: cloudBreak,          // 5. 구름 돌파 (돌파)
+                    c_sqzOff: sqzOff,                  // 6. 스퀴즈 오프 (돌파)
+                    c_st3: stC === 3,                  // 7. ST 3/3 (적기)
+                    c_macdPos: macdOK,                 // 8. MACD > Signal (적기)
+                    c_aboveMa20: aboveMa20,            // 9. 가격 > MA20 (적기)
+                    c_momentum: momentumOK,            // 10. 가격 > 3봉전 (적기)
+                  };
                 };
 
                 // d-15 ~ d-2 스캔 — 첫 3+ 시그널 충족 봉 찾기 (가장 빠른 진입 시점)
@@ -4261,6 +4292,30 @@ export default function App() {
                 ...c,
                 stats5: calcStats(matchedBars, 'return5'),
                 stats3: calcStats(matchedBars, 'return3'),
+                stats7: calcStats(matchedBars, 'return7'),
+                stats10: calcStats(matchedBars, 'return10'),
+              };
+            });
+
+            // ★ v2.3.15: 10개 컴포넌트 단독 효과 측정 — 재조합 검토용
+            const components = [
+              {key:"c_st2",        label:"ST 카운트 ≥ 2",   group:"수급", color:C.emerald},
+              {key:"c_vol",        label:"거래량 ≥ 130%",   group:"수급", color:C.emerald},
+              {key:"c_stFlip",     label:"ST flip",        group:"돌파", color:"#64D2FF"},
+              {key:"c_macdGolden", label:"MACD 골든크로스",  group:"돌파", color:"#64D2FF"},
+              {key:"c_cloudBreak", label:"구름 돌파",       group:"돌파", color:"#64D2FF"},
+              {key:"c_sqzOff",     label:"스퀴즈 오프",     group:"돌파", color:"#64D2FF"},
+              {key:"c_st3",        label:"ST 3/3",         group:"적기", color:"#FF9F0A"},
+              {key:"c_macdPos",    label:"MACD > Signal",  group:"적기", color:"#FF9F0A"},
+              {key:"c_aboveMa20",  label:"가격 > MA20",     group:"적기", color:"#FF9F0A"},
+              {key:"c_momentum",   label:"가격 > 3봉전",    group:"적기", color:"#FF9F0A"},
+            ];
+            const componentStats = components.map(c => {
+              const matchedBars = allBars.filter(b => b[c.key]);
+              return {
+                ...c,
+                stats3: calcStats(matchedBars, 'return3'),
+                stats5: calcStats(matchedBars, 'return5'),
                 stats7: calcStats(matchedBars, 'return7'),
                 stats10: calcStats(matchedBars, 'return10'),
               };
@@ -4506,6 +4561,56 @@ export default function App() {
                 <div style={{fontSize:7,color:C.muted,marginTop:8,padding:"6px 8px",background:"rgba(0,0,0,.3)",borderRadius:4,lineHeight:1.5}}>
                   <b>해석법</b>: <b style={{color:C.emerald}}>승률</b>=양수 비율 · <b style={{color:C.emerald}}>+10%↑</b>=대박 비율 · <b style={{color:C.red}}>-5%↓</b>=손실 위험 비율 · <b style={{color:C.yellow}}>표본⚠</b>=10개 미만 (참고용)<br/>
                   <b>비교 포인트</b>: 슈퍼 종목이 단독보다 결과 좋은가? 시그널 조합이 승률 올리는가?
+                </div>
+              </div>
+
+              {/* ★ v2.3.15: 컴포넌트별 단독 효과 — 재조합 검토용 */}
+              <div style={css.card}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+                  <div style={{fontSize:10,fontWeight:700,color:"#FF6482"}}>🔬 컴포넌트별 단독 효과 — 시그널 재조합 검토용</div>
+                  <div style={{fontSize:7,color:C.muted}}>{labReturnDays}일 후 측정 (위 카드 토글 연동)</div>
+                </div>
+                <div style={{fontSize:8,color:C.muted,marginBottom:10}}>
+                  각 컴포넌트가 떴을 때 (단독 충족 아님, 다른 시그널 무관) 결과 측정 · 효과 약한 컴포넌트는 제거 후보
+                </div>
+                <div style={{display:"grid",gap:3}}>
+                  {/* 헤더 */}
+                  <div style={{display:"grid",gridTemplateColumns:"50px 1.5fr 0.7fr 0.8fr 0.7fr 0.7fr 0.7fr",gap:4,padding:"4px 8px",fontSize:7,color:C.muted,borderBottom:`1px solid ${C.border}`}}>
+                    <div>분류</div>
+                    <div>컴포넌트</div>
+                    <div style={{textAlign:"center"}}>표본</div>
+                    <div style={{textAlign:"center"}}>평균</div>
+                    <div style={{textAlign:"center"}}>승률</div>
+                    <div style={{textAlign:"center"}}>+10%↑</div>
+                    <div style={{textAlign:"center"}}>-5%↓</div>
+                  </div>
+                  {/* 컴포넌트별 행 */}
+                  {componentStats.map(c => {
+                    const stat = c[`stats${labReturnDays}`];
+                    return <div key={c.key} style={{display:"grid",gridTemplateColumns:"50px 1.5fr 0.7fr 0.8fr 0.7fr 0.7fr 0.7fr",gap:4,padding:"4px 8px",fontSize:8,background:`${c.color}06`,border:`1px solid ${c.color}15`,borderRadius:3,alignItems:"center"}}>
+                      <div style={{color:c.color,fontWeight:700,fontSize:7}}>{c.group}</div>
+                      <div style={{color:C.text,fontWeight:600}}>{c.label}</div>
+                      <div style={{textAlign:"center",color:!stat?C.muted:stat.count<10?C.yellow:C.text,fontSize:7}}>
+                        {!stat?"—":stat.count<10?`${stat.count}⚠`:stat.count}
+                      </div>
+                      <div style={{textAlign:"center",fontWeight:900,color:!stat?C.muted:stat.avg>=8?C.emerald:stat.avg>=4?C.green:stat.avg>=0?C.yellow:C.red}}>
+                        {!stat?"—":(stat.avg>=0?"+":"")+stat.avg+"%"}
+                      </div>
+                      <div style={{textAlign:"center",color:!stat?C.muted:stat.winRate>=70?C.emerald:stat.winRate>=55?C.yellow:C.red,fontSize:7}}>
+                        {!stat?"—":stat.winRate+"%"}
+                      </div>
+                      <div style={{textAlign:"center",color:!stat?C.muted:stat.big10>=30?C.emerald:stat.big10>=15?C.yellow:C.muted,fontSize:7}}>
+                        {!stat?"—":stat.big10+"%"}
+                      </div>
+                      <div style={{textAlign:"center",color:!stat?C.muted:stat.loss5>=20?C.red:stat.loss5>=10?C.yellow:C.muted,fontSize:7}}>
+                        {!stat?"—":stat.loss5+"%"}
+                      </div>
+                    </div>;
+                  })}
+                </div>
+                <div style={{fontSize:7,color:C.muted,marginTop:8,padding:"6px 8px",background:"rgba(0,0,0,.3)",borderRadius:4,lineHeight:1.5}}>
+                  <b>판독법</b>: <b style={{color:C.emerald}}>평균 +8%↑</b> & <b style={{color:C.emerald}}>승률 70%↑</b> = 핵심 컴포넌트 · <b style={{color:C.red}}>평균 +0~3%</b> & <b style={{color:C.red}}>승률 ~55%</b> = 제거 후보<br/>
+                  <b>주의</b>: 단독이 아닌 "그 컴포넌트 충족된 모든 봉" 측정 (다른 시그널 동시 충족도 포함). 표본은 충분 (수백 개).
                 </div>
               </div>
 
