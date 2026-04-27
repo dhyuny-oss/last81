@@ -1,5 +1,9 @@
 /**
- * Alpha Terminal v2.4.1 — App.jsx
+ * Alpha Terminal v2.4.2 — App.jsx
+ * v2.4.2: [집중탭 정리 — 사용자 분 결정 사항 반영]
+ *          [제거] AI 추천 — 상승 유력 TOP5 카드 (불필요)
+ *          [변경] 진입적기 순위: 회사명을 제일 앞으로 이동
+ *                 (이전: ⚡점수 💪점수 회사명 → 신규: 회사명 ⚡💪)
  * v2.4.1: [거래량 측정 안정화 — 지속 매수세 확인]
  *          [본질] 당일 1봉 거래량 → 최근 3봉 중 2봉 이상 105%↑ 변경
  *                 일시 폭증 필터링 + 진짜 매수 추세 확인
@@ -2536,47 +2540,8 @@ export default function App() {
             </div>;
           })()}
 
-          {/* 기본 뷰: 카드 미선택 시 TOP5 + 돌파 + 진입평점 */}
+          {/* 기본 뷰: 카드 미선택 시 — 오늘의 돌파 + 진입적기 순위 (v2.4.2: AI 추천 TOP5 제거) */}
           {!focusView&&<>
-          <div style={css.card}>
-            <div style={{fontSize:11,fontWeight:700,color:C.purple,marginBottom:8}}>🏆 AI 추천 — 상승 유력 TOP5</div>
-            <div style={{fontSize:8,color:C.muted,marginBottom:10}}>RS강도 + ST신호 + 구름 + 거래량 + 모멘텀 기반 종합 점수</div>
-            {(()=>{
-              const ranked = realStocks.map(s => {
-                const cData = charts[s.ticker]?.data;
-                const {score, signals, rs} = alphaScore(s, cData, idxRS);
-                const tm = calcEntryTiming(cData);
-                const dr = calcTrendDurability(cData);
-                return {...s, score, signals, rs, timing:tm.score, durability:dr.score};
-              }).filter(s => s.score > 20).sort((a,b) => b.score - a.score).slice(0,5);
-
-              if (!ranked.length) return <div style={{textAlign:"center",padding:"20px",color:C.muted}}>종목을 추가하면 추천이 표시됩니다</div>;
-              return ranked.map((s,i) => {
-                const medal = i===0?"🥇":i===1?"🥈":i===2?"🥉":`${i+1}`;
-                return <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderBottom:`1px solid rgba(255,255,255,.05)`,cursor:"pointer",background:i===0?"rgba(191,90,242,.06)":"transparent",borderRadius:i===0?8:0}}>
-                  <span style={{fontSize:14,minWidth:20}}>{medal}</span>
-                  <div style={{flex:1}}>
-                    <div style={{display:"flex",alignItems:"center",gap:5}}>
-                      <span style={{fontWeight:900,fontSize:10,maxWidth:82,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</span>
-                      <span style={{fontSize:9,fontWeight:900,color:s.timing>=40?"#FF9F0A":C.muted,padding:"1px 3px",borderRadius:3,background:"rgba(255,159,10,.08)"}}>⚡{s.timing}</span>
-                      <span style={{fontSize:9,fontWeight:900,color:s.durability>=50?C.emerald:C.muted,padding:"1px 3px",borderRadius:3,background:"rgba(48,209,88,.08)"}}>💪{s.durability}</span>
-                    </div>
-                    <div style={{display:"flex",gap:3,marginTop:3}}>
-                      {(s.signals||[]).slice(0,3).map(sig=><span key={sig} style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:"rgba(191,90,242,.1)",color:C.purple}}>{sig}</span>)}
-                    </div>
-                  </div>
-                  <div style={{textAlign:"right"}}>
-                    <div style={{fontSize:14,fontWeight:900,color:C.accent}}>{s.score}<span style={{fontSize:8,color:C.muted}}>pt</span></div>
-                    <div style={{display:"flex",gap:4,justifyContent:"flex-end",marginTop:2}}>
-                      <span style={{fontSize:7,color:(s.changePct||0)>=0?C.green:C.red}}>1D {(s.changePct||0)>=0?"+":""}{(s.changePct||0).toFixed(1)}%</span>
-                      <span style={{fontSize:7,color:(s.chg3d||0)>=0?C.green:C.red}}>3D {(s.chg3d||0)>=0?"+":""}{(s.chg3d||0).toFixed(1)}%</span>
-                    </div>
-                  </div>
-                  <button onClick={e=>{e.stopPropagation();quickAddToWatch(s,oppScore);}} title="관찰 등록 (차트탭 안 거치고)" style={{background:tracking.find(t=>t.ticker===s.ticker)?"rgba(48,209,88,.15)":"rgba(48,209,88,.06)",border:`1px solid ${tracking.find(t=>t.ticker===s.ticker)?C.emerald:"rgba(48,209,88,.3)"}`,color:C.emerald,borderRadius:4,padding:"4px 6px",cursor:"pointer",fontSize:9,fontWeight:700,marginLeft:4}}>{tracking.find(t=>t.ticker===s.ticker)?"✓":"👁"}</button>
-                </div>;
-              });
-            })()}
-          </div>
 
           {/* ★ v2.2: 🚀 오늘의 돌파 감지 */}
           <div style={css.card}>
@@ -2643,18 +2608,19 @@ export default function App() {
               return graded.slice(0,15).map((s,i)=>{
                 const good = s.timing>=40&&s.durability>=40;
                 return <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 8px",borderBottom:`1px solid rgba(255,255,255,.05)`,cursor:"pointer",background:good&&i<3?"rgba(48,209,88,.06)":"transparent"}}>
-                  <div style={{minWidth:50,display:"flex",gap:3}}>
-                    <span style={{fontSize:12,fontWeight:900,color:s.timing>=70?"#FF9F0A":s.timing>=40?C.yellow:C.muted,padding:"1px 3px",borderRadius:3,background:"rgba(255,159,10,.08)"}}>⚡{s.timing}</span>
-                    <span style={{fontSize:12,fontWeight:900,color:s.durability>=70?C.emerald:s.durability>=50?C.green:C.muted,padding:"1px 3px",borderRadius:3,background:"rgba(48,209,88,.08)"}}>💪{s.durability}</span>
-                  </div>
-                  <div style={{flex:1}}>
-                    <div style={{fontWeight:700,fontSize:10,maxWidth:65,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s,8)}</div>
-                    <div style={{display:"flex",gap:2,marginTop:2,flexWrap:"wrap"}}>
+                  {/* ★ v2.4.2: 회사명 제일 앞으로 */}
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:2}}>
+                      <span style={{fontWeight:700,fontSize:10,maxWidth:90,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s,10)}</span>
+                      <span style={{fontSize:11,fontWeight:900,color:s.timing>=70?"#FF9F0A":s.timing>=40?C.yellow:C.muted,padding:"1px 3px",borderRadius:3,background:"rgba(255,159,10,.08)"}}>⚡{s.timing}</span>
+                      <span style={{fontSize:11,fontWeight:900,color:s.durability>=70?C.emerald:s.durability>=50?C.green:C.muted,padding:"1px 3px",borderRadius:3,background:"rgba(48,209,88,.08)"}}>💪{s.durability}</span>
+                    </div>
+                    <div style={{display:"flex",gap:2,flexWrap:"wrap"}}>
                       {s.timingSignals.slice(0,2).map(sig=><span key={sig} style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:"rgba(255,159,10,.08)",color:"#FF9F0A"}}>{sig}</span>)}
                       {s.durabilitySignals.slice(0,2).map(sig=><span key={sig} style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:"rgba(48,209,88,.08)",color:C.emerald}}>{sig}</span>)}
                     </div>
                   </div>
-                  <div style={{textAlign:"right"}}>
+                  <div style={{textAlign:"right",flexShrink:0}}>
                     <div style={{display:"flex",gap:4,justifyContent:"flex-end"}}>
                       <span style={{fontSize:7,color:(s.changePct||0)>=0?C.green:C.red}}>1D {(s.changePct||0)>=0?"+":""}{(s.changePct||0).toFixed(1)}%</span>
                       <span style={{fontSize:7,color:(s.chg3d||0)>=0?C.green:C.red}}>3D {(s.chg3d||0)>=0?"+":""}{(s.chg3d||0).toFixed(1)}%</span>
