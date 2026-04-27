@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
 """
-Alpha Terminal — Yahoo Finance 데이터 수집 (v2.4.5)
+Alpha Terminal — Yahoo Finance 데이터 수집 (v2.4.6)
 - hourly 모드 (평일 매 시간): 관심종목 현재가만
 - daily  모드 (평일 오후 6시): 전체 풀 + 알파스캔
 - quarterly 모드 (수동): 재무데이터 수집
+
+v2.4.6 변경: candles 보존 종목 확장 (적극)
+- 문제: RS 120 + 알파 120 = ~167개 종목만 candles 저장
+       → 미국 풀 438개 중 차트 분석 가능한 게 너무 적음
+       → 사용자 분 발견 — 시그널 떴어야 할 미국 강세 종목들 안 보임
+- 변경: RS 300 + 알파 300 = ~500개로 확장 (3배)
+- 파일: stocks.json ~12.5MB (모바일 로딩 OK, 무료 한도 충분)
 
 v2.4.5 변경: 봉 정렬 버그 수정 (CRITICAL)
 - 문제: candles 배열의 "date" 필드가 "4/27" 같은 문자열이라 sort 시 알파벳 순으로 정렬됨
@@ -11,7 +18,6 @@ v2.4.5 변경: 봉 정렬 버그 수정 (CRITICAL)
        → chg5d 등 모든 지표가 거꾸로 계산됨 (NVDA: 실제 +7.6%인데 -11.7% 표시)
 - 수정: 각 봉에 isoDate ("2026-04-27") 필드 추가, 이걸로 정렬
 - 마이그레이션: 옛 데이터 (isoDate 없음) 자동 폐기 → 다음 daily에서 새로 받음
-- 영향: App.jsx 변경 없음 (date 필드는 표시용 그대로 유지)
 
 v2.4.1: 거래량 측정 안정화
 - 당일 1봉 거래량 → 최근 3봉 중 2봉 이상 105%↑ 변경
@@ -1362,19 +1368,22 @@ def main():
                 pass
         print(f"  📊 목표가 수집: {tgt_count}개 (US 주요종목)")
 
-        # ★ 상위 100개 종목은 캔들 포함 저장 (ST/MACD/구름 분석용)
-        # RS 상위 50 + 알파점수 상위 50 합산 (중복 제거)
+        # ★ v2.4.6: candles 보존 종목 확장 (적극) — RS 300 + 알파 300 = 약 500개
+        # 이전 v2.3.x: RS 120 + 알파 120 = ~167개 (대부분 미국 종목 차트 분석 불가)
+        # 사용자 분 발견: 미국 438개 수집 중 차트 분석 가능한 게 너무 적음
+        # 변경: 보존 대상 ~3배 확장 → 미국 시그널 분석 종목 다수 늘어남
+        # 파일 크기: candles 25KB × 500개 ≈ 12.5MB (모바일 로딩 OK)
         candle_keepers = set()
         rs_sorted = sorted(pool_data.items(), key=lambda x: x[1].get("rsPctRank",0), reverse=True)
-        for t, _ in rs_sorted[:120]:
+        for t, _ in rs_sorted[:300]:
             candle_keepers.add(t)
-        for hit in alpha_hits[:120]:
+        for hit in alpha_hits[:300]:
             candle_keepers.add(hit["ticker"])
         # 관심종목도 무조건 포함
         watchlist = load_watchlist()
         for t in watchlist:
             candle_keepers.add(t)
-        print(f"\n📊 캔들 보존 대상: {len(candle_keepers)}개 (RS상위120 + 알파120 + 관심종목)")
+        print(f"\n📊 캔들 보존 대상: {len(candle_keepers)}개 (RS상위300 + 알파300 + 관심종목)")
 
         pool_slim = {}
         for ticker, stock in pool_data.items():
