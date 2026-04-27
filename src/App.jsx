@@ -1,5 +1,16 @@
 /**
- * Alpha Terminal v2.4.2 — App.jsx
+ * Alpha Terminal v2.4.3 — App.jsx
+ * v2.4.3: [차트탭 정리 — 매수 추천 박스 제거 + 가독성 개선]
+ *          [제거] 차트탭 헤더 매수 추천 박스 (단순 ST 카운트만 사용 → 의미 약함)
+ *          [추가] 종목 RS — 1D / 3D / 5D 변화율을 헤더 오른쪽 끝에 표시 (지수 RS와 동일 형식)
+ *          [제거] 별도 피보나치 되돌림 카드 (가격레벨 돌파에 이미 포함)
+ *          [토글] 가격 레벨 돌파 카드 — 클릭 시 펼침/접기 (기본 펼침)
+ *          [토글] ⚡ 타이밍 / 💪 강도 카드 — 클릭 시 컴포넌트별 점수 분해 표시
+ *                 6+개 컴포넌트 각각: 라벨 / 설명 / 획득점수/최대점수
+ *          [용어] "진입타이밍" → "타이밍" / "추세강도" → "강도"
+ *          [추가] 종합판정 한 줄에 "📊 종합판정:" 라벨 명시
+ *          [함수] calcEntryTiming / calcTrendDurability에 breakdown 배열 추가
+ *                 컴포넌트별 라벨 / 설명 / 점수 분해 — UI 펼치기에 사용
  * v2.4.2: [집중탭 정리 — 사용자 분 결정 사항 반영]
  *          [제거] AI 추천 — 상승 유력 TOP5 카드 (불필요)
  *          [변경] 진입적기 순위: 회사명을 제일 앞으로 이동
@@ -533,163 +544,208 @@ function buildChartData(candles){
 // ★ v2.3: 진입타이밍 — "방금 시작했냐?" (변화의 순간 감지)
 // ═══════════════════════════════════════════════════════════
 function calcEntryTiming(chartData) {
-  if (!chartData || chartData.length < 10) return { score:0, signals:[], grade:"?" };
+  if (!chartData || chartData.length < 10) return { score:0, signals:[], grade:"?", breakdown:[] };
   let score = 0; const signals = [];
+  const breakdown = []; // ★ v2.4.3: 컴포넌트별 점수 분해
   const L = chartData.length;
   const d = chartData;
 
-  // ① ST 플립 (최대 25pt) — 최근 며칠 내 전환일수록 높음
+  // ① ST 플립 (최대 25pt)
+  let stPts = 0, stLabel = "ST 변화 없음";
   for (let ago = 0; ago < Math.min(5, L-1); ago++) {
     const ci = L-1-ago, pi = ci-1;
     const stNow = [d[ci].st1Bull,d[ci].st2Bull,d[ci].st3Bull].filter(v=>v!=null).length;
     const stPrev = [d[pi].st1Bull,d[pi].st2Bull,d[pi].st3Bull].filter(v=>v!=null).length;
     if (stNow === 3 && stPrev < 3) {
-      const pts = ago === 0 ? 25 : ago <= 1 ? 20 : ago <= 2 ? 15 : 10;
-      score += pts; signals.push(`ST돌파${ago===0?"오늘":ago+"일전"}`); break;
+      stPts = ago === 0 ? 25 : ago <= 1 ? 20 : ago <= 2 ? 15 : 10;
+      stLabel = `ST돌파${ago===0?"오늘":ago+"일전"}`;
+      score += stPts; signals.push(stLabel); break;
     } else if (stNow > stPrev && stNow >= 2) {
-      const pts = ago === 0 ? 12 : ago <= 2 ? 8 : 5;
-      score += pts; signals.push(`ST개선${ago===0?"":ago+"일전"}`); break;
+      stPts = ago === 0 ? 12 : ago <= 2 ? 8 : 5;
+      stLabel = `ST개선${ago===0?"":ago+"일전"}`;
+      score += stPts; signals.push(stLabel); break;
     }
   }
+  breakdown.push({label: "ST 플립", desc: stLabel, pts: stPts, max: 25});
 
   // ② MACD 골든크로스 (최대 20pt)
+  let macdPts = 0, macdLabel = "골든크로스 없음";
   for (let ago = 0; ago < Math.min(5, L-1); ago++) {
     const ci = L-1-ago, pi = ci-1;
     if (d[ci].macd > d[ci].signal && d[pi].macd <= d[pi].signal) {
-      const pts = ago === 0 ? 20 : ago <= 1 ? 16 : ago <= 2 ? 12 : 8;
-      score += pts; signals.push(`MACD↑${ago===0?"오늘":ago+"일전"}`); break;
+      macdPts = ago === 0 ? 20 : ago <= 1 ? 16 : ago <= 2 ? 12 : 8;
+      macdLabel = `MACD↑${ago===0?"오늘":ago+"일전"}`;
+      score += macdPts; signals.push(macdLabel); break;
     }
   }
+  breakdown.push({label: "MACD 골든", desc: macdLabel, pts: macdPts, max: 20});
 
   // ③ 구름 돌파 (최대 15pt)
+  let cloudPts = 0, cloudLabel = "구름 돌파 없음";
   for (let ago = 0; ago < Math.min(5, L-1); ago++) {
     const ci = L-1-ago, pi = ci-1;
     if (d[ci].aboveCloud && !d[pi].aboveCloud) {
-      const pts = ago === 0 ? 15 : ago <= 2 ? 10 : 6;
-      score += pts; signals.push(`구름돌파${ago===0?"오늘":ago+"일전"}`); break;
+      cloudPts = ago === 0 ? 15 : ago <= 2 ? 10 : 6;
+      cloudLabel = `구름돌파${ago===0?"오늘":ago+"일전"}`;
+      score += cloudPts; signals.push(cloudLabel); break;
     }
   }
+  breakdown.push({label: "구름 돌파", desc: cloudLabel, pts: cloudPts, max: 15});
 
   // ④ 스퀴즈 해제 (최대 15pt)
+  let sqzPts = 0, sqzLabel = "스퀴즈 미해제";
   for (let ago = 0; ago < Math.min(3, L); ago++) {
     if (d[L-1-ago].sqzOff) {
-      const pts = ago === 0 ? 15 : ago <= 1 ? 12 : 8;
-      score += pts; signals.push(`스퀴즈해제${ago===0?"":""+ago+"일전"}`); break;
+      sqzPts = ago === 0 ? 15 : ago <= 1 ? 12 : 8;
+      sqzLabel = `스퀴즈해제${ago===0?"":""+ago+"일전"}`;
+      score += sqzPts; signals.push(sqzLabel); break;
     }
   }
+  breakdown.push({label: "스퀴즈 해제", desc: sqzLabel, pts: sqzPts, max: 15});
 
   // ⑤ RSI 50 상향돌파 (최대 10pt)
+  let rsiPts = 0, rsiLabel = `RSI ${d[L-1].rsi?.toFixed(0) || "—"}`;
   for (let ago = 0; ago < Math.min(5, L-1); ago++) {
     const ci = L-1-ago, pi = ci-1;
     if (d[ci].rsi >= 50 && d[pi].rsi < 50) {
-      const pts = ago === 0 ? 10 : ago <= 2 ? 7 : 4;
-      score += pts; signals.push(`RSI돌파50`); break;
+      rsiPts = ago === 0 ? 10 : ago <= 2 ? 7 : 4;
+      rsiLabel = `RSI 50돌파${ago===0?"":ago+"일전"}`;
+      score += rsiPts; signals.push(`RSI돌파50`); break;
     }
   }
+  breakdown.push({label: "RSI 50돌파", desc: rsiLabel, pts: rsiPts, max: 10});
 
   // ⑥ 거래량 스파이크 (최대 15pt)
   const vols = d.slice(-21, -1).map(c => c.volume || 0).filter(v => v > 0);
   const avgVol = vols.length ? vols.reduce((a,b) => a+b, 0) / vols.length : 0;
   const todayVol = d[L-1].volume || 0;
+  let volPts = 0, volLabel = "거래량 평범";
   if (avgVol > 0) {
     const ratio = todayVol / avgVol;
-    if (ratio > 2.5) { score += 15; signals.push(`거래량${Math.round(ratio*100)}%`); }
-    else if (ratio > 2) { score += 12; signals.push(`거래량급증`); }
-    else if (ratio > 1.5) { score += 6; signals.push(`거래량증가`); }
+    if (ratio > 2.5) { volPts = 15; volLabel = `거래량 ${Math.round(ratio*100)}%`; signals.push(`거래량${Math.round(ratio*100)}%`); }
+    else if (ratio > 2) { volPts = 12; volLabel = "거래량 급증"; signals.push(`거래량급증`); }
+    else if (ratio > 1.5) { volPts = 6; volLabel = "거래량 증가"; signals.push(`거래량증가`); }
+    else { volLabel = `거래량 ${Math.round(ratio*100)}%`; }
+    score += volPts;
   }
+  breakdown.push({label: "거래량", desc: volLabel, pts: volPts, max: 15});
 
   const s = Math.min(100, Math.max(0, score));
   const grade = s >= 70 ? "🔥" : s >= 45 ? "⚡" : s >= 20 ? "💤" : "—";
-  return { score: s, signals, grade };
+  return { score: s, signals, grade, breakdown };
 }
 
 // ═══════════════════════════════════════════════════════════
 // ★ v2.3: 추세강도 — "세질거냐? 오래갈거냐?" (지속성 판단)
 // ═══════════════════════════════════════════════════════════
 function calcTrendDurability(chartData) {
-  if (!chartData || chartData.length < 10) return { score:0, signals:[], grade:"?" };
+  if (!chartData || chartData.length < 10) return { score:0, signals:[], grade:"?", breakdown:[] };
   let score = 0; const signals = [];
+  const breakdown = []; // ★ v2.4.3: 컴포넌트별 점수 분해
   const L = chartData.length;
   const d = chartData;
   const last = d[L-1];
 
-  // ① ADX 기울기 — 추세 강화 중인가 (최대 20pt)
+  // ① ADX 기울기
+  let adxPts = 0, adxLabel = "ADX 약세";
   if (last.adx != null) {
     const adxPrev = d[Math.max(0, L-4)]?.adx;
     const adxSlope = adxPrev != null ? last.adx - adxPrev : 0;
-    if (last.adx > 25 && adxSlope > 3) { score += 20; signals.push("ADX상승↑"); }
-    else if (last.adx > 25 && adxSlope > 0) { score += 14; signals.push("ADX유지"); }
-    else if (last.adx > 20 && adxSlope > 0) { score += 8; signals.push("ADX형성중"); }
-    else if (last.adx <= 20) { signals.push("ADX약세"); }
-    else { score += 3; }
+    if (last.adx > 25 && adxSlope > 3) { adxPts = 20; adxLabel = `ADX ${last.adx?.toFixed(0)}↑상승`; signals.push("ADX상승↑"); }
+    else if (last.adx > 25 && adxSlope > 0) { adxPts = 14; adxLabel = `ADX ${last.adx?.toFixed(0)} 유지`; signals.push("ADX유지"); }
+    else if (last.adx > 20 && adxSlope > 0) { adxPts = 8; adxLabel = `ADX ${last.adx?.toFixed(0)} 형성중`; signals.push("ADX형성중"); }
+    else if (last.adx <= 20) { adxLabel = `ADX ${last.adx?.toFixed(0)} 약세`; signals.push("ADX약세"); }
+    else { adxPts = 3; adxLabel = `ADX ${last.adx?.toFixed(0)}`; }
+    score += adxPts;
   }
+  breakdown.push({label: "ADX 추세", desc: adxLabel, pts: adxPts, max: 20});
 
-  // ② +DI > -DI 방향 확인 (최대 10pt)
+  // ② +DI > -DI
+  let diPts = 0, diLabel = "−DI 우위";
   if (last.pdi != null && last.mdi != null) {
-    if (last.pdi > last.mdi) { score += 10; signals.push("+DI우위"); }
+    if (last.pdi > last.mdi) { diPts = 10; diLabel = "+DI 우위"; signals.push("+DI우위"); }
+    score += diPts;
   }
+  breakdown.push({label: "+DI 방향", desc: diLabel, pts: diPts, max: 10});
 
-  // ③ OBV 동행 — 가격과 거래량 방향 일치 (최대 15pt)
+  // ③ OBV 동행
+  let obvPts = 0, obvLabel = "OBV 미확인";
   if (L >= 10 && last.obv != null) {
     const obv5ago = d[L-6]?.obv;
     const price5ago = d[L-6]?.close;
     if (obv5ago != null && price5ago) {
       const priceUp = last.close > price5ago;
       const obvUp = last.obv > obv5ago;
-      if (priceUp && obvUp) { score += 15; signals.push("OBV동행"); }
-      else if (priceUp && !obvUp) { signals.push("OBV이탈⚠"); }
-      else if (!priceUp && obvUp) { score += 5; signals.push("OBV선행"); }
+      if (priceUp && obvUp) { obvPts = 15; obvLabel = "OBV 동행 ↑"; signals.push("OBV동행"); }
+      else if (priceUp && !obvUp) { obvLabel = "OBV 이탈 ⚠"; signals.push("OBV이탈⚠"); }
+      else if (!priceUp && obvUp) { obvPts = 5; obvLabel = "OBV 선행"; signals.push("OBV선행"); }
+      else { obvLabel = "OBV 약세"; }
+      score += obvPts;
     }
   }
+  breakdown.push({label: "OBV 동행", desc: obvLabel, pts: obvPts, max: 15});
 
-  // ④ MACD 히스토그램 가속 (최대 15pt)
+  // ④ MACD 히스토그램 가속
+  let histPts = 0, histLabel = "MACD 미확인";
   if (L >= 4) {
     const h1 = d[L-1].hist, h2 = d[L-2].hist, h3 = d[L-3].hist;
     if (h1 != null && h2 != null && h3 != null) {
-      if (h1 > 0 && h1 > h2 && h2 > h3) { score += 15; signals.push("MACD가속"); }
-      else if (h1 > 0 && h1 > h2) { score += 10; signals.push("MACD증가"); }
-      else if (h1 > 0) { score += 4; signals.push("MACD양전"); }
-      else if (h1 < 0 && h1 < h2) { signals.push("MACD악화"); }
+      if (h1 > 0 && h1 > h2 && h2 > h3) { histPts = 15; histLabel = "MACD 가속 ↑↑"; signals.push("MACD가속"); }
+      else if (h1 > 0 && h1 > h2) { histPts = 10; histLabel = "MACD 증가"; signals.push("MACD증가"); }
+      else if (h1 > 0) { histPts = 4; histLabel = "MACD 양전"; signals.push("MACD양전"); }
+      else if (h1 < 0 && h1 < h2) { histLabel = "MACD 악화"; signals.push("MACD악화"); }
+      else { histLabel = "MACD 음전"; }
+      score += histPts;
     }
   }
+  breakdown.push({label: "MACD 가속", desc: histLabel, pts: histPts, max: 15});
 
-  // ⑤ EMA 정배열 (최대 15pt)
+  // ⑤ EMA 정배열
   const ema20 = last.ma20, ema50 = last.ema50;
   const above200 = last.ma200 ? last.close > last.ma200 : null;
+  let emaPts = 0, emaLabel = "EMA 미정렬";
   if (ema20 && ema50 && ema20 > ema50) {
-    if (above200 === true) { score += 15; signals.push("EMA정배열"); }
-    else if (above200 === null) { score += 10; signals.push("20>50정배열"); }
-    else { score += 5; signals.push("단기정배열"); }
+    if (above200 === true) { emaPts = 15; emaLabel = "EMA 정배열 (20>50>200)"; signals.push("EMA정배열"); }
+    else if (above200 === null) { emaPts = 10; emaLabel = "20>50 정배열"; signals.push("20>50정배열"); }
+    else { emaPts = 5; emaLabel = "단기 정배열"; signals.push("단기정배열"); }
   } else if (ema20 && ema50 && ema20 < ema50) {
-    signals.push("EMA역배열");
+    emaLabel = "EMA 역배열"; signals.push("EMA역배열");
   }
+  score += emaPts;
+  breakdown.push({label: "EMA 배열", desc: emaLabel, pts: emaPts, max: 15});
 
-  // ⑥ RSI 강세 (최대 15pt) — v2.3.3: 위치 + 기울기 종합
+  // ⑥ RSI 강세
   const rsi = last.rsi;
-  const rsi3 = d[L-4]?.rsi; // 직전 3봉
+  const rsi3 = d[L-4]?.rsi;
   const rising = rsi != null && rsi3 != null && rsi > rsi3;
-  if (rsi >= 50 && rsi <= 65 && rising) { score += 15; signals.push(`RSI${rsi?.toFixed(0)}↑강세진입`); }
-  else if (rsi >= 50 && rsi <= 65) { score += 8; signals.push(`RSI${rsi?.toFixed(0)}건강(둔화)`); }
-  else if (rsi >= 45 && rsi < 50 && rising) { score += 12; signals.push(`RSI${rsi?.toFixed(0)}↑돌파근접`); }
-  else if (rsi > 65 && rsi <= 75 && rising) { score += 7; signals.push(`RSI${rsi?.toFixed(0)}강세지속`); }
-  else if (rsi > 65 && rsi <= 75) { score += 4; signals.push(`RSI${rsi?.toFixed(0)}둔화경고`); }
-  else if (rsi > 75) { score += 2; signals.push(`RSI${rsi?.toFixed(0)}과열`); }
-  else if (rsi != null && rsi < 45) { signals.push(`RSI${rsi?.toFixed(0)}약세`); }
-  else if (rsi != null) { signals.push(`RSI${rsi?.toFixed(0)}`); }
+  let rsiPts = 0, rsiLabel = "RSI 미확인";
+  if (rsi >= 50 && rsi <= 65 && rising) { rsiPts = 15; rsiLabel = `RSI ${rsi?.toFixed(0)} ↑강세진입`; signals.push(`RSI${rsi?.toFixed(0)}↑강세진입`); }
+  else if (rsi >= 50 && rsi <= 65) { rsiPts = 8; rsiLabel = `RSI ${rsi?.toFixed(0)} 건강(둔화)`; signals.push(`RSI${rsi?.toFixed(0)}건강(둔화)`); }
+  else if (rsi >= 45 && rsi < 50 && rising) { rsiPts = 12; rsiLabel = `RSI ${rsi?.toFixed(0)} ↑돌파근접`; signals.push(`RSI${rsi?.toFixed(0)}↑돌파근접`); }
+  else if (rsi > 65 && rsi <= 75 && rising) { rsiPts = 7; rsiLabel = `RSI ${rsi?.toFixed(0)} 강세지속`; signals.push(`RSI${rsi?.toFixed(0)}강세지속`); }
+  else if (rsi > 65 && rsi <= 75) { rsiPts = 4; rsiLabel = `RSI ${rsi?.toFixed(0)} 둔화경고`; signals.push(`RSI${rsi?.toFixed(0)}둔화경고`); }
+  else if (rsi > 75) { rsiPts = 2; rsiLabel = `RSI ${rsi?.toFixed(0)} 과열`; signals.push(`RSI${rsi?.toFixed(0)}과열`); }
+  else if (rsi != null && rsi < 45) { rsiLabel = `RSI ${rsi?.toFixed(0)} 약세`; signals.push(`RSI${rsi?.toFixed(0)}약세`); }
+  else if (rsi != null) { rsiLabel = `RSI ${rsi?.toFixed(0)}`; signals.push(`RSI${rsi?.toFixed(0)}`); }
+  score += rsiPts;
+  breakdown.push({label: "RSI 강세", desc: rsiLabel, pts: rsiPts, max: 15});
 
-  // ⑦ ST 유지 기간 보너스 (최대 10pt) — 오래 유지 = 안정적
+  // ⑦ ST 유지 기간
   let stDays = 0;
   for (let i = L-1; i >= Math.max(0, L-20); i--) {
     const sc = [d[i].st1Bull, d[i].st2Bull, d[i].st3Bull].filter(v => v != null).length;
     if (sc >= 2) stDays++; else break;
   }
-  if (stDays >= 10) { score += 10; signals.push(`ST${stDays}일유지`); }
-  else if (stDays >= 5) { score += 6; signals.push(`ST${stDays}일유지`); }
-  else if (stDays >= 3) { score += 3; }
+  let stPts = 0, stLabel = stDays > 0 ? `ST ${stDays}일 유지` : "ST 강세 없음";
+  if (stDays >= 10) { stPts = 10; signals.push(`ST${stDays}일유지`); }
+  else if (stDays >= 5) { stPts = 6; signals.push(`ST${stDays}일유지`); }
+  else if (stDays >= 3) { stPts = 3; }
+  score += stPts;
+  breakdown.push({label: "ST 유지", desc: stLabel, pts: stPts, max: 10});
 
   const s = Math.min(100, Math.max(0, score));
   const grade = s >= 70 ? "A" : s >= 50 ? "B" : s >= 30 ? "C" : "D";
-  return { score: s, signals, grade };
+  return { score: s, signals, grade, breakdown };
 }
 
 // ★ 5번: 진입 평점 (레거시 — 하위호환용, 내부적으로 두 점수 합산)
@@ -935,6 +991,9 @@ export default function App() {
   const [charts, setCharts] = useState({});
   const [consensus, setConsensus] = useState({});
   const [companyInfo, setCompanyInfo] = useState({}); // ★ v2.3: 회사 소개
+  const [priceLevelOpen, setPriceLevelOpen] = useState(true); // ★ v2.4.3: 가격레벨 돌파 토글 (기본 펼침)
+  const [timingOpen, setTimingOpen] = useState(false); // ★ v2.4.3: 진입타이밍 펼치기
+  const [durabilityOpen, setDurabilityOpen] = useState(false); // ★ v2.4.3: 추세강도 펼치기
   const [search, setSearch] = useState("");
   const [searchRes, setSearchRes] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -2840,18 +2899,14 @@ export default function App() {
                 setTimeout(()=>setAddMsg(""),3000);
               }} style={{fontSize:7,background:"rgba(255,214,10,.1)",color:C.yellow,border:"1px solid rgba(255,214,10,.3)",borderRadius:3,padding:"1px 6px",cursor:"pointer"}}>시뮬 · 🔄 실시간 전환</button>}
             </div>
+            {/* ★ v2.4.3: 매수 추천 박스 제거 (단순 ST 카운트만 사용해 의미 약함) → 종목 RS 표시 */}
             <div style={{marginLeft:"auto",display:"flex",gap:4,alignItems:"center"}}>
-              {(()=>{
-                const stC=[lastD?.st1Bull,lastD?.st2Bull,lastD?.st3Bull].filter(v=>v!=null).length;
-                const label=finalSig==="BUY"&&stC===3?"🟢 매수":finalSig==="BUY"?"🟡 매수주의":finalSig==="SELL"?"🔴 매도":stC===3?"🟡 관망":"⚪ 대기";
-                const bg=finalSig==="BUY"&&stC===3?"rgba(48,209,88,.15)":finalSig==="BUY"?"rgba(250,204,21,.12)":finalSig==="SELL"?"rgba(255,69,58,.15)":stC===3?"rgba(250,204,21,.08)":"rgba(255,255,255,.05)";
-                const bc=finalSig==="BUY"&&stC===3?C.emerald:finalSig==="BUY"?C.yellow:finalSig==="SELL"?C.red:stC===3?C.yellow:C.border;
-                const tc=finalSig==="BUY"&&stC===3?C.emerald:finalSig==="BUY"?C.yellow:finalSig==="SELL"?C.red:stC===3?C.yellow:C.muted;
-                return<div style={{background:bg,border:`1px solid ${bc}`,borderRadius:5,padding:"3px 10px",textAlign:"center"}}>
-                  <div style={{fontSize:11,fontWeight:900,color:tc}}>{label}</div>
-                  <div style={{fontSize:7,color:C.muted}}>ST {stC}/3{lastD?.aboveCloud?" · 구름위":""}</div>
-                </div>;
-              })()}
+              <div style={{display:"flex",gap:3}}>
+                {[["1D",selInfo.changePct],["3D",selInfo.chg3d],["5D",selInfo.chg5d]].map(([lbl,v])=>{
+                  const val = v != null ? v : 0;
+                  return <span key={lbl} title={`${lbl} 변화율`} style={{fontSize:9,fontWeight:700,padding:"3px 8px",borderRadius:5,border:`1px solid ${val>=0?"rgba(34,197,94,.35)":"rgba(255,69,58,.35)"}`,background:val>=0?"rgba(34,197,94,.08)":"rgba(255,69,58,.08)",color:val>=0?C.green:C.red}}>{lbl} {val>=0?"+":""}{val.toFixed(1)}%</span>;
+                })}
+              </div>
             </div>
           </div>
 
@@ -2991,33 +3046,52 @@ export default function App() {
             </div>;
           })()}
 
-          {/* ★ v2.3: 타이밍 + 강도 + RS 통합 패널 */}
+          {/* ★ v2.4.3: ⚡ 타이밍 + 💪 강도 통합 패널 — 클릭 시 컴포넌트별 펼치기 */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:10}}>
-            <div style={{background:selTiming.score>=45?"rgba(255,159,10,.08)":"rgba(255,255,255,.03)",border:`2px solid ${selTiming.score>=70?"#FF9F0A":selTiming.score>=45?C.yellow:"rgba(255,255,255,.1)"}`,borderRadius:10,padding:"10px 12px"}}>
+            <div style={{background:selTiming.score>=45?"rgba(255,159,10,.08)":"rgba(255,255,255,.03)",border:`2px solid ${selTiming.score>=70?"#FF9F0A":selTiming.score>=45?C.yellow:"rgba(255,255,255,.1)"}`,borderRadius:10,padding:"10px 12px",cursor:"pointer"}} onClick={()=>setTimingOpen(!timingOpen)}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                <span style={{fontSize:9,fontWeight:700,color:"#FF9F0A"}}>⚡ 진입타이밍</span>
+                <span style={{fontSize:9,fontWeight:700,color:"#FF9F0A"}}>⚡ 타이밍 {timingOpen?"▼":"▶"}</span>
                 <span style={{fontSize:8,color:C.muted}}>{selTiming.grade}</span>
               </div>
               <div style={{fontSize:28,fontWeight:900,color:selTiming.score>=70?"#FF9F0A":selTiming.score>=45?C.yellow:C.muted,lineHeight:1,marginBottom:6}}>{selTiming.score}<span style={{fontSize:10,color:C.muted}}>/100</span></div>
-              <div style={{display:"flex",flexWrap:"wrap",gap:2}}>
+              {!timingOpen && <div style={{display:"flex",flexWrap:"wrap",gap:2}}>
                 {selTiming.signals.slice(0,4).map(s=><span key={s} style={{fontSize:7,padding:"1px 4px",borderRadius:3,background:"rgba(255,159,10,.12)",color:"#FF9F0A"}}>{s}</span>)}
                 {!selTiming.signals.length&&<span style={{fontSize:7,color:C.muted}}>최근 변화 없음</span>}
-              </div>
+              </div>}
+              {timingOpen && selTiming.breakdown && <div style={{marginTop:4,paddingTop:6,borderTop:`1px solid rgba(255,159,10,.2)`}}>
+                {selTiming.breakdown.map((b,i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:4,padding:"2px 0",borderBottom:i<selTiming.breakdown.length-1?`1px solid rgba(255,255,255,.04)`:"none"}}>
+                    <span style={{fontSize:7,fontWeight:700,color:"#FF9F0A",minWidth:48}}>{b.label}</span>
+                    <span style={{fontSize:7,flex:1,color:b.pts>0?C.text:C.muted}}>{b.desc}</span>
+                    <span style={{fontSize:7,fontWeight:900,color:b.pts>0?"#FF9F0A":C.muted,minWidth:30,textAlign:"right"}}>{b.pts>0?"+":""}{b.pts}/{b.max}</span>
+                  </div>
+                ))}
+              </div>}
             </div>
-            <div style={{background:selDurability.score>=50?"rgba(48,209,88,.06)":"rgba(255,255,255,.03)",border:`2px solid ${selDurability.score>=70?C.emerald:selDurability.score>=50?C.green:"rgba(255,255,255,.1)"}`,borderRadius:10,padding:"10px 12px"}}>
+            <div style={{background:selDurability.score>=50?"rgba(48,209,88,.06)":"rgba(255,255,255,.03)",border:`2px solid ${selDurability.score>=70?C.emerald:selDurability.score>=50?C.green:"rgba(255,255,255,.1)"}`,borderRadius:10,padding:"10px 12px",cursor:"pointer"}} onClick={()=>setDurabilityOpen(!durabilityOpen)}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                <span style={{fontSize:9,fontWeight:700,color:C.emerald}}>💪 추세강도</span>
+                <span style={{fontSize:9,fontWeight:700,color:C.emerald}}>💪 강도 {durabilityOpen?"▼":"▶"}</span>
                 <span style={{fontSize:8,color:C.muted}}>{selDurability.grade}</span>
               </div>
               <div style={{fontSize:28,fontWeight:900,color:selDurability.score>=70?C.emerald:selDurability.score>=50?C.green:C.muted,lineHeight:1,marginBottom:6}}>{selDurability.score}<span style={{fontSize:10,color:C.muted}}>/100</span></div>
-              <div style={{display:"flex",flexWrap:"wrap",gap:2}}>
+              {!durabilityOpen && <div style={{display:"flex",flexWrap:"wrap",gap:2}}>
                 {selDurability.signals.slice(0,4).map(s=><span key={s} style={{fontSize:7,padding:"1px 4px",borderRadius:3,background:"rgba(48,209,88,.1)",color:C.emerald}}>{s}</span>)}
                 {!selDurability.signals.length&&<span style={{fontSize:7,color:C.muted}}>추세 미형성</span>}
-              </div>
+              </div>}
+              {durabilityOpen && selDurability.breakdown && <div style={{marginTop:4,paddingTop:6,borderTop:`1px solid rgba(48,209,88,.2)`}}>
+                {selDurability.breakdown.map((b,i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:4,padding:"2px 0",borderBottom:i<selDurability.breakdown.length-1?`1px solid rgba(255,255,255,.04)`:"none"}}>
+                    <span style={{fontSize:7,fontWeight:700,color:C.emerald,minWidth:48}}>{b.label}</span>
+                    <span style={{fontSize:7,flex:1,color:b.pts>0?C.text:C.muted}}>{b.desc}</span>
+                    <span style={{fontSize:7,fontWeight:900,color:b.pts>0?C.emerald:C.muted,minWidth:30,textAlign:"right"}}>{b.pts>0?"+":""}{b.pts}/{b.max}</span>
+                  </div>
+                ))}
+              </div>}
             </div>
           </div>
-          {/* RS + 종합 판정 통합 */}
+          {/* ★ v2.4.3: 종합판정 라벨 추가 */}
           <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:10,padding:"6px 10px",background:selTiming.score>=45&&selDurability.score>=50?"rgba(48,209,88,.06)":selTiming.score>=45?"rgba(255,214,10,.06)":"rgba(255,255,255,.03)",borderRadius:8,border:`1px solid ${selTiming.score>=45&&selDurability.score>=50?C.emerald:selTiming.score>=45?C.yellow:C.border}`}}>
+            <span style={{fontSize:8,fontWeight:700,color:C.muted}}>📊 종합판정:</span>
             <span style={{fontSize:9,fontWeight:900,color:selTiming.score>=45&&selDurability.score>=50?C.emerald:selTiming.score>=45&&selDurability.score<30?C.yellow:selTiming.score<20&&selDurability.score>=50?C.muted:C.sub}}>
               {selTiming.score>=45&&selDurability.score>=50?"✅ 진입 검토":selTiming.score>=45&&selDurability.score<30?"⚠️ 추세확인 필요":selTiming.score<20&&selDurability.score>=50?"유지중 · 신규진입 아님":"대기"}
             </span>
@@ -3049,11 +3123,11 @@ export default function App() {
             ].filter(lv=>lv.p>0).sort((a,b)=>b.p-a.p);
             const passed2=levels.filter(lv=>curPrice>=lv.p).length;
             return<div style={{...css.card,marginBottom:10,padding:"10px 12px"}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                <span style={{fontSize:10,fontWeight:700,color:C.accent}}>📐 가격 레벨 돌파 현황</span>
+              <div onClick={()=>setPriceLevelOpen(!priceLevelOpen)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:priceLevelOpen?6:0,cursor:"pointer"}}>
+                <span style={{fontSize:10,fontWeight:700,color:C.accent}}>📐 가격 레벨 돌파 현황 {priceLevelOpen?"▼":"▶"}</span>
                 <span style={{fontSize:10,fontWeight:900,color:passed2>=levels.length-2?C.emerald:passed2>=levels.length/2?C.yellow:C.muted}}>돌파 {passed2}/{levels.length}</span>
               </div>
-              <div style={{position:"relative"}}>
+              {priceLevelOpen && <div style={{position:"relative"}}>
                 {levels.map((lv,i)=>{
                   const passed=curPrice>=lv.p;
                   const near=!passed&&curPrice>=lv.p*0.97;
@@ -3070,7 +3144,7 @@ export default function App() {
                   <span style={{fontSize:8,color:C.accent,fontWeight:700,flex:1}}>현재가</span>
                   <span style={{fontSize:10,fontWeight:900,color:C.accent}}>{isKRSel?"₩"+fmtKRW(curPrice):"$"+curPrice.toFixed(2)}</span>
                 </div>
-              </div>
+              </div>}
             </div>;
           })()}
 
@@ -3164,19 +3238,7 @@ export default function App() {
             </div>
           </div>}
 
-          {/* ★ v2.2: 피보나치 되돌림 */}
-          {fibLevels&&<div style={{background:"rgba(191,90,242,.06)",border:"1px solid rgba(191,90,242,.25)",borderRadius:8,padding:"9px 12px",marginBottom:8}}>
-            <div style={{fontSize:8,fontWeight:700,color:C.purple,marginBottom:5}}>📐 피보나치 되돌림 (60일)</div>
-            <div style={{display:"flex",gap:4}}>
-              {[["고점",fibLevels.high,C.green],["38.2%",fibLevels.fib382,C.accent],["50%",fibLevels.fib500,C.yellow],["61.8%",fibLevels.fib618,C.purple],["저점",fibLevels.low,C.red]].map(([lbl,price,col])=>(
-                <div key={lbl} style={{flex:1,textAlign:"center",padding:"3px 0",borderRadius:4,background:curPrice>=price*0.99&&curPrice<=price*1.01?`${col}22`:"transparent",border:curPrice>=price*0.99&&curPrice<=price*1.01?`1px solid ${col}`:"1px solid transparent"}}>
-                  <div style={{fontSize:7,color:C.muted}}>{lbl}</div>
-                  <div style={{fontSize:10,fontWeight:700,color:col}}>{unit}{fmtPrice(price,isKRSel)}</div>
-                  <div style={{fontSize:7,color:price>curPrice?C.green:C.red}}>{price>curPrice?"+":""}{((price-curPrice)/curPrice*100).toFixed(1)}%</div>
-                </div>
-              ))}
-            </div>
-          </div>}
+          {/* ★ v2.4.3: 별도 피보나치 카드 제거 — 가격레벨 돌파 카드에 이미 피보 포함됨 */}
 
           {/* ★ v2.3: 가격 위치 + 모멘텀 인사이트 */}
           {cd?.data?.length>10&&(()=>{
