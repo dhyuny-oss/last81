@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
 """
-Alpha Terminal — Yahoo Finance 데이터 수집 (v2.4.0)
+Alpha Terminal — Yahoo Finance 데이터 수집 (v2.4.5)
 - hourly 모드 (평일 매 시간): 관심종목 현재가만
 - daily  모드 (평일 오후 6시): 전체 풀 + 알파스캔
 - quarterly 모드 (수동): 재무데이터 수집
+
+v2.4.5 변경: 봉 정렬 버그 수정 (CRITICAL)
+- 문제: candles 배열의 "date" 필드가 "4/27" 같은 문자열이라 sort 시 알파벳 순으로 정렬됨
+       → "4/27" 다음에 "4/6"이 옴 = 시간순 거꾸로
+       → chg5d 등 모든 지표가 거꾸로 계산됨 (NVDA: 실제 +7.6%인데 -11.7% 표시)
+- 수정: 각 봉에 isoDate ("2026-04-27") 필드 추가, 이걸로 정렬
+- 마이그레이션: 옛 데이터 (isoDate 없음) 자동 폐기 → 다음 daily에서 새로 받음
+- 영향: App.jsx 변경 없음 (date 필드는 표시용 그대로 유지)
 
 v2.4.1: 거래량 측정 안정화
 - 당일 1봉 거래량 → 최근 3봉 중 2봉 이상 105%↑ 변경
@@ -337,7 +345,8 @@ def parse_candles(raw):
             continue
         d = datetime.fromtimestamp(t, tz=timezone.utc)
         candles.append({
-            "date":   f"{d.month}/{d.day}",
+            "date":    f"{d.month}/{d.day}",        # 표시용 (예: "4/27")
+            "isoDate": d.strftime("%Y-%m-%d"),      # ★ v2.4.5: 정렬용 (예: "2026-04-27")
             "open":   round(float(q["open"][i]  or close), 3),
             "close":  round(float(close), 3),
             "high":   round(float(q["high"][i]  or close), 3),
@@ -1470,16 +1479,25 @@ def main():
                     if not candles:
                         candle_failed += 1
                         continue
-                    # 기존 캔들에 최신 캔들 병합 (날짜 기준)
+                    # ★ v2.4.5: 옛 데이터 폐기 — isoDate 없는 봉이 있으면 정렬 깨진 옛 데이터
+                    # → 다 버리고 새로 받은 candles로 시작 (다음 실행에서 자연스럽게 130봉 채워짐)
                     old_candles = stock.get("candles", [])
-                    old_dates = {c["date"] for c in old_candles}
-                    merged = list(old_candles)
-                    for nc in candles:
-                        if nc["date"] in old_dates:
-                            merged = [nc if c["date"]==nc["date"] else c for c in merged]
-                        else:
-                            merged.append(nc)
-                    merged.sort(key=lambda x: x["date"])
+                    has_iso = old_candles and all("isoDate" in c for c in old_candles)
+                    if not has_iso:
+                        # 옛 데이터 폐기 — 새 데이터만 사용
+                        merged = list(candles)
+                    else:
+                        # isoDate 기준 병합 (정확한 날짜로 중복 판정)
+                        old_iso_dates = {c["isoDate"] for c in old_candles}
+                        merged = list(old_candles)
+                        for nc in candles:
+                            if nc["isoDate"] in old_iso_dates:
+                                # 같은 날짜 봉 갱신 (장중 → 종가 확정 등)
+                                merged = [nc if c["isoDate"]==nc["isoDate"] else c for c in merged]
+                            else:
+                                merged.append(nc)
+                    # ★ v2.4.5: ISO 날짜 기준 정확한 시간순 정렬
+                    merged.sort(key=lambda x: x["isoDate"])
                     # 최대 130일치 유지
                     if len(merged) > 130:
                         merged = merged[-130:]
