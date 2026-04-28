@@ -18,6 +18,13 @@
  *          [종목 행 배지] 보조 라벨 (강도/RSI/α) 제거 + 돌파N/적기N → ⚡N 💪N 점수 표시
  *          [영향 영역] App.jsx 약 11곳 (헤더/헬퍼/매수마커/카드 3개/펼침 3개/종합판정/배지)
  *                     fetch_yahoo.py 변경 없음 (옵션 B-1 결정사항)
+ *          [FIX] v2.4.9의 차트탭 RS Bar sticky 미작동 해결
+ *                [원인] pageStyle의 minHeight:100vh — 콘텐츠가 길어지면 외부 컨테이너가 늘어나
+ *                       내부 overflow:auto div가 실제 스크롤 컨테이너 역할을 못함 (body 스크롤됨)
+ *                       → sticky 기준점이 viewport가 되고, 앱 헤더 sticky에 가려져서 안 보임
+ *                [수정] minHeight → height:100vh + overflow:hidden — 외부 viewport 고정,
+ *                       내부 overflow:auto가 진짜 스크롤 영역이 되어 RS Bar sticky가 정상 작동
+ *                [부수] RS Bar wrapper에 marginTop:-12 추가 (부모 padding-top 위로 끌어올려 헤더에 딱 붙임)
  * v2.4.9: [차트탭/보유탭 정리]
  *          [차트탭] 가격 레벨 돌파 — 기본 펼침 → 기본 접힘 (▶ 누르면 펼침)
  *          [차트탭] 지수 RS 기준선 — sticky 고정 (스크롤해도 화면 상단 유지)
@@ -1899,7 +1906,8 @@ export default function App() {
 
   const TABS=[["radar","🌐 시장"],["focus","🎯 집중"],["alpha","🔍 발굴"],["sniper","📊 차트"],["track",`📁 추적 (${tracking.length+positions.length})`],["lab","🔬 실험실"],["pool","🗃 종목풀"]];
 
-  const pageStyle={minHeight:"100vh",background:"#000000",color:C.text,fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Display','Pretendard',sans-serif",display:"flex",flexDirection:"column",fontSize:12,WebkitFontSmoothing:"antialiased"};
+  // ★ v2.5.0 FIX: minHeight → height + overflow:hidden — 외부는 viewport 고정, 내부 overflow:auto가 진짜 스크롤 영역이 되어야 RS Bar의 position:sticky가 컨테이너 상단(헤더 아래)에 정상 고정됨
+  const pageStyle={height:"100vh",overflow:"hidden",background:"#000000",color:C.text,fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Display','Pretendard',sans-serif",display:"flex",flexDirection:"column",fontSize:12,WebkitFontSmoothing:"antialiased"};
 
   function RSBar(){return(
     <div style={{background:C.panel2,border:`1px solid ${C.border}`,borderRadius:9,padding:"10px 14px",marginBottom:12}}>
@@ -2943,8 +2951,8 @@ export default function App() {
 
         {/* ══ TAB 3: 차트 ══ */}
         {tab==="sniper"&&selInfo&&<div style={{padding:"12px 14px"}}>
-          {/* ★ v2.4.9: 지수 RS 기준선 — sticky 고정 (스크롤해도 화면 상단에 머묾) */}
-          <div style={{position:"sticky",top:0,zIndex:50,background:C.bg,paddingBottom:8,marginLeft:-14,marginRight:-14,paddingLeft:14,paddingRight:14,boxShadow:"0 2px 8px rgba(0,0,0,.4)"}}>
+          {/* ★ v2.5.0 FIX: 지수 RS 기준선 — sticky 고정 (부모 padding 위로 끌어올림 + width 명시) */}
+          <div style={{position:"sticky",top:0,zIndex:50,background:C.bg,marginTop:-12,marginLeft:-14,marginRight:-14,paddingLeft:14,paddingRight:14,paddingTop:12,paddingBottom:8,boxShadow:"0 2px 8px rgba(0,0,0,.4)"}}>
             <RSBar/>
           </div>
           <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
