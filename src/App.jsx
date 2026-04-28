@@ -1,5 +1,17 @@
 /**
- * Alpha Terminal v2.5.3 — App.jsx
+ * Alpha Terminal v2.5.4 — App.jsx
+ * v2.5.4: [차트 매수배경 제거 + 종합판정 점수 중복 제거]
+ *          [매수배경 라벨/색상 모두 제거]
+ *                 - "🟢 매수배경 / 🔴 비매수배경 (실제/시뮬)" 라벨 제거
+ *                 - 차트 박스의 allBull 색상 배경 (초록/빨강 톤) 제거 → 회색 톤만
+ *                 - (실제)/(시뮬) 정보는 종목명 헤더의 "실시간" 배지에 이미 있음 (중복)
+ *                 - allBull(ST 3/3) 정보는 v2.5.3 컴팩트 패널의 "ST 3/3"로 이미 표시 (중복)
+ *          [종합판정 점수 중복 제거]
+ *                 - 종합판정 아래 줄의 "⚡ 35 ↑+8 (3D)  💪 70 ↑+5 (3D)" → 점수 부분 제거
+ *                 - 점수는 위쪽 ⚡타이밍/💪강도 패널과 중복이라 노이즈
+ *                 - 추세 정보만 종합판정 라벨 옆에 컴팩트하게 (⚡↑+8 · 💪↑+5 (3D))
+ *                 - judgeMsg는 둘째 줄에 단독 (의미 강조)
+ *          [영향] App.jsx 2곳 (차트 박스 라벨/배경 / 종합판정 점수 줄)
  * v2.5.3: [핵심 6지표 컴팩트 패널 추가 — 종합판정 ↔ 차트 사이]
  *          [목적] 종합판정 라벨만 보고는 어떤 지표 때문인지 즉각 파악 어려움
  *                 6개 핵심 지표를 2줄 요약 박스로 종합판정 직후 배치
@@ -3199,39 +3211,37 @@ export default function App() {
               </div>}
             </div>
           </div>
-          {/* ★ v2.5.2: 종합판정 — 매트릭스 기반 (절대값 게이트 + 추세 방향성) */}
-          {/* 추세는 3일 전 vs 오늘 점수 비교 (잡음 필터 ±3) */}
+          {/* ★ v2.5.4: 종합판정 — 점수 중복 제거 (점수는 위 ⚡💪 패널에 있음) */}
+          {/* 추세 정보(↑+8 등)만 라벨 옆에 컴팩트하게, judgeMsg는 둘째 줄에 강조 */}
           <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:10,padding:"8px 12px",background:`${judgeColor}10`,borderRadius:8,border:`1px solid ${judgeColor}50`}}>
-            <div style={{display:"flex",gap:6,alignItems:"center"}}>
+            <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
               <span style={{fontSize:8,fontWeight:700,color:C.muted}}>📊 종합판정:</span>
               <span style={{fontSize:11,fontWeight:900,color:judgeColor}}>{judgeLabel}</span>
+              {/* 추세 화살표만 표시 (점수는 위 패널에 있음) */}
+              {selTiming3D && (
+                <span style={{display:"flex",alignItems:"center",gap:2,fontSize:8}}>
+                  <span style={{color:"#FF9F0A",fontWeight:700}}>⚡</span>
+                  <span style={{color:timingTrendUp?C.emerald:timingTrendDown?C.red:C.muted,fontWeight:700}}>
+                    {timingTrendUp?"↑":timingTrendDown?"↓":"→"}{dTiming>=0?"+":""}{dTiming}
+                  </span>
+                </span>
+              )}
+              {selDurability3D && (
+                <span style={{display:"flex",alignItems:"center",gap:2,fontSize:8}}>
+                  <span style={{color:C.emerald,fontWeight:700}}>💪</span>
+                  <span style={{color:strengthTrendUp?C.emerald:strengthTrendDown?C.red:C.muted,fontWeight:700}}>
+                    {strengthTrendUp?"↑":strengthTrendDown?"↓":"→"}{dStrength>=0?"+":""}{dStrength}
+                  </span>
+                </span>
+              )}
+              {(selTiming3D||selDurability3D) && <span style={{color:C.muted,fontSize:7}}>(3D)</span>}
               <span style={{marginLeft:"auto",display:"flex",gap:8,fontSize:8}}>
                 <span style={{color:C.muted}}>3D <span style={{color:(selInfo.chg3d||0)>=0?C.green:C.red,fontWeight:700}}>{(selInfo.chg3d||0)>=0?"+":""}{(selInfo.chg3d||0).toFixed(1)}%</span></span>
                 <span style={{color:C.muted}}>5D <span style={{color:(selInfo.chg5d||0)>=0?C.green:C.red,fontWeight:700}}>{(selInfo.chg5d||0)>=0?"+":""}{(selInfo.chg5d||0).toFixed(1)}%</span></span>
                 <span style={{color:C.muted}}>RS <span style={{color:((selInfo.chg5d||0)-idxRS.spy.chg5d)>3?C.emerald:((selInfo.chg5d||0)-idxRS.spy.chg5d)>0?C.yellow:C.red,fontWeight:700}}>{((selInfo.chg5d||0)-idxRS.spy.chg5d)>=0?"+":""}{((selInfo.chg5d||0)-idxRS.spy.chg5d).toFixed(1)}</span></span>
               </span>
             </div>
-            <div style={{display:"flex",gap:10,alignItems:"center",fontSize:8,paddingTop:2}}>
-              {/* ⚡ 타이밍 + 추세 화살표 */}
-              <span style={{display:"flex",alignItems:"center",gap:3}}>
-                <span style={{color:"#FF9F0A",fontWeight:700}}>⚡ {selTiming.score}</span>
-                {selTiming3D && (
-                  <span style={{color:timingTrendUp?C.emerald:timingTrendDown?C.red:C.muted,fontWeight:700,fontSize:7}}>
-                    {timingTrendUp?"↑":timingTrendDown?"↓":"→"}{dTiming>=0?"+":""}{dTiming} (3D)
-                  </span>
-                )}
-              </span>
-              {/* 💪 강도 + 추세 화살표 */}
-              <span style={{display:"flex",alignItems:"center",gap:3}}>
-                <span style={{color:C.emerald,fontWeight:700}}>💪 {selDurability.score}</span>
-                {selDurability3D && (
-                  <span style={{color:strengthTrendUp?C.emerald:strengthTrendDown?C.red:C.muted,fontWeight:700,fontSize:7}}>
-                    {strengthTrendUp?"↑":strengthTrendDown?"↓":"→"}{dStrength>=0?"+":""}{dStrength} (3D)
-                  </span>
-                )}
-              </span>
-              <span style={{marginLeft:"auto",fontSize:7,color:C.muted,fontStyle:"italic"}}>{judgeMsg}</span>
-            </div>
+            <div style={{fontSize:8,color:C.muted,fontStyle:"italic",paddingTop:2}}>{judgeMsg}</div>
           </div>
 
           {/* ★ v2.5.3: 핵심 6지표 컴팩트 패널 — 종합판정 ↔ 차트 사이 (2줄 요약) */}
@@ -3312,9 +3322,9 @@ export default function App() {
           <div style={{display:"flex",gap:4,justifyContent:"center",marginBottom:6}}>
             {["1M","3M","6M","1Y","ALL"].map(p=><button key={p} onClick={()=>setPeriod(p)} style={{...css.btn(period===p),fontSize:9,padding:"4px 10px"}}>{p}</button>)}
           </div>
-          <div style={{background:lastD?.allBull?"rgba(48,209,88,.05)":"rgba(255,69,58,.04)",border:`1px solid ${lastD?.allBull?"rgba(48,209,88,.3)":C.border}`,borderRadius:10,padding:"8px 6px 4px",marginBottom:8}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingLeft:8,paddingRight:8,marginBottom:6}}>
-              <div style={{fontSize:9,color:C.muted}}>{lastD?.allBull?"🟢 매수배경":"🔴 비매수배경"} {cd?.real?"(실제)":"(시뮬)"}</div>
+          {/* ★ v2.5.4: 차트 박스 — 매수배경 색상/라벨 제거 (정보 중복 제거) */}
+          <div style={{background:"rgba(255,255,255,.02)",border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 6px 4px",marginBottom:8}}>
+            <div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",paddingLeft:8,paddingRight:8,marginBottom:6}}>
               <div style={{display:"flex",gap:4}}>
                 {[["ichi","일목"],["st","ST"],["avwap","AVWAP"],["adx","ADX"],["obv","OBV"]].map(([k,l])=>(
                   <button key={k} onClick={()=>setChartOpts(o=>({...o,[k]:!o[k]}))} style={{fontSize:8,padding:"3px 7px",borderRadius:4,border:`1px solid ${chartOpts[k]?"rgba(10,132,255,.5)":"rgba(255,255,255,.15)"}`,background:chartOpts[k]?"rgba(56,189,248,.12)":"transparent",color:chartOpts[k]?C.accent:C.muted,cursor:"pointer"}}>{chartOpts[k]?"✓":""} {l}</button>
