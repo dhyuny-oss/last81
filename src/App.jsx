@@ -3270,37 +3270,37 @@ export default function App() {
             const sqzIcon = last.sqzOff?"🔴":last.sqzOn?"🟡":"⚪";
             const sqzColor = last.sqzOff?C.red:last.sqzOn?C.yellow:C.muted;
 
-            return <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:10,padding:"8px 10px",background:"rgba(0,0,0,.25)",border:`1px solid ${C.border}`,borderRadius:8}}>
+            return <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:10,padding:"10px 12px",background:"rgba(0,0,0,.25)",border:`1px solid ${C.border}`,borderRadius:8}}>
               {/* 1행 */}
-              <div style={{display:"flex",alignItems:"center",gap:4,fontSize:9}}>
-                <span style={{color:C.muted,fontSize:7}}>ST</span>
+              <div style={{display:"flex",alignItems:"center",gap:5,fontSize:12}}>
+                <span style={{color:C.muted,fontSize:9}}>ST</span>
                 <span style={{color:stColor,fontWeight:900}}>{stC}/3</span>
-                <span style={{color:stArrow==="↑"?C.emerald:stArrow==="↓"?C.red:C.muted,fontSize:8}}>{stArrow}</span>
+                <span style={{color:stArrow==="↑"?C.emerald:stArrow==="↓"?C.red:C.muted,fontSize:11}}>{stArrow}</span>
               </div>
-              <div style={{display:"flex",alignItems:"center",gap:4,fontSize:9}}>
-                <span style={{color:C.muted,fontSize:7}}>MACD</span>
+              <div style={{display:"flex",alignItems:"center",gap:5,fontSize:12}}>
+                <span style={{color:C.muted,fontSize:9}}>MACD</span>
                 <span style={{color:macdColor,fontWeight:700}}>{macdLabel}</span>
               </div>
-              <div style={{display:"flex",alignItems:"center",gap:4,fontSize:9}}>
-                <span style={{color:C.muted,fontSize:7}}>RSI</span>
+              <div style={{display:"flex",alignItems:"center",gap:5,fontSize:12}}>
+                <span style={{color:C.muted,fontSize:9}}>RSI</span>
                 <span style={{color:rsiColor,fontWeight:700}}>{rsi?.toFixed(0)||"—"}</span>
-                <span style={{color:rsiArrow==="↑"?C.emerald:rsiArrow==="↓"?C.red:C.muted,fontSize:8}}>{rsiArrow}</span>
+                <span style={{color:rsiArrow==="↑"?C.emerald:rsiArrow==="↓"?C.red:C.muted,fontSize:11}}>{rsiArrow}</span>
               </div>
               {/* 2행 */}
-              <div style={{display:"flex",alignItems:"center",gap:4,fontSize:9}}>
-                <span style={{color:C.muted,fontSize:7}}>거래량</span>
+              <div style={{display:"flex",alignItems:"center",gap:5,fontSize:12}}>
+                <span style={{color:C.muted,fontSize:9}}>거래량</span>
                 <span style={{color:volColor,fontWeight:700}}>{volR}%</span>
-                <span style={{fontSize:8}}>{volIcon}</span>
+                <span style={{fontSize:11}}>{volIcon}</span>
               </div>
-              <div style={{display:"flex",alignItems:"center",gap:4,fontSize:9}}>
-                <span style={{color:C.muted,fontSize:7}}>RS</span>
+              <div style={{display:"flex",alignItems:"center",gap:5,fontSize:12}}>
+                <span style={{color:C.muted,fontSize:9}}>RS</span>
                 <span style={{color:rsColor,fontWeight:700}}>{rs>=0?"+":""}{rs}%p</span>
-                <span style={{fontSize:8}}>{rsIcon}</span>
+                <span style={{fontSize:11}}>{rsIcon}</span>
               </div>
-              <div style={{display:"flex",alignItems:"center",gap:4,fontSize:9}}>
-                <span style={{color:C.muted,fontSize:7}}>스퀴즈</span>
+              <div style={{display:"flex",alignItems:"center",gap:5,fontSize:12}}>
+                <span style={{color:C.muted,fontSize:9}}>스퀴즈</span>
                 <span style={{color:sqzColor,fontWeight:700}}>{sqzText}</span>
-                <span style={{fontSize:8}}>{sqzIcon}</span>
+                <span style={{fontSize:11}}>{sqzIcon}</span>
               </div>
             </div>;
           })()}
