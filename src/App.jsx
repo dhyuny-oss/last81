@@ -1,5 +1,21 @@
 /**
- * Alpha Terminal v2.5.2 — App.jsx
+ * Alpha Terminal v2.5.3 — App.jsx
+ * v2.5.3: [핵심 6지표 컴팩트 패널 추가 — 종합판정 ↔ 차트 사이]
+ *          [목적] 종합판정 라벨만 보고는 어떤 지표 때문인지 즉각 파악 어려움
+ *                 6개 핵심 지표를 2줄 요약 박스로 종합판정 직후 배치
+ *          [컴포넌트] 3열 × 2행 그리드
+ *                 1행: ST n/3 ↑↓ · MACD ↑가속/↑둔화/↓완화/↓하락 · RSI N ↑↓→
+ *                 2행: 거래량 N% · RS ±N%p · 스퀴즈 압축중/해제!/없음
+ *          [방향성 표시]
+ *                 - ST: 어제 대비 점등 개수 변화
+ *                 - MACD: hist 가속/둔화 + macd>signal 양/음 조합
+ *                 - RSI: 3봉 전 vs 오늘 (±1 잡음 필터)
+ *                 - 거래량: 절대값 (200%↑ 폭발 / 150%↑ 증가 / 100%↑ 보통)
+ *                 - RS: 종목 5D - 시장(S&P) 5D 차이 (+3%p↑ 매우강 / +0%p↑ 강)
+ *                 - 스퀴즈: sqzOn/sqzOff/없음 + 색상
+ *          [영향] App.jsx 1곳 (종합판정 박스 직후 새 컴포넌트 삽입, 60라인)
+ *                 기존 "📊 지표 현황" (차트 아래) 그대로 유지 — 상세 정보용 역할 분담
+ *                 컴팩트 패널 = 즉각 판단용 / 상세 패널 = 추가 정보 (RSI 코멘트, MACD 값 등)
  * v2.5.2: [차트탭 정리 + 종합판정 매트릭스 강화 + 스퀴즈 도트 정렬]
  *          [본질] 차트탭 상단의 정보 중복 제거 + 종합판정에 추세(방향성) 도입
  *                 점수 절대값만으로는 "지금 매수해야 하나?"의 답이 안 됨
@@ -3217,6 +3233,77 @@ export default function App() {
               <span style={{marginLeft:"auto",fontSize:7,color:C.muted,fontStyle:"italic"}}>{judgeMsg}</span>
             </div>
           </div>
+
+          {/* ★ v2.5.3: 핵심 6지표 컴팩트 패널 — 종합판정 ↔ 차트 사이 (2줄 요약) */}
+          {/* ST / MACD 방향 / RSI 방향 / 거래량 / RS 대비 / 스퀴즈 — 한눈에 */}
+          {cd&&cd.data?.length>=4&&(()=>{
+            const last = cd.data.at(-1);
+            const prev = cd.data.at(-2);
+            const prev3 = cd.data.at(-4);
+            // ① ST
+            const stC = [last.st1Bull,last.st2Bull,last.st3Bull].filter(v=>v!=null).length;
+            const stPrev = [prev?.st1Bull,prev?.st2Bull,prev?.st3Bull].filter(v=>v!=null).length;
+            const stArrow = stC>stPrev?"↑":stC<stPrev?"↓":"→";
+            const stColor = stC===3?C.emerald:stC===2?C.green:stC===1?C.yellow:C.muted;
+            // ② MACD 방향 (hist 가속/둔화 + 양/음)
+            const macdUp = last.macd>last.signal;
+            const histNow = last.hist||0;
+            const histPrev = prev?.hist||0;
+            const histAccel = histNow>histPrev;
+            const macdLabel = macdUp&&histAccel?"↑가속":macdUp?"↑둔화":!macdUp&&histAccel?"↓완화":"↓하락";
+            const macdColor = macdUp&&histAccel?C.emerald:macdUp?C.yellow:!macdUp&&histAccel?C.muted:C.red;
+            // ③ RSI 방향
+            const rsi = last.rsi;
+            const rsi3 = prev3?.rsi;
+            const rsiArrow = (rsi!=null&&rsi3!=null)?(rsi>rsi3+1?"↑":rsi<rsi3-1?"↓":"→"):"→";
+            const rsiColor = rsi==null?C.muted:rsi>75?C.red:rsi>=50&&rsi<=70?C.emerald:rsi>=45?C.yellow:rsi<30?"#FF9F0A":C.muted;
+            // ④ 거래량
+            const volR = selInfo?.volRatio||selInfo?._volRatio||last.volRatio||100;
+            const volIcon = volR>=200?"💥":volR>=150?"📊":volR>=100?"·":"📉";
+            const volColor = volR>=200?C.emerald:volR>=150?C.green:volR>=100?C.muted:C.red;
+            // ⑤ RS (시장 대비)
+            const rs = +((selInfo?.chg5d||0) - (idxRS?.spy?.chg5d||0)).toFixed(1);
+            const rsIcon = rs>3?"🚀":rs>0?"💪":"📉";
+            const rsColor = rs>3?C.emerald:rs>0?C.yellow:C.red;
+            // ⑥ 스퀴즈
+            const sqzText = last.sqzOff?"해제!":last.sqzOn?"압축중":"없음";
+            const sqzIcon = last.sqzOff?"🔴":last.sqzOn?"🟡":"⚪";
+            const sqzColor = last.sqzOff?C.red:last.sqzOn?C.yellow:C.muted;
+
+            return <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:10,padding:"8px 10px",background:"rgba(0,0,0,.25)",border:`1px solid ${C.border}`,borderRadius:8}}>
+              {/* 1행 */}
+              <div style={{display:"flex",alignItems:"center",gap:4,fontSize:9}}>
+                <span style={{color:C.muted,fontSize:7}}>ST</span>
+                <span style={{color:stColor,fontWeight:900}}>{stC}/3</span>
+                <span style={{color:stArrow==="↑"?C.emerald:stArrow==="↓"?C.red:C.muted,fontSize:8}}>{stArrow}</span>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:4,fontSize:9}}>
+                <span style={{color:C.muted,fontSize:7}}>MACD</span>
+                <span style={{color:macdColor,fontWeight:700}}>{macdLabel}</span>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:4,fontSize:9}}>
+                <span style={{color:C.muted,fontSize:7}}>RSI</span>
+                <span style={{color:rsiColor,fontWeight:700}}>{rsi?.toFixed(0)||"—"}</span>
+                <span style={{color:rsiArrow==="↑"?C.emerald:rsiArrow==="↓"?C.red:C.muted,fontSize:8}}>{rsiArrow}</span>
+              </div>
+              {/* 2행 */}
+              <div style={{display:"flex",alignItems:"center",gap:4,fontSize:9}}>
+                <span style={{color:C.muted,fontSize:7}}>거래량</span>
+                <span style={{color:volColor,fontWeight:700}}>{volR}%</span>
+                <span style={{fontSize:8}}>{volIcon}</span>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:4,fontSize:9}}>
+                <span style={{color:C.muted,fontSize:7}}>RS</span>
+                <span style={{color:rsColor,fontWeight:700}}>{rs>=0?"+":""}{rs}%p</span>
+                <span style={{fontSize:8}}>{rsIcon}</span>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:4,fontSize:9}}>
+                <span style={{color:C.muted,fontSize:7}}>스퀴즈</span>
+                <span style={{color:sqzColor,fontWeight:700}}>{sqzText}</span>
+                <span style={{fontSize:8}}>{sqzIcon}</span>
+              </div>
+            </div>;
+          })()}
 
           {/* ★ v2.5.2: 가격 레벨 돌파 / 매물대 저항 / 가격 위치 + 모멘텀 — 지표 현황 ↔ 관찰 등록 사이로 이동됨 */}
 
