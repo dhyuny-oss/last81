@@ -1,5 +1,17 @@
 /**
- * Alpha Terminal v2.4.3 — App.jsx
+ * Alpha Terminal v2.4.7 — App.jsx
+ * v2.4.7: [집중탭 카드/펼침 정의 일치 — 사용자 분 발견 모순 해결]
+ *          [발견] 돌파감지 카드: 0 / 펼친 리스트: 9개 (모순)
+ *                 진입적기 카드: 116 / 펼친 리스트: 0개 (모순)
+ *          [원인] 카드는 v2.4.x 정의 (거래량 지속 + 4중 N+) / 펼침은 옛 정의
+ *          [수정] 펼침을 카드 정의와 일치시킴
+ *                 - 돌파감지 펼침: 거래량 지속 AND 4중 2+ (ST/MACD/구름/스퀴즈)
+ *                 - 진입적기 펼침: 거래량 지속 AND 4중 3+ (ST 3/3·MACD·MA20·모멘텀)
+ *                 - 핵심매수(종합평점) 0개일 때 안내 메시지 추가
+ *          [효과] 카드 카운트 = 펼친 리스트 개수 정확히 일치
+ * v2.4.4: [집중탭 라벨 변경 — 핵심 매수 → 종합평점]
+ *          [변경] 집중탭 카드 1: "🟢 핵심 매수" → "🟢 종합평점"
+ *          [이유] 추천 표시 통일 일환 — 차트탭 종합판정과 의미 정렬
  * v2.4.3: [차트탭 정리 — 매수 추천 박스 제거 + 가독성 개선]
  *          [제거] 차트탭 헤더 매수 추천 박스 (단순 ST 카운트만 사용 → 의미 약함)
  *          [추가] 종목 RS — 1D / 3D / 5D 변화율을 헤더 오른쪽 끝에 표시 (지수 RS와 동일 형식)
@@ -2413,7 +2425,7 @@ export default function App() {
 
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:14}}>
             <div onClick={()=>setFocusView(focusView==="ranked"?null:"ranked")} style={{background:focusView==="ranked"?"rgba(191,90,242,.15)":"rgba(191,90,242,.06)",border:`2px solid ${focusView==="ranked"?C.purple:"rgba(191,90,242,.2)"}`,borderRadius:8,padding:"8px",textAlign:"center",cursor:"pointer"}}>
-              <div style={{fontSize:8,color:C.purple}}>🟢 핵심 매수</div>
+              <div style={{fontSize:8,color:C.purple}}>🟢 종합평점</div>
               <div style={{fontSize:22,fontWeight:900,color:C.purple}}>{realStocks.filter(s=>{
                 // ★ v2.4.1: 핵심 매수 = 돌파 + 적기 둘 다 충족 (거래량 지속 — 3봉 중 2봉 105%↑)
                 const cData = charts[s.ticker]?.data;
@@ -2512,9 +2524,9 @@ export default function App() {
               return{...s,score:r.score,signals:r.signals,rs:r.rs,timing,durability:dur,breakoutOk,entryOk,volR,volSust,breakoutCount,entryScore};
             }).filter(Boolean).sort((a,b)=>b.score-a.score);
             return<div style={css.card}>
-              <div style={{fontSize:11,fontWeight:700,color:C.purple,marginBottom:4}}>🟢 핵심 매수 — 돌파+적기 ({all.length}개)</div>
+              <div style={{fontSize:11,fontWeight:700,color:C.purple,marginBottom:4}}>🟢 종합평점 — 돌파+적기 ({all.length}개)</div>
               <div style={{fontSize:8,color:C.muted,marginBottom:8}}>v2.4.1: 거래량 지속 (3봉 중 2봉↑ 105%) + 돌파(4개 중 2+) + 적기(4개 중 3+) 모두 충족 · 종합점수순 정렬</div>
-              <div style={{maxHeight:400,overflowY:"auto"}}>
+              {all.length===0?<div style={{textAlign:"center",padding:"30px",color:C.muted,fontSize:9}}>현재 조건 충족 종목 없음</div>:<div style={{maxHeight:400,overflowY:"auto"}}>
                 {all.map((s,i)=>(
                   <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 8px",borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer"}}>
                     <span style={{fontSize:10,fontWeight:900,color:C.purple,minWidth:16}}>{i+1}</span>
@@ -2532,33 +2544,42 @@ export default function App() {
                     </div>
                   </div>
                 ))}
-              </div>
+              </div>}
             </div>;
           })()}
 
           {focusView==="breakout"&&(()=>{
+            // ★ v2.4.7: 카드 카운트와 일치 — 거래량 지속 (3봉중 2봉 105%) AND 4개 중 2+ (ST/MACD/구름/스퀴즈)
             const all=realStocks.map(s=>{
-              const cData=charts[s.ticker]?.data;if(!cData||cData.length<2)return null;
-              const today=cData.at(-1),yesterday=cData.at(-2);const signals=[];
+              const cData=charts[s.ticker]?.data;if(!cData||cData.length<3)return null;
+              const today=cData.at(-1),yesterday=cData.at(-2);
+              // 거래량 지속성 (3봉 중 2봉 105%↑)
+              let volSust=0;
+              for(let i=Math.max(0,cData.length-3);i<cData.length;i++){
+                if((cData[i]?.volRatio||0)>=105)volSust++;
+              }
+              if(volSust<2)return null;
+              // 돌파 4개 (라벨용 signals 그대로 + 카운트 평가)
+              const signals=[];
               const stT=[today.st1Bull,today.st2Bull,today.st3Bull].filter(v=>v!=null).length;
               const stY=[yesterday.st1Bull,yesterday.st2Bull,yesterday.st3Bull].filter(v=>v!=null).length;
-              if(stT===3&&stY<3)signals.push({type:"🔥 ST돌파",color:C.emerald});
-              else if(stT>stY)signals.push({type:"📈 ST개선",color:C.green});
-              if(today.macd>today.signal&&yesterday.macd<=yesterday.signal)signals.push({type:"⚡ MACD↑",color:C.accent});
-              if(today.aboveCloud&&!yesterday.aboveCloud)signals.push({type:"☁️ 구름돌파",color:C.emerald});
-              const vols=cData.slice(-21,-1).map(d=>d.volume||0).filter(v=>v>0);
-              const avgVol=vols.length?vols.reduce((a,b)=>a+b,0)/vols.length:0;
-              if(avgVol>0&&today.volume>avgVol*2)signals.push({type:"💥 거래량",color:C.yellow});
-              if(today.sqzOff)signals.push({type:"💎 스퀴즈",color:C.purple});
-              if(!signals.length)return null;
-              const{score}=alphaScore(s,cData,idxRS);return{...s,signals,score,stCount:stT};
-            }).filter(s=>s&&s.signals.length>=2).sort((a,b)=>b.signals.length-a.signals.length||b.score-a.score);
+              let breakoutCount=0;
+              if(stT>stY){breakoutCount++;signals.push({type:stT===3&&stY<3?"🔥 ST돌파":"📈 ST개선",color:stT===3?C.emerald:C.green});}
+              if(today.macd>today.signal&&yesterday.macd<=yesterday.signal){breakoutCount++;signals.push({type:"⚡ MACD↑",color:C.accent});}
+              if(today.aboveCloud&&!yesterday.aboveCloud){breakoutCount++;signals.push({type:"☁️ 구름돌파",color:C.emerald});}
+              if(today.sqzOff&&yesterday.sqzOn){breakoutCount++;signals.push({type:"💎 스퀴즈",color:C.purple});}
+              if(breakoutCount<2)return null;
+              const{score}=alphaScore(s,cData,idxRS);
+              return{...s,signals,score,stCount:stT,breakoutCount,volSust};
+            }).filter(Boolean).sort((a,b)=>b.breakoutCount-a.breakoutCount||b.score-a.score);
             return<div style={css.card}>
-              <div style={{fontSize:11,fontWeight:700,color:C.emerald,marginBottom:8}}>🚀 돌파감지 — 2개+ 동시 ({all.length}개)</div>
-              <div style={{maxHeight:400,overflowY:"auto"}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.emerald,marginBottom:4}}>💎 돌파감지 ({all.length}개)</div>
+              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>v2.4.7: 거래량 지속 (3봉중 2봉 105%↑) AND 4개 중 2+ 충족 · 카드 카운트와 일치</div>
+              {all.length===0?<div style={{textAlign:"center",padding:"30px",color:C.muted,fontSize:9}}>현재 조건 충족 종목 없음</div>:<div style={{maxHeight:400,overflowY:"auto"}}>
                 {all.map((s,i)=>(
                   <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer"}}>
                     <span style={{fontWeight:700,fontSize:9,minWidth:60,maxWidth:82,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</span>
+                    <span title={`거래량 ${s.volSust}/3봉 충족`} style={{fontSize:7,fontWeight:900,color:C.emerald,padding:"1px 3px",borderRadius:2,background:"rgba(48,209,88,.06)"}}>📊{s.volSust}/3</span>
                     <div style={{flex:1,display:"flex",gap:2,flexWrap:"wrap"}}>{s.signals.map((sig,j)=><span key={j} style={{fontSize:6,padding:"1px 4px",borderRadius:3,background:`${sig.color}15`,border:`1px solid ${sig.color}40`,color:sig.color,fontWeight:700}}>{sig.type}</span>)}</div>
                     <div style={{textAlign:"right",minWidth:55}}>
                       <div style={{display:"flex",gap:3,justifyContent:"flex-end"}}>
@@ -2568,34 +2589,54 @@ export default function App() {
                     </div>
                   </div>
                 ))}
-              </div>
+              </div>}
             </div>;
           })()}
 
           {focusView==="entry"&&(()=>{
+            // ★ v2.4.7: 카드 카운트와 일치 — 거래량 지속 (3봉중 2봉 105%) AND 4개 중 3+ (ST 3/3, MACD, MA20, 모멘텀)
             const all=realStocks.map(s=>{
               const cData=charts[s.ticker]?.data;if(!cData||cData.length<10)return null;
+              const last=cData.at(-1);
+              // 거래량 지속성
+              let volSust=0;
+              for(let i=Math.max(0,cData.length-3);i<cData.length;i++){
+                if((cData[i]?.volRatio||0)>=105)volSust++;
+              }
+              if(volSust<2)return null;
+              // 적기 4컴포넌트
+              const stC=[last.st1Bull,last.st2Bull,last.st3Bull].filter(v=>v!=null).length;
+              const ma20=last.ma20;
+              const aboveMa20=ma20!=null&&last.close>ma20;
+              const macdOK=last.macd!=null&&last.signal!=null&&last.macd>last.signal;
+              const momentumOK=cData.length>=4?last.close>cData[cData.length-4].close:false;
+              const components=[stC===3,macdOK,aboveMa20,momentumOK];
+              const entryScore=components.filter(Boolean).length;
+              if(entryScore<3)return null;
+              // 라벨 (시각용)
+              const entrySigs=[];
+              if(stC===3)entrySigs.push("ST 3/3");
+              if(macdOK)entrySigs.push("MACD↑");
+              if(aboveMa20)entrySigs.push(">MA20");
+              if(momentumOK)entrySigs.push("3봉↑");
+              // 점수 (정렬용)
               const t=calcEntryTiming(cData);const dr=calcTrendDurability(cData);
-              if(t.score<55||dr.score<55)return null;
-              return{...s,timing:t.score,durability:dr.score,timingSignals:t.signals,durabilitySignals:dr.signals,combined:Math.round(t.score*0.5+dr.score*0.5)};
-            }).filter(Boolean).sort((a,b)=>b.combined-a.combined);
+              return{...s,entryScore,entrySigs,timing:t.score,durability:dr.score,volSust,combined:Math.round(t.score*0.5+dr.score*0.5)};
+            }).filter(Boolean).sort((a,b)=>b.entryScore-a.entryScore||b.combined-a.combined);
             return<div style={css.card}>
-              <div style={{fontSize:11,fontWeight:700,color:C.accent,marginBottom:4}}>🎯 진입적기 — ⚡55+💪55+ ({all.length}개)</div>
-              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>타이밍 55+ & 강도 55+ 종목</div>
-              <div style={{maxHeight:400,overflowY:"auto"}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.accent,marginBottom:4}}>⚡ 진입적기 ({all.length}개)</div>
+              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>v2.4.7: 거래량 지속 (3봉중 2봉 105%↑) AND 4개 중 3+ (ST 3/3·MACD·MA20·모멘텀) · 카드 카운트와 일치</div>
+              {all.length===0?<div style={{textAlign:"center",padding:"30px",color:C.muted,fontSize:9}}>현재 조건 충족 종목 없음</div>:<div style={{maxHeight:400,overflowY:"auto"}}>
                 {all.map((s,i)=>(
                   <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 8px",borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer",background:i<3?"rgba(48,209,88,.04)":"transparent"}}>
                     <span style={{fontWeight:700,fontSize:9,minWidth:60,maxWidth:82,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</span>
-                    <div style={{display:"flex",gap:4,alignItems:"center"}}>
-                      <span style={{fontSize:9,fontWeight:900,color:"#FF9F0A",padding:"1px 4px",borderRadius:3,background:"rgba(255,159,10,.1)"}}>⚡{s.timing}</span>
-                      <span style={{fontSize:9,fontWeight:900,color:C.emerald,padding:"1px 4px",borderRadius:3,background:"rgba(48,209,88,.1)"}}>💪{s.durability}</span>
-                    </div>
-                    <div style={{flex:1,display:"flex",gap:2,flexWrap:"wrap"}}>{s.timingSignals.slice(0,2).map(sig=><span key={sig} style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:"rgba(255,159,10,.08)",color:"#FF9F0A"}}>{sig}</span>)}</div>
+                    <span title={`적기 ${s.entryScore}/4 충족`} style={{fontSize:8,fontWeight:900,color:"#FF9F0A",padding:"1px 4px",borderRadius:3,background:"rgba(255,159,10,.1)"}}>⚡{s.entryScore}/4</span>
+                    <span title={`거래량 ${s.volSust}/3봉`} style={{fontSize:7,fontWeight:900,color:C.emerald,padding:"1px 3px",borderRadius:2,background:"rgba(48,209,88,.06)"}}>📊{s.volSust}/3</span>
+                    <div style={{flex:1,display:"flex",gap:2,flexWrap:"wrap"}}>{s.entrySigs.map(sig=><span key={sig} style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:"rgba(255,159,10,.08)",color:"#FF9F0A"}}>{sig}</span>)}</div>
                     <div style={{fontSize:8,color:(s.changePct||0)>=0?C.green:C.red}}>1D {(s.changePct||0)>=0?"+":""}{(s.changePct||0).toFixed(1)}%</div>
                   </div>
                 ))}
-                {!all.length&&<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:9}}>현재 타이밍+강도 모두 양호한 종목 없음</div>}
-              </div>
+              </div>}
             </div>;
           })()}
 
