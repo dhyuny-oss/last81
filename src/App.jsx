@@ -1,6 +1,21 @@
 /**
- * Alpha Terminal v2.4.7 — App.jsx
- * v2.4.7: [집중탭 카드/펼침 정의 일치 — 사용자 분 발견 모순 해결]
+ * Alpha Terminal v2.4.9 — App.jsx
+ * v2.4.9: [차트탭/보유탭 정리]
+ *          [차트탭] 가격 레벨 돌파 — 기본 펼침 → 기본 접힘 (▶ 누르면 펼침)
+ *          [차트탭] 지수 RS 기준선 — sticky 고정 (스크롤해도 화면 상단 유지)
+ *          [보유탭] 추가매수 — 모든 도달 표시 → 마지막 도달 + 다음 해야 할 것 (최대 2줄)
+ *                   "🔥 불타기 N차 +X% 도달" + "⏳ 다음: 불타기 N차 +X% 도달 시"
+ * v2.4.8: [거래량 임계값 완화 — 105 → 100]
+ *          [발견] 미국장 시작 전 시간대에 시그널이 너무 적음
+ *                 "🚀 오늘의 돌파 감지" 8개 vs 카드 카운트 0개 모순
+ *                 거래량 105% 조건이 평균 시점 종목들 막음
+ *          [변경] 거래량 임계값 105% → 100% (평균 이상)
+ *                 봉 수 조건 (3봉 중 2봉) 그대로 유지 — 일시 폭증 필터링 효과
+ *          [영향] App.jsx 7곳 + fetch_yahoo.py 1곳
+ *                 helper · 집중탭 카드 · 펼침 뷰 · 차트 매수 마커 · 라벨/툴팁
+ *          [의미] 평균 거래량 이상이 두 봉 이상 지속되면 시그널 인정
+ *                 v2.4.0/4.1 거래량 통합 + 지속성 의도 유지하되 약간 느슨화
+ * v2.4.7: [집중탭 카드/펼침 정의 일치]
  *          [발견] 돌파감지 카드: 0 / 펼친 리스트: 9개 (모순)
  *                 진입적기 카드: 116 / 펼친 리스트: 0개 (모순)
  *          [원인] 카드는 v2.4.x 정의 (거래량 지속 + 4중 N+) / 펼침은 옛 정의
@@ -535,7 +550,7 @@ function buildChartData(candles){
     // ★ v2.4.1: 거래량 지속성 (최근 3봉 중 2봉 이상 105%↑)
     let volSust = 0;
     for (let j = Math.max(0, i-2); j <= i; j++) {
-      if ((data[j]?.volRatio || 0) >= 105) volSust++;
+      if ((data[j]?.volRatio || 0) >= 100) volSust++;
     }
     const volOK = volSust >= 2;
     if (!volOK) continue;  // 거래량 지속 미충족 = 마커 없음
@@ -1003,7 +1018,7 @@ export default function App() {
   const [charts, setCharts] = useState({});
   const [consensus, setConsensus] = useState({});
   const [companyInfo, setCompanyInfo] = useState({}); // ★ v2.3: 회사 소개
-  const [priceLevelOpen, setPriceLevelOpen] = useState(true); // ★ v2.4.3: 가격레벨 돌파 토글 (기본 펼침)
+  const [priceLevelOpen, setPriceLevelOpen] = useState(false); // ★ v2.4.9: 가격레벨 돌파 토글 (기본 접힘)
   const [timingOpen, setTimingOpen] = useState(false); // ★ v2.4.3: 진입타이밍 펼치기
   const [durabilityOpen, setDurabilityOpen] = useState(false); // ★ v2.4.3: 추세강도 펼치기
   const [search, setSearch] = useState("");
@@ -2409,7 +2424,7 @@ export default function App() {
         {/* ══ TAB: 집중 — 오늘 볼 종목 ══ */}
         {tab==="focus"&&<div style={{padding:"12px 14px"}}>
           <div style={{fontSize:13,fontWeight:900,color:C.accent,marginBottom:4,borderLeft:`3px solid ${C.accent}`,paddingLeft:8}}>🎯 오늘의 집중 종목</div>
-          <div style={{fontSize:9,color:C.sub,marginBottom:8}}>핵심 2시그널 (거래량 105%↑ 지속) — 💎 돌파감지 · ⚡ 진입적기</div>
+          <div style={{fontSize:9,color:C.sub,marginBottom:8}}>핵심 2시그널 (거래량 100%↑ 지속) — 💎 돌파감지 · ⚡ 진입적기</div>
           <div style={{display:"flex",gap:4,marginBottom:10}}>
             {[["all","전체"],["kr","🇰🇷 한국"],["us","🇺🇸 미국"]].map(([v,l])=>(
               <button key={v} onClick={()=>setFocusMarket(v)} style={{padding:"4px 12px",borderRadius:5,border:`1px solid ${focusMarket===v?C.accent:C.border}`,background:focusMarket===v?"rgba(10,132,255,.12)":"transparent",color:focusMarket===v?C.accent:C.muted,fontSize:9,fontWeight:focusMarket===v?700:400,cursor:"pointer"}}>{l}</button>
@@ -2435,7 +2450,7 @@ export default function App() {
                 // 거래량 지속성 (최근 3봉 중 2봉 105%↑)
                 let volSust = 0;
                 for (let i = Math.max(0, cData.length-3); i < cData.length; i++) {
-                  if ((cData[i]?.volRatio || 0) >= 105) volSust++;
+                  if ((cData[i]?.volRatio || 0) >= 100) volSust++;
                 }
                 if (volSust < 2) return false;
                 const stC = [last.st1Bull,last.st2Bull,last.st3Bull].filter(v=>v!=null).length;
@@ -2494,7 +2509,7 @@ export default function App() {
               // 거래량 지속성 (3봉 중 2봉 105%↑)
               let volSust = 0;
               for (let i = Math.max(0, cData.length-3); i < cData.length; i++) {
-                if ((cData[i]?.volRatio || 0) >= 105) volSust++;
+                if ((cData[i]?.volRatio || 0) >= 100) volSust++;
               }
               if (volSust < 2) return null;
               const stC=[last.st1Bull,last.st2Bull,last.st3Bull].filter(v=>v!=null).length;
@@ -2525,7 +2540,7 @@ export default function App() {
             }).filter(Boolean).sort((a,b)=>b.score-a.score);
             return<div style={css.card}>
               <div style={{fontSize:11,fontWeight:700,color:C.purple,marginBottom:4}}>🟢 종합평점 — 돌파+적기 ({all.length}개)</div>
-              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>v2.4.1: 거래량 지속 (3봉 중 2봉↑ 105%) + 돌파(4개 중 2+) + 적기(4개 중 3+) 모두 충족 · 종합점수순 정렬</div>
+              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>v2.4.8: 거래량 지속 (3봉 중 2봉↑ 100%) + 돌파(4개 중 2+) + 적기(4개 중 3+) 모두 충족 · 종합점수순 정렬</div>
               {all.length===0?<div style={{textAlign:"center",padding:"30px",color:C.muted,fontSize:9}}>현재 조건 충족 종목 없음</div>:<div style={{maxHeight:400,overflowY:"auto"}}>
                 {all.map((s,i)=>(
                   <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 8px",borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer"}}>
@@ -2533,7 +2548,7 @@ export default function App() {
                     <span style={{fontWeight:700,fontSize:9,minWidth:60,maxWidth:82,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</span>
                     <span title={`돌파 ${s.breakoutCount}/4`} style={{fontSize:8,fontWeight:900,color:"#64D2FF",padding:"1px 3px",borderRadius:2,background:"rgba(100,210,255,.06)"}}>💎{s.breakoutCount}</span>
                     <span title={`적기 ${s.entryScore}/4`} style={{fontSize:8,fontWeight:900,color:"#FF9F0A",padding:"1px 3px",borderRadius:2,background:"rgba(255,159,10,.06)"}}>⚡{s.entryScore}</span>
-                    <span title={`거래량 지속성 ${s.volSust}/3봉 (105%↑) · 현재 ${s.volR}%`} style={{fontSize:8,fontWeight:900,color:C.emerald,padding:"1px 3px",borderRadius:2,background:"rgba(48,209,88,.06)"}}>📊{s.volSust}/3</span>
+                    <span title={`거래량 지속성 ${s.volSust}/3봉 (100%↑) · 현재 ${s.volR}%`} style={{fontSize:8,fontWeight:900,color:C.emerald,padding:"1px 3px",borderRadius:2,background:"rgba(48,209,88,.06)"}}>📊{s.volSust}/3</span>
                     <div style={{flex:1}}/>
                     <div style={{textAlign:"right"}}>
                       <div style={{fontSize:13,fontWeight:900,color:C.accent}}>{s.score}<span style={{fontSize:8,color:C.muted}}>pt</span></div>
@@ -2574,7 +2589,7 @@ export default function App() {
             }).filter(Boolean).sort((a,b)=>b.breakoutCount-a.breakoutCount||b.score-a.score);
             return<div style={css.card}>
               <div style={{fontSize:11,fontWeight:700,color:C.emerald,marginBottom:4}}>💎 돌파감지 ({all.length}개)</div>
-              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>v2.4.7: 거래량 지속 (3봉중 2봉 105%↑) AND 4개 중 2+ 충족 · 카드 카운트와 일치</div>
+              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>v2.4.8: 거래량 지속 (3봉중 2봉 100%↑) AND 4개 중 2+ 충족 · 카드 카운트와 일치</div>
               {all.length===0?<div style={{textAlign:"center",padding:"30px",color:C.muted,fontSize:9}}>현재 조건 충족 종목 없음</div>:<div style={{maxHeight:400,overflowY:"auto"}}>
                 {all.map((s,i)=>(
                   <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer"}}>
@@ -2625,7 +2640,7 @@ export default function App() {
             }).filter(Boolean).sort((a,b)=>b.entryScore-a.entryScore||b.combined-a.combined);
             return<div style={css.card}>
               <div style={{fontSize:11,fontWeight:700,color:C.accent,marginBottom:4}}>⚡ 진입적기 ({all.length}개)</div>
-              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>v2.4.7: 거래량 지속 (3봉중 2봉 105%↑) AND 4개 중 3+ (ST 3/3·MACD·MA20·모멘텀) · 카드 카운트와 일치</div>
+              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>v2.4.8: 거래량 지속 (3봉중 2봉 100%↑) AND 4개 중 3+ (ST 3/3·MACD·MA20·모멘텀) · 카드 카운트와 일치</div>
               {all.length===0?<div style={{textAlign:"center",padding:"30px",color:C.muted,fontSize:9}}>현재 조건 충족 종목 없음</div>:<div style={{maxHeight:400,overflowY:"auto"}}>
                 {all.map((s,i)=>(
                   <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 8px",borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer",background:i<3?"rgba(48,209,88,.04)":"transparent"}}>
@@ -2921,7 +2936,10 @@ export default function App() {
 
         {/* ══ TAB 3: 차트 ══ */}
         {tab==="sniper"&&selInfo&&<div style={{padding:"12px 14px"}}>
-          <RSBar/>
+          {/* ★ v2.4.9: 지수 RS 기준선 — sticky 고정 (스크롤해도 화면 상단에 머묾) */}
+          <div style={{position:"sticky",top:0,zIndex:50,background:C.bg,paddingBottom:8,marginLeft:-14,marginRight:-14,paddingLeft:14,paddingRight:14,boxShadow:"0 2px 8px rgba(0,0,0,.4)"}}>
+            <RSBar/>
+          </div>
           <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
             <div style={{fontWeight:900,fontSize:15}}>{fmtFullName(selInfo)}</div>
             <button onClick={()=>setCompanyInfo(p=>({...p,[sel]:p[sel]?null:true}))} style={{fontSize:8,background:companyInfo[sel]?"rgba(10,132,255,.15)":"rgba(10,132,255,.08)",border:`1px solid ${C.accent}`,borderRadius:4,padding:"2px 6px",color:C.accent,cursor:"pointer",fontWeight:600}}>🏢 {companyInfo[sel]?"접기":"회사정보"}</button>
@@ -3681,6 +3699,11 @@ export default function App() {
                   const volDrop=posVolRatio<50;
                   // 불타기 알림
                   const pendingPyramid=(pos.pyramid||[]).filter(lv=>lv.triggered&&!lv.notified);
+                  // ★ v2.4.9: 마지막 도달 + 다음 해야 할 것만 표시 (이전: 모든 미알림 도달 표시)
+                  const allPyramid = pos.pyramid || [];
+                  const triggered = allPyramid.filter(lv=>lv.triggered).sort((a,b)=>(b.targetPct||0)-(a.targetPct||0));
+                  const lastTriggered = triggered[0]; // 가장 높은 % 도달 (최근)
+                  const nextPending = allPyramid.filter(lv=>!lv.triggered).sort((a,b)=>(a.targetPct||0)-(b.targetPct||0))[0]; // 다음 단계
                   // ★ v2.2: 타임컷 판정
                   const tc=pos.timeCutInfo||{};
                   const isTimeCut=tc.isTimeCut;
@@ -3762,12 +3785,17 @@ export default function App() {
                       }} style={{background:"rgba(255,159,10,.2)",border:"1px solid #FF9F0A",color:"#FF9F0A",borderRadius:4,padding:"2px 8px",cursor:"pointer",fontSize:8,fontWeight:700,flexShrink:0}}>⏰ 타임컷 청산</button>
                     </div>}
                     {volDrop&&!near&&!isTimeCut&&<div style={{background:"rgba(250,204,21,.1)",borderRadius:5,padding:"4px 8px",fontSize:8,color:C.yellow,fontWeight:700,marginBottom:8}}>⚠️ 거래량 급감 ({posVolRatio}% / 20일평균) — 모멘텀 약화 주의</div>}
-                    {/* 불타기 알림 */}
-                    {pendingPyramid.map(lv=>(
-                      <div key={lv.level} style={{background:"rgba(48,209,88,.12)",border:`1px solid ${C.emerald}`,borderRadius:5,padding:"4px 8px",fontSize:8,color:C.emerald,fontWeight:700,marginBottom:6}}>
-                        🔥 불타기 {lv.level}차 +{lv.targetPct}% 도달! ({lv.triggeredAt}) — 추가 매수 고려
+                    {/* ★ v2.4.9: 불타기 — 마지막 도달 + 다음 해야 할 것만 표시 */}
+                    {lastTriggered && (
+                      <div style={{background:"rgba(48,209,88,.12)",border:`1px solid ${C.emerald}`,borderRadius:5,padding:"4px 8px",fontSize:8,color:C.emerald,fontWeight:700,marginBottom:6}}>
+                        🔥 불타기 {lastTriggered.level}차 +{lastTriggered.targetPct}% 도달 ({lastTriggered.triggeredAt}) — 추가 매수 완료/고려
                       </div>
-                    ))}
+                    )}
+                    {nextPending && (
+                      <div style={{background:"rgba(250,204,21,.08)",border:`1px solid ${C.yellow}`,borderRadius:5,padding:"4px 8px",fontSize:8,color:C.yellow,fontWeight:700,marginBottom:6}}>
+                        ⏳ 다음: 불타기 {nextPending.level}차 +{nextPending.targetPct}% 도달 시 추가매수 검토
+                      </div>
+                    )}
 
                     {/* ★ v2.3: 상태 대시보드 — 타임컷·손절·목표 시각화 */}
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:10}}>
@@ -4252,7 +4280,7 @@ export default function App() {
                   // ★ v2.4.1: 거래량 지속 매수세 — 최근 3봉 중 2봉 이상이 105% ↑
                   let volSustainedCount = 0;
                   for (let i = Math.max(0, idx-2); i <= idx; i++) {
-                    if ((d[i]?.volRatio || 0) >= 105) volSustainedCount++;
+                    if ((d[i]?.volRatio || 0) >= 100) volSustainedCount++;
                   }
                   const volOK = volSustainedCount >= 2;
 
@@ -4655,11 +4683,11 @@ export default function App() {
                       <span style={{fontSize:7,color:C.muted,minWidth:42}}>{isKR4?"₩"+fmtKRW(s.price||0):"$"+(s.price||0).toFixed(1)}</span>
                       {/* ★ v2.4.0: 핵심 2시그널 (수급 제거, 거래량은 돌파/적기 필수 조건) */}
                       <div style={{display:"flex",gap:2,flexShrink:0}}>
-                        <span title={`💎 돌파 = 4개 중 2+ AND 거래량 지속 (3봉 중 2봉↑ 105%) — 강도 ${s.breakoutScore}/4, 거래량 지속 ${s.volSustainedCount}/3${s.breakoutFresh?" — 🆕 최근 신규":" — 지속"}`} style={{fontSize:7,padding:"2px 5px",borderRadius:3,background:s.sig_breakout?"rgba(100,210,255,.25)":"rgba(255,69,58,.08)",color:s.sig_breakout?"#64D2FF":C.red,fontWeight:900,border:`1px solid ${s.sig_breakout?"#64D2FF":"rgba(255,69,58,.3)"}`}}>{s.breakoutFresh&&s.sig_breakout?"🆕":""}돌파{s.breakoutScore}</span>
-                        <span title={`⚡ 적기 = 4개 중 3+ AND 거래량 지속 (3봉 중 2봉↑ 105%) — 강도 ${s.entryScore}/4, 거래량 지속 ${s.volSustainedCount}/3${s.entryFresh?" — 🆕 최근 신규":" — 지속"}`} style={{fontSize:7,padding:"2px 5px",borderRadius:3,background:s.sig_entry?"rgba(255,159,10,.25)":"rgba(255,69,58,.08)",color:s.sig_entry?"#FF9F0A":C.red,fontWeight:900,border:`1px solid ${s.sig_entry?"#FF9F0A":"rgba(255,69,58,.3)"}`}}>{s.entryFresh&&s.sig_entry?"🆕":""}적기{s.entryScore}</span>
+                        <span title={`💎 돌파 = 4개 중 2+ AND 거래량 지속 (3봉 중 2봉↑ 100%) — 강도 ${s.breakoutScore}/4, 거래량 지속 ${s.volSustainedCount}/3${s.breakoutFresh?" — 🆕 최근 신규":" — 지속"}`} style={{fontSize:7,padding:"2px 5px",borderRadius:3,background:s.sig_breakout?"rgba(100,210,255,.25)":"rgba(255,69,58,.08)",color:s.sig_breakout?"#64D2FF":C.red,fontWeight:900,border:`1px solid ${s.sig_breakout?"#64D2FF":"rgba(255,69,58,.3)"}`}}>{s.breakoutFresh&&s.sig_breakout?"🆕":""}돌파{s.breakoutScore}</span>
+                        <span title={`⚡ 적기 = 4개 중 3+ AND 거래량 지속 (3봉 중 2봉↑ 100%) — 강도 ${s.entryScore}/4, 거래량 지속 ${s.volSustainedCount}/3${s.entryFresh?" — 🆕 최근 신규":" — 지속"}`} style={{fontSize:7,padding:"2px 5px",borderRadius:3,background:s.sig_entry?"rgba(255,159,10,.25)":"rgba(255,69,58,.08)",color:s.sig_entry?"#FF9F0A":C.red,fontWeight:900,border:`1px solid ${s.sig_entry?"#FF9F0A":"rgba(255,69,58,.3)"}`}}>{s.entryFresh&&s.sig_entry?"🆕":""}적기{s.entryScore}</span>
                       </div>
                       <div style={{display:"flex",gap:1,flex:1}}>
-                        <span title={`거래량 지속성 ${s.volSustainedCount}/3봉 (105%↑) — 현재 ${s.volR}% · 2/3 이상 = 시그널 충족 가능`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.volSustainedCount>=2?"rgba(48,209,88,.15)":"rgba(255,255,255,.04)",color:s.volSustainedCount>=2?C.emerald:C.muted,fontWeight:700}}>거래량{s.volSustainedCount}/3</span>
+                        <span title={`거래량 지속성 ${s.volSustainedCount}/3봉 (100%↑) — 현재 ${s.volR}% · 2/3 이상 = 시그널 충족 가능`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.volSustainedCount>=2?"rgba(48,209,88,.15)":"rgba(255,255,255,.04)",color:s.volSustainedCount>=2?C.emerald:C.muted,fontWeight:700}}>거래량{s.volSustainedCount}/3</span>
                         <span title={`추세강도 (구름·ADX≥20) — 보조`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_strong?"rgba(100,210,255,.10)":"rgba(255,255,255,.04)",color:s.sig_strong?"#64D2FF":C.muted,fontWeight:700}}>강도</span>
                         <span title={`RSI 강세진입 (현재 ${s.rsi?.toFixed(0)||"—"}) — 보조`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_rsi?"rgba(191,90,242,.10)":"rgba(255,255,255,.04)",color:s.sig_rsi?C.purple:C.muted,fontWeight:700}}>RSI</span>
                         <span title={`종합점수 ${s.alphaPt} — 보조`} style={{fontSize:5,padding:"1px 3px",borderRadius:2,background:s.sig_alpha?"rgba(10,132,255,.10)":"rgba(255,255,255,.04)",color:s.sig_alpha?C.accent:C.muted,fontWeight:700}}>α</span>
