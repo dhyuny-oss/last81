@@ -1,5 +1,28 @@
 /**
- * Alpha Terminal v2.5.1 — App.jsx
+ * Alpha Terminal v2.5.2 — App.jsx
+ * v2.5.2: [차트탭 정리 + 종합판정 매트릭스 강화 + 스퀴즈 도트 정렬]
+ *          [본질] 차트탭 상단의 정보 중복 제거 + 종합판정에 추세(방향성) 도입
+ *                 점수 절대값만으로는 "지금 매수해야 하나?"의 답이 안 됨
+ *                 점수가 ↑상승 vs ↓하락에 따라 즉시매수/추격/보류가 갈림
+ *          [차트탭 정리]
+ *                 - "✓ 추세 추세 확정" 바 제거 (ST/MA20/ADX 정보 → 💪강도 컴포넌트와 중복)
+ *                 - "🎯 매수 신호 — 현재 봉 5필터" 박스 제거 (ST/MACD/RSI/거래/구름 → ⚡타이밍/💪강도와 중복)
+ *                 - "📐 가격 레벨 돌파" + "🧱 매물대 저항" + "📍 가격 위치" 묶음을
+ *                   "📊 지표 현황" ↔ "👁 관찰 등록" 사이로 이동 (가격 정보는 차트 보조)
+ *          [종합판정 매트릭스 — 추세 기반 4상태]
+ *                 어제 점수 vs 오늘 점수가 아닌 "3일 전 점수 vs 오늘 점수" 비교
+ *                 게이트: 타이밍 ≥ 35 OR 강도 ≥ 60 (둘 다 미달 = 대기)
+ *                 - ⚡ 즉시 매수: 타이밍↑ AND 강도↑ (시점+추세 동반 강화)
+ *                 - 📈 추격 매수: 타이밍↓ AND 강도↑ (시점은 식음, 추세는 강화 — "계속 가겠네")
+ *                 - 🤔 신호 혼조: 타이밍↑ AND 강도↓ (시점만 떴고 추세 약화 — 함정 가능)
+ *                 - 🛑 매수 보류: 타이밍↓ AND 강도↓ (둘 다 식음 — 피크 지났을 가능성)
+ *                 - ⚪ 대기: 절대값 게이트 미달
+ *                 변화량 표시: "⚡35 ↑+8 (3D)" 형식으로 추세 방향 시각화
+ *          [스퀴즈 도트 1:1 정렬]
+ *                 sliced.slice(-40) → sliced 전체 사용
+ *                 flex:1 + paddingLeft:40 (YAxis 폭 정렬) → 막대 1개 ↔ 도트 1개 1:1
+ *          [영향 영역] App.jsx 약 5곳 (헤더 / 차트탭 박스 2개 제거 / 종합판정 새 로직 / 가격레벨 이동 / 스퀴즈 도트)
+ *          [텔레그램] fetch_yahoo.py 변경 없음
  * v2.5.1: [타이밍 점수 재설계 + 임계값 비대칭 (35/60)]
  *          [본질] 타이밍 = "언제 시작" (시점 측정) / 강도 = "얼마나 갈까" (지속성 측정)
  *                 두 점수가 같은 걸 측정하지 않도록 의미 분담 명확화
@@ -28,6 +51,11 @@
  *                 - 차트탭 종합판정 / 매매 체크리스트 stock 항목
  *                 - 차트 매수 마커: 보통 35/60, 강력 60/75 (타이밍은 35로 진입, 강력은 60)
  *          [텔레그램] fetch_yahoo.py 변경 없음 (옵션 B-1 결정 유지, 화면/알림 의도적 분리)
+ *          [FIX] 차트탭 Squeeze TTM 도트 정렬 수정
+ *                [원인] 도트가 sliced.slice(-40)으로 최근 40봉만, 막대는 sliced 전체 표시
+ *                       → 도트와 막대가 시각적으로 1:1 정렬 안 됨 (도트 1개가 어떤 막대인지 모호)
+ *                [수정] 도트도 sliced 전체 사용 + paddingLeft:40 (YAxis width 정렬) + flex:1로 균등 분배
+ *                       → 위 막대 1봉 ↔ 아래 도트 1개 정확히 짝 맞춤
  * v2.5.0: [시그널 시스템 → 점수 시스템 통일 (옵션 B-1)]
  *          [본질] 화면 표시를 모두 점수(타이밍/강도) 기반으로 통일
  *                 시그널 시스템(돌파N/적기N 카운트)과 점수 시스템(⚡N 💪N) 중복 제거
@@ -1837,6 +1865,52 @@ export default function App() {
   const entryScore  = calcEntryScore(cd?.data, vixVal, oppScore, selPoolInfo);
   const entryGradeColor = {S:C.emerald,A:C.green,B:C.yellow,C:"#FF9F0A",D:C.red}[entryScore.grade]||C.muted;
 
+  // ★ v2.5.2: 3일 전 점수 — 추세(방향성) 측정용
+  // calcEntryTiming/Durability를 3일 전 데이터로 호출하면 그 시점의 점수 산정
+  const selTiming3D = (cd?.data && cd.data.length >= 13) ? calcEntryTiming(cd.data.slice(0, -3)) : null;
+  const selDurability3D = (cd?.data && cd.data.length >= 13) ? calcTrendDurability(cd.data.slice(0, -3)) : null;
+  // 변화량 (Δ): 양 = 상승 추세, 음 = 하락 추세
+  const dTiming = selTiming3D ? selTiming.score - selTiming3D.score : 0;
+  const dStrength = selDurability3D ? selDurability.score - selDurability3D.score : 0;
+  // 추세 방향성 판정 (잡음 필터 ±3)
+  const TREND_THRESHOLD = 3;
+  const timingTrendUp = dTiming > TREND_THRESHOLD;
+  const timingTrendDown = dTiming < -TREND_THRESHOLD;
+  const strengthTrendUp = dStrength > TREND_THRESHOLD;
+  const strengthTrendDown = dStrength < -TREND_THRESHOLD;
+  // 절대값 게이트: 타이밍 ≥ 35 OR 강도 ≥ 60 (둘 다 미달 = 대기)
+  const judgeGatePass = selTiming.score >= 35 || selDurability.score >= 60;
+  // 종합판정 매트릭스 (5단계)
+  let judgeLabel, judgeColor, judgeMsg;
+  if (!judgeGatePass) {
+    judgeLabel = "⚪ 대기"; judgeColor = C.muted;
+    judgeMsg = "절대값 게이트 미달 (⚡35+ 또는 💪60+ 필요)";
+  } else if (timingTrendUp && strengthTrendUp) {
+    judgeLabel = "⚡ 즉시 매수"; judgeColor = C.emerald;
+    judgeMsg = "시점+추세 동반 강화 — 최적 진입 시점";
+  } else if (timingTrendDown && strengthTrendUp) {
+    judgeLabel = "📈 추격 매수"; judgeColor = C.green;
+    judgeMsg = "시점은 식음, 추세는 강화 중 — '계속 가겠네' 구간";
+  } else if (timingTrendUp && strengthTrendDown) {
+    judgeLabel = "🤔 신호 혼조"; judgeColor = C.yellow;
+    judgeMsg = "시점만 떴고 추세 약화 — 함정 가능성, 관찰";
+  } else if (timingTrendDown && strengthTrendDown) {
+    judgeLabel = "🛑 매수 보류"; judgeColor = C.red;
+    judgeMsg = "둘 다 식는 중 — 피크 지났을 가능성";
+  } else {
+    // 횡보 (한쪽이 정체) — 절대값 기반 보조 판정
+    if (selTiming.score >= 35 && selDurability.score >= 60) {
+      judgeLabel = "✅ 진입 검토"; judgeColor = C.green;
+      judgeMsg = "절대값 충족, 추세 횡보 — 신중 검토";
+    } else if (selDurability.score >= 60) {
+      judgeLabel = "👁 관찰 유지"; judgeColor = "#FF9F0A";
+      judgeMsg = "추세 견고, 시점 미흡 — 시점 신호 대기";
+    } else {
+      judgeLabel = "⚪ 추세 미형성"; judgeColor = C.muted;
+      judgeMsg = "강도 부족, 시점만 발생 — 추세 형성 대기";
+    }
+  }
+
   // ★ v2.3 FIX: 체크리스트 — autoVal 반영 (자동체크 항목도 통과)
   const checkAutoVals = {
     market: !!(lastD?.allBull && vixVal < 25),
@@ -3024,94 +3098,9 @@ export default function App() {
             </div>
           </div>}
 
-          {/* ★ v2.3.1: ST 추세 건강 인디케이터 — 보유 결정 도구 (진입 신호 아님) */}
-          {cd&&cd.real&&cd.data?.length>=2&&(()=>{
-            const last=cd.data.at(-1);
-            const stC=[last.st1Bull,last.st2Bull,last.st3Bull].filter(v=>v!=null).length;
-            const ma20Val=last.ma20||0;
-            const aboveMa20=ma20Val>0&&last.close>ma20Val;
-            const adxVal=last.adx||0;
-            const adxStrong=adxVal>=20;
-            const checks=[stC>=2,aboveMa20,adxStrong].filter(Boolean).length;
+          {/* ★ v2.5.2: ST 추세 건강 인디케이터 제거 — 정보가 💪강도 컴포넌트(ADX/EMA/ST유지)와 중복 */}
 
-            let status,emoji,color,msg;
-            if(stC===3&&aboveMa20){
-              status="추세 확정"; emoji="✓"; color=C.emerald;
-              msg="강한 추세 — 안심 보유 · 잔파동 무시";
-            }else if(checks===3){
-              status="건재"; emoji="📈"; color=C.emerald;
-              msg="추세 양호 — 보유 유지";
-            }else if(checks===2){
-              status="약화"; emoji="⚠️"; color=C.yellow;
-              msg=stC<2?"ST 1/3↓ — 추세 약화 시작":"손절선 점검";
-            }else{
-              status="이탈"; emoji="🔴"; color=C.red;
-              msg="다수 지표 이탈 — 청산 검토";
-            }
-            return <div style={{background:`${color}12`,border:`1px solid ${color}40`,borderRadius:6,padding:"6px 12px",marginBottom:10,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-              <span style={{fontWeight:900,fontSize:11,color}}>{emoji} 추세 {status}</span>
-              <span style={{color:C.muted,fontSize:7}}>|</span>
-              <span style={{color:stC>=2?C.emerald:stC===0?C.red:C.muted,fontWeight:700,fontSize:9}}>{stC===3?"✓✓✓":stC===2?"✓✓·":stC===1?"✓··":"···"} ST {stC}/3</span>
-              <span style={{color:aboveMa20?C.emerald:C.red,fontWeight:700,fontSize:9}}>{aboveMa20?"✓":"✗"} MA20 {aboveMa20?`+${(((curPrice-ma20Val)/ma20Val)*100).toFixed(1)}%`:`${(((curPrice-ma20Val)/ma20Val)*100).toFixed(1)}%`}</span>
-              <span style={{color:adxStrong?C.emerald:C.muted,fontWeight:700,fontSize:9}}>{adxStrong?"✓":"·"} ADX {adxVal.toFixed(0)}</span>
-              <span style={{marginLeft:"auto",fontSize:7,color:C.muted}}>{msg}</span>
-            </div>;
-          })()}
-
-          {/* ★ v2.3.5: 매수 신호 디테일 패널 — 5필터 라이트 + 마지막 신호 정보 */}
-          {cd&&cd.real&&cd.data?.length>=2&&(()=>{
-            const last = cd.data.at(-1);
-            const last20 = cd.data.slice(-20);
-            // 최근 20봉에서 가장 최근 신호 찾기
-            const recentStrong = [...last20].reverse().findIndex(d => d.buyStrong);
-            const recentNormal = [...last20].reverse().findIndex(d => d.buyNormal);
-            const recentWeak = [...last20].reverse().findIndex(d => d.buyWeak);
-
-            // 현재 봉의 5필터 상태 — 신호가 안 떴을 때도 표시
-            const stCount = [last.st1Bull, last.st2Bull, last.st3Bull].filter(v=>v!=null).length;
-            const macdOK = last.macd != null && last.signal != null && last.macd > last.signal && (last.hist || 0) > 0;
-            const rsiOK = isRSIStrong(cd.data, cd.data.length - 1);
-            const volOK = (last.volRatio || 0) >= 130;
-            const cloudOK = !!last.aboveCloud || !!last.nearCloud;
-            const filters = [
-              {ok:stCount>=2, label:"ST", val:`${stCount}/3`, full:"슈퍼트랜드"},
-              {ok:macdOK, label:"MACD", val:macdOK?"양":"음", full:"MACD 양전+히스토 양"},
-              {ok:rsiOK, label:"RSI", val:`${last.rsi?.toFixed(0)||"—"}`, full:"RSI 강세진입(45~70 + 상승)"},
-              {ok:volOK, label:"거래", val:`${last.volRatio||"—"}%`, full:"거래량 130%+"},
-              {ok:cloudOK, label:"구름", val:last.aboveCloud?"위":last.nearCloud?"근접":"아래", full:"구름 접근 이상"},
-            ];
-            const okCount = filters.filter(f=>f.ok).length;
-
-            return <div style={{background:"rgba(0,0,0,.3)",border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 12px",marginBottom:10}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                <div style={{fontSize:9,fontWeight:700,color:C.text}}>🎯 매수 신호 — 현재 봉 5필터</div>
-                <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                  <span style={{fontSize:8,color:okCount>=5?"#30D158":okCount>=3?"#FFD60A":C.muted,fontWeight:900}}>
-                    {okCount===5?"🟢 강력":okCount>=3?"🟡 보통":okCount>=1?"🔵 약함":"⚪ 없음"} {okCount}/5
-                  </span>
-                  <button onClick={()=>setShowWeakSignals(v=>!v)} style={{fontSize:7,padding:"2px 6px",borderRadius:4,border:`1px solid ${showWeakSignals?C.accent:C.border}`,background:showWeakSignals?"rgba(10,132,255,.1)":"transparent",color:showWeakSignals?C.accent:C.muted,cursor:"pointer"}}>{showWeakSignals?"✓":""} 약한신호 표시</button>
-                </div>
-              </div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:4,marginBottom:6}}>
-                {filters.map(f=>(
-                  <div key={f.label} title={f.full} style={{background:f.ok?"rgba(48,209,88,.10)":"rgba(0,0,0,.4)",border:`1px solid ${f.ok?"rgba(48,209,88,.4)":"rgba(255,255,255,.05)"}`,borderRadius:5,padding:"4px",textAlign:"center"}}>
-                    <div style={{fontSize:7,color:f.ok?C.emerald:C.muted,fontWeight:700}}>{f.ok?"✓":"·"} {f.label}</div>
-                    <div style={{fontSize:8,color:f.ok?C.text:C.muted,fontWeight:600}}>{f.val}</div>
-                  </div>
-                ))}
-              </div>
-              <div style={{fontSize:7,color:C.muted,paddingTop:4,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between"}}>
-                <span>
-                  최근 20봉 신호: 
-                  {recentStrong>=0&&<span style={{color:"#30D158",fontWeight:700,marginLeft:4}}>🟢 강력 ({recentStrong===0?"오늘":recentStrong+"일전"})</span>}
-                  {recentNormal>=0&&recentStrong<0&&<span style={{color:"#FFD60A",fontWeight:700,marginLeft:4}}>🟡 보통 ({recentNormal===0?"오늘":recentNormal+"일전"})</span>}
-                  {recentWeak>=0&&recentStrong<0&&recentNormal<0&&<span style={{color:"#64D2FF",fontWeight:700,marginLeft:4}}>🔵 약함 ({recentWeak===0?"오늘":recentWeak+"일전"})</span>}
-                  {recentStrong<0&&recentNormal<0&&recentWeak<0&&<span style={{marginLeft:4}}>없음</span>}
-                </span>
-                <span>차트의 ▲ 표시 = 매수 신호 발생일</span>
-              </div>
-            </div>;
-          })()}
+          {/* ★ v2.5.2: 매수 신호 5필터 박스 제거 — ST/MACD/RSI/거래/구름 정보가 ⚡타이밍/💪강도 컴포넌트와 중복 */}
 
           {/* ★ v2.3: 회사 정보 카드 — 기존 데이터 + 외부 링크 */}
           {companyInfo[sel]&&(()=>{
@@ -3194,19 +3183,234 @@ export default function App() {
               </div>}
             </div>
           </div>
-          {/* ★ v2.5.1: 종합판정 — 임계값 비대칭 35/60 (시점/지속성 분담) */}
-          <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:10,padding:"6px 10px",background:selTiming.score>=35&&selDurability.score>=60?"rgba(48,209,88,.06)":selTiming.score>=35?"rgba(255,214,10,.06)":"rgba(255,255,255,.03)",borderRadius:8,border:`1px solid ${selTiming.score>=35&&selDurability.score>=60?C.emerald:selTiming.score>=35?C.yellow:C.border}`}}>
-            <span style={{fontSize:8,fontWeight:700,color:C.muted}}>📊 종합판정:</span>
-            <span style={{fontSize:9,fontWeight:900,color:selTiming.score>=35&&selDurability.score>=60?C.emerald:selTiming.score>=35&&selDurability.score<30?C.yellow:selTiming.score<15&&selDurability.score>=60?C.muted:C.sub}}>
-              {selTiming.score>=35&&selDurability.score>=60?"✅ 진입 검토 (⚡35+ 💪60+)":selTiming.score>=35&&selDurability.score<30?"⚠️ 추세확인 필요":selTiming.score<15&&selDurability.score>=60?"유지중 · 신규진입 아님":"대기"}
-            </span>
-            <span style={{marginLeft:"auto",display:"flex",gap:8,fontSize:8}}>
-              <span style={{color:C.muted}}>3D <span style={{color:(selInfo.chg3d||0)>=0?C.green:C.red,fontWeight:700}}>{(selInfo.chg3d||0)>=0?"+":""}{(selInfo.chg3d||0).toFixed(1)}%</span></span>
-              <span style={{color:C.muted}}>5D <span style={{color:(selInfo.chg5d||0)>=0?C.green:C.red,fontWeight:700}}>{(selInfo.chg5d||0)>=0?"+":""}{(selInfo.chg5d||0).toFixed(1)}%</span></span>
-              <span style={{color:C.muted}}>RS <span style={{color:((selInfo.chg5d||0)-idxRS.spy.chg5d)>3?C.emerald:((selInfo.chg5d||0)-idxRS.spy.chg5d)>0?C.yellow:C.red,fontWeight:700}}>{((selInfo.chg5d||0)-idxRS.spy.chg5d)>=0?"+":""}{((selInfo.chg5d||0)-idxRS.spy.chg5d).toFixed(1)}</span></span>
-            </span>
+          {/* ★ v2.5.2: 종합판정 — 매트릭스 기반 (절대값 게이트 + 추세 방향성) */}
+          {/* 추세는 3일 전 vs 오늘 점수 비교 (잡음 필터 ±3) */}
+          <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:10,padding:"8px 12px",background:`${judgeColor}10`,borderRadius:8,border:`1px solid ${judgeColor}50`}}>
+            <div style={{display:"flex",gap:6,alignItems:"center"}}>
+              <span style={{fontSize:8,fontWeight:700,color:C.muted}}>📊 종합판정:</span>
+              <span style={{fontSize:11,fontWeight:900,color:judgeColor}}>{judgeLabel}</span>
+              <span style={{marginLeft:"auto",display:"flex",gap:8,fontSize:8}}>
+                <span style={{color:C.muted}}>3D <span style={{color:(selInfo.chg3d||0)>=0?C.green:C.red,fontWeight:700}}>{(selInfo.chg3d||0)>=0?"+":""}{(selInfo.chg3d||0).toFixed(1)}%</span></span>
+                <span style={{color:C.muted}}>5D <span style={{color:(selInfo.chg5d||0)>=0?C.green:C.red,fontWeight:700}}>{(selInfo.chg5d||0)>=0?"+":""}{(selInfo.chg5d||0).toFixed(1)}%</span></span>
+                <span style={{color:C.muted}}>RS <span style={{color:((selInfo.chg5d||0)-idxRS.spy.chg5d)>3?C.emerald:((selInfo.chg5d||0)-idxRS.spy.chg5d)>0?C.yellow:C.red,fontWeight:700}}>{((selInfo.chg5d||0)-idxRS.spy.chg5d)>=0?"+":""}{((selInfo.chg5d||0)-idxRS.spy.chg5d).toFixed(1)}</span></span>
+              </span>
+            </div>
+            <div style={{display:"flex",gap:10,alignItems:"center",fontSize:8,paddingTop:2}}>
+              {/* ⚡ 타이밍 + 추세 화살표 */}
+              <span style={{display:"flex",alignItems:"center",gap:3}}>
+                <span style={{color:"#FF9F0A",fontWeight:700}}>⚡ {selTiming.score}</span>
+                {selTiming3D && (
+                  <span style={{color:timingTrendUp?C.emerald:timingTrendDown?C.red:C.muted,fontWeight:700,fontSize:7}}>
+                    {timingTrendUp?"↑":timingTrendDown?"↓":"→"}{dTiming>=0?"+":""}{dTiming} (3D)
+                  </span>
+                )}
+              </span>
+              {/* 💪 강도 + 추세 화살표 */}
+              <span style={{display:"flex",alignItems:"center",gap:3}}>
+                <span style={{color:C.emerald,fontWeight:700}}>💪 {selDurability.score}</span>
+                {selDurability3D && (
+                  <span style={{color:strengthTrendUp?C.emerald:strengthTrendDown?C.red:C.muted,fontWeight:700,fontSize:7}}>
+                    {strengthTrendUp?"↑":strengthTrendDown?"↓":"→"}{dStrength>=0?"+":""}{dStrength} (3D)
+                  </span>
+                )}
+              </span>
+              <span style={{marginLeft:"auto",fontSize:7,color:C.muted,fontStyle:"italic"}}>{judgeMsg}</span>
+            </div>
           </div>
 
+          {/* ★ v2.5.2: 가격 레벨 돌파 / 매물대 저항 / 가격 위치 + 모멘텀 — 지표 현황 ↔ 관찰 등록 사이로 이동됨 */}
+
+          {/* 기간 선택 + 차트 */}
+          {sliced.length>0&&<>
+          <div style={{display:"flex",gap:4,justifyContent:"center",marginBottom:6}}>
+            {["1M","3M","6M","1Y","ALL"].map(p=><button key={p} onClick={()=>setPeriod(p)} style={{...css.btn(period===p),fontSize:9,padding:"4px 10px"}}>{p}</button>)}
+          </div>
+          <div style={{background:lastD?.allBull?"rgba(48,209,88,.05)":"rgba(255,69,58,.04)",border:`1px solid ${lastD?.allBull?"rgba(48,209,88,.3)":C.border}`,borderRadius:10,padding:"8px 6px 4px",marginBottom:8}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingLeft:8,paddingRight:8,marginBottom:6}}>
+              <div style={{fontSize:9,color:C.muted}}>{lastD?.allBull?"🟢 매수배경":"🔴 비매수배경"} {cd?.real?"(실제)":"(시뮬)"}</div>
+              <div style={{display:"flex",gap:4}}>
+                {[["ichi","일목"],["st","ST"],["avwap","AVWAP"],["adx","ADX"],["obv","OBV"]].map(([k,l])=>(
+                  <button key={k} onClick={()=>setChartOpts(o=>({...o,[k]:!o[k]}))} style={{fontSize:8,padding:"3px 7px",borderRadius:4,border:`1px solid ${chartOpts[k]?"rgba(10,132,255,.5)":"rgba(255,255,255,.15)"}`,background:chartOpts[k]?"rgba(56,189,248,.12)":"transparent",color:chartOpts[k]?C.accent:C.muted,cursor:"pointer"}}>{chartOpts[k]?"✓":""} {l}</button>
+                ))}
+              </div>
+            </div>
+            <ResponsiveContainer width="100%" height={270}>
+              <ComposedChart data={sliced} syncId="stockChart" margin={{left:0,right:6}}>
+                <CartesianGrid stroke="rgba(255,255,255,.03)"/>
+                <XAxis dataKey="date" tick={{fill:C.muted,fontSize:7}} tickLine={false} interval={Math.floor(sliced.length/5)||1}/>
+                <YAxis yAxisId="p" tick={{fill:C.muted,fontSize:7}} tickLine={false} domain={["auto","auto"]} tickFormatter={v=>unit==="₩"?`${(v/1000).toFixed(0)}k`:v.toFixed(0)} width={40}/>
+                <YAxis yAxisId="v" orientation="right" hide domain={[0,dm=>dm*5]}/>
+                <Tooltip content={<Tip/>}/>
+                <Bar yAxisId="v" dataKey="volume" fill="rgba(148,163,184,.1)" radius={[1,1,0,0]}/>
+                {/* HMA/200일선 */}
+                <Line yAxisId="p" type="monotone" dataKey="hma20" stroke="#FF9F0A" strokeWidth={1.5} dot={false} connectNulls strokeDasharray="4 2"/>
+                <Line yAxisId="p" type="monotone" dataKey="ma200" stroke="rgba(148,163,184,.6)" strokeWidth={1.2} dot={false} connectNulls strokeDasharray="3 3"/>
+                {/* ★ 11번: Anchored VWAP */}
+                {chartOpts.avwap&&<Line yAxisId="p" type="monotone" dataKey="avwap" stroke="#BF5AF2" strokeWidth={1.8} dot={false} connectNulls strokeDasharray="6 3"/>}
+                {chartOpts.ichi&&<Area yAxisId="p" type="monotone" dataKey="spanA" stroke="rgba(34,197,94,.7)" fill="rgba(34,197,94,.12)" strokeWidth={1.5} dot={false} connectNulls/>}
+                {chartOpts.ichi&&<Area yAxisId="p" type="monotone" dataKey="spanB" stroke="rgba(255,69,58,.7)" fill="rgba(255,69,58,.12)" strokeWidth={1.5} dot={false} connectNulls/>}
+                <Area yAxisId="p" type="monotone" dataKey="close" stroke="#ffffff" strokeWidth={2.5} fill="rgba(255,255,255,.03)" dot={false}/>
+                {chartOpts.st&&["st1Bull","st2Bull","st3Bull"].map((k,i)=><Line key={k} yAxisId="p" type="monotone" dataKey={k} stroke={C.emerald} strokeWidth={2.5-i*.5} dot={false} connectNulls={false} strokeOpacity={1-.2*i}/>)}
+                {chartOpts.st&&["st1Bear","st2Bear","st3Bear"].map((k,i)=><Line key={k} yAxisId="p" type="monotone" dataKey={k} stroke={C.red} strokeWidth={2.5-i*.5} dot={false} connectNulls={false} strokeOpacity={1-.2*i}/>)}
+                {consTgt>0&&<ReferenceLine yAxisId="p" y={consTgt} stroke={C.green} strokeWidth={1.2} strokeDasharray="5 3" label={{value:`참고 ${unit}${consTgt.toLocaleString()}`,fill:C.green,fontSize:7,position:"insideRight"}}/>}
+                {stopPrice>0&&<ReferenceLine yAxisId="p" y={stopPrice} stroke={C.red} strokeWidth={1.2} strokeDasharray="5 3" label={{value:`손절 ${unit}${stopPrice.toLocaleString()}`,fill:C.red,fontSize:7,position:"insideRight"}}/>}
+                <Scatter yAxisId="p" dataKey="buyStrong" fill="#30D158" shape={<BuyDot dataKey="buyStrong"/>}/>
+                <Scatter yAxisId="p" dataKey="buyNormal" fill="#FFD60A" shape={<BuyDot dataKey="buyNormal"/>}/>
+                {showWeakSignals&&<Scatter yAxisId="p" dataKey="buyWeak" fill="#64D2FF" shape={<BuyDot dataKey="buyWeak"/>}/>}
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* MACD */}
+          <div style={{...css.card,padding:"6px 6px 3px",marginBottom:6}}>
+            <div style={{fontSize:8,color:C.muted,paddingLeft:6,marginBottom:3}}>MACD</div>
+            <ResponsiveContainer width="100%" height={80}>
+              <ComposedChart data={sliced} syncId="stockChart" margin={{left:0,right:6}}>
+                <XAxis dataKey="date" tick={false} tickLine={false}/>
+                <YAxis tick={{fill:C.muted,fontSize:6}} tickLine={false} width={40} tickFormatter={v=>v.toFixed(1)}/>
+                <Tooltip content={<Tip/>}/>
+                <ReferenceLine y={0} stroke="rgba(255,255,255,.15)"/>
+                <Bar dataKey="hist" shape={<HistBar/>}/>
+                <Line type="monotone" dataKey="macd" stroke={C.accent} strokeWidth={1.5} dot={false}/>
+                <Line type="monotone" dataKey="signal" stroke="#f59e0b" strokeWidth={1.5} dot={false}/>
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* RSI */}
+          <div style={{...css.card,padding:"6px 6px 3px",marginBottom:6}}>
+            <div style={{fontSize:8,color:C.muted,paddingLeft:6,marginBottom:3}}>RSI (14) — 현재 {lastD?.rsi?.toFixed(0)||"—"}</div>
+            <ResponsiveContainer width="100%" height={80}>
+              <ComposedChart data={sliced} syncId="stockChart" margin={{left:0,right:6}}>
+                <XAxis dataKey="date" tick={{fill:C.muted,fontSize:6}} tickLine={false} interval={Math.floor(sliced.length/5)||1}/>
+                <YAxis domain={[0,100]} tick={{fill:C.muted,fontSize:6}} tickLine={false} ticks={[30,70]} width={40}/>
+                <Tooltip content={<Tip/>}/>
+                <ReferenceLine y={70} stroke="rgba(255,69,58,.25)"/>
+                <ReferenceLine y={30} stroke="rgba(34,197,94,.25)"/>
+                <Area type="monotone" dataKey="rsi" stroke={C.accent} fill="rgba(56,189,248,.07)" strokeWidth={1.5} dot={false}/>
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* ADX 패널 */}
+          {chartOpts.adx&&<div style={{background:C.panel,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 6px 3px",marginBottom:6}}>
+            <div style={{fontSize:7,color:C.muted,paddingLeft:6,marginBottom:3}}>ADX <span style={{color:lastD?.adx>=25?C.emerald:C.muted}}>{lastD?.adx?.toFixed(0)||"—"} {lastD?.adx>=25?"(추세강)":"(횡보)"}</span></div>
+            <ResponsiveContainer width="100%" height={70}>
+              <ComposedChart data={sliced} syncId="stockChart" margin={{left:0,right:6}}>
+                <XAxis dataKey="date" tick={false} tickLine={false}/>
+                <YAxis domain={[0,100]} tick={{fill:C.muted,fontSize:6}} tickLine={false} ticks={[25,50]} width={40}/>
+                <Tooltip content={<Tip/>}/>
+                <ReferenceLine y={25} stroke="rgba(255,255,255,.15)"/>
+                <Line type="monotone" dataKey="adx" stroke={C.accent} strokeWidth={2} dot={false} connectNulls/>
+                <Line type="monotone" dataKey="pdi" stroke={C.emerald} strokeWidth={1} dot={false} connectNulls strokeDasharray="3 2"/>
+                <Line type="monotone" dataKey="mdi" stroke={C.red} strokeWidth={1} dot={false} connectNulls strokeDasharray="3 2"/>
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>}
+
+          {/* OBV 패널 */}
+          {chartOpts.obv&&<div style={{background:C.panel,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 6px 3px",marginBottom:6}}>
+            <div style={{fontSize:7,color:C.muted,paddingLeft:6,marginBottom:3}}>OBV (백만)</div>
+            <ResponsiveContainer width="100%" height={70}>
+              <ComposedChart data={sliced} syncId="stockChart" margin={{left:0,right:6}}>
+                <XAxis dataKey="date" tick={false} tickLine={false}/>
+                <YAxis tick={{fill:C.muted,fontSize:6}} tickLine={false} width={40} tickFormatter={v=>v.toFixed(0)}/>
+                <Tooltip content={<Tip/>}/>
+                <Area type="monotone" dataKey="obv" stroke={C.purple} fill="rgba(191,90,242,.08)" strokeWidth={1.5} dot={false} connectNulls/>
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>}
+
+          {/* ★ 11번: Squeeze TTM */}
+          <div style={{...css.card,padding:"6px 6px 3px",marginBottom:6}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingLeft:6,marginBottom:3}}>
+              <span style={{fontSize:7,color:C.muted}}>Squeeze TTM <span style={{fontSize:6,color:lastD?.sqzOn?"#FFD60A":"rgba(255,255,255,.3)"}}>● {lastD?.sqzOn?"스퀴즈 압축중":"스퀴즈 해제"}</span></span>
+              <span style={{fontSize:7,color:lastD?.sqzMomUp?C.green:C.red}}>{lastD?.sqzMomUp?"▲ 모멘텀↑":"▼ 모멘텀↓"}</span>
+            </div>
+            <ResponsiveContainer width="100%" height={70}>
+              <ComposedChart data={sliced} syncId="stockChart" margin={{left:0,right:6}}>
+                <XAxis dataKey="date" tick={false} tickLine={false}/>
+                <YAxis tick={{fill:C.muted,fontSize:6}} tickLine={false} width={40} tickFormatter={v=>v.toFixed(1)}/>
+                <Tooltip content={<Tip/>}/>
+                <ReferenceLine y={0} stroke="rgba(255,255,255,.2)"/>
+                <Bar dataKey="sqzMom" shape={(props)=>{
+                  const {x,y,width,height,payload}=props;
+                  if(payload?.sqzMom==null)return null;
+                  const pos=payload.sqzMom>=0;
+                  const rising=payload.sqzMomUp;
+                  const fill=pos?(rising?"#30D158":"#5AD58C"):(rising?"#FF6961":"#FF453A");
+                  const h=Math.abs(height||0);
+                  return<rect x={x} y={pos?y:y+height-h} width={Math.max(1,width)} height={h} fill={fill} rx={1}/>;
+                }}/>
+              </ComposedChart>
+            </ResponsiveContainer>
+            {/* ★ v2.5.2: 스퀴즈 도트 — 위 막대 그래프와 1:1 정렬
+                - sliced 전체 사용 (40개 슬라이스 제거 → 봉 수 동일)
+                - paddingLeft:40 = 그래프 YAxis width와 동일 (X축 시작점 정렬)
+                - paddingRight:6 = ComposedChart margin.right와 동일 (X축 끝점 정렬)
+                - 각 도트 flex:1 = 막대와 같은 너비로 균등 분배 */}
+            <div style={{display:"flex",gap:0,paddingLeft:40,paddingRight:6,paddingBottom:3,alignItems:"center"}}>
+              {sliced.map((d,i)=>(
+                <div key={i} style={{flex:1,display:"flex",justifyContent:"center",alignItems:"center",minWidth:0}}>
+                  <div style={{width:Math.min(4, 100/Math.max(sliced.length,1)+2),height:4,borderRadius:"50%",
+                    background:d.sqzOff?"#FF453A":d.sqzOn?"#FFD60A":"rgba(255,255,255,.2)"}}
+                    title={d.sqzOn?"압축중":d.sqzOff?"해제!":"없음"}/>
+                </div>
+              ))}
+            </div>
+            <div style={{display:"flex",gap:8,paddingLeft:40,fontSize:7,color:C.muted,paddingBottom:2}}>
+              <span>🟡 압축중</span><span>🔴 해제</span><span>⚪ 없음</span>
+              <span style={{marginLeft:"auto",color:C.muted,fontSize:6}}>↑ 위 막대 1봉당 도트 1개</span>
+            </div>
+          </div>
+          </>}
+
+          {/* ★ v2.3: 지표 요약 + 상세 접기 */}
+          <div style={{...css.card,marginBottom:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}} onClick={()=>setShowIndicDetail(!showIndicDetail)}>
+              <div style={{fontSize:9,fontWeight:700,color:C.accent}}>📊 지표 현황</div>
+              <span style={{fontSize:8,color:C.muted,cursor:"pointer"}}>{showIndicDetail?"상세 ▲":"상세 ▼"}</span>
+            </div>
+            {(()=>{
+              const rsi=lastD?.rsi;const macdUp=lastD?.macd>lastD?.signal;const histUp=lastD?.hist>(cd?.data?.at(-2)?.hist||0);
+              const adx=lastD?.adx||0;const adxUp=adx>=25;const volR=selInfo?.volRatio||selInfo?._volRatio||100;
+              const rs=((selInfo?.chg5d||0)-idxRS.spy.chg5d);
+              const items=[
+                macdUp&&histUp?{icon:"🟢",text:`MACD 양전 + 히스토 증가 (가속)`,c:C.emerald}
+                :macdUp?{icon:"🟡",text:`MACD 양전 (모멘텀 유지)`,c:C.yellow}
+                :{icon:"🔴",text:`MACD 음전 (하락 모멘텀)`,c:C.red},
+                rsi>75?{icon:"⚠️",text:`RSI ${rsi?.toFixed(0)} 과열 — 단기 조정 가능`,c:C.red}
+                :rsi>=50&&rsi<=70?{icon:"🟢",text:`RSI ${rsi?.toFixed(0)} 건강 구간`,c:C.emerald}
+                :rsi<30?{icon:"🎯",text:`RSI ${rsi?.toFixed(0)} 과매도 — 반등 가능`,c:C.yellow}
+                :{icon:"⚪",text:`RSI ${rsi?.toFixed(0)||"—"}`,c:C.muted},
+                adxUp?{icon:"📈",text:`ADX ${adx.toFixed(0)} — 추세 강함`,c:C.emerald}:{icon:"➖",text:`ADX ${adx.toFixed(0)} — 추세 약함`,c:C.muted},
+                volR>=200?{icon:"💥",text:`거래량 ${volR}% — 폭발`,c:C.emerald}:volR>=150?{icon:"📊",text:`거래량 ${volR}% — 증가`,c:C.green}:{icon:"📉",text:`거래량 ${volR}% — 보통`,c:C.muted},
+                rs>3?{icon:"🚀",text:`RS +${rs.toFixed(1)}%p — 시장 대비 매우 강`,c:C.emerald}:rs>0?{icon:"💪",text:`RS +${rs.toFixed(1)}%p — 시장 대비 강`,c:C.yellow}:{icon:"📉",text:`RS ${rs.toFixed(1)}%p — 시장 대비 약`,c:C.red},
+              ];
+              return<>
+                <div style={{marginTop:6}}>
+                  {items.map((it,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:6,padding:"3px 0"}}>
+                    <span style={{fontSize:10}}>{it.icon}</span>
+                    <span style={{fontSize:8,color:it.c,fontWeight:600}}>{it.text}</span>
+                  </div>)}
+                </div>
+                {showIndicDetail&&<div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:5,marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`}}>
+                  {[
+                    {l:"RSI",v:rsi?.toFixed(0)||"-",c:rsi>70?C.red:rsi<30?C.green:C.text},
+                    {l:"MACD",v:lastD?.macd?.toFixed(2)||"-",c:macdUp?C.green:C.red},
+                    {l:"히스토",v:lastD?.hist?.toFixed(2)||"-",c:(lastD?.hist||0)>0?C.green:C.red},
+                    {l:"ADX",v:adx.toFixed(0),c:adxUp?C.emerald:C.muted},
+                    {l:"ATR%",v:atrDaily?`±${atrDaily}`:"-",c:C.accent},
+                  ].map((m,i)=><div key={i} style={{background:"rgba(0,0,0,.4)",borderRadius:5,padding:"4px",textAlign:"center"}}>
+                    <div style={{fontSize:6,color:C.muted}}>{m.l}</div>
+                    <div style={{fontSize:11,fontWeight:900,color:m.c}}>{m.v}</div>
+                  </div>)}
+                </div>}
+              </>;
+            })()}
+          </div>
+
+          {/* ★ v2.5.2: 가격 정보 묶음 (가격레벨/매물대/가격위치) — 지표현황 다음으로 이동됨 */}
           {/* ★ v2.3: 피보/저항선 돌파 체크 */}
           {cd?.data?.length>20&&curPrice>0&&(()=>{
             const closes=cd.data.map(d=>d.close);
@@ -3391,189 +3595,6 @@ export default function App() {
               </div>}
             </div>;
           })()}
-
-          {/* 기간 선택 + 차트 */}
-          {sliced.length>0&&<>
-          <div style={{display:"flex",gap:4,justifyContent:"center",marginBottom:6}}>
-            {["1M","3M","6M","1Y","ALL"].map(p=><button key={p} onClick={()=>setPeriod(p)} style={{...css.btn(period===p),fontSize:9,padding:"4px 10px"}}>{p}</button>)}
-          </div>
-          <div style={{background:lastD?.allBull?"rgba(48,209,88,.05)":"rgba(255,69,58,.04)",border:`1px solid ${lastD?.allBull?"rgba(48,209,88,.3)":C.border}`,borderRadius:10,padding:"8px 6px 4px",marginBottom:8}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingLeft:8,paddingRight:8,marginBottom:6}}>
-              <div style={{fontSize:9,color:C.muted}}>{lastD?.allBull?"🟢 매수배경":"🔴 비매수배경"} {cd?.real?"(실제)":"(시뮬)"}</div>
-              <div style={{display:"flex",gap:4}}>
-                {[["ichi","일목"],["st","ST"],["avwap","AVWAP"],["adx","ADX"],["obv","OBV"]].map(([k,l])=>(
-                  <button key={k} onClick={()=>setChartOpts(o=>({...o,[k]:!o[k]}))} style={{fontSize:8,padding:"3px 7px",borderRadius:4,border:`1px solid ${chartOpts[k]?"rgba(10,132,255,.5)":"rgba(255,255,255,.15)"}`,background:chartOpts[k]?"rgba(56,189,248,.12)":"transparent",color:chartOpts[k]?C.accent:C.muted,cursor:"pointer"}}>{chartOpts[k]?"✓":""} {l}</button>
-                ))}
-              </div>
-            </div>
-            <ResponsiveContainer width="100%" height={270}>
-              <ComposedChart data={sliced} syncId="stockChart" margin={{left:0,right:6}}>
-                <CartesianGrid stroke="rgba(255,255,255,.03)"/>
-                <XAxis dataKey="date" tick={{fill:C.muted,fontSize:7}} tickLine={false} interval={Math.floor(sliced.length/5)||1}/>
-                <YAxis yAxisId="p" tick={{fill:C.muted,fontSize:7}} tickLine={false} domain={["auto","auto"]} tickFormatter={v=>unit==="₩"?`${(v/1000).toFixed(0)}k`:v.toFixed(0)} width={40}/>
-                <YAxis yAxisId="v" orientation="right" hide domain={[0,dm=>dm*5]}/>
-                <Tooltip content={<Tip/>}/>
-                <Bar yAxisId="v" dataKey="volume" fill="rgba(148,163,184,.1)" radius={[1,1,0,0]}/>
-                {/* HMA/200일선 */}
-                <Line yAxisId="p" type="monotone" dataKey="hma20" stroke="#FF9F0A" strokeWidth={1.5} dot={false} connectNulls strokeDasharray="4 2"/>
-                <Line yAxisId="p" type="monotone" dataKey="ma200" stroke="rgba(148,163,184,.6)" strokeWidth={1.2} dot={false} connectNulls strokeDasharray="3 3"/>
-                {/* ★ 11번: Anchored VWAP */}
-                {chartOpts.avwap&&<Line yAxisId="p" type="monotone" dataKey="avwap" stroke="#BF5AF2" strokeWidth={1.8} dot={false} connectNulls strokeDasharray="6 3"/>}
-                {chartOpts.ichi&&<Area yAxisId="p" type="monotone" dataKey="spanA" stroke="rgba(34,197,94,.7)" fill="rgba(34,197,94,.12)" strokeWidth={1.5} dot={false} connectNulls/>}
-                {chartOpts.ichi&&<Area yAxisId="p" type="monotone" dataKey="spanB" stroke="rgba(255,69,58,.7)" fill="rgba(255,69,58,.12)" strokeWidth={1.5} dot={false} connectNulls/>}
-                <Area yAxisId="p" type="monotone" dataKey="close" stroke="#ffffff" strokeWidth={2.5} fill="rgba(255,255,255,.03)" dot={false}/>
-                {chartOpts.st&&["st1Bull","st2Bull","st3Bull"].map((k,i)=><Line key={k} yAxisId="p" type="monotone" dataKey={k} stroke={C.emerald} strokeWidth={2.5-i*.5} dot={false} connectNulls={false} strokeOpacity={1-.2*i}/>)}
-                {chartOpts.st&&["st1Bear","st2Bear","st3Bear"].map((k,i)=><Line key={k} yAxisId="p" type="monotone" dataKey={k} stroke={C.red} strokeWidth={2.5-i*.5} dot={false} connectNulls={false} strokeOpacity={1-.2*i}/>)}
-                {consTgt>0&&<ReferenceLine yAxisId="p" y={consTgt} stroke={C.green} strokeWidth={1.2} strokeDasharray="5 3" label={{value:`참고 ${unit}${consTgt.toLocaleString()}`,fill:C.green,fontSize:7,position:"insideRight"}}/>}
-                {stopPrice>0&&<ReferenceLine yAxisId="p" y={stopPrice} stroke={C.red} strokeWidth={1.2} strokeDasharray="5 3" label={{value:`손절 ${unit}${stopPrice.toLocaleString()}`,fill:C.red,fontSize:7,position:"insideRight"}}/>}
-                <Scatter yAxisId="p" dataKey="buyStrong" fill="#30D158" shape={<BuyDot dataKey="buyStrong"/>}/>
-                <Scatter yAxisId="p" dataKey="buyNormal" fill="#FFD60A" shape={<BuyDot dataKey="buyNormal"/>}/>
-                {showWeakSignals&&<Scatter yAxisId="p" dataKey="buyWeak" fill="#64D2FF" shape={<BuyDot dataKey="buyWeak"/>}/>}
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* MACD */}
-          <div style={{...css.card,padding:"6px 6px 3px",marginBottom:6}}>
-            <div style={{fontSize:8,color:C.muted,paddingLeft:6,marginBottom:3}}>MACD</div>
-            <ResponsiveContainer width="100%" height={80}>
-              <ComposedChart data={sliced} syncId="stockChart" margin={{left:0,right:6}}>
-                <XAxis dataKey="date" tick={false} tickLine={false}/>
-                <YAxis tick={{fill:C.muted,fontSize:6}} tickLine={false} width={40} tickFormatter={v=>v.toFixed(1)}/>
-                <Tooltip content={<Tip/>}/>
-                <ReferenceLine y={0} stroke="rgba(255,255,255,.15)"/>
-                <Bar dataKey="hist" shape={<HistBar/>}/>
-                <Line type="monotone" dataKey="macd" stroke={C.accent} strokeWidth={1.5} dot={false}/>
-                <Line type="monotone" dataKey="signal" stroke="#f59e0b" strokeWidth={1.5} dot={false}/>
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* RSI */}
-          <div style={{...css.card,padding:"6px 6px 3px",marginBottom:6}}>
-            <div style={{fontSize:8,color:C.muted,paddingLeft:6,marginBottom:3}}>RSI (14) — 현재 {lastD?.rsi?.toFixed(0)||"—"}</div>
-            <ResponsiveContainer width="100%" height={80}>
-              <ComposedChart data={sliced} syncId="stockChart" margin={{left:0,right:6}}>
-                <XAxis dataKey="date" tick={{fill:C.muted,fontSize:6}} tickLine={false} interval={Math.floor(sliced.length/5)||1}/>
-                <YAxis domain={[0,100]} tick={{fill:C.muted,fontSize:6}} tickLine={false} ticks={[30,70]} width={40}/>
-                <Tooltip content={<Tip/>}/>
-                <ReferenceLine y={70} stroke="rgba(255,69,58,.25)"/>
-                <ReferenceLine y={30} stroke="rgba(34,197,94,.25)"/>
-                <Area type="monotone" dataKey="rsi" stroke={C.accent} fill="rgba(56,189,248,.07)" strokeWidth={1.5} dot={false}/>
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* ADX 패널 */}
-          {chartOpts.adx&&<div style={{background:C.panel,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 6px 3px",marginBottom:6}}>
-            <div style={{fontSize:7,color:C.muted,paddingLeft:6,marginBottom:3}}>ADX <span style={{color:lastD?.adx>=25?C.emerald:C.muted}}>{lastD?.adx?.toFixed(0)||"—"} {lastD?.adx>=25?"(추세강)":"(횡보)"}</span></div>
-            <ResponsiveContainer width="100%" height={70}>
-              <ComposedChart data={sliced} syncId="stockChart" margin={{left:0,right:6}}>
-                <XAxis dataKey="date" tick={false} tickLine={false}/>
-                <YAxis domain={[0,100]} tick={{fill:C.muted,fontSize:6}} tickLine={false} ticks={[25,50]} width={40}/>
-                <Tooltip content={<Tip/>}/>
-                <ReferenceLine y={25} stroke="rgba(255,255,255,.15)"/>
-                <Line type="monotone" dataKey="adx" stroke={C.accent} strokeWidth={2} dot={false} connectNulls/>
-                <Line type="monotone" dataKey="pdi" stroke={C.emerald} strokeWidth={1} dot={false} connectNulls strokeDasharray="3 2"/>
-                <Line type="monotone" dataKey="mdi" stroke={C.red} strokeWidth={1} dot={false} connectNulls strokeDasharray="3 2"/>
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>}
-
-          {/* OBV 패널 */}
-          {chartOpts.obv&&<div style={{background:C.panel,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 6px 3px",marginBottom:6}}>
-            <div style={{fontSize:7,color:C.muted,paddingLeft:6,marginBottom:3}}>OBV (백만)</div>
-            <ResponsiveContainer width="100%" height={70}>
-              <ComposedChart data={sliced} syncId="stockChart" margin={{left:0,right:6}}>
-                <XAxis dataKey="date" tick={false} tickLine={false}/>
-                <YAxis tick={{fill:C.muted,fontSize:6}} tickLine={false} width={40} tickFormatter={v=>v.toFixed(0)}/>
-                <Tooltip content={<Tip/>}/>
-                <Area type="monotone" dataKey="obv" stroke={C.purple} fill="rgba(191,90,242,.08)" strokeWidth={1.5} dot={false} connectNulls/>
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>}
-
-          {/* ★ 11번: Squeeze TTM */}
-          <div style={{...css.card,padding:"6px 6px 3px",marginBottom:6}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingLeft:6,marginBottom:3}}>
-              <span style={{fontSize:7,color:C.muted}}>Squeeze TTM <span style={{fontSize:6,color:lastD?.sqzOn?"#FFD60A":"rgba(255,255,255,.3)"}}>● {lastD?.sqzOn?"스퀴즈 압축중":"스퀴즈 해제"}</span></span>
-              <span style={{fontSize:7,color:lastD?.sqzMomUp?C.green:C.red}}>{lastD?.sqzMomUp?"▲ 모멘텀↑":"▼ 모멘텀↓"}</span>
-            </div>
-            <ResponsiveContainer width="100%" height={70}>
-              <ComposedChart data={sliced} syncId="stockChart" margin={{left:0,right:6}}>
-                <XAxis dataKey="date" tick={false} tickLine={false}/>
-                <YAxis tick={{fill:C.muted,fontSize:6}} tickLine={false} width={40} tickFormatter={v=>v.toFixed(1)}/>
-                <Tooltip content={<Tip/>}/>
-                <ReferenceLine y={0} stroke="rgba(255,255,255,.2)"/>
-                <Bar dataKey="sqzMom" shape={(props)=>{
-                  const {x,y,width,height,payload}=props;
-                  if(payload?.sqzMom==null)return null;
-                  const pos=payload.sqzMom>=0;
-                  const rising=payload.sqzMomUp;
-                  const fill=pos?(rising?"#30D158":"#5AD58C"):(rising?"#FF6961":"#FF453A");
-                  const h=Math.abs(height||0);
-                  return<rect x={x} y={pos?y:y+height-h} width={Math.max(1,width)} height={h} fill={fill} rx={1}/>;
-                }}/>
-              </ComposedChart>
-            </ResponsiveContainer>
-            {/* 스퀴즈 도트 */}
-            <div style={{display:"flex",gap:2,paddingLeft:6,paddingBottom:3,overflowX:"hidden"}}>
-              {sliced.slice(-40).map((d,i)=>(
-                <div key={i} style={{width:4,height:4,borderRadius:"50%",flexShrink:0,
-                  background:d.sqzOff?"#FF453A":d.sqzOn?"#FFD60A":"rgba(255,255,255,.2)"}}
-                  title={d.sqzOn?"압축중":d.sqzOff?"해제!":"없음"}/>
-              ))}
-            </div>
-            <div style={{display:"flex",gap:8,paddingLeft:6,fontSize:7,color:C.muted,paddingBottom:2}}>
-              <span>🟡 압축중</span><span>🔴 해제</span><span>⚪ 없음</span>
-            </div>
-          </div>
-          </>}
-
-          {/* ★ v2.3: 지표 요약 + 상세 접기 */}
-          <div style={{...css.card,marginBottom:10}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}} onClick={()=>setShowIndicDetail(!showIndicDetail)}>
-              <div style={{fontSize:9,fontWeight:700,color:C.accent}}>📊 지표 현황</div>
-              <span style={{fontSize:8,color:C.muted,cursor:"pointer"}}>{showIndicDetail?"상세 ▲":"상세 ▼"}</span>
-            </div>
-            {(()=>{
-              const rsi=lastD?.rsi;const macdUp=lastD?.macd>lastD?.signal;const histUp=lastD?.hist>(cd?.data?.at(-2)?.hist||0);
-              const adx=lastD?.adx||0;const adxUp=adx>=25;const volR=selInfo?.volRatio||selInfo?._volRatio||100;
-              const rs=((selInfo?.chg5d||0)-idxRS.spy.chg5d);
-              const items=[
-                macdUp&&histUp?{icon:"🟢",text:`MACD 양전 + 히스토 증가 (가속)`,c:C.emerald}
-                :macdUp?{icon:"🟡",text:`MACD 양전 (모멘텀 유지)`,c:C.yellow}
-                :{icon:"🔴",text:`MACD 음전 (하락 모멘텀)`,c:C.red},
-                rsi>75?{icon:"⚠️",text:`RSI ${rsi?.toFixed(0)} 과열 — 단기 조정 가능`,c:C.red}
-                :rsi>=50&&rsi<=70?{icon:"🟢",text:`RSI ${rsi?.toFixed(0)} 건강 구간`,c:C.emerald}
-                :rsi<30?{icon:"🎯",text:`RSI ${rsi?.toFixed(0)} 과매도 — 반등 가능`,c:C.yellow}
-                :{icon:"⚪",text:`RSI ${rsi?.toFixed(0)||"—"}`,c:C.muted},
-                adxUp?{icon:"📈",text:`ADX ${adx.toFixed(0)} — 추세 강함`,c:C.emerald}:{icon:"➖",text:`ADX ${adx.toFixed(0)} — 추세 약함`,c:C.muted},
-                volR>=200?{icon:"💥",text:`거래량 ${volR}% — 폭발`,c:C.emerald}:volR>=150?{icon:"📊",text:`거래량 ${volR}% — 증가`,c:C.green}:{icon:"📉",text:`거래량 ${volR}% — 보통`,c:C.muted},
-                rs>3?{icon:"🚀",text:`RS +${rs.toFixed(1)}%p — 시장 대비 매우 강`,c:C.emerald}:rs>0?{icon:"💪",text:`RS +${rs.toFixed(1)}%p — 시장 대비 강`,c:C.yellow}:{icon:"📉",text:`RS ${rs.toFixed(1)}%p — 시장 대비 약`,c:C.red},
-              ];
-              return<>
-                <div style={{marginTop:6}}>
-                  {items.map((it,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:6,padding:"3px 0"}}>
-                    <span style={{fontSize:10}}>{it.icon}</span>
-                    <span style={{fontSize:8,color:it.c,fontWeight:600}}>{it.text}</span>
-                  </div>)}
-                </div>
-                {showIndicDetail&&<div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:5,marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`}}>
-                  {[
-                    {l:"RSI",v:rsi?.toFixed(0)||"-",c:rsi>70?C.red:rsi<30?C.green:C.text},
-                    {l:"MACD",v:lastD?.macd?.toFixed(2)||"-",c:macdUp?C.green:C.red},
-                    {l:"히스토",v:lastD?.hist?.toFixed(2)||"-",c:(lastD?.hist||0)>0?C.green:C.red},
-                    {l:"ADX",v:adx.toFixed(0),c:adxUp?C.emerald:C.muted},
-                    {l:"ATR%",v:atrDaily?`±${atrDaily}`:"-",c:C.accent},
-                  ].map((m,i)=><div key={i} style={{background:"rgba(0,0,0,.4)",borderRadius:5,padding:"4px",textAlign:"center"}}>
-                    <div style={{fontSize:6,color:C.muted}}>{m.l}</div>
-                    <div style={{fontSize:11,fontWeight:900,color:m.c}}>{m.v}</div>
-                  </div>)}
-                </div>}
-              </>;
-            })()}
-          </div>
 
           {/* ★ v2.3: 관찰 등록 버튼 */}
           {!tracking.find(t=>t.ticker===sel)&&!positions.find(p=>p.ticker===sel)&&<button onClick={()=>{
