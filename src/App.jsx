@@ -1,5 +1,33 @@
 /**
- * Alpha Terminal v2.5.0 — App.jsx
+ * Alpha Terminal v2.5.1 — App.jsx
+ * v2.5.1: [타이밍 점수 재설계 + 임계값 비대칭 (35/60)]
+ *          [본질] 타이밍 = "언제 시작" (시점 측정) / 강도 = "얼마나 갈까" (지속성 측정)
+ *                 두 점수가 같은 걸 측정하지 않도록 의미 분담 명확화
+ *          [문제] v2.5.0의 60/60 통일 임계값에서 타이밍 평균이 ~18점에 머물러
+ *                 종합평점 카드가 거의 항상 0개로 나옴 (강세장에서도)
+ *          [원인 진단]
+ *                 ① 거래량 컴포넌트가 게이트(volOK)와 중복 측정 — 노이즈 추가
+ *                 ② 신선도 감점이 완만 (4일전도 40% 점수) — "오늘 발생"의 의미 약함
+ *                 ③ 핵심 추세 전환 컴포넌트 (ST/MACD/구름) 점수가 작음
+ *          [재설계 — calcEntryTiming]
+ *                 ① ST 플립: 25→30pt (오늘 30 / 1일전 22 / 2일전 14 / 3-4일전 6)
+ *                            ST 개선(2→3 아닌): 12→15 (15/10/5/0)
+ *                 ② MACD 골든: 20→25pt (오늘 25 / 1일전 18 / 2일전 12 / 3-4일전 6)
+ *                 ③ 구름 돌파: 15→20pt (오늘 20 / 1일전 13 / 2일전 8 / 3-4일전 4)
+ *                 ④ 스퀴즈 해제: 15→유지 (오늘 15 / 1일전 10 / 2일전 5)
+ *                 ⑤ RSI 50 돌파: 10→유지 (오늘 10 / 1일전 7 / 2일전 4 / 3-4일전 0)
+ *                 ⑥ 거래량: 제거 (volOK 게이트와 중복)
+ *                 합계 max = 100pt 정확히
+ *          [임계값 비대칭] 타이밍 35 / 강도 60
+ *                 - 타이밍 분포: 0~10(이벤트 없음 65%) / 15~25(약 25%) / 30~50(약 8%) / 50+(약 2%)
+ *                 - 35 = "단일 강한 이벤트 + 약한 보조" 또는 "다중 약한 이벤트 발생"
+ *                 - 60 도달은 다중 강한 이벤트 동시 발생 필요 — 너무 희소
+ *                 - 강도 60은 그대로 (분포 자연스럽게 30~80점대 형성)
+ *          [영향 영역] App.jsx 6곳
+ *                 - 헤더 / calcEntryTiming / getSignalsV2 임계값 / 차트 매수 마커
+ *                 - 차트탭 종합판정 / 매매 체크리스트 stock 항목
+ *                 - 차트 매수 마커: 보통 35/60, 강력 60/75 (타이밍은 35로 진입, 강력은 60)
+ *          [텔레그램] fetch_yahoo.py 변경 없음 (옵션 B-1 결정 유지, 화면/알림 의도적 분리)
  * v2.5.0: [시그널 시스템 → 점수 시스템 통일 (옵션 B-1)]
  *          [본질] 화면 표시를 모두 점수(타이밍/강도) 기반으로 통일
  *                 시그널 시스템(돌파N/적기N 카운트)과 점수 시스템(⚡N 💪N) 중복 제거
@@ -566,14 +594,16 @@ function buildChartData(candles){
       d.volRatio=avg>0?+(vols[ci3]/avg*100).toFixed(0):100;
     }
   });
-  // ★ v2.5.0: 매수 마커 — 점수 임계값 기반 통일 (옵션 B-1)
-  //   조건: timing ≥ 60 AND strength ≥ 60 AND volOK (3봉 중 2봉 100%↑)
-  //   등급: 강력 (둘 다 ≥ 75) / 보통 (둘 다 ≥ 60) — 약함 마커 제거 (노이즈 방지)
+  // ★ v2.5.1: 매수 마커 — 점수 임계값 기반 통일 (옵션 B-1)
+  //   진입 게이트: timing ≥ 35 AND strength ≥ 60 AND volOK (3봉 중 2봉 100%↑)
+  //   등급:
+  //     - 강력 (timing ≥ 60 AND strength ≥ 75): 다중 강한 이벤트 + 깊은 추세
+  //     - 보통 (timing ≥ 35 AND strength ≥ 60): 단일 강한 이벤트 + 추세 형성
   //   data.slice(0, i+1)로 봉 시점별 점수 산정 (calcEntryTiming/Durability는 고정 lookback)
   for (let i = 10; i < data.length; i++) {
     const slice = data.slice(0, i + 1);
     const sig = getSignalsV2(slice);
-    if (!sig.ok) continue;  // timing 60 / strength 60 / volOK 미충족 = 마커 없음
+    if (!sig.ok) continue;  // 게이트 미충족 = 마커 없음
 
     const c = data[i];
     const stFlip = i >= 1 && c.bullCount === 3 && data[i-1].bullCount < 3;
@@ -589,104 +619,105 @@ function buildChartData(candles){
       timingOK: sig.timingOK, strengthOK: sig.strengthOK,
     };
 
-    if (sig.timing >= 75 && sig.strength >= 75) c.buyStrong = c.close;
+    if (sig.timing >= 60 && sig.strength >= 75) c.buyStrong = c.close;
     else c.buyNormal = c.close;
   }
   return data;
 }
 
 // ═══════════════════════════════════════════════════════════
-// ★ v2.3: 진입타이밍 — "방금 시작했냐?" (변화의 순간 감지)
+// ★ v2.5.1: 진입타이밍 — "언제 시작했냐?" (시점 측정 전용)
 // ═══════════════════════════════════════════════════════════
+// 변경 (v2.5.0 → v2.5.1):
+//   - 컴포넌트 재배점: ST 25→30, MACD 20→25, 구름 15→20 (시점 가중 강화)
+//   - 거래량 컴포넌트 제거 (volOK 게이트와 중복 측정)
+//   - 신선도 감점 가속 ("오늘 발생"에 큰 보상, 4일전은 낮게)
+//   - 합계 max = 100pt 정확히 (5개 컴포넌트)
+//
+// 의미 분담:
+//   - 타이밍 (이 함수): 언제 발생했나 (시점) — 이벤트 신선도만 측정
+//   - 강도 (calcTrendDurability): 얼마나 견고한가 (지속성) — 상태값 누적
 function calcEntryTiming(chartData) {
   if (!chartData || chartData.length < 10) return { score:0, signals:[], grade:"?", breakdown:[] };
   let score = 0; const signals = [];
-  const breakdown = []; // ★ v2.4.3: 컴포넌트별 점수 분해
+  const breakdown = [];
   const L = chartData.length;
   const d = chartData;
 
-  // ① ST 플립 (최대 25pt)
+  // ① ST 플립 (최대 30pt) — v2.5.1: 25→30, 신선도 가속
   let stPts = 0, stLabel = "ST 변화 없음";
   for (let ago = 0; ago < Math.min(5, L-1); ago++) {
     const ci = L-1-ago, pi = ci-1;
     const stNow = [d[ci].st1Bull,d[ci].st2Bull,d[ci].st3Bull].filter(v=>v!=null).length;
     const stPrev = [d[pi].st1Bull,d[pi].st2Bull,d[pi].st3Bull].filter(v=>v!=null).length;
     if (stNow === 3 && stPrev < 3) {
-      stPts = ago === 0 ? 25 : ago <= 1 ? 20 : ago <= 2 ? 15 : 10;
+      stPts = ago === 0 ? 30 : ago === 1 ? 22 : ago === 2 ? 14 : 6;
       stLabel = `ST돌파${ago===0?"오늘":ago+"일전"}`;
       score += stPts; signals.push(stLabel); break;
     } else if (stNow > stPrev && stNow >= 2) {
-      stPts = ago === 0 ? 12 : ago <= 2 ? 8 : 5;
+      stPts = ago === 0 ? 15 : ago === 1 ? 10 : ago === 2 ? 5 : 0;
       stLabel = `ST개선${ago===0?"":ago+"일전"}`;
-      score += stPts; signals.push(stLabel); break;
+      if (stPts > 0) { score += stPts; signals.push(stLabel); }
+      break;
     }
   }
-  breakdown.push({label: "ST 플립", desc: stLabel, pts: stPts, max: 25});
+  breakdown.push({label: "ST 플립", desc: stLabel, pts: stPts, max: 30});
 
-  // ② MACD 골든크로스 (최대 20pt)
+  // ② MACD 골든크로스 (최대 25pt) — v2.5.1: 20→25
   let macdPts = 0, macdLabel = "골든크로스 없음";
   for (let ago = 0; ago < Math.min(5, L-1); ago++) {
     const ci = L-1-ago, pi = ci-1;
     if (d[ci].macd > d[ci].signal && d[pi].macd <= d[pi].signal) {
-      macdPts = ago === 0 ? 20 : ago <= 1 ? 16 : ago <= 2 ? 12 : 8;
+      macdPts = ago === 0 ? 25 : ago === 1 ? 18 : ago === 2 ? 12 : 6;
       macdLabel = `MACD↑${ago===0?"오늘":ago+"일전"}`;
       score += macdPts; signals.push(macdLabel); break;
     }
   }
-  breakdown.push({label: "MACD 골든", desc: macdLabel, pts: macdPts, max: 20});
+  breakdown.push({label: "MACD 골든", desc: macdLabel, pts: macdPts, max: 25});
 
-  // ③ 구름 돌파 (최대 15pt)
+  // ③ 구름 돌파 (최대 20pt) — v2.5.1: 15→20
   let cloudPts = 0, cloudLabel = "구름 돌파 없음";
   for (let ago = 0; ago < Math.min(5, L-1); ago++) {
     const ci = L-1-ago, pi = ci-1;
     if (d[ci].aboveCloud && !d[pi].aboveCloud) {
-      cloudPts = ago === 0 ? 15 : ago <= 2 ? 10 : 6;
+      cloudPts = ago === 0 ? 20 : ago === 1 ? 13 : ago === 2 ? 8 : 4;
       cloudLabel = `구름돌파${ago===0?"오늘":ago+"일전"}`;
       score += cloudPts; signals.push(cloudLabel); break;
     }
   }
-  breakdown.push({label: "구름 돌파", desc: cloudLabel, pts: cloudPts, max: 15});
+  breakdown.push({label: "구름 돌파", desc: cloudLabel, pts: cloudPts, max: 20});
 
-  // ④ 스퀴즈 해제 (최대 15pt)
+  // ④ 스퀴즈 해제 (최대 15pt) — v2.5.1: 신선도 감점 조정
   let sqzPts = 0, sqzLabel = "스퀴즈 미해제";
   for (let ago = 0; ago < Math.min(3, L); ago++) {
     if (d[L-1-ago].sqzOff) {
-      sqzPts = ago === 0 ? 15 : ago <= 1 ? 12 : 8;
-      sqzLabel = `스퀴즈해제${ago===0?"":""+ago+"일전"}`;
+      sqzPts = ago === 0 ? 15 : ago === 1 ? 10 : 5;
+      sqzLabel = `스퀴즈해제${ago===0?"":ago+"일전"}`;
       score += sqzPts; signals.push(sqzLabel); break;
     }
   }
   breakdown.push({label: "스퀴즈 해제", desc: sqzLabel, pts: sqzPts, max: 15});
 
-  // ⑤ RSI 50 상향돌파 (최대 10pt)
+  // ⑤ RSI 50 상향돌파 (최대 10pt) — v2.5.1: 신선도 감점 조정
   let rsiPts = 0, rsiLabel = `RSI ${d[L-1].rsi?.toFixed(0) || "—"}`;
   for (let ago = 0; ago < Math.min(5, L-1); ago++) {
     const ci = L-1-ago, pi = ci-1;
     if (d[ci].rsi >= 50 && d[pi].rsi < 50) {
-      rsiPts = ago === 0 ? 10 : ago <= 2 ? 7 : 4;
+      rsiPts = ago === 0 ? 10 : ago === 1 ? 7 : ago === 2 ? 4 : 0;
       rsiLabel = `RSI 50돌파${ago===0?"":ago+"일전"}`;
-      score += rsiPts; signals.push(`RSI돌파50`); break;
+      if (rsiPts > 0) { score += rsiPts; signals.push(`RSI돌파50`); }
+      break;
     }
   }
   breakdown.push({label: "RSI 50돌파", desc: rsiLabel, pts: rsiPts, max: 10});
 
-  // ⑥ 거래량 스파이크 (최대 15pt)
-  const vols = d.slice(-21, -1).map(c => c.volume || 0).filter(v => v > 0);
-  const avgVol = vols.length ? vols.reduce((a,b) => a+b, 0) / vols.length : 0;
-  const todayVol = d[L-1].volume || 0;
-  let volPts = 0, volLabel = "거래량 평범";
-  if (avgVol > 0) {
-    const ratio = todayVol / avgVol;
-    if (ratio > 2.5) { volPts = 15; volLabel = `거래량 ${Math.round(ratio*100)}%`; signals.push(`거래량${Math.round(ratio*100)}%`); }
-    else if (ratio > 2) { volPts = 12; volLabel = "거래량 급증"; signals.push(`거래량급증`); }
-    else if (ratio > 1.5) { volPts = 6; volLabel = "거래량 증가"; signals.push(`거래량증가`); }
-    else { volLabel = `거래량 ${Math.round(ratio*100)}%`; }
-    score += volPts;
-  }
-  breakdown.push({label: "거래량", desc: volLabel, pts: volPts, max: 15});
+  // ⑥ 거래량 컴포넌트 제거 (v2.5.1)
+  // 이유: getSignalsV2의 volOK 게이트(3봉 중 2봉 100%↑)와 중복 측정
+  // 거래량은 게이트 역할만 하고, 시점 측정에서는 빠짐
+  // breakdown.push({label: "거래량", desc: "게이트로 분리", pts: 0, max: 0}); // 기록 안 함
 
   const s = Math.min(100, Math.max(0, score));
-  const grade = s >= 70 ? "🔥" : s >= 45 ? "⚡" : s >= 20 ? "💤" : "—";
+  const grade = s >= 70 ? "🔥" : s >= 35 ? "⚡" : s >= 15 ? "💤" : "—";
   return { score: s, signals, grade, breakdown };
 }
 
@@ -836,8 +867,8 @@ function calcEntryScore(chartData, vixVal, oppScore, stockInfo) {
 //
 // 사용처: 차트 매수 마커 / 집중탭 카드·펼침 6곳 / 차트탭 종합판정 / 종목행 배지
 function getSignalsV2(chartData) {
-  const TH_TIMING = 60;
-  const TH_STRENGTH = 60;
+  const TH_TIMING = 35;        // ★ v2.5.1: 60→35 (타이밍 분포 ~18평균에 맞춰 조정)
+  const TH_STRENGTH = 60;      // 강도는 그대로 (분포 자연스럽게 30~80점대 형성)
   const VOL_GATE = 100;       // 거래량 비율 임계값 (%)
   const VOL_MIN_BARS = 2;     // 최근 3봉 중 충족 봉 수 최소
 
@@ -1810,7 +1841,7 @@ export default function App() {
   const checkAutoVals = {
     market: !!(lastD?.allBull && vixVal < 25),
     sector: true,
-    stock: selTiming.score >= 60 && selDurability.score >= 60,  // ★ v2.5.0: 60/60 통일
+    stock: selTiming.score >= 35 && selDurability.score >= 60,  // ★ v2.5.1: 35/60 비대칭 (시점/지속성)
     timing: !!(lastD?.allBull && (lastD?.macd||0) > (lastD?.signal||0)),
     risk: stopPrice > 0 && stopPrice < curPrice,
   };
@@ -2527,7 +2558,7 @@ export default function App() {
         {/* ══ TAB: 집중 — 오늘 볼 종목 ══ */}
         {tab==="focus"&&<div style={{padding:"12px 14px"}}>
           <div style={{fontSize:13,fontWeight:900,color:C.accent,marginBottom:4,borderLeft:`3px solid ${C.accent}`,paddingLeft:8}}>🎯 오늘의 집중 종목</div>
-          <div style={{fontSize:9,color:C.sub,marginBottom:8}}>점수 시스템 통일 (v2.5.0) — 타이밍 60+ · 강도 60+ · 거래량 지속 (3봉 중 2봉 100%↑)</div>
+          <div style={{fontSize:9,color:C.sub,marginBottom:8}}>점수 시스템 통일 (v2.5.1) — 타이밍 35+ (시점) · 강도 60+ (지속성) · 거래량 지속 (3봉 중 2봉 100%↑)</div>
           <div style={{display:"flex",gap:4,marginBottom:10}}>
             {[["all","전체"],["kr","🇰🇷 한국"],["us","🇺🇸 미국"]].map(([v,l])=>(
               <button key={v} onClick={()=>setFocusMarket(v)} style={{padding:"4px 12px",borderRadius:5,border:`1px solid ${focusMarket===v?C.accent:C.border}`,background:focusMarket===v?"rgba(10,132,255,.12)":"transparent",color:focusMarket===v?C.accent:C.muted,fontSize:9,fontWeight:focusMarket===v?700:400,cursor:"pointer"}}>{l}</button>
@@ -2550,7 +2581,7 @@ export default function App() {
                 if (!cData || cData.length < 30) return false;
                 return getSignalsV2(cData).ok;
               }).length}</div>
-              <div style={{fontSize:7,color:focusView==="ranked"?C.purple:C.muted}}>{focusView==="ranked"?"▲ 접기":"⚡60+ · 💪60+ · 거래량 지속"}</div>
+              <div style={{fontSize:7,color:focusView==="ranked"?C.purple:C.muted}}>{focusView==="ranked"?"▲ 접기":"⚡35+ · 💪60+ · 거래량 지속"}</div>
             </div>
             <div onClick={()=>setFocusView(focusView==="breakout"?null:"breakout")} style={{background:focusView==="breakout"?"rgba(48,209,88,.15)":"rgba(48,209,88,.06)",border:`2px solid ${focusView==="breakout"?C.emerald:"rgba(48,209,88,.2)"}`,borderRadius:8,padding:"8px",textAlign:"center",cursor:"pointer"}}>
               <div style={{fontSize:8,color:C.emerald}}>💎 돌파감지</div>
@@ -2560,7 +2591,7 @@ export default function App() {
                 if (!cData || cData.length < 10) return false;
                 return getSignalsV2(cData).breakoutOK;
               }).length}</div>
-              <div style={{fontSize:7,color:focusView==="breakout"?C.emerald:C.muted}}>{focusView==="breakout"?"▲ 접기":"⚡60+ AND 거래량 지속"}</div>
+              <div style={{fontSize:7,color:focusView==="breakout"?C.emerald:C.muted}}>{focusView==="breakout"?"▲ 접기":"⚡35+ AND 거래량 지속"}</div>
             </div>
             <div onClick={()=>setFocusView(focusView==="entry"?null:"entry")} style={{background:focusView==="entry"?"rgba(10,132,255,.15)":"rgba(10,132,255,.06)",border:`2px solid ${focusView==="entry"?C.accent:"rgba(10,132,255,.2)"}`,borderRadius:8,padding:"8px",textAlign:"center",cursor:"pointer"}}>
               <div style={{fontSize:8,color:C.accent}}>⚡ 진입적기</div>
@@ -2575,7 +2606,7 @@ export default function App() {
           </div>
           {realCount>0&&<div style={{fontSize:7,color:C.muted,textAlign:"right",marginTop:-10,marginBottom:8}}>실시간 {realCount}종목 기준</div>}
 
-          {/* ★ v2.5.0: 종합평점 = 타이밍 60+ AND 강도 60+ AND 거래량 지속 */}
+          {/* ★ v2.5.1: 종합평점 = 타이밍 35+ AND 강도 60+ AND 거래량 지속 */}
           {focusView==="ranked"&&(()=>{
             const all=realStocks.map(s=>{
               const cData=charts[s.ticker]?.data;
@@ -2589,7 +2620,7 @@ export default function App() {
             }).filter(Boolean).sort((a,b)=>(b.timing+b.strength)-(a.timing+a.strength)||b.score-a.score);
             return<div style={css.card}>
               <div style={{fontSize:11,fontWeight:700,color:C.purple,marginBottom:4}}>🟢 종합평점 ({all.length}개)</div>
-              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>v2.5.0: ⚡60+ AND 💪60+ AND 거래량 지속 (3봉 중 2봉↑ 100%) · 타이밍+강도 합계순 정렬</div>
+              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>v2.5.1: ⚡35+ (시점) AND 💪60+ (지속성) AND 거래량 지속 (3봉 중 2봉↑ 100%) · 타이밍+강도 합계순 정렬</div>
               {all.length===0?<div style={{textAlign:"center",padding:"30px",color:C.muted,fontSize:9}}>현재 조건 충족 종목 없음</div>:<div style={{maxHeight:400,overflowY:"auto"}}>
                 {all.map((s,i)=>(
                   <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 8px",borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer"}}>
@@ -2613,7 +2644,7 @@ export default function App() {
           })()}
 
           {focusView==="breakout"&&(()=>{
-            // ★ v2.5.0: 카드 카운트와 일치 — 타이밍 60+ AND 거래량 지속 (3봉 중 2봉 100%↑)
+            // ★ v2.5.1: 카드 카운트와 일치 — 타이밍 35+ AND 거래량 지속 (3봉 중 2봉 100%↑)
             const all=realStocks.map(s=>{
               const cData=charts[s.ticker]?.data;
               if(!cData||cData.length<10)return null;
@@ -2624,7 +2655,7 @@ export default function App() {
             }).filter(Boolean).sort((a,b)=>b.timing-a.timing||b.score-a.score);
             return<div style={css.card}>
               <div style={{fontSize:11,fontWeight:700,color:C.emerald,marginBottom:4}}>💎 돌파감지 ({all.length}개)</div>
-              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>v2.5.0: ⚡60+ AND 거래량 지속 (3봉 중 2봉↑ 100%) · 타이밍 점수순 정렬</div>
+              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>v2.5.1: ⚡35+ (시점) AND 거래량 지속 (3봉 중 2봉↑ 100%) · 타이밍 점수순 정렬</div>
               {all.length===0?<div style={{textAlign:"center",padding:"30px",color:C.muted,fontSize:9}}>현재 조건 충족 종목 없음</div>:<div style={{maxHeight:400,overflowY:"auto"}}>
                 {all.map((s,i)=>(
                   <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer"}}>
@@ -2645,7 +2676,7 @@ export default function App() {
           })()}
 
           {focusView==="entry"&&(()=>{
-            // ★ v2.5.0: 카드 카운트와 일치 — 강도 60+ AND 거래량 지속
+            // ★ v2.5.1: 카드 카운트와 일치 — 강도 60+ AND 거래량 지속
             const all=realStocks.map(s=>{
               const cData=charts[s.ticker]?.data;
               if(!cData||cData.length<10)return null;
@@ -2655,7 +2686,7 @@ export default function App() {
             }).filter(Boolean).sort((a,b)=>b.strength-a.strength||b.timing-a.timing);
             return<div style={css.card}>
               <div style={{fontSize:11,fontWeight:700,color:C.accent,marginBottom:4}}>⚡ 진입적기 ({all.length}개)</div>
-              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>v2.5.0: 💪60+ AND 거래량 지속 (3봉 중 2봉↑ 100%) · 강도 점수순 정렬</div>
+              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>v2.5.1: 💪60+ (지속성) AND 거래량 지속 (3봉 중 2봉↑ 100%) · 강도 점수순 정렬</div>
               {all.length===0?<div style={{textAlign:"center",padding:"30px",color:C.muted,fontSize:9}}>현재 조건 충족 종목 없음</div>:<div style={{maxHeight:400,overflowY:"auto"}}>
                 {all.map((s,i)=>(
                   <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 8px",borderBottom:`1px solid rgba(255,255,255,.04)`,cursor:"pointer",background:i<3?"rgba(48,209,88,.04)":"transparent"}}>
@@ -3163,11 +3194,11 @@ export default function App() {
               </div>}
             </div>
           </div>
-          {/* ★ v2.5.0: 종합판정 — 임계값 60/60 통일 (집중탭 카드와 일치) */}
-          <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:10,padding:"6px 10px",background:selTiming.score>=60&&selDurability.score>=60?"rgba(48,209,88,.06)":selTiming.score>=60?"rgba(255,214,10,.06)":"rgba(255,255,255,.03)",borderRadius:8,border:`1px solid ${selTiming.score>=60&&selDurability.score>=60?C.emerald:selTiming.score>=60?C.yellow:C.border}`}}>
+          {/* ★ v2.5.1: 종합판정 — 임계값 비대칭 35/60 (시점/지속성 분담) */}
+          <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:10,padding:"6px 10px",background:selTiming.score>=35&&selDurability.score>=60?"rgba(48,209,88,.06)":selTiming.score>=35?"rgba(255,214,10,.06)":"rgba(255,255,255,.03)",borderRadius:8,border:`1px solid ${selTiming.score>=35&&selDurability.score>=60?C.emerald:selTiming.score>=35?C.yellow:C.border}`}}>
             <span style={{fontSize:8,fontWeight:700,color:C.muted}}>📊 종합판정:</span>
-            <span style={{fontSize:9,fontWeight:900,color:selTiming.score>=60&&selDurability.score>=60?C.emerald:selTiming.score>=60&&selDurability.score<30?C.yellow:selTiming.score<20&&selDurability.score>=60?C.muted:C.sub}}>
-              {selTiming.score>=60&&selDurability.score>=60?"✅ 진입 검토 (⚡60+ 💪60+)":selTiming.score>=60&&selDurability.score<30?"⚠️ 추세확인 필요":selTiming.score<20&&selDurability.score>=60?"유지중 · 신규진입 아님":"대기"}
+            <span style={{fontSize:9,fontWeight:900,color:selTiming.score>=35&&selDurability.score>=60?C.emerald:selTiming.score>=35&&selDurability.score<30?C.yellow:selTiming.score<15&&selDurability.score>=60?C.muted:C.sub}}>
+              {selTiming.score>=35&&selDurability.score>=60?"✅ 진입 검토 (⚡35+ 💪60+)":selTiming.score>=35&&selDurability.score<30?"⚠️ 추세확인 필요":selTiming.score<15&&selDurability.score>=60?"유지중 · 신규진입 아님":"대기"}
             </span>
             <span style={{marginLeft:"auto",display:"flex",gap:8,fontSize:8}}>
               <span style={{color:C.muted}}>3D <span style={{color:(selInfo.chg3d||0)>=0?C.green:C.red,fontWeight:700}}>{(selInfo.chg3d||0)>=0?"+":""}{(selInfo.chg3d||0).toFixed(1)}%</span></span>
@@ -3564,7 +3595,7 @@ export default function App() {
             {[
               ["market",lastD?.allBull&&vixVal<25,"📊 지수 추세 상승 (ST 매수배경 · VIX 25 이하)"],
               ["sector",true,"🏭 목표 업종이 당일 강세 섹터"],
-              ["stock",selTiming.score>=60&&selDurability.score>=60,"📈 타이밍 "+selTiming.score+" · 강도 "+selDurability.score+" (≥60 통일)"],
+              ["stock",selTiming.score>=35&&selDurability.score>=60,"📈 타이밍 "+selTiming.score+" · 강도 "+selDurability.score+" (⚡35+ 💪60+)"],
               ["timing",lastD?.allBull&&(lastD?.macd||0)>(lastD?.signal||0),"⏰ 트리플 ST 매수 + MACD 크로스"],
               ["risk",stopPrice>0&&stopPrice<curPrice,"🛑 손절가 현재가 아래 확인"],
             ].map(([key,autoVal,label])=>(
@@ -4684,17 +4715,17 @@ export default function App() {
                 </div>
               </div>}
 
-              {/* TOP 종목 목록 — HIT/MISS 표시 + 점수 시스템 통일 (v2.5.0) */}
+              {/* TOP 종목 목록 — HIT/MISS 표시 + 점수 시스템 통일 (v2.5.1) */}
               <div style={css.card}>
                 <div style={{fontSize:10,fontWeight:700,color:"#FF9F0A",marginBottom:4}}>🏆 최근 5일 상승 TOP {totalTop} — 시그널 발생 시점 자동 탐색</div>
-                <div style={{fontSize:7,color:C.muted,marginBottom:8}}>v2.5.0: ⚡타이밍 · 💪강도 점수 통일 (≥60 충족 시 색상 강조) · 거래량 지속 (3봉 중 2봉↑ 100%) 게이트 · "d-X" = 며칠 전 신호 발생</div>
+                <div style={{fontSize:7,color:C.muted,marginBottom:8}}>v2.5.1: ⚡타이밍 35+ (시점) · 💪강도 60+ (지속성) · 거래량 지속 (3봉 중 2봉↑ 100%) 게이트 · "d-X" = 며칠 전 신호 발생</div>
                 <div style={{maxHeight:400,overflowY:"auto"}}>
                   {top40.map((s,i)=>{
                     const isKR4=(s.ticker?.length||0)>5;
-                    // ★ v2.5.0: 점수 시스템 — timingPt/durPt 사용 (보조 라벨 강도/RSI/α 제거)
+                    // ★ v2.5.1: 점수 시스템 — 타이밍 35+ (시점) / 강도 60+ (지속성) 비대칭
                     const tPt = s.timingPt || 0;
                     const dPt = s.durPt || 0;
-                    const tOK = tPt >= 60;
+                    const tOK = tPt >= 35;
                     const dOK = dPt >= 60;
                     const volOK = (s.volSustainedCount || 0) >= 2;
                     const okCount = [tOK, dOK, volOK].filter(Boolean).length;
@@ -4703,15 +4734,15 @@ export default function App() {
                       <span style={{fontSize:8,fontWeight:900,padding:"1px 5px",borderRadius:3,minWidth:35,textAlign:"center",background:s.isHit?"rgba(48,209,88,.15)":"rgba(255,69,58,.15)",color:s.isHit?C.emerald:C.red}}>{s.isHit?"HIT":"MISS"}</span>
                       <span style={{fontWeight:700,fontSize:9,minWidth:55,maxWidth:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</span>
                       <span style={{fontSize:7,color:C.muted,minWidth:42}}>{isKR4?"₩"+fmtKRW(s.price||0):"$"+(s.price||0).toFixed(1)}</span>
-                      {/* ★ v2.5.0: 점수 배지 — ⚡타이밍 / 💪강도 (60 이상 시 강조) */}
+                      {/* ★ v2.5.1: 점수 배지 — ⚡타이밍 (35+ 강조) / 💪강도 (60+ 강조) */}
                       <div style={{display:"flex",gap:2,flexShrink:0}}>
-                        <span title={`⚡ 타이밍 ${tPt}/100 (≥60 충족)`} style={{fontSize:7,padding:"2px 5px",borderRadius:3,background:tOK?"rgba(255,159,10,.25)":"rgba(255,255,255,.04)",color:tOK?"#FF9F0A":C.muted,fontWeight:900,border:`1px solid ${tOK?"#FF9F0A":C.border}`}}>⚡{tPt}</span>
-                        <span title={`💪 강도 ${dPt}/100 (≥60 충족)`} style={{fontSize:7,padding:"2px 5px",borderRadius:3,background:dOK?"rgba(48,209,88,.25)":"rgba(255,255,255,.04)",color:dOK?C.emerald:C.muted,fontWeight:900,border:`1px solid ${dOK?C.emerald:C.border}`}}>💪{dPt}</span>
+                        <span title={`⚡ 타이밍 ${tPt}/100 (≥35 시점 충족)`} style={{fontSize:7,padding:"2px 5px",borderRadius:3,background:tOK?"rgba(255,159,10,.25)":"rgba(255,255,255,.04)",color:tOK?"#FF9F0A":C.muted,fontWeight:900,border:`1px solid ${tOK?"#FF9F0A":C.border}`}}>⚡{tPt}</span>
+                        <span title={`💪 강도 ${dPt}/100 (≥60 지속성 충족)`} style={{fontSize:7,padding:"2px 5px",borderRadius:3,background:dOK?"rgba(48,209,88,.25)":"rgba(255,255,255,.04)",color:dOK?C.emerald:C.muted,fontWeight:900,border:`1px solid ${dOK?C.emerald:C.border}`}}>💪{dPt}</span>
                       </div>
                       <div style={{display:"flex",gap:1,flex:1}}>
                         <span title={`거래량 지속성 ${s.volSustainedCount}/3봉 (100%↑) — 현재 ${s.volR}% · 2/3 이상 = 게이트 통과`} style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:volOK?"rgba(48,209,88,.15)":"rgba(255,255,255,.04)",color:volOK?C.emerald:C.muted,fontWeight:700}}>📊거래량 {s.volSustainedCount}/3</span>
                       </div>
-                      <span title="3 게이트 충족 (⚡60+ · 💪60+ · 거래량 지속)" style={{fontSize:8,fontWeight:700,color:okCount===3?C.emerald:okCount===2?"#FF9F0A":okCount===1?C.yellow:C.muted,minWidth:25,textAlign:"center"}}>{okCount}/3</span>
+                      <span title="3 게이트 충족 (⚡35+ · 💪60+ · 거래량 지속)" style={{fontSize:8,fontWeight:700,color:okCount===3?C.emerald:okCount===2?"#FF9F0A":okCount===1?C.yellow:C.muted,minWidth:25,textAlign:"center"}}>{okCount}/3</span>
                       {s.isHit&&<span title="신호 발생 며칠 전" style={{fontSize:7,fontWeight:700,color:C.accent,minWidth:24,textAlign:"center",padding:"1px 3px",background:"rgba(10,132,255,.08)",borderRadius:3}}>d-{s.daysAgo}</span>}
                       <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",minWidth:60}}>
                         <span style={{fontSize:9,fontWeight:900,color:s.realChg5>0?C.green:C.red}}>+{s.realChg5.toFixed(1)}%</span>
