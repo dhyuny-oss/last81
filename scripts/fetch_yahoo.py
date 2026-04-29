@@ -1,9 +1,20 @@
 #!/usr/bin/env python3
 """
-Alpha Terminal — Yahoo Finance 데이터 수집 (v2.4.9)
+Alpha Terminal — Yahoo Finance 데이터 수집 (v2.4.10)
 - hourly 모드 (평일 매 시간): 관심종목 현재가만
 - daily  모드 (평일 오후 6시): 전체 풀 + 알파스캔
 - quarterly 모드 (수동): 재무데이터 수집
+
+v2.4.10 변경: 일일 변화율(changePct) 계산 정확도 개선 (CRITICAL 버그 수정)
+- 문제: 시장탭 글로벌 지수에서 +12% 이상의 이상한 일일 변화율 표시
+- 원인: meta.previousClose 누락 시 chartPreviousClose 폴백이 1개월 데이터의 첫 봉 종가로
+        잘못 잡혀 한 달 변화율이 일일 변화율로 표시됨 (S&P +12.09%, NDQ +17.74% 등)
+- 수정: safe_change_pct() 헬퍼 함수 신설
+        1. candles[-2].close (어제 종가) 우선 사용 — 데이터 자체로 검증
+        2. meta.previousClose 보조 (candles 부족 시)
+        3. |값| > 15% 면 0 처리 (이상값 자동 필터)
+- 적용: 지수 / daily 풀 / hourly 캔들 / hourly 관심종목 폴백 — 4곳
+- 효과: S&P 일일 변화율이 +12.09% 같은 명백한 오류 → 실제 1일 변화율로 정상화
 
 v2.4.9 변경: hourly 캔들 갱신 종목 수 확대 (300 → 500)
 - 문제: 추적탭의 사용자 추가 종목이 RS 상위 300위 밖이면 시간별 캔들 갱신 누락
@@ -370,6 +381,50 @@ def calc_change(candles, n):
     old = candles[-(n+1)]["close"]
     new = candles[-1]["close"]
     return round((new - old) / old * 100, 2) if old else 0.0
+
+def safe_change_pct(price, candles, meta=None, max_abs=20.0):
+    """
+    ★ v2.4.10: 안전한 1일 변화율 계산 (candles 우선 + 이상값 필터)
+
+    문제 (v2.4.9 이전):
+      - meta.previousClose 누락 시 chartPreviousClose 폴백
+      - chartPreviousClose가 1개월 데이터의 첫 봉 종가로 잘못 잡혀 ~10% 이상 큰 변화율 표시
+
+    해결:
+      1. candles[-2].close (어제 종가) 우선 — 데이터 자체로 검증
+      2. meta.previousClose 보조
+      3. 결과 |값| > max_abs 면 0 처리 (이상값 자동 필터)
+
+    인자:
+      price:     현재가 (또는 마지막 봉 종가)
+      candles:   ISO 정렬된 봉 데이터 (최소 2개 봉 권장)
+      meta:      Yahoo API meta 객체 (선택)
+      max_abs:   |이상값| 임계값.
+                 - 지수: 8.0 (지수가 일일 |8%|↑ = 거의 확실한 데이터 오류)
+                 - 종목: 20.0 (개별 종목은 IPO/실적 등으로 |15%|↑ 가능)
+    """
+    if not price:
+        return 0.0
+    # 1순위: candles 직전 봉 종가
+    prev = None
+    if candles and len(candles) >= 2:
+        prev = candles[-2].get("close")
+    # 2순위: meta.previousClose
+    if not prev and meta:
+        prev = meta.get("previousClose") or meta.get("chartPreviousClose")
+    if not prev:
+        return 0.0
+    try:
+        prev = float(prev)
+        if prev <= 0:
+            return 0.0
+        pct = round((float(price) - prev) / prev * 100, 2)
+        # 이상값 필터: 일일 |15%↑| = 데이터 오류 가능성 매우 높음
+        if abs(pct) > max_abs:
+            return 0.0
+        return pct
+    except (TypeError, ValueError):
+        return 0.0
 
 def calc_ema(closes, period):
     if len(closes) < period:
@@ -1229,8 +1284,9 @@ def main():
         try:
             candles, meta = parse_candles(raw)
             price     = float(meta.get("regularMarketPrice") or (candles[-1]["close"] if candles else 0))
-            prev      = float(meta.get("previousClose") or meta.get("chartPreviousClose") or price)
-            changePct = round((price-prev)/prev*100, 2) if prev else 0
+            # ★ v2.4.10: candles[-2] 우선 + 이상값 필터 (chartPreviousClose 폴백 버그 수정)
+            # 지수는 일일 |8%|↑ 거의 발생 안 함 — 데이터 오류로 간주하여 필터
+            changePct = safe_change_pct(price, candles, meta, max_abs=8.0)
             output["indices"][ticker] = {
                 **info, "ticker":ticker, "price":price, "changePct":changePct,
                 "chg3d":calc_change(candles,3), "chg5d":calc_change(candles,5),
@@ -1414,8 +1470,8 @@ def main():
                     try:
                         candles, meta = parse_candles(raw)
                         price = float(meta.get("regularMarketPrice") or candles[-1]["close"])
-                        prev  = float(meta.get("previousClose") or meta.get("chartPreviousClose") or price)
-                        changePct = round((price-prev)/prev*100,2) if prev else 0
+                        # ★ v2.4.10: candles 우선 + 이상값 필터
+                        changePct = safe_change_pct(price, candles, meta)
                         mktCap = float(meta.get("marketCap") or 0)
                         isKR = info.get("market") == "kr"
                         output["stocks"][ticker] = {
@@ -1514,8 +1570,8 @@ def main():
                     if len(merged) > 130:
                         merged = merged[-130:]
                     price = float(meta.get("regularMarketPrice") or candles[-1]["close"])
-                    prev = float(meta.get("previousClose") or meta.get("chartPreviousClose") or price)
-                    changePct = round((price-prev)/prev*100,2) if prev else 0
+                    # ★ v2.4.10: merged candles 우선 + 이상값 필터
+                    changePct = safe_change_pct(price, merged, meta)
                     output["stocks"][ticker]["candles"] = merged
                     output["stocks"][ticker]["price"] = price
                     output["stocks"][ticker]["changePct"] = changePct
@@ -1542,8 +1598,8 @@ def main():
                 try:
                     candles, meta = parse_candles(raw)
                     price     = float(meta.get("regularMarketPrice") or candles[-1]["close"])
-                    prev      = float(meta.get("previousClose") or meta.get("chartPreviousClose") or price)
-                    changePct = round((price-prev)/prev*100,2) if prev else 0
+                    # ★ v2.4.10: candles 우선 + 이상값 필터
+                    changePct = safe_change_pct(price, candles, meta)
                     output["stocks"][ticker] = {
                         **{k:v for k,v in (output["stocks"].get(ticker, info)).items()},
                         "price":price,"changePct":changePct,
