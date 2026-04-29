@@ -1,5 +1,18 @@
 /**
- * Alpha Terminal v2.5.6 — App.jsx
+ * Alpha Terminal v2.5.7 — App.jsx
+ * v2.5.7: [거래 탭 컬럼 재배치 + 3D/5D 변화율 추가 + 표시 압축]
+ *          [의도] 거래 탭에서 점수와 모멘텀(추세)을 한 화면에서 동시 비교
+ *          [컬럼 순서 재배치] 자주 보는 것 → 덜 중요한 것
+ *                 # | 종목 | ⚡ | 💪 | 1D | 3D | 5D | 거래대금 | 평소대비 | 시총 | ★
+ *                 - ⚡💪: 진입 판단 핵심 → 종목 바로 옆
+ *                 - 1D/3D/5D: 모멘텀/추세 → 점수 옆
+ *                 - 거래대금: 탭 정렬 기준이지만 보조 정보 → 뒤로
+ *                 - 평소대비/시총: 가장 뒤
+ *          [3D/5D 변화율 추가] 신규 컬럼 (이미 chg3d/chg5d 데이터 있음)
+ *          [표시 압축]
+ *                 - 평소대비: "120%" / "398%" → "1.2x" / "4.0x" (짧게)
+ *                 - 시총: 기존 fmtMktCap 유지 ("$3.4T" / "588조" 등 이미 짧음)
+ *          [영향] App.jsx 1곳 (거래 탭 테이블 헤더 + 행 컬럼 순서)
  * v2.5.6: [코드 정비 — 임계값 정합성 + Dead Code 제거 + LEGACY 주석]
  *          [그룹 A — 임계값 정합성] v2.5.1 임계값 변경(60→35)이 시각 표시에 미반영된 곳 수정
  *                 - ⚡ 타이밍 패널 색상: 45/70 → 35/50 (35 진입 시 노랑 강조)
@@ -3021,11 +3034,12 @@ export default function App() {
                 <span style={{fontSize:8,color:C.muted}}>정렬: {{turnover:"💰 거래대금",volRatio:"📊 평소대비",timing:"⚡ 타이밍",strength:"💪 강도",chg:"📈 1D",mktCap:"🏢 시가총액"}[tradeSort]}</span>
               </div>
               <div style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,minWidth:560,tableLayout:"fixed"}}>
+                {/* ★ v2.5.7: 컬럼 순서 — 진입 판단 핵심(⚡💪) → 모멘텀(1D/3D/5D) → 보조(거래대금/평소대비/시총) */}
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,minWidth:640,tableLayout:"fixed"}}>
                   <thead>
                     <tr style={{background:"rgba(255,255,255,.04)",borderBottom:`2px solid ${C.border}`}}>
-                      {[["#",24],["종목",100],["시가총액",70],["거래대금",78],["평소대비",58],["⚡",32],["💪",32],["1D",50],["",36]].map(([h,w],i)=>(
-                        <th key={i} style={{padding:"6px 4px",textAlign:i===0?"center":i===1?"left":"right",color:"#FFD60A",fontSize:8,fontWeight:700,whiteSpace:"nowrap",width:w}}>{h}</th>
+                      {[["#",22],["종목",96],["⚡",30],["💪",30],["1D",44],["3D",44],["5D",44],["거래대금",70],["대비",42],["시총",54],["",30]].map(([h,w],i)=>(
+                        <th key={i} style={{padding:"6px 3px",textAlign:i===0?"center":i===1?"left":"right",color:"#FFD60A",fontSize:8,fontWeight:700,whiteSpace:"nowrap",width:w}}>{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -3035,26 +3049,30 @@ export default function App() {
                       const dColor = s.strength>=75?C.emerald:s.strength>=60?C.green:C.muted;
                       const volColor = s.volR>=200?C.emerald:s.volR>=150?C.green:s.volR>=100?C.muted:C.red;
                       const inW = watchlist.find(w=>w.ticker===s.ticker);
+                      // ★ v2.5.7: 평소대비를 배수(x) 형식으로 압축 표시
+                      const volX = s.volR ? (s.volR/100).toFixed(1) + "x" : "—";
                       return (
                         <tr key={s.ticker} style={{borderBottom:`1px solid rgba(255,255,255,.04)`,background:i<5?"rgba(255,214,10,.03)":i%2===0?C.panel:C.panel2,cursor:"pointer"}}
                           onClick={()=>navigateToStock(s.ticker, s.merged)}>
-                          <td style={{padding:"5px 4px",textAlign:"center",fontSize:9,fontWeight:900,color:i<3?"#FFD60A":i<10?C.accent:C.muted}}>{i+1}</td>
+                          <td style={{padding:"5px 3px",textAlign:"center",fontSize:9,fontWeight:900,color:i<3?"#FFD60A":i<10?C.accent:C.muted}}>{i+1}</td>
                           <td style={{padding:"5px 5px"}}>
-                            <div style={{fontWeight:700,fontSize:10,maxWidth:96,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.label||s.ticker}</div>
+                            <div style={{fontWeight:700,fontSize:10,maxWidth:92,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.label||s.ticker}</div>
                             <div style={{fontSize:7,color:C.muted}}>{s.ticker} {s.isKR?"🇰🇷":"🇺🇸"}</div>
                           </td>
-                          <td style={{padding:"5px 4px",textAlign:"right",fontSize:9,fontWeight:600,color:C.text}}>{fmtMktCap(s.mktCap, s.isKR)}</td>
-                          <td style={{padding:"5px 4px",textAlign:"right",fontSize:9,fontWeight:700,color:"#FFD60A"}}>{fmtTurnover(s.turnover, s.isKR)}</td>
-                          <td style={{padding:"5px 4px",textAlign:"right",fontSize:9,fontWeight:600,color:volColor}}>{s.volR?Math.round(s.volR)+"%":"—"}</td>
                           <td style={{padding:"5px 3px",textAlign:"right",fontSize:9,fontWeight:900,color:tColor}}>{s.timing||0}</td>
                           <td style={{padding:"5px 3px",textAlign:"right",fontSize:9,fontWeight:900,color:dColor}}>{s.strength||0}</td>
                           <td style={{padding:"5px 3px",textAlign:"right",fontSize:9,fontWeight:700,color:s.changePct>=0?C.green:C.red}}>{s.changePct>=0?"+":""}{(s.changePct||0).toFixed(1)}%</td>
-                          <td style={{padding:"5px 4px",textAlign:"center"}} onClick={e=>e.stopPropagation()}>
+                          <td style={{padding:"5px 3px",textAlign:"right",fontSize:9,fontWeight:700,color:(s.chg3d||0)>=0?C.green:C.red}}>{(s.chg3d||0)>=0?"+":""}{(s.chg3d||0).toFixed(1)}%</td>
+                          <td style={{padding:"5px 3px",textAlign:"right",fontSize:9,fontWeight:700,color:(s.chg5d||0)>=0?C.green:C.red}}>{(s.chg5d||0)>=0?"+":""}{(s.chg5d||0).toFixed(1)}%</td>
+                          <td style={{padding:"5px 4px",textAlign:"right",fontSize:9,fontWeight:700,color:"#FFD60A"}}>{fmtTurnover(s.turnover, s.isKR)}</td>
+                          <td style={{padding:"5px 3px",textAlign:"right",fontSize:9,fontWeight:600,color:volColor}}>{volX}</td>
+                          <td style={{padding:"5px 3px",textAlign:"right",fontSize:9,fontWeight:600,color:C.text}}>{fmtMktCap(s.mktCap, s.isKR)}</td>
+                          <td style={{padding:"5px 3px",textAlign:"center"}} onClick={e=>e.stopPropagation()}>
                             <button onClick={()=>{
                               if(inW){setWatchlist(w=>w.filter(x=>x.ticker!==s.ticker));setAddMsg(`☆ ${s.label||s.ticker} 제거`);}
                               else{setWatchlist(w=>[...w,s.merged]);setAddMsg(`★ ${s.label||s.ticker} 관심 추가`);}
                               setTimeout(()=>setAddMsg(""),2000);
-                            }} style={{background:inW?"rgba(10,132,255,.12)":"transparent",border:`1px solid ${inW?C.accent:C.border}`,color:inW?C.accent:C.muted,borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:9}}>{inW?"★":"☆"}</button>
+                            }} style={{background:inW?"rgba(10,132,255,.12)":"transparent",border:`1px solid ${inW?C.accent:C.border}`,color:inW?C.accent:C.muted,borderRadius:4,padding:"2px 5px",cursor:"pointer",fontSize:9}}>{inW?"★":"☆"}</button>
                           </td>
                         </tr>
                       );
