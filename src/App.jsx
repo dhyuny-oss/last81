@@ -1,5 +1,29 @@
 /**
- * Alpha Terminal v2.5.8 — App.jsx
+ * Alpha Terminal v2.5.9 — App.jsx
+ * v2.5.9: [실험실 탭 v2.5.x 측정 기준 통일 — 화면 구성 유지]
+ *          [의도] 사용자: "기능 자체나 화면 구성은 맞는데 기준과 측정 값들은 앞에 다른 탭들이랑 맞춰달라"
+ *                 옛 시그널 5개(sig_breakout/entry/supply/strong/rsi) → v2.5.x 3개로 재정의
+ *                 화면 구조(시그널 조합 카드 4종, 컴포넌트 카드 14개, HIT/MISS 분석)는 그대로 유지
+ *          [시그널 5개 → 3개 재정의]
+ *                 ⚡ sig_timing    — calcEntryTiming(dCut).score >= 35
+ *                 💪 sig_strength — calcTrendDurability(dCut).score >= 60
+ *                 📊 sig_volume   — volSustainedCount >= 2 (3봉 중 2봉 100%↑)
+ *          [HIT 기준]
+ *                 옛: sigCount >= 3/5 (5개 중 3개 이상)
+ *                 신규: sig_timing AND sig_strength (옵션 C, 거래량은 보조)
+ *                 → 거래량은 게이트 역할이지만 필수는 아님 (화면에서 별도 컬럼으로 표시)
+ *          [시그널 조합 카드 4종 재구성]
+ *                 🚀 진입적기  : ⚡35+ AND 💪60+ AND 📊거래량
+ *                 ⚡ 시점 단독 : ⚡35+ AND 💪<60
+ *                 💪 추세 단독 : 💪60+ AND ⚡<35
+ *                 ⬜ 둘 다 미달
+ *          [컴포넌트 카드 14개]
+ *                 그대로 유지 (개별 효과 측정 용도)
+ *                 그룹 라벨: "수급/돌파/적기" → "거래량/시점/추세" (의미 명확화)
+ *          [LEGACY 보존]
+ *                 sig_supply / supplyScore / sig_breakout / sig_entry / sig_strong / sig_rsi / sig_alpha
+ *                 변수는 그대로 유지 (helper 함수 호환성) — UI에서만 새 시그널 사용
+ *          [영향] App.jsx 약 6곳 (helper return / 시그널 조합 카드 / sigDefs / HIT 기준 / 라벨)
  * v2.5.8: [거래 탭 정리 + 추적탭 관찰중 1D/3D/5D + 추적탭 RSBar sticky]
  *          [거래 탭 정리]
  *                 - 거래대금 컬럼 제거 (사용자 요청 — 자체 값보다 평소대비가 의미 큼)
@@ -4615,7 +4639,7 @@ export default function App() {
         {/* ══ TAB: 실험실 — 추천 적중률 검증 ══ */}
         {tab==="lab"&&<div style={{padding:"12px 14px"}}>
           <div style={{fontSize:12,fontWeight:900,color:C.purple,marginBottom:4}}>🔬 실험실 — 추천 vs 실제 비교</div>
-          <div style={{fontSize:9,color:C.sub,marginBottom:8}}>최근 오른 종목들의 <b>최적 진입 시점</b> 자동 탐색 — d-15 ~ d-2 사이 5필터 3+ 충족된 첫 봉 (alphaScore · 진입적기 · 수급필터 · 추세강도 · RSI강세)</div>
+          <div style={{fontSize:9,color:C.sub,marginBottom:8}}>v2.5.9: 최근 오른 종목들의 <b>최적 진입 시점</b> 자동 탐색 — d-30 ~ d-2 스캔, ⚡타이밍 35+ AND 💪강도 60+ 충족된 첫 봉 (앞 탭들과 동일 기준)</div>
           <div style={{display:"flex",gap:4,marginBottom:10}}>
             {[["all","전체"],["kr","🇰🇷 한국"],["us","🇺🇸 미국"]].map(([v,l])=>(
               <button key={v} onClick={()=>setLabMarket(v)} style={{padding:"4px 12px",borderRadius:5,border:`1px solid ${labMarket===v?C.purple:C.border}`,background:labMarket===v?"rgba(191,90,242,.12)":"transparent",color:labMarket===v?C.purple:C.muted,fontSize:9,fontWeight:labMarket===v?700:400,cursor:"pointer"}}>{l}</button>
@@ -4699,6 +4723,13 @@ export default function App() {
                   // ★ v2.4.0: 적기 = 4개 중 3+ AND 거래량 120%↑ 필수
                   const sig_entry = entryScore >= 3 && volOK;
 
+                  // ★ v2.5.9: v2.5.x 시그널 시스템 (UI 메인용) — 옛 sig_* 변수는 LEGACY로 보존
+                  // 점수 시스템 통일: timing 35+ / strength 60+ / 거래량 게이트
+                  const sig_timing   = timingPt >= 35;       // ⚡ 시점 (calcEntryTiming 게이트)
+                  const sig_strength = durPt >= 60;          // 💪 추세 (calcTrendDurability 게이트)
+                  const sig_volume   = volOK;                // 📊 거래량 (3봉 중 2봉 100%↑)
+
+                  // ★ v2.5.9 LEGACY: sigs 배열은 옛 5개 시그널 그대로 유지 (sigCount 호환)
                   const sigs = [sig_alpha, sig_entry, sig_supply, sig_strong, sig_rsi];
                   const sigCount = sigs.filter(Boolean).length;
                   const totalIntensity = supplyScore + breakoutScore + entryScore;
@@ -4720,7 +4751,12 @@ export default function App() {
                   const c_st_0to3 = (stPrevCount <= 1 && stC === 3);   // 약세→3 점프 (드물지만 강력)
                   const c_st_3hold = (stPrevCount === 3 && stC === 3); // 이미 추세 중 (추격)
 
-                  return { idx, candle, sig_alpha, sig_entry, sig_supply, sig_strong, sig_rsi, sig_breakout, sigCount, stC, rsi: candle.rsi, alphaPt, timingPt, durPt,
+                  return { idx, candle,
+                    // v2.5.9: 신규 v2.5.x 시그널 3개 (UI 메인용)
+                    sig_timing, sig_strength, sig_volume,
+                    // LEGACY: 옛 시그널들 (호환성용)
+                    sig_alpha, sig_entry, sig_supply, sig_strong, sig_rsi, sig_breakout, sigCount,
+                    stC, rsi: candle.rsi, alphaPt, timingPt, durPt,
                     supplyScore, breakoutScore, entryScore, totalIntensity, volR,
                     volSustainedCount, // v2.4.1: 최근 3봉 중 105%↑ 충족 봉 수 (거래량 지속성)
                     // 컴포넌트 플래그 (10개)
@@ -4770,8 +4806,13 @@ export default function App() {
                   if (firstSupplyIdx === null && r.sig_supply) firstSupplyIdx = i;
                   if (firstBreakoutIdx === null && r.sig_breakout) firstBreakoutIdx = i;
                   if (firstEntryIdx === null && r.sig_entry) firstEntryIdx = i;
-                  if (!bestDay || r.sigCount > bestDay.sigCount) bestDay = r;
-                  if (r.sigCount >= 3 && !signalDay) {
+                  // ★ v2.5.9: bestDay는 v2.5.x 점수 합산(timing+strength)으로 정렬 (옛 sigCount 대신)
+                  const rScore = (r.timingPt || 0) + (r.durPt || 0);
+                  const bScore = bestDay ? ((bestDay.timingPt || 0) + (bestDay.durPt || 0)) : -1;
+                  if (!bestDay || rScore > bScore) bestDay = r;
+                  // ★ v2.5.9 HIT 기준: timing 35+ AND strength 60+ (옛 sigCount ≥ 3/5에서 변경)
+                  // 거래량은 게이트 보조 — HIT 판정에서는 제외 (옵션 C)
+                  if (r.sig_timing && r.sig_strength && !signalDay) {
                     signalDay = r;
                     // break 제거 — 끝까지 스캔해서 각 시그널 첫 발생 시점 다 잡음
                   }
@@ -4794,6 +4835,9 @@ export default function App() {
                 return {
                   ticker, label: info.label||ticker, market: info.market,
                   chg5, realChg5: realChg, slippage, price: last.close,
+                  // v2.5.9: 신규 v2.5.x 시그널 3개 (UI 메인용)
+                  sig_timing: sigDay.sig_timing, sig_strength: sigDay.sig_strength, sig_volume: sigDay.sig_volume,
+                  // LEGACY: 옛 시그널들 (호환성용)
                   sig_alpha: sigDay.sig_alpha, sig_entry: sigDay.sig_entry,
                   sig_supply: sigDay.sig_supply, sig_strong: sigDay.sig_strong,
                   sig_rsi: sigDay.sig_rsi, sig_breakout: sigDay.sig_breakout, sigCount: sigDay.sigCount, isHit,
@@ -4846,12 +4890,12 @@ export default function App() {
               const loss5 = +(returns.filter(r => r <= -5).length / returns.length * 100).toFixed(0);
               return { count: valid.length, avg, median: +median.toFixed(1), winRate, big10, loss5 };
             };
-            // 시그널 조합 분류 (v2.4.0: 수급 시그널 폐지 → 4조합)
+            // ★ v2.5.9: 시그널 조합 4종 — v2.5.x 점수 시스템 기반 (timing/strength 조합)
             const combos = [
-              {name:"🚀 슈퍼 (돌파+적기)", filter:(b)=>b.sig_breakout&&b.sig_entry, color:"#FFD60A"},
-              {name:"💎 돌파 단독",        filter:(b)=>b.sig_breakout&&!b.sig_entry, color:"#64D2FF"},
-              {name:"⚡ 적기 단독",        filter:(b)=>b.sig_entry&&!b.sig_breakout, color:"#FF9F0A"},
-              {name:"⬜ 둘 다 미충족",     filter:(b)=>!b.sig_breakout&&!b.sig_entry, color:C.muted},
+              {name:"🚀 진입적기 (⚡35+ 💪60+ 📊거래량)", filter:(b)=>b.sig_timing&&b.sig_strength&&b.sig_volume, color:"#FFD60A"},
+              {name:"⚡ 시점 단독 (⚡35+ but 💪<60)",     filter:(b)=>b.sig_timing&&!b.sig_strength,            color:"#FF9F0A"},
+              {name:"💪 추세 단독 (💪60+ but ⚡<35)",     filter:(b)=>b.sig_strength&&!b.sig_timing,            color:C.emerald},
+              {name:"⬜ 둘 다 미달",                     filter:(b)=>!b.sig_timing&&!b.sig_strength,           color:C.muted},
             ];
             const comboStats = combos.map(c => {
               const matchedBars = allBars.filter(c.filter);
@@ -4866,16 +4910,17 @@ export default function App() {
 
             // ★ v2.3.15: 10개 컴포넌트 단독 효과 측정 — 재조합 검토용
             const components = [
-              {key:"c_st2",        label:"ST 카운트 ≥ 2",   group:"수급", color:C.emerald},
-              {key:"c_vol",        label:"거래량 ≥ 130%",   group:"수급", color:C.emerald},
-              {key:"c_stFlip",     label:"ST flip",        group:"돌파", color:"#64D2FF"},
-              {key:"c_macdGolden", label:"MACD 골든크로스",  group:"돌파", color:"#64D2FF"},
-              {key:"c_cloudBreak", label:"구름 돌파",       group:"돌파", color:"#64D2FF"},
-              {key:"c_sqzOff",     label:"스퀴즈 오프",     group:"돌파", color:"#64D2FF"},
-              {key:"c_st3",        label:"ST 3/3",         group:"적기", color:"#FF9F0A"},
-              {key:"c_macdPos",    label:"MACD > Signal",  group:"적기", color:"#FF9F0A"},
-              {key:"c_aboveMa20",  label:"가격 > MA20",     group:"적기", color:"#FF9F0A"},
-              {key:"c_momentum",   label:"가격 > 3봉전",    group:"적기", color:"#FF9F0A"},
+              // ★ v2.5.9: 그룹 라벨 v2.5.x 통일 — 수급/돌파/적기 → 거래량/시점/추세
+              {key:"c_st2",        label:"ST 카운트 ≥ 2",   group:"거래량", color:C.emerald},
+              {key:"c_vol",        label:"거래량 ≥ 130%",   group:"거래량", color:C.emerald},
+              {key:"c_stFlip",     label:"ST flip",        group:"시점", color:"#64D2FF"},
+              {key:"c_macdGolden", label:"MACD 골든크로스",  group:"시점", color:"#64D2FF"},
+              {key:"c_cloudBreak", label:"구름 돌파",       group:"시점", color:"#64D2FF"},
+              {key:"c_sqzOff",     label:"스퀴즈 오프",     group:"시점", color:"#64D2FF"},
+              {key:"c_st3",        label:"ST 3/3",         group:"추세", color:"#FF9F0A"},
+              {key:"c_macdPos",    label:"MACD > Signal",  group:"추세", color:"#FF9F0A"},
+              {key:"c_aboveMa20",  label:"가격 > MA20",     group:"추세", color:"#FF9F0A"},
+              {key:"c_momentum",   label:"가격 > 3봉전",    group:"추세", color:"#FF9F0A"},
               // ★ v2.3.16: ST 전환 패턴 4종 (사용자 분 매수 철학 검증)
               {key:"c_st_2to3",    label:"⭐ ST 2→3 전환",  group:"전환", color:"#FFD60A"},
               {key:"c_st_1to2",    label:"ST 1→2 전환",    group:"전환", color:"#FFD60A"},
@@ -4898,12 +4943,11 @@ export default function App() {
             const hitRate = Math.round(hits.length / totalTop * 100);
 
             // 놓친 이유 — MISS 종목에서 어느 시그널이 가장 약했나 (낮은 충족률 = 놓친 이유)
+            // ★ v2.5.9: 놓친 이유/잘 잡은 패턴 분석 — v2.5.x 시그널 3개 기준
             const sigDefs = [
-              {key:"sig_breakout", label:"💎 돌파감지", isCore:true}, // 핵심 1 (v2.4.0: 거래량 120% 필수)
-              {key:"sig_entry",    label:"⚡ 진입적기", isCore:true},   // 핵심 2 (v2.4.0: 거래량 120% 필수)
-              {key:"sig_strong",   label:"추세강도", isCore:false},
-              {key:"sig_rsi",      label:"RSI 강세진입", isCore:false},
-              {key:"sig_alpha",    label:"종합점수 60+", isCore:false},
+              {key:"sig_timing",   label:"⚡ 타이밍 35+",   isCore:true},
+              {key:"sig_strength", label:"💪 강도 60+",     isCore:true},
+              {key:"sig_volume",   label:"📊 거래량 게이트", isCore:false},
             ];
             const missAnalysis = misses.length>0 ? sigDefs.map(s=>({
               ...s, pct: Math.round(misses.filter(m=>m[s.key]).length/misses.length*100)
@@ -4945,7 +4989,7 @@ export default function App() {
                   <div style={{textAlign:"right"}}>
                     <div style={{fontSize:9,color:C.emerald,fontWeight:700}}>✅ HIT {hits.length}</div>
                     <div style={{fontSize:9,color:C.red,fontWeight:700}}>❌ MISS {misses.length}</div>
-                    <div style={{fontSize:7,color:C.muted,marginTop:4}}>시그널 ≥ 3/5 = HIT</div>
+                    <div style={{fontSize:7,color:C.muted,marginTop:4}}>HIT = ⚡35+ AND 💪60+</div>
                   </div>
                 </div>
                 {/* ★ v2.3.1: 실현 수익률 vs 표시 수익률 — 갭 손실 검증 */}
