@@ -1,23 +1,26 @@
 #!/usr/bin/env python3
 """
-Alpha Terminal — Yahoo Finance 데이터 수집 (v2.4.6)
+Alpha Terminal — Yahoo Finance 데이터 수집 (v2.4.9)
 - hourly 모드 (평일 매 시간): 관심종목 현재가만
 - daily  모드 (평일 오후 6시): 전체 풀 + 알파스캔
 - quarterly 모드 (수동): 재무데이터 수집
 
+v2.4.9 변경: hourly 캔들 갱신 종목 수 확대 (300 → 500)
+- 문제: 추적탭의 사용자 추가 종목이 RS 상위 300위 밖이면 시간별 캔들 갱신 누락
+- 변경: TOP_N 300 → 500 (시간당 캔들 갱신 대상 추가 확대)
+- 영향: 추적탭/관심종목 거의 다 시간별 캔들 갱신 커버 (~10초 더 소요, 25분 한도 영향 미미)
+
+v2.4.8 변경: 거래량 임계값 완화 (105 → 100)
+- 문제: 미국장 시작 전 시간대에 시그널 너무 적음
+- 변경: 임계값 105% → 100% (평균 이상)
+- 봉 수 조건 (3봉 중 2봉) 유지 — 일시 폭증 필터링 효과 보존
+
 v2.4.6 변경: candles 보존 종목 확장 (적극)
-- 문제: RS 120 + 알파 120 = ~167개 종목만 candles 저장
-       → 미국 풀 438개 중 차트 분석 가능한 게 너무 적음
-       → 사용자 분 발견 — 시그널 떴어야 할 미국 강세 종목들 안 보임
-- 변경: RS 300 + 알파 300 = ~500개로 확장 (3배)
-- 파일: stocks.json ~12.5MB (모바일 로딩 OK, 무료 한도 충분)
+- RS 120 + 알파 120 → RS 300 + 알파 300 (~500개)
+- 미국 종목 차트 분석 가능 다수 늘어남
 
 v2.4.5 변경: 봉 정렬 버그 수정 (CRITICAL)
-- 문제: candles 배열의 "date" 필드가 "4/27" 같은 문자열이라 sort 시 알파벳 순으로 정렬됨
-       → "4/27" 다음에 "4/6"이 옴 = 시간순 거꾸로
-       → chg5d 등 모든 지표가 거꾸로 계산됨 (NVDA: 실제 +7.6%인데 -11.7% 표시)
-- 수정: 각 봉에 isoDate ("2026-04-27") 필드 추가, 이걸로 정렬
-- 마이그레이션: 옛 데이터 (isoDate 없음) 자동 폐기 → 다음 daily에서 새로 받음
+- isoDate 필드 추가, ISO 기준 정렬
 
 v2.4.1: 거래량 측정 안정화
 - 당일 1봉 거래량 → 최근 3봉 중 2봉 이상 105%↑ 변경
@@ -386,7 +389,7 @@ def calc_vol_ratio(candles):
     avg20 = sum(vols[-20:]) / min(len(vols), 20)
     return round(avg5 / avg20 * 100, 1) if avg20 > 0 else 100
 
-def calc_vol_sustained(candles, threshold=105, lookback=3):
+def calc_vol_sustained(candles, threshold=100, lookback=3):
     """★ v2.4.1: 최근 N봉 중 거래량이 threshold%↑ 충족하는 봉 수
     각 봉의 단봉 거래량 / 20봉 평균 비율 측정 (App.jsx와 동일)"""
     vols = [c["volume"] for c in candles if c.get("volume", 0) > 0]
@@ -662,8 +665,8 @@ def detect_buy_signal(candles, intraday=False):
     st_cur, st_prev = calc_supertrend_count(candles)
     st_flip = (st_cur == 3 and st_prev < 3)
     vol_ratio = calc_vol_ratio(candles)
-    vol_sustained = calc_vol_sustained(candles, threshold=105, lookback=3)
-    vol_ok = vol_sustained >= 2  # ★ v2.4.1: 3봉 중 2봉 105%↑ (지속 매수세)
+    vol_sustained = calc_vol_sustained(candles, threshold=100, lookback=3)
+    vol_ok = vol_sustained >= 2  # ★ v2.4.8: 3봉 중 2봉 100%↑ (평균 이상 두 봉)
     
     # ── 진입적기 컴포넌트 (4개) ──
     macd, signal, hist = calc_macd(closes)
@@ -1470,7 +1473,7 @@ def main():
             print("\n📊 상위 종목 캔들 갱신 (확대 batch)...")
             candle_stocks = [(t,s) for t,s in output.get("stocks",{}).items() if s.get("candles") and len(s["candles"])>=10]
             candle_stocks.sort(key=lambda x: x[1].get("rsPctRank",0), reverse=True)
-            TOP_N = 300  # v2.3.1: 80 → 300 (시간당 캔들 갱신 종목 수 최대화)
+            TOP_N = 500  # v2.4.9: 300 → 500 (집중/추적탭 종목 커버 확대 — 시간당 캔들 갱신 종목 수 추가 확대)
             top_for_candle = candle_stocks[:TOP_N]
             candle_updated = 0
             candle_failed = 0
