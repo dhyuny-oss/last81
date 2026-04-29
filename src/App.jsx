@@ -1,5 +1,21 @@
 /**
- * Alpha Terminal v2.5.7 — App.jsx
+ * Alpha Terminal v2.5.8 — App.jsx
+ * v2.5.8: [거래 탭 정리 + 추적탭 관찰중 1D/3D/5D + 추적탭 RSBar sticky]
+ *          [거래 탭 정리]
+ *                 - 거래대금 컬럼 제거 (사용자 요청 — 자체 값보다 평소대비가 의미 큼)
+ *                 - 시총 컬럼 제거 (한국 종목 mktCap 데이터 누락 다수, 비어있음)
+ *                 - 평소대비 컬럼만 유지 (1.2x 형식)
+ *                 - 종목명 컬럼 너비 96px → 80px (한 화면 fit)
+ *                 - 정렬 옵션 그대로 유지 (사용자 요청)
+ *                 - 탭 이름 "💰 거래" → "💰 100" (사용자 요청)
+ *          [추적탭 관찰중 — "종합" 점수 제거 + 1D/3D/5D]
+ *                 - foundScore(종합)는 등록 시점 박제값으로 v2.5.x 점수 시스템과 무관
+ *                   (alphaScore 또는 calcEntryScore의 옛 시점 값 — 갱신 안 됨)
+ *                 - 4컬럼(타이밍/강도/종합/1D) → 5컬럼(타이밍/강도/1D/3D/5D)
+ *          [추적탭 RSBar sticky]
+ *                 - 차트탭처럼 상단고정 (position:sticky, top:0)
+ *                 - 시장 추세를 보유 종목 평가 시 항상 참조 가능
+ *          [영향] App.jsx 3곳 (거래 탭 테이블 / 추적탭 관찰중 그리드 / 추적탭 RSBar 추가)
  * v2.5.7: [거래 탭 컬럼 재배치 + 3D/5D 변화율 추가 + 표시 압축]
  *          [의도] 거래 탭에서 점수와 모멘텀(추세)을 한 화면에서 동시 비교
  *          [컬럼 순서 재배치] 자주 보는 것 → 덜 중요한 것
@@ -2086,7 +2102,7 @@ export default function App() {
   // ★ v2.2: 에쿼티 커브 데이터
   const equityCurveData = buildEquityCurve(closedLog, riskSettings.totalCapital);
 
-  const TABS=[["radar","🌐 시장"],["focus","🎯 집중"],["trade","💰 거래"],["alpha","🔍 발굴"],["sniper","📊 차트"],["track",`📁 추적 (${tracking.length+positions.length})`],["lab","🔬 실험실"],["pool","🗃 종목풀"]];
+  const TABS=[["radar","🌐 시장"],["focus","🎯 집중"],["trade","💰 100"],["alpha","🔍 발굴"],["sniper","📊 차트"],["track",`📁 추적 (${tracking.length+positions.length})`],["lab","🔬 실험실"],["pool","🗃 종목풀"]];
 
   // ★ v2.5.0 FIX: minHeight → height + overflow:hidden — 외부는 viewport 고정, 내부 overflow:auto가 진짜 스크롤 영역이 되어야 RS Bar의 position:sticky가 컨테이너 상단(헤더 아래)에 정상 고정됨
   const pageStyle={height:"100vh",overflow:"hidden",background:"#000000",color:C.text,fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Display','Pretendard',sans-serif",display:"flex",flexDirection:"column",fontSize:12,WebkitFontSmoothing:"antialiased"};
@@ -3034,11 +3050,11 @@ export default function App() {
                 <span style={{fontSize:8,color:C.muted}}>정렬: {{turnover:"💰 거래대금",volRatio:"📊 평소대비",timing:"⚡ 타이밍",strength:"💪 강도",chg:"📈 1D",mktCap:"🏢 시가총액"}[tradeSort]}</span>
               </div>
               <div style={{overflowX:"auto"}}>
-                {/* ★ v2.5.7: 컬럼 순서 — 진입 판단 핵심(⚡💪) → 모멘텀(1D/3D/5D) → 보조(거래대금/평소대비/시총) */}
-                <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,minWidth:640,tableLayout:"fixed"}}>
+                {/* ★ v2.5.8: 거래대금/시총 컬럼 제거 — 평소대비(N.Nx)만 유지, 한 화면 fit */}
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,minWidth:480,tableLayout:"fixed"}}>
                   <thead>
                     <tr style={{background:"rgba(255,255,255,.04)",borderBottom:`2px solid ${C.border}`}}>
-                      {[["#",22],["종목",96],["⚡",30],["💪",30],["1D",44],["3D",44],["5D",44],["거래대금",70],["대비",42],["시총",54],["",30]].map(([h,w],i)=>(
+                      {[["#",22],["종목",80],["⚡",30],["💪",30],["1D",44],["3D",44],["5D",44],["대비",46],["",30]].map(([h,w],i)=>(
                         <th key={i} style={{padding:"6px 3px",textAlign:i===0?"center":i===1?"left":"right",color:"#FFD60A",fontSize:8,fontWeight:700,whiteSpace:"nowrap",width:w}}>{h}</th>
                       ))}
                     </tr>
@@ -3056,7 +3072,7 @@ export default function App() {
                           onClick={()=>navigateToStock(s.ticker, s.merged)}>
                           <td style={{padding:"5px 3px",textAlign:"center",fontSize:9,fontWeight:900,color:i<3?"#FFD60A":i<10?C.accent:C.muted}}>{i+1}</td>
                           <td style={{padding:"5px 5px"}}>
-                            <div style={{fontWeight:700,fontSize:10,maxWidth:92,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.label||s.ticker}</div>
+                            <div style={{fontWeight:700,fontSize:10,maxWidth:76,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.label||s.ticker}</div>
                             <div style={{fontSize:7,color:C.muted}}>{s.ticker} {s.isKR?"🇰🇷":"🇺🇸"}</div>
                           </td>
                           <td style={{padding:"5px 3px",textAlign:"right",fontSize:9,fontWeight:900,color:tColor}}>{s.timing||0}</td>
@@ -3064,9 +3080,7 @@ export default function App() {
                           <td style={{padding:"5px 3px",textAlign:"right",fontSize:9,fontWeight:700,color:s.changePct>=0?C.green:C.red}}>{s.changePct>=0?"+":""}{(s.changePct||0).toFixed(1)}%</td>
                           <td style={{padding:"5px 3px",textAlign:"right",fontSize:9,fontWeight:700,color:(s.chg3d||0)>=0?C.green:C.red}}>{(s.chg3d||0)>=0?"+":""}{(s.chg3d||0).toFixed(1)}%</td>
                           <td style={{padding:"5px 3px",textAlign:"right",fontSize:9,fontWeight:700,color:(s.chg5d||0)>=0?C.green:C.red}}>{(s.chg5d||0)>=0?"+":""}{(s.chg5d||0).toFixed(1)}%</td>
-                          <td style={{padding:"5px 4px",textAlign:"right",fontSize:9,fontWeight:700,color:"#FFD60A"}}>{fmtTurnover(s.turnover, s.isKR)}</td>
                           <td style={{padding:"5px 3px",textAlign:"right",fontSize:9,fontWeight:600,color:volColor}}>{volX}</td>
-                          <td style={{padding:"5px 3px",textAlign:"right",fontSize:9,fontWeight:600,color:C.text}}>{fmtMktCap(s.mktCap, s.isKR)}</td>
                           <td style={{padding:"5px 3px",textAlign:"center"}} onClick={e=>e.stopPropagation()}>
                             <button onClick={()=>{
                               if(inW){setWatchlist(w=>w.filter(x=>x.ticker!==s.ticker));setAddMsg(`☆ ${s.label||s.ticker} 제거`);}
@@ -3941,6 +3955,10 @@ export default function App() {
 
         {/* ══ TAB 4: 추적 (통합) ══ */}
         {tab==="track"&&<div style={{padding:"12px 14px"}}>
+          {/* ★ v2.5.8: 지수 RS 기준선 — sticky 고정 (차트탭과 동일 패턴) */}
+          <div style={{position:"sticky",top:0,zIndex:50,background:C.bg,marginTop:-12,marginLeft:-14,marginRight:-14,paddingLeft:14,paddingRight:14,paddingTop:12,paddingBottom:8,boxShadow:"0 2px 8px rgba(0,0,0,.4)"}}>
+            <RSBar/>
+          </div>
           <div style={{fontSize:12,fontWeight:900,color:C.accent,marginBottom:10}}>📊 추적 탭</div>
 
           {/* 4 서브탭 */}
@@ -3978,30 +3996,35 @@ export default function App() {
                       <span>기준 {isKR?"₩":"$"}{isKR?fmtKRW(t.basePrice):t.basePrice.toLocaleString()}</span>
                       <span>→ 현재 {isKR?"₩":"$"}{isKR?fmtKRW(cur):cur.toLocaleString()}</span>
                     </div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:4,marginBottom:8}}>
-                      <div style={{background:"rgba(255,159,10,.06)",borderRadius:5,padding:"4px",textAlign:"center",border:`1px solid ${tm.score>=55?"#FF9F0A":"transparent"}`}}>
+                    {/* ★ v2.5.8: 종합(foundScore) 제거 → 1D/3D/5D 변화율로 교체 + v2.5.x 임계값 통일 (35/60) */}
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr",gap:4,marginBottom:8}}>
+                      <div style={{background:"rgba(255,159,10,.06)",borderRadius:5,padding:"4px",textAlign:"center",border:`1px solid ${tm.score>=35?"#FF9F0A":"transparent"}`}}>
                         <div style={{fontSize:6,color:C.muted}}>⚡타이밍</div>
-                        <div style={{fontSize:14,fontWeight:900,color:tm.score>=55?"#FF9F0A":tm.score>=40?C.yellow:C.muted}}>{tm.score}</div>
+                        <div style={{fontSize:14,fontWeight:900,color:tm.score>=50?"#FF9F0A":tm.score>=35?C.yellow:C.muted}}>{tm.score}</div>
                       </div>
-                      <div style={{background:"rgba(48,209,88,.06)",borderRadius:5,padding:"4px",textAlign:"center",border:`1px solid ${dr.score>=55?C.emerald:"transparent"}`}}>
+                      <div style={{background:"rgba(48,209,88,.06)",borderRadius:5,padding:"4px",textAlign:"center",border:`1px solid ${dr.score>=60?C.emerald:"transparent"}`}}>
                         <div style={{fontSize:6,color:C.muted}}>💪강도</div>
-                        <div style={{fontSize:14,fontWeight:900,color:dr.score>=55?C.emerald:dr.score>=40?C.green:C.muted}}>{dr.score}</div>
-                      </div>
-                      <div style={{background:"rgba(0,0,0,.4)",borderRadius:5,padding:"4px",textAlign:"center"}}>
-                        <div style={{fontSize:6,color:C.muted}}>종합</div>
-                        <div style={{fontSize:14,fontWeight:900,color:C.accent}}>{t.foundScore||"—"}</div>
+                        <div style={{fontSize:14,fontWeight:900,color:dr.score>=75?C.emerald:dr.score>=60?C.green:C.muted}}>{dr.score}</div>
                       </div>
                       <div style={{background:"rgba(0,0,0,.4)",borderRadius:5,padding:"4px",textAlign:"center"}}>
                         <div style={{fontSize:6,color:C.muted}}>1D</div>
-                        <div style={{fontSize:14,fontWeight:900,color:(info?.changePct||0)>=0?C.green:C.red}}>{(info?.changePct||0)>=0?"+":""}{(info?.changePct||0).toFixed(1)}%</div>
+                        <div style={{fontSize:13,fontWeight:900,color:(info?.changePct||0)>=0?C.green:C.red}}>{(info?.changePct||0)>=0?"+":""}{(info?.changePct||0).toFixed(1)}%</div>
+                      </div>
+                      <div style={{background:"rgba(0,0,0,.4)",borderRadius:5,padding:"4px",textAlign:"center"}}>
+                        <div style={{fontSize:6,color:C.muted}}>3D</div>
+                        <div style={{fontSize:13,fontWeight:900,color:(info?.chg3d||0)>=0?C.green:C.red}}>{(info?.chg3d||0)>=0?"+":""}{(info?.chg3d||0).toFixed(1)}%</div>
+                      </div>
+                      <div style={{background:"rgba(0,0,0,.4)",borderRadius:5,padding:"4px",textAlign:"center"}}>
+                        <div style={{fontSize:6,color:C.muted}}>5D</div>
+                        <div style={{fontSize:13,fontWeight:900,color:(info?.chg5d||0)>=0?C.green:C.red}}>{(info?.chg5d||0)>=0?"+":""}{(info?.chg5d||0).toFixed(1)}%</div>
                       </div>
                     </div>
                     {(t.foundSignals||[]).length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:2,marginBottom:6}}>
                       <span style={{fontSize:7,color:C.muted}}>등록사유:</span>
                       {t.foundSignals.slice(0,4).map(sig=><span key={sig} style={{fontSize:6,padding:"1px 4px",borderRadius:2,background:"rgba(56,189,248,.1)",color:C.accent}}>{sig}</span>)}
                     </div>}
-                    {tm.score>=55&&dr.score>=55&&<div style={{background:"rgba(48,209,88,.08)",borderRadius:5,padding:"4px 8px",marginBottom:6,textAlign:"center"}}>
-                      <span style={{fontSize:8,fontWeight:700,color:C.emerald}}>✅ 진입 조건 충족 — 매수 전환 검토</span>
+                    {tm.score>=35&&dr.score>=60&&<div style={{background:"rgba(48,209,88,.08)",borderRadius:5,padding:"4px 8px",marginBottom:6,textAlign:"center"}}>
+                      <span style={{fontSize:8,fontWeight:700,color:C.emerald}}>✅ 진입 조건 충족 (⚡35+ 💪60+) — 매수 전환 검토</span>
                     </div>}
                     <div style={{display:"flex",gap:6}}>
                       <button onClick={()=>navigateToStock(t.ticker,t)} style={{flex:1,background:"rgba(56,189,248,.1)",border:`1px solid ${C.accent}`,color:C.accent,borderRadius:6,padding:"6px 0",cursor:"pointer",fontSize:9,fontWeight:700}}>📊 차트</button>
