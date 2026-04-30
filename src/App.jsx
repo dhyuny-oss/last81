@@ -1,5 +1,15 @@
 /**
- * Alpha Terminal v2.6.5 — App.jsx
+ * Alpha Terminal v2.6.6 — App.jsx
+ * v2.6.6: [한국 종목 거래대금 데이터 정확도 개선 — KIS API 직접 활용]
+ *          [의도] 새로고침마다 거래탭 1등이 바뀌는 문제 (ISC, 코오롱인더, KT&G, 고려아연 등)
+ *                 = Yahoo candles의 한국 종목 마지막 봉 volume 데이터 신뢰 어려움
+ *          [해결] 한투(KIS) API의 정확한 거래대금을 stocks.json에 저장하고 우선 사용
+ *                 - fetch_yahoo.py v2.4.11에서 kisTurnover 필드 추가
+ *                 - App에서 한국 종목은 kisTurnover 우선, 없으면 candles 폴백
+ *                 - 미국 종목은 기존 그대로 (Yahoo 데이터 신뢰 가능)
+ *          [영향] App.jsx 1곳 (turnover 계산 분기)
+ *                 fetch_yahoo.py도 같이 v2.4.11로 업데이트 필요
+ *                 ※ 새 데이터 받으려면 daily 워크플로 1회 실행 필요
  * v2.6.5: [거래탭 필터 전부 제거 — 단순 거래대금 순 복원 (사용자 원래 의도)]
  *          [의도] 사용자: "그냥 단순하게 거래대금순으로 보고 싶었어"
  *                 = 삼성전자, NVDA, SK하이닉스가 위에 보이는 평범한 거래대금 순위
@@ -3179,14 +3189,19 @@ export default function App() {
               // 시장 필터
               if (tradeMarket==="kr" && !isKR) return null;
               if (tradeMarket==="us" && isKR) return null;
-              // 거래대금 = volume × close (마지막 봉)
-              // ★ v2.6.4: 마지막 봉 volume이 0이면 (hourly 부분 갱신 등) 직전 5봉 평균으로 대체
-              let turnover = (last.volume||0) * (last.close||0);
-              if (turnover <= 0 && cData.length >= 6) {
-                // 직전 5봉 거래대금 평균 (마지막 봉 제외)
-                const prior5 = cData.slice(-6, -1);
-                const sum5 = prior5.reduce((acc, c) => acc + ((c.volume||0) * (c.close||0)), 0);
-                turnover = sum5 / 5;
+              // ★ v2.6.6: 한국 종목은 KIS 거래대금 우선 (Yahoo candles 신뢰 어려움)
+              //          미국 종목은 candles의 volume × close 그대로
+              let turnover = 0;
+              if (isKR && info.kisTurnover && info.kisTurnover > 0) {
+                turnover = info.kisTurnover;  // 한투 정확한 거래대금
+              } else {
+                turnover = (last.volume||0) * (last.close||0);
+                // 마지막 봉 volume 0 = hourly 부분 갱신 → 직전 5봉 평균
+                if (turnover <= 0 && cData.length >= 6) {
+                  const prior5 = cData.slice(-6, -1);
+                  const sum5 = prior5.reduce((acc, c) => acc + ((c.volume||0) * (c.close||0)), 0);
+                  turnover = sum5 / 5;
+                }
               }
               if (turnover <= 0) return null;
               // 점수 (옵션)
