@@ -1,5 +1,19 @@
 /**
- * Alpha Terminal v2.6.4 — App.jsx
+ * Alpha Terminal v2.6.5 — App.jsx
+ * v2.6.5: [거래탭 필터 전부 제거 — 단순 거래대금 순 복원 (사용자 원래 의도)]
+ *          [의도] 사용자: "그냥 단순하게 거래대금순으로 보고 싶었어"
+ *                 = 삼성전자, NVDA, SK하이닉스가 위에 보이는 평범한 거래대금 순위
+ *          [v2.6.3/v2.6.4 회고] 데이터 이상(KT&G 1등 등)을 App에서 필터로 해결하려 했으나
+ *                 강한 필터가 정상 종목까지 빼버려 더 이상한 결과 (122개 제외, ISC가 1등)
+ *                 → 데이터 이상은 fetch_yahoo.py에서 해결할 일, App은 신뢰
+ *          [복원]
+ *                 - tradeListFiltered 제거 → tradeList 직접 사용
+ *                 - 회전율/풀 평균 필터 모두 제거
+ *                 - 이상치 안내 배너 제거
+ *                 - 단, v2.6.4의 마지막 봉 volume 0 폴백은 유지
+ *                   (정상 데이터 누락 보호 — 정상 종목 살리는 효과)
+ *          [영향] App.jsx 1곳 (거래탭 필터 제거)
+ *                 결과: 데이터 약간 이상한 종목이 1등 나올 수 있지만 사용자 분이 직접 판단
  * v2.6.4: [거래대금 필터 강화 — KT&G 1등 버그 등 한국 종목 데이터 이상 보호]
  *          [문제 v2.6.3 후속] 119개 자동 제외됐는데도 KT&G가 1등으로 나옴
  *                 = 정상 종목(삼성전자/SK하이닉스 등)까지 필터에 걸려 빠짐
@@ -3193,36 +3207,10 @@ export default function App() {
               };
             }).filter(Boolean);
 
-            // ★ v2.6.4: 거래대금 다중 검증 강화 (KT&G 1등 버그 등)
-            // 한국 종목 데이터 단위/누락 이슈로 정상 종목까지 빠지는 문제 → 더 강한 다중 필터
-            const tradeMedianTurnover = (() => {
-              const arr = tradeList.map(s => s.turnover).filter(v => v > 0).sort((a,b) => a-b);
-              return arr.length ? arr[Math.floor(arr.length / 2)] : 0;
-            })();
-            const tradeListFiltered = tradeList.filter(s => {
-              // 1) 종가 합리성 — 0 또는 음수 = 데이터 오류
-              if (!s.price || s.price <= 0) return false;
-              // 2) 거래대금 절대값 합리성
-              if (s.isKR) {
-                // 한국: 100억 원 미만 (거래 거의 없음) 또는 100조 원 초과 (불가능)
-                if (s.turnover < 1e10 || s.turnover > 1e14) return false;
-              } else {
-                // 미국: 100만 달러 미만 또는 1조 달러 초과
-                if (s.turnover < 1e6 || s.turnover > 1e12) return false;
-              }
-              // 3) 회전율 검증 (시총 있는 경우) — 50% 초과 = 데이터 오류 (강화)
-              if (s.mktCap > 0) {
-                const mktCapAbs = s.isKR ? s.mktCap * 1e8 : s.mktCap * 1e9;
-                const turnoverRatio = mktCapAbs > 0 ? s.turnover / mktCapAbs : 0;
-                if (turnoverRatio > 0.5) return false;  // 50%↑ = 데이터 오류
-              }
-              // 4) 풀 평균 비교 (중앙값의 30배 초과 = 이상치, 강화)
-              if (tradeMedianTurnover > 0 && s.turnover > tradeMedianTurnover * 30) return false;
-              return true;
-            });
-            const outlierCount = tradeList.length - tradeListFiltered.length;
+            // ★ v2.6.5: 모든 이상치 필터 제거 — 단순 거래대금 순 (사용자 원래 의도)
+            // tradeList 그대로 사용. 데이터 이상은 fetch_yahoo.py 책임.
             // 정렬
-            const sorted = [...tradeListFiltered].sort((a,b)=>{
+            const sorted = [...tradeList].sort((a,b)=>{
               switch(tradeSort) {
                 case "volRatio": return (b.volR||0)-(a.volR||0);
                 case "timing":   return (b.timing||0)-(a.timing||0) || (b.turnover||0)-(a.turnover||0);
@@ -3253,8 +3241,6 @@ export default function App() {
             }
 
             return <div style={{...css.card,padding:0,overflow:"hidden"}}>
-              {/* ★ v2.6.3: 이상치 자동 제외 안내 (회전율 100%↑ 또는 평균 50배↑) */}
-              {outlierCount > 0 && <div style={{fontSize:7,color:C.muted,padding:"4px 12px",background:"rgba(255,69,58,.06)",borderBottom:`1px solid rgba(255,69,58,.15)`}}>⚠️ 거래대금 이상치 <b>{outlierCount}개</b> 자동 제외 (회전율 100%↑ 또는 풀 평균 50배↑ — 데이터 오류 보호)</div>}
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",borderBottom:`1px solid ${C.border}`,background:"rgba(255,214,10,.04)"}}>
                 <span style={{fontSize:10,fontWeight:700,color:"#FFD60A"}}>📊 TOP {sorted.length} {tradeMarket==="kr"?"🇰🇷":tradeMarket==="us"?"🇺🇸":"전체"}</span>
                 <span style={{fontSize:8,color:C.muted}}>정렬: {{turnover:"💰 거래대금",volRatio:"📊 평소대비",timing:"⚡ 타이밍",strength:"💪 강도",chg:"📈 1D",mktCap:"🏢 시가총액"}[tradeSort]}</span>
