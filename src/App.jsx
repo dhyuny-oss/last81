@@ -1,5 +1,17 @@
 /**
- * Alpha Terminal v2.6.2 — App.jsx
+ * Alpha Terminal v2.6.3 — App.jsx
+ * v2.6.3: [거래탭 거래대금 이상치 자동 제외 (태광산업/고려아연 1등 버그 수정)]
+ *          [문제] 거래탭에서 태광산업, 고려아연이 거래대금 1등으로 표시됨
+ *                 두 종목은 초고가 + 저거래량 종목이라 정상이면 1등 불가능
+ *                 → fetch 단계에서 한국 일부 종목 volume 데이터 비정상
+ *          [해결] App에서 자체 검증 — 회전율 + 풀 평균 비교로 이상치 자동 제외
+ *                 1) 시총 있는 종목: 일일 회전율(거래대금/시총) > 100% = 제외
+ *                    (1일에 시총 전체만큼 거래 = 거의 불가능, 데이터 오류)
+ *                 2) 시총 없는 종목: 풀 평균 거래대금의 50배↑ = 제외 (이상치)
+ *                 3) 제외된 종목 수 안내 표시
+ *          [영향] App.jsx 1곳 (거래탭 tradeList 필터)
+ *                 시총 컬럼 100탭에는 그대로 추가 안 함 (사용자 요청)
+ *                 fetch_yahoo.py: 변경 없음 (데이터 이슈는 별도 PR)
  * v2.6.2: [재무 3지표 카드 추가 — 차트탭 가격레벨 위]
  *          [지표] 분기 매출 YoY 성장률 / 분기 EPS YoY 성장률 / 52주 고점 대비 %
  *          [데이터]
@@ -3159,8 +3171,31 @@ export default function App() {
               };
             }).filter(Boolean);
 
+            // ★ v2.6.3: 거래대금 이상치 자동 제외 (태광산업/고려아연 1등 버그 방지)
+            //   1) 시총 있는 종목: 일일 회전율(거래대금/시총) > 100% = 제외 (데이터 오류)
+            //      - 한국: mktCap이 억 단위 → turnover(원) / (mktCap×1억) = 회전율
+            //      - 미국: mktCap이 B(십억$) 단위 → turnover($) / (mktCap×10억) = 회전율
+            //   2) 시총 없는 종목: 풀 평균 거래대금의 50배↑ = 제외 (이상치)
+            //   3) 정상 종목만 남기되, 빠진 개수는 사용자에게 안내
+            const tradeMedianTurnover = (() => {
+              const arr = tradeList.map(s => s.turnover).filter(v => v > 0).sort((a,b) => a-b);
+              return arr.length ? arr[Math.floor(arr.length / 2)] : 0;
+            })();
+            const tradeListFiltered = tradeList.filter(s => {
+              if (s.mktCap > 0) {
+                // 시총 있음 — 회전율 검증
+                const mktCapAbs = s.isKR ? s.mktCap * 1e8 : s.mktCap * 1e9;
+                const turnoverRatio = mktCapAbs > 0 ? s.turnover / mktCapAbs : 0;
+                if (turnoverRatio > 1.0) return false;  // 100%↑ = 데이터 오류
+              } else {
+                // 시총 없음 — 풀 평균(중앙값) 비교
+                if (tradeMedianTurnover > 0 && s.turnover > tradeMedianTurnover * 50) return false;
+              }
+              return true;
+            });
+            const outlierCount = tradeList.length - tradeListFiltered.length;
             // 정렬
-            const sorted = [...tradeList].sort((a,b)=>{
+            const sorted = [...tradeListFiltered].sort((a,b)=>{
               switch(tradeSort) {
                 case "volRatio": return (b.volR||0)-(a.volR||0);
                 case "timing":   return (b.timing||0)-(a.timing||0) || (b.turnover||0)-(a.turnover||0);
@@ -3191,6 +3226,8 @@ export default function App() {
             }
 
             return <div style={{...css.card,padding:0,overflow:"hidden"}}>
+              {/* ★ v2.6.3: 이상치 자동 제외 안내 (회전율 100%↑ 또는 평균 50배↑) */}
+              {outlierCount > 0 && <div style={{fontSize:7,color:C.muted,padding:"4px 12px",background:"rgba(255,69,58,.06)",borderBottom:`1px solid rgba(255,69,58,.15)`}}>⚠️ 거래대금 이상치 <b>{outlierCount}개</b> 자동 제외 (회전율 100%↑ 또는 풀 평균 50배↑ — 데이터 오류 보호)</div>}
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",borderBottom:`1px solid ${C.border}`,background:"rgba(255,214,10,.04)"}}>
                 <span style={{fontSize:10,fontWeight:700,color:"#FFD60A"}}>📊 TOP {sorted.length} {tradeMarket==="kr"?"🇰🇷":tradeMarket==="us"?"🇺🇸":"전체"}</span>
                 <span style={{fontSize:8,color:C.muted}}>정렬: {{turnover:"💰 거래대금",volRatio:"📊 평소대비",timing:"⚡ 타이밍",strength:"💪 강도",chg:"📈 1D",mktCap:"🏢 시가총액"}[tradeSort]}</span>
