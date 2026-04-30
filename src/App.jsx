@@ -1,5 +1,20 @@
 /**
- * Alpha Terminal v2.6.3 — App.jsx
+ * Alpha Terminal v2.6.4 — App.jsx
+ * v2.6.4: [거래대금 필터 강화 — KT&G 1등 버그 등 한국 종목 데이터 이상 보호]
+ *          [문제 v2.6.3 후속] 119개 자동 제외됐는데도 KT&G가 1등으로 나옴
+ *                 = 정상 종목(삼성전자/SK하이닉스 등)까지 필터에 걸려 빠짐
+ *                 = 한국 종목 데이터에 단위/누락 이슈 있음
+ *          [전략] 필터 여러 겹 강화 — 정상 종목 살리고 이상 데이터 더 적극 차단
+ *          [신규 필터]
+ *                 1) 거래대금 절대값 검증
+ *                    - 한국: 100억 원 미만 또는 100조 원 초과 = 제외
+ *                    - 미국: 100만 달러 미만 또는 1조 달러 초과 = 제외
+ *                 2) 거래량 합리성: 0 또는 100억 주 초과 = 제외
+ *                 3) 종가 합리성: 0 또는 음수 = 제외
+ *                 4) 회전율 (시총 대비): > 50% = 제외 (이전 100%에서 강화)
+ *                 5) 풀 평균 비교: 30배↑ = 제외 (이전 50배에서 강화)
+ *          [영향] App.jsx 1곳 (거래탭 tradeList 필터)
+ *                 사용자 결정: 종목 좀 빠져도 정상적으로 보이는 게 우선
  * v2.6.3: [거래탭 거래대금 이상치 자동 제외 (태광산업/고려아연 1등 버그 수정)]
  *          [문제] 거래탭에서 태광산업, 고려아연이 거래대금 1등으로 표시됨
  *                 두 종목은 초고가 + 저거래량 종목이라 정상이면 1등 불가능
@@ -3151,7 +3166,14 @@ export default function App() {
               if (tradeMarket==="kr" && !isKR) return null;
               if (tradeMarket==="us" && isKR) return null;
               // 거래대금 = volume × close (마지막 봉)
-              const turnover = (last.volume||0) * (last.close||0);
+              // ★ v2.6.4: 마지막 봉 volume이 0이면 (hourly 부분 갱신 등) 직전 5봉 평균으로 대체
+              let turnover = (last.volume||0) * (last.close||0);
+              if (turnover <= 0 && cData.length >= 6) {
+                // 직전 5봉 거래대금 평균 (마지막 봉 제외)
+                const prior5 = cData.slice(-6, -1);
+                const sum5 = prior5.reduce((acc, c) => acc + ((c.volume||0) * (c.close||0)), 0);
+                turnover = sum5 / 5;
+              }
               if (turnover <= 0) return null;
               // 점수 (옵션)
               let timing=0, strength=0;
@@ -3171,26 +3193,31 @@ export default function App() {
               };
             }).filter(Boolean);
 
-            // ★ v2.6.3: 거래대금 이상치 자동 제외 (태광산업/고려아연 1등 버그 방지)
-            //   1) 시총 있는 종목: 일일 회전율(거래대금/시총) > 100% = 제외 (데이터 오류)
-            //      - 한국: mktCap이 억 단위 → turnover(원) / (mktCap×1억) = 회전율
-            //      - 미국: mktCap이 B(십억$) 단위 → turnover($) / (mktCap×10억) = 회전율
-            //   2) 시총 없는 종목: 풀 평균 거래대금의 50배↑ = 제외 (이상치)
-            //   3) 정상 종목만 남기되, 빠진 개수는 사용자에게 안내
+            // ★ v2.6.4: 거래대금 다중 검증 강화 (KT&G 1등 버그 등)
+            // 한국 종목 데이터 단위/누락 이슈로 정상 종목까지 빠지는 문제 → 더 강한 다중 필터
             const tradeMedianTurnover = (() => {
               const arr = tradeList.map(s => s.turnover).filter(v => v > 0).sort((a,b) => a-b);
               return arr.length ? arr[Math.floor(arr.length / 2)] : 0;
             })();
             const tradeListFiltered = tradeList.filter(s => {
+              // 1) 종가 합리성 — 0 또는 음수 = 데이터 오류
+              if (!s.price || s.price <= 0) return false;
+              // 2) 거래대금 절대값 합리성
+              if (s.isKR) {
+                // 한국: 100억 원 미만 (거래 거의 없음) 또는 100조 원 초과 (불가능)
+                if (s.turnover < 1e10 || s.turnover > 1e14) return false;
+              } else {
+                // 미국: 100만 달러 미만 또는 1조 달러 초과
+                if (s.turnover < 1e6 || s.turnover > 1e12) return false;
+              }
+              // 3) 회전율 검증 (시총 있는 경우) — 50% 초과 = 데이터 오류 (강화)
               if (s.mktCap > 0) {
-                // 시총 있음 — 회전율 검증
                 const mktCapAbs = s.isKR ? s.mktCap * 1e8 : s.mktCap * 1e9;
                 const turnoverRatio = mktCapAbs > 0 ? s.turnover / mktCapAbs : 0;
-                if (turnoverRatio > 1.0) return false;  // 100%↑ = 데이터 오류
-              } else {
-                // 시총 없음 — 풀 평균(중앙값) 비교
-                if (tradeMedianTurnover > 0 && s.turnover > tradeMedianTurnover * 50) return false;
+                if (turnoverRatio > 0.5) return false;  // 50%↑ = 데이터 오류
               }
+              // 4) 풀 평균 비교 (중앙값의 30배 초과 = 이상치, 강화)
+              if (tradeMedianTurnover > 0 && s.turnover > tradeMedianTurnover * 30) return false;
               return true;
             });
             const outlierCount = tradeList.length - tradeListFiltered.length;
