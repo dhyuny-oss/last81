@@ -1,5 +1,22 @@
 /**
- * Alpha Terminal v2.6.1 — App.jsx
+ * Alpha Terminal v2.6.2 — App.jsx
+ * v2.6.2: [재무 3지표 카드 추가 — 차트탭 가격레벨 위]
+ *          [지표] 분기 매출 YoY 성장률 / 분기 EPS YoY 성장률 / 52주 고점 대비 %
+ *          [데이터]
+ *                 - financials[ticker].epsQuarterly: [{date:"4Q2024", actual, estimate}, ...]
+ *                 - financials[ticker].revQuarterly: [{date:"4Q2024", revenue, earnings}, ...]
+ *                 - 52주 고점은 candles 데이터에서 max() 계산 (추가 API 호출 0)
+ *          [YoY 계산]
+ *                 - 같은 분기 동기 비교 (예: 4Q2024 vs 4Q2023)
+ *                 - 분기 라벨 매칭으로 작년 동분기 찾음
+ *          [데이터 가용성]
+ *                 - 미국 종목: 대부분 가용 (Yahoo earnings 모듈)
+ *                 - 한국 종목: 거의 없음 — 데이터 없으면 카드 자체 미표시 (사용자 결정)
+ *          [위치] 차트탭 가격 정보 묶음(가격레벨/매물대/가격위치) 직전
+ *                 의미적으로 펀더멘털(왜) → 가격대(어디서) 흐름
+ *          [영향] App.jsx 2곳 (헬퍼 함수 / 차트탭 카드)
+ *                 fetch_yahoo.py: 변경 없음 (quarterly 모드 이미 활성화돼 있음 — v2.5.0)
+ *                 quarterly.yml: 신규 생성 (매월 1일 자동 수집)
  * v2.6.1: [100탭 한 화면 압축 + 집중탭 갭다운 종목 자동 제외]
  *          [100탭 컬럼 압축]
  *                 - 종목명 80px → 64px
@@ -1178,6 +1195,74 @@ function fmtTurnover(v, isKR) {
   return `${(v/1e3).toFixed(0)}K`;
 }
 
+// ★ v2.6.2: 재무 분기 데이터 헬퍼 함수
+//   financials[ticker] = {
+//     epsQuarterly: [{date:"4Q2024", actual, estimate}, ...],  // 4~5분기
+//     revQuarterly: [{date:"4Q2024", revenue, earnings}, ...]
+//   }
+
+// 분기 라벨 파싱 — "4Q2024" → {q:4, y:2024}
+function parseQuarterLabel(label) {
+  if (!label || typeof label !== "string") return null;
+  const m = label.match(/^(\d)Q(\d{4})$/);
+  if (!m) return null;
+  return { q: parseInt(m[1]), y: parseInt(m[2]) };
+}
+
+// YoY 성장률 계산 — 가장 최근 분기 vs 작년 동분기
+//   배열에서 같은 분기 라벨 (예: 4Q2024와 4Q2023) 찾아서 비교
+//   리턴: { latest, prior, yoyPct, latestLabel, priorLabel } 또는 null
+function calcYoY(quarterly, valueKey) {
+  if (!Array.isArray(quarterly) || quarterly.length < 2) return null;
+  // 최신 분기 (가장 마지막 항목 가정 — Yahoo가 시간 순으로 줌)
+  // 안전하게 라벨 파싱해서 가장 최근 분기 찾음
+  const parsed = quarterly.map(q => ({ ...q, parsed: parseQuarterLabel(q.date) })).filter(q => q.parsed);
+  if (parsed.length < 2) return null;
+  parsed.sort((a, b) => (b.parsed.y * 4 + b.parsed.q) - (a.parsed.y * 4 + a.parsed.q));
+  const latest = parsed[0];
+  // 작년 동분기 찾기 (같은 q, y-1)
+  const prior = parsed.find(p => p.parsed.q === latest.parsed.q && p.parsed.y === latest.parsed.y - 1);
+  if (!prior) return null;
+  const lv = latest[valueKey];
+  const pv = prior[valueKey];
+  if (lv == null || pv == null || pv === 0) return null;
+  // 매출/EPS는 음수일 수 있음 (적자 분기) — pv가 0 가까우면 의미 없음
+  if (Math.abs(pv) < 1e-6) return null;
+  const yoyPct = ((lv - pv) / Math.abs(pv)) * 100;
+  return {
+    latest: lv,
+    prior: pv,
+    yoyPct: Math.round(yoyPct * 10) / 10,
+    latestLabel: latest.date,
+    priorLabel: prior.date,
+  };
+}
+
+// 52주 고점 대비 % — candles에서 직접 계산
+//   리턴: { high52, currentPrice, pctFromHigh, daysFromHigh } 또는 null
+function calc52WeekHigh(candles) {
+  if (!Array.isArray(candles) || candles.length < 20) return null;
+  // 최근 252봉 (1년 영업일) 또는 전체
+  const recent = candles.slice(-252);
+  let high = -Infinity, highIdx = -1;
+  for (let i = 0; i < recent.length; i++) {
+    const h = recent[i].high || recent[i].close;
+    if (h > high) { high = h; highIdx = i; }
+  }
+  if (high === -Infinity) return null;
+  const last = recent[recent.length - 1];
+  const cur = last.close;
+  if (!cur) return null;
+  const pctFromHigh = ((cur - high) / high) * 100;
+  const daysFromHigh = recent.length - 1 - highIdx;
+  return {
+    high52: high,
+    currentPrice: cur,
+    pctFromHigh: Math.round(pctFromHigh * 10) / 10,
+    daysFromHigh,
+  };
+}
+
 function exportCSV(closedLog) {
   if (!closedLog?.length) return;
   const headers = ["종목","티커","진입가","청산가","손익%","진입일","청산일","보유일수","청산사유","신호"];
@@ -1374,6 +1459,8 @@ export default function App() {
   const [poolFilter, setPoolFilter] = useState("");
   const [poolMarket, setPoolMarket] = useState("all");
   const [poolMsg, setPoolMsg]   = useState("");
+  // ★ v2.6.2: 분기 재무 데이터 (epsQuarterly, revQuarterly)
+  const [financials, setFinancials] = useState({});
   const [watchlist, setWatchlist] = useState(()=>{try{const s=localStorage.getItem("at_watchlist");return s?JSON.parse(s):[];}catch{return [];}});
 
   // ── 백테스트 ────────────────────────────────────────────
@@ -1462,6 +1549,8 @@ export default function App() {
           console.log(`[Alpha] 풀 로드: 총 ${poolEntries.length}개 (🇰🇷${krCount} 🇺🇸${usCount})`,usCount<10?"⚠️ US 종목 부족! 백엔드 스크립트 확인 필요":"");
         }
         if(json.ibVol) setIbVol(json.ibVol);
+        // ★ v2.6.2: 분기 재무 데이터 로드 (quarterly 워크플로가 stocks.json에 누적)
+        if(json.financials) setFinancials(json.financials);
         if(Object.keys(stocksJson).length>0){
           setStocks(prev=>prev.map(s=>{
             const real=stocksJson[s.ticker];if(!real)return s;
@@ -3775,6 +3864,61 @@ export default function App() {
               </>;
             })()}
           </div>
+
+          {/* ★ v2.6.2: 재무 3지표 카드 — 가격레벨 위 (펀더멘털 → 가격대 흐름) */}
+          {(()=>{
+            const fin = financials[sel];
+            const candles = cd?.data;
+            const isKR = (selInfo?.market||"").includes("kr") || (sel||"").length > 5;
+            // 분기 데이터 (미국 종목 위주)
+            const revYoY = fin?.revQuarterly ? calcYoY(fin.revQuarterly, "revenue") : null;
+            const epsYoY = fin?.epsQuarterly ? calcYoY(fin.epsQuarterly, "actual") : null;
+            // 52주 고점은 candles에서 (한국/미국 모두)
+            const w52 = candles ? calc52WeekHigh(candles) : null;
+            // 재무 데이터 하나도 없으면 카드 자체 미표시 (한국 종목 대부분)
+            if (!revYoY && !epsYoY && !w52) return null;
+
+            const fmtPct = (v) => v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
+            const yoyColor = (v) => v == null ? C.muted : v >= 20 ? C.emerald : v >= 0 ? C.green : v >= -10 ? C.yellow : C.red;
+            const w52Color = (v) => v == null ? C.muted : v >= -5 ? C.emerald : v >= -15 ? C.green : v >= -30 ? C.yellow : C.muted;
+
+            return <div style={{...css.card,marginBottom:8,padding:"10px 12px"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+                <span style={{fontSize:10,fontWeight:700,color:C.accent}}>📊 재무 핵심</span>
+                <span style={{fontSize:7,color:C.muted}}>분기 YoY 성장률 + 52주 고점 대비</span>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
+                {/* 매출 YoY */}
+                <div style={{background:revYoY?`${yoyColor(revYoY.yoyPct)}10`:"rgba(255,255,255,.02)",border:`1px solid ${revYoY?`${yoyColor(revYoY.yoyPct)}40`:C.border}`,borderRadius:6,padding:"8px",textAlign:"center"}}>
+                  <div style={{fontSize:7,color:C.muted,marginBottom:2}}>📈 매출 YoY</div>
+                  <div style={{fontSize:16,fontWeight:900,color:yoyColor(revYoY?.yoyPct),lineHeight:1.1}}>{fmtPct(revYoY?.yoyPct)}</div>
+                  {revYoY && <div style={{fontSize:6,color:C.muted,marginTop:2}}>{revYoY.latestLabel} vs {revYoY.priorLabel}</div>}
+                  {!revYoY && <div style={{fontSize:6,color:C.muted,marginTop:2}}>{isKR?"한국 종목":"데이터 수집 대기"}</div>}
+                </div>
+                {/* EPS YoY */}
+                <div style={{background:epsYoY?`${yoyColor(epsYoY.yoyPct)}10`:"rgba(255,255,255,.02)",border:`1px solid ${epsYoY?`${yoyColor(epsYoY.yoyPct)}40`:C.border}`,borderRadius:6,padding:"8px",textAlign:"center"}}>
+                  <div style={{fontSize:7,color:C.muted,marginBottom:2}}>💰 EPS YoY</div>
+                  <div style={{fontSize:16,fontWeight:900,color:yoyColor(epsYoY?.yoyPct),lineHeight:1.1}}>{fmtPct(epsYoY?.yoyPct)}</div>
+                  {epsYoY && <div style={{fontSize:6,color:C.muted,marginTop:2}}>{epsYoY.latestLabel} vs {epsYoY.priorLabel}</div>}
+                  {!epsYoY && <div style={{fontSize:6,color:C.muted,marginTop:2}}>{isKR?"한국 종목":"데이터 수집 대기"}</div>}
+                </div>
+                {/* 52주 고점 대비 */}
+                <div style={{background:w52?`${w52Color(w52.pctFromHigh)}10`:"rgba(255,255,255,.02)",border:`1px solid ${w52?`${w52Color(w52.pctFromHigh)}40`:C.border}`,borderRadius:6,padding:"8px",textAlign:"center"}}>
+                  <div style={{fontSize:7,color:C.muted,marginBottom:2}}>🏔 52주 고점</div>
+                  <div style={{fontSize:16,fontWeight:900,color:w52Color(w52?.pctFromHigh),lineHeight:1.1}}>{fmtPct(w52?.pctFromHigh)}</div>
+                  {w52 && <div style={{fontSize:6,color:C.muted,marginTop:2}}>{w52.daysFromHigh===0?"오늘":w52.daysFromHigh+"일 전"} 신고가</div>}
+                </div>
+              </div>
+              {/* 해석 라벨 — 사용자 매수 철학 정합 */}
+              {(revYoY||epsYoY||w52)&&<div style={{fontSize:7,color:C.muted,marginTop:6,padding:"4px 6px",background:"rgba(0,0,0,.2)",borderRadius:4,fontStyle:"italic"}}>
+                {(revYoY?.yoyPct>=20&&epsYoY?.yoyPct>=20)?"✓ 매출+이익 동반 강성장 — 추세 떠받칠 펀더멘털 양호":
+                 (revYoY?.yoyPct<0&&epsYoY?.yoyPct<0)?"⚠️ 매출+이익 동반 역성장 — 추세 약화 가능성":
+                 (w52?.pctFromHigh>=-5)?"✓ 52주 신고가 근처 — 강한 추세 진행 중":
+                 (w52?.pctFromHigh<=-30)?"⚠️ 52주 고점 -30% 이하 — 추세 식음":
+                 "참고: 펀더멘털은 보조, 매수 판단은 ⚡💪 점수 우선"}
+              </div>}
+            </div>;
+          })()}
 
           {/* ★ v2.5.2: 가격 정보 묶음 (가격레벨/매물대/가격위치) — 지표현황 다음으로 이동됨 */}
           {/* ★ v2.3: 피보/저항선 돌파 체크 */}
