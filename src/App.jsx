@@ -1,5 +1,25 @@
 /**
- * Alpha Terminal v2.5.9 — App.jsx
+ * Alpha Terminal v2.6.1 — App.jsx
+ * v2.6.1: [100탭 한 화면 압축 + 집중탭 갭다운 종목 자동 제외]
+ *          [100탭 컬럼 압축]
+ *                 - 종목명 80px → 64px
+ *                 - 1D/3D/5D 3컬럼 → "변화율" 통합 1컬럼 (3줄로 표시: +0.5/+1.2/+5.8)
+ *                 - 다른 컬럼 폭 미세 조정
+ *                 - minWidth 480px → 약 320px (휴대폰 한 화면 fit, 가로 스크롤 X)
+ *          [집중탭 갭다운 자동 제외]
+ *                 - 현재가(hourly) vs 어제 종가(daily) 비교
+ *                 - 차이 -2% 이상 = 갭다운 또는 장 초반 급락 진행 중
+ *                 - 종합평점/돌파감지/진입적기 3 카드에서 자동 제외
+ *                 - "[N]개 (갭다운 제외)" 식으로 카운트 표시
+ *                 - 발굴/100/추적/실험실 탭은 영향 없음 (집중탭만)
+ *          [영향] App.jsx 2곳 (100탭 테이블 / 집중탭 카드 필터)
+ * v2.6.0: [수동 갱신 버튼 추가 — GitHub Actions 페이지 링크]
+ *          [의도] daily/hourly 워크플로 외에 수동으로 데이터 갱신하고 싶을 때
+ *          [방식] 헤더 ⚙ 톱니 옆에 🔄 버튼 → 새 탭으로 GitHub Actions 페이지 열림
+ *                 사용자가 거기서 "Run workflow" 클릭 → 워크플로 수동 실행
+ *          [보안] PAT 토큰 노출 위험 회피 (브라우저에 토큰 저장 안 함)
+ *          [설정] GITHUB_REPO_URL 상수를 코드 상단에 분리 — 사용자가 본인 저장소 URL로 교체
+ *          [영향] App.jsx 2곳 (상수 정의 / 헤더 버튼)
  * v2.5.9: [실험실 탭 v2.5.x 측정 기준 통일 — 화면 구성 유지]
  *          [의도] 사용자: "기능 자체나 화면 구성은 맞는데 기준과 측정 값들은 앞에 다른 탭들이랑 맞춰달라"
  *                 옛 시그널 5개(sig_breakout/entry/supply/strong/rsi) → v2.5.x 3개로 재정의
@@ -431,6 +451,10 @@ const SIG = {
 };
 const PERIOD_DAYS = { "1M":22, "3M":66, "6M":130, "1Y":252, "ALL":9999 };
 const INITIAL = [];
+
+// ★ v2.6.0: GitHub 저장소 URL — 헤더 🔄 수동 갱신 버튼이 이 URL로 이동
+// 사용자: 본인 저장소 URL로 교체하세요. 예: "https://github.com/YOUR_NAME/YOUR_REPO"
+const GITHUB_REPO_URL = "https://github.com/YOUR_NAME/YOUR_REPO";
 
 // ★ v2.2: 불타기 룰 (30/30/25/15 — 빠른 손절 전제)
 // ★ v2.2: 불타기 룰 (기본/특별 모드)
@@ -2204,6 +2228,8 @@ export default function App() {
               </div>}
             </div>
             <button onClick={()=>setShowRiskPanel(v=>!v)} style={{fontSize:10,padding:"5px 8px",borderRadius:5,border:`1px solid ${showRiskPanel?C.accent:C.border}`,background:showRiskPanel?"rgba(10,132,255,.12)":"transparent",color:showRiskPanel?C.accent:C.muted,cursor:"pointer",fontWeight:600}}>⚙</button>
+            {/* ★ v2.6.0: 수동 갱신 버튼 — GitHub Actions 페이지로 이동 (새 탭) */}
+            <button onClick={()=>window.open(`${GITHUB_REPO_URL}/actions`,"_blank","noopener,noreferrer")} title="GitHub Actions 페이지로 이동 — 거기서 'Run workflow' 클릭하여 데이터 수동 갱신" style={{fontSize:10,padding:"5px 8px",borderRadius:5,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer",fontWeight:600}}>🔄</button>
           </div>
         </div>
         {addMsg&&<div style={{fontSize:8,color:C.green,marginBottom:4}}>{addMsg}</div>}
@@ -2758,10 +2784,17 @@ export default function App() {
 
           {/* ★ v2.3 FIX: 실시간 데이터(real:true)만 사용 — 시뮬 차트 제외 */}
           {(()=>{
-          const realStocks = allStocksForScan.filter(s=>charts[s.ticker]?.real).filter(s=>focusMarket==="all"?true:focusMarket==="kr"?((s.ticker?.length||0)>5||(s.market||"").includes("kr")):((s.ticker?.length||0)<=5&&!(s.market||"").includes("kr")));
+          const realStocksRaw = allStocksForScan.filter(s=>charts[s.ticker]?.real).filter(s=>focusMarket==="all"?true:focusMarket==="kr"?((s.ticker?.length||0)>5||(s.market||"").includes("kr")):((s.ticker?.length||0)<=5&&!(s.market||"").includes("kr")));
+          // ★ v2.6.1: 갭다운/장초반 급락 종목 자동 제외 — 현재가가 어제 종가 대비 -2% 이상 하락
+          //          changePct는 fetch_yahoo가 candles[-2].close vs price로 계산 (v2.4.10)
+          //          신호 발생 후 상황 악화된 종목 → 진입 위험 → 카드에서 자동 제외
+          const GAP_DOWN_THRESHOLD = -2.0;
+          const realStocks = realStocksRaw.filter(s=>(s.changePct||0) > GAP_DOWN_THRESHOLD);
+          const gapDownCount = realStocksRaw.length - realStocks.length;
           const realCount = realStocks.length;
           return<>
           {realCount===0&&<div style={{textAlign:"center",padding:"20px",color:C.muted,fontSize:9}}>실시간 데이터 로딩 중... Daily Actions 실행 후 확인해주세요</div>}
+          {gapDownCount>0&&<div style={{fontSize:8,color:C.muted,marginBottom:8,padding:"4px 8px",background:"rgba(255,69,58,.05)",border:`1px solid rgba(255,69,58,.15)`,borderRadius:4}}>⚠️ 당일 -2% 이상 급락 종목 <b>{gapDownCount}개</b> 자동 제외 (장초반 급락/갭다운 보호)</div>}
 
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:14}}>
             <div onClick={()=>setFocusView(focusView==="ranked"?null:"ranked")} style={{background:focusView==="ranked"?"rgba(191,90,242,.15)":"rgba(191,90,242,.06)",border:`2px solid ${focusView==="ranked"?C.purple:"rgba(191,90,242,.2)"}`,borderRadius:8,padding:"8px",textAlign:"center",cursor:"pointer"}}>
@@ -3074,12 +3107,12 @@ export default function App() {
                 <span style={{fontSize:8,color:C.muted}}>정렬: {{turnover:"💰 거래대금",volRatio:"📊 평소대비",timing:"⚡ 타이밍",strength:"💪 강도",chg:"📈 1D",mktCap:"🏢 시가총액"}[tradeSort]}</span>
               </div>
               <div style={{overflowX:"auto"}}>
-                {/* ★ v2.5.8: 거래대금/시총 컬럼 제거 — 평소대비(N.Nx)만 유지, 한 화면 fit */}
-                <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,minWidth:480,tableLayout:"fixed"}}>
+                {/* ★ v2.6.1: 한 화면 fit — 종목명 80→64, 1D/3D/5D 통합 (3줄 표시), minWidth 480→320 */}
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,minWidth:320,tableLayout:"fixed"}}>
                   <thead>
                     <tr style={{background:"rgba(255,255,255,.04)",borderBottom:`2px solid ${C.border}`}}>
-                      {[["#",22],["종목",80],["⚡",30],["💪",30],["1D",44],["3D",44],["5D",44],["대비",46],["",30]].map(([h,w],i)=>(
-                        <th key={i} style={{padding:"6px 3px",textAlign:i===0?"center":i===1?"left":"right",color:"#FFD60A",fontSize:8,fontWeight:700,whiteSpace:"nowrap",width:w}}>{h}</th>
+                      {[["#",18],["종목",64],["⚡",26],["💪",26],["변화율",58],["대비",36],["",24]].map(([h,w],i)=>(
+                        <th key={i} style={{padding:"6px 2px",textAlign:i===0?"center":i===1?"left":"right",color:"#FFD60A",fontSize:8,fontWeight:700,whiteSpace:"nowrap",width:w}}>{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -3091,26 +3124,30 @@ export default function App() {
                       const inW = watchlist.find(w=>w.ticker===s.ticker);
                       // ★ v2.5.7: 평소대비를 배수(x) 형식으로 압축 표시
                       const volX = s.volR ? (s.volR/100).toFixed(1) + "x" : "—";
+                      // ★ v2.6.1: 1D/3D/5D 한 칸에 3줄로
+                      const fmt = (v) => `${(v||0)>=0?"+":""}{v?.toFixed(1)}%`.replace("{v?.toFixed(1)}", (v||0).toFixed(1));
                       return (
                         <tr key={s.ticker} style={{borderBottom:`1px solid rgba(255,255,255,.04)`,background:i<5?"rgba(255,214,10,.03)":i%2===0?C.panel:C.panel2,cursor:"pointer"}}
                           onClick={()=>navigateToStock(s.ticker, s.merged)}>
-                          <td style={{padding:"5px 3px",textAlign:"center",fontSize:9,fontWeight:900,color:i<3?"#FFD60A":i<10?C.accent:C.muted}}>{i+1}</td>
-                          <td style={{padding:"5px 5px"}}>
-                            <div style={{fontWeight:700,fontSize:10,maxWidth:76,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.label||s.ticker}</div>
-                            <div style={{fontSize:7,color:C.muted}}>{s.ticker} {s.isKR?"🇰🇷":"🇺🇸"}</div>
+                          <td style={{padding:"4px 2px",textAlign:"center",fontSize:9,fontWeight:900,color:i<3?"#FFD60A":i<10?C.accent:C.muted}}>{i+1}</td>
+                          <td style={{padding:"4px 4px"}}>
+                            <div style={{fontWeight:700,fontSize:10,maxWidth:60,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.label||s.ticker}</div>
+                            <div style={{fontSize:7,color:C.muted,maxWidth:60,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.ticker} {s.isKR?"🇰🇷":"🇺🇸"}</div>
                           </td>
-                          <td style={{padding:"5px 3px",textAlign:"right",fontSize:9,fontWeight:900,color:tColor}}>{s.timing||0}</td>
-                          <td style={{padding:"5px 3px",textAlign:"right",fontSize:9,fontWeight:900,color:dColor}}>{s.strength||0}</td>
-                          <td style={{padding:"5px 3px",textAlign:"right",fontSize:9,fontWeight:700,color:s.changePct>=0?C.green:C.red}}>{s.changePct>=0?"+":""}{(s.changePct||0).toFixed(1)}%</td>
-                          <td style={{padding:"5px 3px",textAlign:"right",fontSize:9,fontWeight:700,color:(s.chg3d||0)>=0?C.green:C.red}}>{(s.chg3d||0)>=0?"+":""}{(s.chg3d||0).toFixed(1)}%</td>
-                          <td style={{padding:"5px 3px",textAlign:"right",fontSize:9,fontWeight:700,color:(s.chg5d||0)>=0?C.green:C.red}}>{(s.chg5d||0)>=0?"+":""}{(s.chg5d||0).toFixed(1)}%</td>
-                          <td style={{padding:"5px 3px",textAlign:"right",fontSize:9,fontWeight:600,color:volColor}}>{volX}</td>
-                          <td style={{padding:"5px 3px",textAlign:"center"}} onClick={e=>e.stopPropagation()}>
+                          <td style={{padding:"4px 2px",textAlign:"right",fontSize:9,fontWeight:900,color:tColor}}>{s.timing||0}</td>
+                          <td style={{padding:"4px 2px",textAlign:"right",fontSize:9,fontWeight:900,color:dColor}}>{s.strength||0}</td>
+                          <td style={{padding:"4px 2px",textAlign:"right",fontSize:8,lineHeight:1.25}}>
+                            <div style={{color:(s.changePct||0)>=0?C.green:C.red}}><span style={{color:C.muted,fontSize:6}}>1D </span>{(s.changePct||0)>=0?"+":""}{(s.changePct||0).toFixed(1)}%</div>
+                            <div style={{color:(s.chg3d||0)>=0?C.green:C.red}}><span style={{color:C.muted,fontSize:6}}>3D </span>{(s.chg3d||0)>=0?"+":""}{(s.chg3d||0).toFixed(1)}%</div>
+                            <div style={{color:(s.chg5d||0)>=0?C.green:C.red}}><span style={{color:C.muted,fontSize:6}}>5D </span>{(s.chg5d||0)>=0?"+":""}{(s.chg5d||0).toFixed(1)}%</div>
+                          </td>
+                          <td style={{padding:"4px 2px",textAlign:"right",fontSize:9,fontWeight:600,color:volColor}}>{volX}</td>
+                          <td style={{padding:"4px 2px",textAlign:"center"}} onClick={e=>e.stopPropagation()}>
                             <button onClick={()=>{
                               if(inW){setWatchlist(w=>w.filter(x=>x.ticker!==s.ticker));setAddMsg(`☆ ${s.label||s.ticker} 제거`);}
                               else{setWatchlist(w=>[...w,s.merged]);setAddMsg(`★ ${s.label||s.ticker} 관심 추가`);}
                               setTimeout(()=>setAddMsg(""),2000);
-                            }} style={{background:inW?"rgba(10,132,255,.12)":"transparent",border:`1px solid ${inW?C.accent:C.border}`,color:inW?C.accent:C.muted,borderRadius:4,padding:"2px 5px",cursor:"pointer",fontSize:9}}>{inW?"★":"☆"}</button>
+                            }} style={{background:inW?"rgba(10,132,255,.12)":"transparent",border:`1px solid ${inW?C.accent:C.border}`,color:inW?C.accent:C.muted,borderRadius:4,padding:"2px 4px",cursor:"pointer",fontSize:9}}>{inW?"★":"☆"}</button>
                           </td>
                         </tr>
                       );
