@@ -1,9 +1,19 @@
 #!/usr/bin/env python3
 """
-Alpha Terminal — Yahoo Finance 데이터 수집 (v2.4.10)
+Alpha Terminal — Yahoo Finance 데이터 수집 (v2.4.11)
 - hourly 모드 (평일 매 시간): 관심종목 현재가만
 - daily  모드 (평일 오후 6시): 전체 풀 + 알파스캔
 - quarterly 모드 (수동): 재무데이터 수집
+
+v2.4.11 변경: 한국 종목 거래대금/시총 데이터 정확도 개선 (KIS API 직접 활용)
+- 문제: Yahoo candles의 마지막 봉 volume이 한국 종목에서 들쭉날쭉 → 거래탭 1등 매번 바뀜
+        ISC, 코오롱인더, KT&G, 고려아연 등이 번갈아 1등 (실제 데이터 오류)
+- 해결: 한투(KIS) API의 정확한 거래대금/시총을 직접 가져와 stocks.json에 저장
+        - kisTurnover (acml_tr_pbmn): 한투 누적 거래대금 (원, 절대값)
+        - kisPrice/kisListed: 시총 폴백용 (Yahoo marketCap 누락 시 현재가×상장주식수)
+- App.jsx (v2.6.6): 한국 종목은 kisTurnover 우선 사용 → candles는 폴백
+- 영향: kis_get_kr_volume_top 함수에서 KIS 응답의 4개 필드 추가 캡처
+        daily 모드 results에 kisTurnover 필드 추가
 
 v2.4.10 변경: 일일 변화율(changePct) 계산 정확도 개선 (CRITICAL 버그 수정)
 - 문제: 시장탭 글로벌 지수에서 +12% 이상의 이상한 일일 변화율 표시
@@ -599,7 +609,21 @@ def kis_get_kr_volume_top(n=300):
                         continue
                     suffix = ".KS" if mkt_code == "J" else ".KQ"
                     if ticker_code not in stocks:
-                        stocks[ticker_code] = {"label":name,"sector":"Korean","market":"kr","suffix":suffix}
+                        # ★ v2.4.11: KIS 거래대금/현재가/거래량 직접 저장 (Yahoo candles 폴백 안전망)
+                        try:
+                            kis_turnover = float(item.get("acml_tr_pbmn") or 0)  # 누적 거래대금 (원)
+                            kis_price    = float(item.get("stck_prpr")    or 0)  # 현재가 (원)
+                            kis_volume   = float(item.get("acml_vol")     or 0)  # 누적 거래량 (주)
+                            kis_listed   = float(item.get("lstn_stcn")    or 0)  # 상장 주식수
+                        except (ValueError, TypeError):
+                            kis_turnover = kis_price = kis_volume = kis_listed = 0
+                        stocks[ticker_code] = {
+                            "label":name, "sector":"Korean", "market":"kr", "suffix":suffix,
+                            "kisTurnover": kis_turnover,  # 한투 정확한 거래대금
+                            "kisPrice":    kis_price,
+                            "kisVolume":   kis_volume,
+                            "kisListed":   kis_listed,
+                        }
                         count += 1
                 print(f"    ✅ {mkt_name}: {count}개")
             else:
@@ -1207,7 +1231,15 @@ def fetch_pool_batch(pool, range_="6mo", batch_size=50, delay_between_batches=5)
 
                 mktCap = float(meta.get("marketCap") or 0)
                 isKR = mkt == "kr"
+                # ★ v2.4.11: 한국 종목 — Yahoo 시총 누락 시 KIS의 (현재가 × 상장주식수)로 폴백
+                if isKR and mktCap == 0:
+                    kis_price  = float(info.get("kisPrice")  or 0)
+                    kis_listed = float(info.get("kisListed") or 0)
+                    if kis_price > 0 and kis_listed > 0:
+                        mktCap = kis_price * kis_listed
                 mktCapNorm = round(mktCap / 1e8, 1) if isKR else round(mktCap / 1e9, 2)
+                # ★ v2.4.11: KIS 거래대금 필드 추가 (한국 종목만 — Yahoo candles 신뢰 어려움)
+                kis_turnover = float(info.get("kisTurnover") or 0) if isKR else 0
                 results[ticker] = {
                     **{k:v for k,v in info.items() if k != "suffix"},
                     "ticker":ticker, "price":price,
@@ -1216,6 +1248,7 @@ def fetch_pool_batch(pool, range_="6mo", batch_size=50, delay_between_batches=5)
                     "chg5d":calc_change(candles,5) if candles else 0,
                     "volRatio":calc_vol_ratio(candles) if candles else 100,
                     "mktCap":mktCapNorm,
+                    "kisTurnover": kis_turnover,  # ★ v2.4.11: 한국 정확한 거래대금
                     "candles": candles or [],
                 }
                 print(f"✅ [{src}] {price:,.1f} ({changePct:+.1f}%)")
@@ -1321,10 +1354,94 @@ def main():
         time.sleep(0.5)
 
     if MODE == "quarterly":
-        print("\n📊 분기 재무데이터 수집은 현재 비활성화됨")
+        # ★ v2.5.0: 분기 재무데이터 수집 활성화
+        # Yahoo earnings 모듈에서 분기별 매출/EPS 받음 (미국 종목 위주)
+        # 한국 종목은 데이터 부족하지만 시도는 함 (있으면 저장, 없으면 스킵)
+        print("\n📊 분기 재무데이터 수집 시작...")
+
+        # 기존 stocks.json 로드 (financials 섹션 누적)
+        existing = {}
+        try:
+            with open("public/data/stocks.json", "r", encoding="utf-8") as f:
+                existing = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            print("  ⚠️ 기존 stocks.json 없음 — 새로 시작")
+
+        # 종목 풀 가져오기 (existing의 pool에서)
+        pool_tickers = list(existing.get("pool", {}).keys())
+        if not pool_tickers:
+            print("  ❌ pool 데이터 없음 — daily 워크플로 먼저 실행 필요")
+            return
+
+        print(f"  📊 대상: {len(pool_tickers)}종목")
+        financials = existing.get("financials", {})
+        ok_count = 0
+        skip_count = 0
+
+        for i, ticker in enumerate(pool_tickers):
+            # 한국 6자리 코드는 Yahoo 형식으로 변환 (e.g. 005930 → 005930.KS)
+            yt = ticker
+            if ticker.isdigit() and len(ticker) == 6:
+                yt = f"{ticker}.KS"
+
+            try:
+                url = f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{yt}?modules=earnings"
+                r = requests.get(url, headers={"User-Agent":"Mozilla/5.0"}, timeout=8)
+                if r.status_code != 200:
+                    skip_count += 1
+                    continue
+
+                data = r.json().get("quoteSummary", {}).get("result", [{}])[0]
+                earnings = data.get("earnings", {})
+                if not earnings:
+                    skip_count += 1
+                    continue
+
+                # 분기별 EPS (earningsChart.quarterly)
+                eps_quarterly = []
+                for q in earnings.get("earningsChart", {}).get("quarterly", []):
+                    eps_quarterly.append({
+                        "date": q.get("date", ""),  # "4Q2024" 형식
+                        "actual": q.get("actual", {}).get("raw"),
+                        "estimate": q.get("estimate", {}).get("raw"),
+                    })
+
+                # 분기별 매출 (financialsChart.quarterly)
+                rev_quarterly = []
+                for q in earnings.get("financialsChart", {}).get("quarterly", []):
+                    rev_quarterly.append({
+                        "date": q.get("date", ""),
+                        "revenue": q.get("revenue", {}).get("raw"),
+                        "earnings": q.get("earnings", {}).get("raw"),
+                    })
+
+                if eps_quarterly or rev_quarterly:
+                    financials[ticker] = {
+                        "epsQuarterly": eps_quarterly,
+                        "revQuarterly": rev_quarterly,
+                        "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    }
+                    ok_count += 1
+                else:
+                    skip_count += 1
+
+            except Exception as e:
+                skip_count += 1
+
+            # Rate limit 방지
+            time.sleep(0.3)
+
+            if (i + 1) % 50 == 0:
+                print(f"  진행: {i+1}/{len(pool_tickers)} (수집 {ok_count}, 스킵 {skip_count})")
+
+        print(f"\n  ✅ 분기 재무 수집 완료: {ok_count}종목 / 스킵 {skip_count}종목")
+
+        # 저장
+        existing["financials"] = financials
         path = "public/data/stocks.json"
-        with open(path,"w",encoding="utf-8") as f:
-            json.dump(output, f, ensure_ascii=False, separators=(",",":"))
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(existing, f, ensure_ascii=False, separators=(",", ":"))
+        print(f"  💾 stocks.json 저장 완료 (financials {len(financials)}종목)")
         return
 
     if MODE == "daily":
