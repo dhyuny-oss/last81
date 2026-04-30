@@ -1,0 +1,44 @@
+name: Quarterly Financial Update
+# ★ v2.6.2: 분기 재무데이터 자동 수집 (매월 1회)
+# Yahoo earnings 모듈에서 분기별 매출/EPS 받음 → stocks.json의 financials 섹션 갱신
+# 한국 종목은 데이터 부족하지만 시도는 함 (있으면 저장, 없으면 스킵)
+on:
+  schedule:
+    # 매월 1일 KST 09:00 (UTC 00:00) — 미국 분기 실적 발표 시즌 후 충분히 갱신됨
+    - cron: '0 0 1 * *'
+  workflow_dispatch:  # 수동 트리거도 가능 (앱의 🔄 버튼 또는 GitHub UI)
+
+jobs:
+  update-financials:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      COLLECT_MODE: quarterly
+      KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+      KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+      KIS_ACCOUNT: ${{ secrets.KIS_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install yfinance requests
+
+      - name: Fetch quarterly financials
+        run: python scripts/fetch_yahoo.py
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/data/stocks.json
+          git diff --staged --quiet || (
+            git commit -m "📊 $(date +%Y-%m-%d) 분기 재무데이터 갱신"
+            git pull --rebase origin main
+            git push
+          )
