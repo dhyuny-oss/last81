@@ -1,5 +1,20 @@
 /**
- * Alpha Terminal v2.7.1 — App.jsx
+ * Alpha Terminal v2.7.2 — App.jsx
+ * v2.7.2: [집중탭 기본 뷰 — 카드와 일관성 통일 (사용자 분 발견 버그)]
+ *          [버그] "오늘의 돌파 감지" 카드 8개 보이다가 카드 펼치면 4개로 줄어듦
+ *                 = 사용자 인지: "종목이 사라진 것처럼 보임"
+ *          [원인] 두 카드의 필터 조건이 달랐음
+ *                 - "돌파 후 강함" 카드: 돌파 이벤트 + 강세 60+
+ *                 - "오늘의 돌파 감지" 카드: 돌파 이벤트만 (강세 무관)
+ *                 → 강세 17, 34, 50 같은 약한 종목까지 표시되어 혼란
+ *          [수정] "오늘의 돌파 감지" 카드에도 강세 60+ 필터 추가
+ *                 → 두 카드 동일 종목 표시 (4개)
+ *                 → 강세 약한 종목 자동 숨김 (LYV 17, ENPH 34 등)
+ *          [부연 설명 텍스트 갱신]
+ *                 옛: "점수 시스템 통일 (v2.5.1) — 돌파 (이벤트) · 강세 60+ (지속 점수) · 거래량 지속 (3봉 중 2봉 100%↑)"
+ *                 신: "돌파 (이벤트 발견) + 강세 60+ (6 컴포넌트 합산) — v2.7.2"
+ *                 → "거래량 지속" 제거 (이제 강세 점수 안에 통합됨)
+ *          [영향] App.jsx 2곳 (오늘의 돌파 감지 필터 + 부연 설명)
  * v2.7.1: [명칭 일관성 통일 — 화면 표시 라벨 정리]
  *          [동기] v2.7.0 점수 시스템 교체 후 산발적 옛 라벨 잔존
  *          [통일 규칙]
@@ -3151,7 +3166,7 @@ export default function App() {
         {/* ══ TAB: 집중 — 오늘 볼 종목 ══ */}
         {tab==="focus"&&<div style={{padding:"12px 14px"}}>
           <div style={{fontSize:13,fontWeight:900,color:C.accent,marginBottom:4,borderLeft:`3px solid ${C.accent}`,paddingLeft:8}}>🎯 오늘의 집중 종목</div>
-          <div style={{fontSize:9,color:C.sub,marginBottom:8}}>점수 시스템 통일 (v2.5.1) — 돌파 (이벤트) · 강세 60+ (지속 점수) · 거래량 지속 (3봉 중 2봉 100%↑)</div>
+          <div style={{fontSize:9,color:C.sub,marginBottom:8}}>돌파 (이벤트 발견) + 강세 60+ (6 컴포넌트 합산) — v2.7.2</div>
           <div style={{display:"flex",gap:4,marginBottom:10}}>
             {[["all","전체"],["kr","🇰🇷 한국"],["us","🇺🇸 미국"]].map(([v,l])=>(
               <button key={v} onClick={()=>setFocusMarket(v)} style={{padding:"4px 12px",borderRadius:5,border:`1px solid ${focusMarket===v?C.accent:C.border}`,background:focusMarket===v?"rgba(10,132,255,.12)":"transparent",color:focusMarket===v?C.accent:C.muted,fontSize:9,fontWeight:focusMarket===v?700:400,cursor:"pointer"}}>{l}</button>
@@ -3271,10 +3286,10 @@ export default function App() {
           {/* 기본 뷰: 카드 미선택 시 — 오늘의 돌파 + 진입적기 순위 (v2.4.2: AI 추천 TOP5 제거) */}
           {!focusView&&<>
 
-          {/* ★ v2.7.0: 🚀 오늘의 돌파 감지 — 새 시스템 (구름 돌파 + 스퀴즈 오프만) */}
+          {/* ★ v2.7.2: 🚀 오늘의 돌파 감지 — 카드 카운트와 일관성 (강세 60+ 필터) */}
           <div style={css.card}>
             <div style={{fontSize:11,fontWeight:700,color:C.emerald,marginBottom:8}}>🚀 오늘의 돌파 감지</div>
-            <div style={{fontSize:8,color:C.muted,marginBottom:10}}>최근 3봉 내 구름 돌파 또는 스퀴즈 오프 발생 — 검증된 시그널만 (노이즈 제거)</div>
+            <div style={{fontSize:8,color:C.muted,marginBottom:10}}>최근 3봉 내 구름 돌파 또는 스퀴즈 오프 + 강세 60+ — 위 카드와 일관</div>
             {(()=>{
               const breakouts = realStocks.map(s => {
                 const cData = charts[s.ticker]?.data;
@@ -3282,6 +3297,7 @@ export default function App() {
                 const ev = detectBreakoutEvent(cData);
                 if (!ev.breakout) return null;
                 const ss = calcSustainedStrength(cData);
+                if (ss.score < 60) return null;  // ★ v2.7.2: 강세 60+ 필터 추가 (카드와 일관)
                 return {...s, events: ev.events, daysAgo: ev.daysAgo, strength: ss.score};
               }).filter(Boolean).sort((a,b)=>{
                 // 정렬: 오늘 돌파 먼저, 같으면 강세 점수 높은 순
@@ -3289,7 +3305,7 @@ export default function App() {
                 return b.strength - a.strength;
               });
 
-              if(!breakouts.length) return <div style={{textAlign:"center",padding:"15px",color:C.muted,fontSize:9}}>최근 3봉 내 돌파 종목 없음</div>;
+              if(!breakouts.length) return <div style={{textAlign:"center",padding:"15px",color:C.muted,fontSize:9}}>최근 3봉 내 강세 60+ 돌파 종목 없음</div>;
               return breakouts.slice(0,8).map(s=>{
                 const dayLabel = s.daysAgo===0?"오늘":s.daysAgo+"일 전";
                 const isStrong = s.strength >= 60;
