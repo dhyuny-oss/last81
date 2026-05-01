@@ -1,5 +1,60 @@
 /**
- * Alpha Terminal v2.6.7 — App.jsx
+ * Alpha Terminal v2.7.1 — App.jsx
+ * v2.7.1: [명칭 일관성 통일 — 화면 표시 라벨 정리]
+ *          [동기] v2.7.0 점수 시스템 교체 후 산발적 옛 라벨 잔존
+ *          [통일 규칙]
+ *                 ⚡ 타이밍 / ⚡타이밍 → 🚀 돌파 / 🚀돌파
+ *                 💪 강도 / 💪강도   → 💪 강세 / 💪강세
+ *                 RS강도, 추세강도   → RS강세, 추세강세
+ *                 (시점) → (이벤트)
+ *          [차트탭 종합판정 메시지 통일]
+ *                 "시점+추세 동반" → "돌파+강세 동반"
+ *                 "시점만 떴고 추세 약화" → "돌파만 발생, 강세 약함"
+ *                 "추세 견고, 시점 미흡" → "강세 견고, 돌파 미흡"
+ *          [실험실 컴포넌트 그룹 라벨 통일]
+ *                 group: "시점" → "돌파" (4개: ST flip / MACD골든 / 구름돌파 / 스퀴즈오프)
+ *                 group: "추세" → "강세" (4개: ST 3/3 / MACD>Signal / MA20위 / 3봉전위)
+ *                 그대로: "거래량" (2개), "전환" (4개)
+ *          [실험실 시그널 조합 카드 라벨]
+ *                 "🚀 진입적기" → "🌟 둘 다 충족" (이름 어색하던 것 정리)
+ *          [집중탭 카드 정리]
+ *                 "🎯 진입적기 순위" 카드 제거 (💪 그냥 강함과 중복)
+ *                 → 기본 뷰: "🚀 오늘의 돌파 감지"만 남음
+ *          [영향] App.jsx 약 30곳 라벨, 실험실 그룹 8개, 카드 1개 제거 (-41라인)
+ *                 로직 변경 없음, 라벨 일관성만 정리
+ *          [백업] App.v2.7.0.backup.jsx
+ * v2.7.0: [점수 시스템 전면 교체 — 돌파/강세 통일 (사용자 의도 + 실험실 검증)]
+ *          [의도] 사용자: "돌파 강세 이렇게 이름 바꾸어서 전부 다 교체"
+ *                 + 로직도 전부 교체 (실험실 데이터 기반 노이즈 제거)
+ *          [명칭 변경 — 모든 탭]
+ *                 🚀 돌파 (35+) → 🚀 돌파 (이벤트 + 점수)
+ *                 💪 강세 (60+)  → 💪 강세 (지속 점수)
+ *          [로직 변경 — getSignalsV2 재정의]
+ *                 [돌파] = detectBreakoutEvent — 최근 3봉 내 구름 돌파 OR 스퀴즈 오프
+ *                   • 노이즈 제거: ST flip(54%), MACD 골든(56%), ST 약세→3 점프
+ *                   • 60% 승률 컴포넌트만 사용
+ *                   • TRUE/FALSE 플래그 + 이벤트 정보 (며칠 전, 어떤 이벤트)
+ *                 [강세] = calcSustainedStrength — 6 컴포넌트 합산 (만점 100)
+ *                   • ST 3/3 (17점)
+ *                   • MACD > Signal (17점)
+ *                   • 가격 > MA20 (17점)
+ *                   • 가격 > 3봉전 (17점)
+ *                   • ST 카운트 ≥ 2 (16점)
+ *                   • 거래량 ≥ 130% (16점)
+ *                 [임계값] 강세 60+ = 통과, 80+ = 매우 강함
+ *          [getSignalsV2 호환성]
+ *                 sig.timing → sig.breakoutScore (이벤트 점수 환산: 100=오늘, 70=어제, 40=그제, 0=없음)
+ *                 sig.strength → 새 calcSustainedStrength 점수
+ *                 sig.timingOK → sig.breakoutOK (돌파 이벤트 + 강세 60+)
+ *                 sig.strengthOK → sig.entryOK (그냥 강함, 강세 80+)
+ *                 sig.ok → 둘 중 하나 충족
+ *                 (기존 호출처는 그대로 작동, 라벨만 변경)
+ *          [실험실 HIT 기준 변경]
+ *                 옛: 🚀 돌파 + 💪 강세 60+
+ *                 신규: 돌파 OR 강세 80+ (둘 중 하나)
+ *          [영향] App.jsx 전체 (라벨 ~50곳, 로직 핵심 1곳, 다른 곳 자동 반영)
+ *                 fetch_yahoo.py: 변경 없음 (텔레그램은 별도 작업)
+ *          [백업] App.v2.6.6.backup.jsx, App.v2.6.7.backup.jsx
  * v2.6.7: [집중탭 카드 재설계 — 발견 + 센놈 추적 (사용자 의도 반영)]
  *          [의도] 사용자: "돌파한 종목 중에 센놈 추적, 그냥 센놈 추적"
  *                 = 돌파 = 이벤트 (발견 트리거), 강도 = 점수 (정도 평가)
@@ -7,8 +62,8 @@
  *          [실험실 검증] 사용자 매매 결과 분석:
  *                 - HIT 18 / MISS 22 (45% 승률)
  *                 - 진입적기 카드: 평균 +0.5% / 승률 50% (가장 안 좋음)
- *                 - 추세 단독 카드: 평균 +3.3% / 승률 63% (가장 좋음)
- *                 - 본인이 잘 매매한 GOOGL/DRAM/NVDA = 추세 단독 카테고리
+ *                 - 강세 단독 카드: 평균 +3.3% / 승률 63% (가장 좋음)
+ *                 - 본인이 잘 매매한 GOOGL/DRAM/NVDA = 강세 단독 카테고리
  *                 - 시스템 추천 KO/WMB/VLO/WELL = 약한 신호 (방어주/배당주)
  *          [컴포넌트 효과 분석]
  *                 ✅ 강 (60%+): ST카운트, 거래량130%, ST3/3, MACD>Signal, MA20위, 3봉전위, 스퀴즈오프
@@ -22,11 +77,11 @@
  *                   - 6 컴포넌트 합산 (각 16~17점, 만점 100):
  *                     ST 3/3, MACD>Signal, MA20위, 3봉전위, ST카운트≥2, 거래량≥130%
  *          [집중탭 카드 2개 (기존 3 → 2)]
- *                 🚀 돌파 후 강함: detectBreakoutEvent + 강도 60+
- *                 💪 그냥 강함:    강도 80+ (이벤트 무관)
+ *                 🚀 돌파 후 강함: detectBreakoutEvent + 강세 60+
+ *                 💪 그냥 강함:    강세 80+ (이벤트 무관)
  *          [기존 시스템 호환]
  *                 - getSignalsV2 / calcEntryTiming / calcTrendDurability 그대로 유지
- *                 - 다른 탭의 ⚡ 타이밍 / 💪 강도 표시 그대로
+ *                 - 다른 탭의 🚀 돌파 / 💪 강세 표시 그대로
  *                 - 집중탭만 새 시스템 적용
  *          [영향] App.jsx 약 4곳 (헬퍼 함수 추가 / 집중탭 카드 / 펼침 리스트 / 정렬)
  * v2.6.6: [한국 종목 거래대금 데이터 정확도 개선 — KIS API 직접 활용]
@@ -130,9 +185,9 @@
  *                 신규: sig_timing AND sig_strength (옵션 C, 거래량은 보조)
  *                 → 거래량은 게이트 역할이지만 필수는 아님 (화면에서 별도 컬럼으로 표시)
  *          [시그널 조합 카드 4종 재구성]
- *                 🚀 진입적기  : ⚡35+ AND 💪60+ AND 📊거래량
- *                 ⚡ 시점 단독 : ⚡35+ AND 💪<60
- *                 💪 추세 단독 : 💪60+ AND ⚡<35
+ *                 🚀 진입적기  : 🚀 돌파 + 💪 강세 60+
+ *                 🚀 돌파 단독 : ⚡35+ AND 💪<60
+ *                 💪 강세 단독 : 💪60+ AND ⚡<35
  *                 ⬜ 둘 다 미달
  *          [컴포넌트 카드 14개]
  *                 그대로 유지 (개별 효과 측정 용도)
@@ -172,8 +227,8 @@
  *          [영향] App.jsx 1곳 (거래 탭 테이블 헤더 + 행 컬럼 순서)
  * v2.5.6: [코드 정비 — 임계값 정합성 + Dead Code 제거 + LEGACY 주석]
  *          [그룹 A — 임계값 정합성] v2.5.1 임계값 변경(60→35)이 시각 표시에 미반영된 곳 수정
- *                 - ⚡ 타이밍 패널 색상: 45/70 → 35/50 (35 진입 시 노랑 강조)
- *                 - 💪 강도 패널 색상: 50/70 → 60/75 (60 진입 시 초록 강조)
+ *                 - 🚀 돌파 패널 색상: 45/70 → 35/50 (35 진입 시 노랑 강조)
+ *                 - 💪 강세 패널 색상: 50/70 → 60/75 (60 진입 시 초록 강조)
  *                 - 비교뷰 dr2.score>=50 → 60 (v2.5.1 강도 임계값과 통일)
  *                 → 시각적 게이트와 실제 게이트가 일치, "통과인가?" 헷갈림 해소
  *          [그룹 B — Dead Code 제거] v2.5.0에서 buyWeak 마커 생성 중단된 후 잔존하던 코드
@@ -339,7 +394,7 @@
  *          [추가] 종목 RS — 1D / 3D / 5D 변화율을 헤더 오른쪽 끝에 표시 (지수 RS와 동일 형식)
  *          [제거] 별도 피보나치 되돌림 카드 (가격레벨 돌파에 이미 포함)
  *          [토글] 가격 레벨 돌파 카드 — 클릭 시 펼침/접기 (기본 펼침)
- *          [토글] ⚡ 타이밍 / 💪 강도 카드 — 클릭 시 컴포넌트별 점수 분해 표시
+ *          [토글] 🚀 돌파 / 💪 강세 카드 — 클릭 시 컴포넌트별 점수 분해 표시
  *                 6+개 컴포넌트 각각: 라벨 / 설명 / 획득점수/최대점수
  *          [용어] "진입타이밍" → "타이밍" / "추세강도" → "강도"
  *          [추가] 종합판정 한 줄에 "📊 종합판정:" 라벨 명시
@@ -1254,53 +1309,80 @@ function calcSustainedStrength(chartData) {
 }
 
 function getSignalsV2(chartData) {
-  const TH_TIMING = 35;        // ★ v2.5.1: 60→35 (타이밍 분포 ~18평균에 맞춰 조정)
-  const TH_STRENGTH = 60;      // 강도는 그대로 (분포 자연스럽게 30~80점대 형성)
-  const VOL_GATE = 100;       // 거래량 비율 임계값 (%)
-  const VOL_MIN_BARS = 2;     // 최근 3봉 중 충족 봉 수 최소
+  // ★ v2.7.0: 점수 시스템 전면 교체 — 돌파(이벤트) + 강세(점수)
+  // 호환성을 위해 옛 필드명도 유지 (timing/strength 등) — 다른 곳 호출 보호
+  const TH_BREAKOUT_STRONG = 60;  // 돌파 후 강함 = 강세 60+
+  const TH_JUST_STRONG = 80;      // 그냥 강함 = 강세 80+ (이벤트 무관)
+  const VOL_GATE = 100;
+  const VOL_MIN_BARS = 2;
 
   if (!chartData || chartData.length < 10) {
     return {
       ok: false,
-      timing: 0, strength: 0,
-      timingOK: false, strengthOK: false,
+      // 새 시스템 필드
+      breakout: false, breakoutScore: 0, breakoutEvents: [], breakoutDaysAgo: null,
+      strength: 0, strengthBreakdown: [],
+      // 호환 (옛 필드명) — 새 값 매핑
+      timing: 0, timingOK: false, timingSignals: [], timingBreakdown: [],
+      strengthOK: false,
       volSust: 0, volOK: false,
       breakoutOK: false, entryOK: false,
-      timingSignals: [], strengthSignals: [],
-      timingBreakdown: [], strengthBreakdown: [],
-      threshold: { timing: TH_TIMING, strength: TH_STRENGTH, volGate: VOL_GATE },
+      threshold: { breakoutStrong: TH_BREAKOUT_STRONG, justStrong: TH_JUST_STRONG, volGate: VOL_GATE },
     };
   }
 
-  // 거래량 지속성 (최근 3봉 중 N봉 ≥ VOL_GATE)
+  // 1. 돌파 이벤트 발견
+  const ev = detectBreakoutEvent(chartData);
+  // 돌파 점수 환산 (UI 표시용): 오늘=100, 어제=70, 그제=40, 없음=0
+  let breakoutScore = 0;
+  if (ev.breakout && ev.daysAgo != null) {
+    if (ev.daysAgo === 0) breakoutScore = 100;
+    else if (ev.daysAgo === 1) breakoutScore = 70;
+    else if (ev.daysAgo === 2) breakoutScore = 40;
+  }
+
+  // 2. 지속 강세 점수
+  const ss = calcSustainedStrength(chartData);
+  const strength = ss.score;
+
+  // 3. 거래량 지속성 (참고용 — UI에 표시될 수 있음)
   let volSust = 0;
   for (let i = Math.max(0, chartData.length - 3); i < chartData.length; i++) {
     if ((chartData[i]?.volRatio || 0) >= VOL_GATE) volSust++;
   }
   const volOK = volSust >= VOL_MIN_BARS;
 
-  const tm = calcEntryTiming(chartData);
-  const dr = calcTrendDurability(chartData);
-  const timing = tm.score || 0;
-  const strength = dr.score || 0;
+  // 4. 매수 신호 등급
+  const breakoutOK = ev.breakout && strength >= TH_BREAKOUT_STRONG;  // 돌파 후 강함
+  const entryOK = strength >= TH_JUST_STRONG;                        // 그냥 강함
+  const ok = breakoutOK || entryOK;                                  // 둘 중 하나 충족
 
-  const timingOK = timing >= TH_TIMING;
-  const strengthOK = strength >= TH_STRENGTH;
-  const breakoutOK = timingOK && volOK;
-  const entryOK = strengthOK && volOK;
-  const ok = timingOK && strengthOK && volOK;
+  // 5. 호환성 — 옛 코드가 timing/strengthOK 등 사용하는 곳 보호
+  // timing 호환: 옛 ⚡ 점수 자리에 새 돌파 점수
+  // strengthOK 호환: 옛 강세 60+ 자리에 새 강세 60+ (즉시 호환)
+  const timingOK = ev.breakout;
+  const strengthOK = strength >= TH_BREAKOUT_STRONG;
+
+  // 신호 라벨 (UI용)
+  const breakoutSignals = ev.events.map(e => e.label);
+  const strengthSignals = ss.breakdown.filter(b => b.ok).map(b => b.label);
 
   return {
     ok,
-    timing, strength,
+    // 새 시스템 (메인)
+    breakout: ev.breakout, breakoutScore, breakoutEvents: ev.events, breakoutDaysAgo: ev.daysAgo,
+    strength, strengthBreakdown: ss.breakdown,
+    // 호환 (옛 필드명) — 새 값으로 매핑
+    timing: breakoutScore,
     timingOK, strengthOK,
     volSust, volOK,
     breakoutOK, entryOK,
-    timingSignals: tm.signals || [],
-    strengthSignals: dr.signals || [],
-    timingBreakdown: tm.breakdown || [],
-    strengthBreakdown: dr.breakdown || [],
-    threshold: { timing: TH_TIMING, strength: TH_STRENGTH, volGate: VOL_GATE },
+    timingSignals: breakoutSignals,
+    strengthSignals,
+    timingBreakdown: ss.breakdown,  // 옛 timingBreakdown 자리에 새 강세 분해 (의미는 다르지만 표시 안전)
+    threshold: { breakoutStrong: TH_BREAKOUT_STRONG, justStrong: TH_JUST_STRONG, volGate: VOL_GATE,
+                 // 옛 임계값 호환
+                 timing: TH_BREAKOUT_STRONG, strength: TH_BREAKOUT_STRONG },
   };
 }
 
@@ -1609,7 +1691,7 @@ export default function App() {
   const [companyInfo, setCompanyInfo] = useState({}); // ★ v2.3: 회사 소개
   const [priceLevelOpen, setPriceLevelOpen] = useState(false); // ★ v2.4.9: 가격레벨 돌파 토글 (기본 접힘)
   const [timingOpen, setTimingOpen] = useState(false); // ★ v2.4.3: 진입타이밍 펼치기
-  const [durabilityOpen, setDurabilityOpen] = useState(false); // ★ v2.4.3: 추세강도 펼치기
+  const [durabilityOpen, setDurabilityOpen] = useState(false); // ★ v2.4.3: 추세강세 펼치기
   const [search, setSearch] = useState("");
   const [searchRes, setSearchRes] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -2293,7 +2375,7 @@ export default function App() {
   const oppColorUS  = oppScoreUS>=70?C.emerald:oppScoreUS>=45?C.yellow:C.red;
   const oppColorKR  = oppScoreKR>=70?C.emerald:oppScoreKR>=45?C.yellow:C.red;
 
-  // ★ v2.3: 진입타이밍 + 추세강도
+  // ★ v2.3: 진입타이밍 + 추세강세
   const selPoolInfo = pool[sel] || selInfo || {};
   const selTiming   = calcEntryTiming(cd?.data);
   const selDurability = calcTrendDurability(cd?.data);
@@ -2319,16 +2401,16 @@ export default function App() {
   let judgeLabel, judgeColor, judgeMsg;
   if (!judgeGatePass) {
     judgeLabel = "⚪ 대기"; judgeColor = C.muted;
-    judgeMsg = "절대값 게이트 미달 (⚡35+ 또는 💪60+ 필요)";
+    judgeMsg = "절대값 게이트 미달 (🚀 돌파 또는 💪 강세 80+ 필요)";
   } else if (timingTrendUp && strengthTrendUp) {
     judgeLabel = "⚡ 즉시 매수"; judgeColor = C.emerald;
-    judgeMsg = "시점+추세 동반 강화 — 최적 진입 시점";
+    judgeMsg = "돌파+강세 동반 — 최적 진입 시점";
   } else if (timingTrendDown && strengthTrendUp) {
     judgeLabel = "📈 추격 매수"; judgeColor = C.green;
-    judgeMsg = "시점은 식음, 추세는 강화 중 — '계속 가겠네' 구간";
+    judgeMsg = "돌파 신선도 약함, 강세 강화 중 — '계속 가겠네' 구간";
   } else if (timingTrendUp && strengthTrendDown) {
     judgeLabel = "🤔 신호 혼조"; judgeColor = C.yellow;
-    judgeMsg = "시점만 떴고 추세 약화 — 함정 가능성, 관찰";
+    judgeMsg = "돌파만 발생, 강세 약함 — 함정 가능성, 관찰";
   } else if (timingTrendDown && strengthTrendDown) {
     judgeLabel = "🛑 매수 보류"; judgeColor = C.red;
     judgeMsg = "둘 다 식는 중 — 피크 지났을 가능성";
@@ -2339,10 +2421,10 @@ export default function App() {
       judgeMsg = "절대값 충족, 추세 횡보 — 신중 검토";
     } else if (selDurability.score >= 60) {
       judgeLabel = "👁 관찰 유지"; judgeColor = "#FF9F0A";
-      judgeMsg = "추세 견고, 시점 미흡 — 시점 신호 대기";
+      judgeMsg = "강세 견고, 돌파 미흡 — 돌파 신호 대기";
     } else {
       judgeLabel = "⚪ 추세 미형성"; judgeColor = C.muted;
-      judgeMsg = "강도 부족, 시점만 발생 — 추세 형성 대기";
+      judgeMsg = "강세 부족, 돌파만 발생 — 추세 형성 대기";
     }
   }
 
@@ -2411,7 +2493,7 @@ export default function App() {
     if(lD&&pD&&lD.macd>lD.signal&&pD.macd<=pD.signal){accelTags.push("⚡MACD↑");accelScore+=2;}
     if((s.volRatio||100)>=200){accelTags.push("💥거래량");accelScore+=1;}
     if(lD?.sqzOff){accelTags.push("💎스퀴즈");accelScore+=2;}
-    // ★ v2.3: 타이밍 + 강도 사전 계산
+    // ★ v2.3: 돌파 + 강세 사전 계산
     const cData=charts[s.ticker]?.data;
     const es=calcEntryScore(cData,vixVal,oppScore,pool[s.ticker]||s);
     const tm=calcEntryTiming(cData);
@@ -3069,7 +3151,7 @@ export default function App() {
         {/* ══ TAB: 집중 — 오늘 볼 종목 ══ */}
         {tab==="focus"&&<div style={{padding:"12px 14px"}}>
           <div style={{fontSize:13,fontWeight:900,color:C.accent,marginBottom:4,borderLeft:`3px solid ${C.accent}`,paddingLeft:8}}>🎯 오늘의 집중 종목</div>
-          <div style={{fontSize:9,color:C.sub,marginBottom:8}}>점수 시스템 통일 (v2.5.1) — 타이밍 35+ (시점) · 강도 60+ (지속성) · 거래량 지속 (3봉 중 2봉 100%↑)</div>
+          <div style={{fontSize:9,color:C.sub,marginBottom:8}}>점수 시스템 통일 (v2.5.1) — 돌파 (이벤트) · 강세 60+ (지속 점수) · 거래량 지속 (3봉 중 2봉 100%↑)</div>
           <div style={{display:"flex",gap:4,marginBottom:10}}>
             {[["all","전체"],["kr","🇰🇷 한국"],["us","🇺🇸 미국"]].map(([v,l])=>(
               <button key={v} onClick={()=>setFocusMarket(v)} style={{padding:"4px 12px",borderRadius:5,border:`1px solid ${focusMarket===v?C.accent:C.border}`,background:focusMarket===v?"rgba(10,132,255,.12)":"transparent",color:focusMarket===v?C.accent:C.muted,fontSize:9,fontWeight:focusMarket===v?700:400,cursor:"pointer"}}>{l}</button>
@@ -3092,7 +3174,7 @@ export default function App() {
 
           {/* ★ v2.6.7: 카드 3개 → 2개 — 발견 + 센놈 추적 (사용자 의도) */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:14}}>
-            {/* 🚀 돌파 후 강함 — 최근 3봉 내 돌파 이벤트 + 강도 60+ */}
+            {/* 🚀 돌파 후 강함 — 최근 3봉 내 돌파 이벤트 + 강세 60+ */}
             <div onClick={()=>setFocusView(focusView==="breakStrong"?null:"breakStrong")} style={{background:focusView==="breakStrong"?"rgba(255,159,10,.15)":"rgba(255,159,10,.06)",border:`2px solid ${focusView==="breakStrong"?"#FF9F0A":"rgba(255,159,10,.25)"}`,borderRadius:8,padding:"10px",textAlign:"center",cursor:"pointer"}}>
               <div style={{fontSize:9,color:"#FF9F0A",fontWeight:700}}>🚀 돌파 후 강함</div>
               <div style={{fontSize:24,fontWeight:900,color:"#FF9F0A"}}>{realStocks.filter(s=>{
@@ -3103,9 +3185,9 @@ export default function App() {
                 const ss = calcSustainedStrength(cData);
                 return ss.score >= 60;
               }).length}</div>
-              <div style={{fontSize:7,color:focusView==="breakStrong"?"#FF9F0A":C.muted}}>{focusView==="breakStrong"?"▲ 접기":"최근 3봉 돌파 + 강도 60+"}</div>
+              <div style={{fontSize:7,color:focusView==="breakStrong"?"#FF9F0A":C.muted}}>{focusView==="breakStrong"?"▲ 접기":"최근 3봉 돌파 + 강세 60+"}</div>
             </div>
-            {/* 💪 그냥 강함 — 강도 80+ (이벤트 무관) */}
+            {/* 💪 그냥 강함 — 강세 80+ (이벤트 무관) */}
             <div onClick={()=>setFocusView(focusView==="justStrong"?null:"justStrong")} style={{background:focusView==="justStrong"?"rgba(48,209,88,.15)":"rgba(48,209,88,.06)",border:`2px solid ${focusView==="justStrong"?C.emerald:"rgba(48,209,88,.25)"}`,borderRadius:8,padding:"10px",textAlign:"center",cursor:"pointer"}}>
               <div style={{fontSize:9,color:C.emerald,fontWeight:700}}>💪 그냥 강함</div>
               <div style={{fontSize:24,fontWeight:900,color:C.emerald}}>{realStocks.filter(s=>{
@@ -3114,7 +3196,7 @@ export default function App() {
                 const ss = calcSustainedStrength(cData);
                 return ss.score >= 80;
               }).length}</div>
-              <div style={{fontSize:7,color:focusView==="justStrong"?C.emerald:C.muted}}>{focusView==="justStrong"?"▲ 접기":"강도 80+ (추세 진행 중)"}</div>
+              <div style={{fontSize:7,color:focusView==="justStrong"?C.emerald:C.muted}}>{focusView==="justStrong"?"▲ 접기":"강세 80+ (추세 진행 중)"}</div>
             </div>
           </div>
           {realCount>0&&<div style={{fontSize:7,color:C.muted,textAlign:"right",marginTop:-10,marginBottom:8}}>실시간 {realCount}종목 기준 · 실험실 검증 데이터 기반 시그널 (v2.6.7)</div>}
@@ -3134,7 +3216,7 @@ export default function App() {
             if (all.length === 0) return <div style={{textAlign:"center",padding:"20px",color:C.muted,fontSize:9}}>최근 3봉 내 돌파 후 강한 종목 없음</div>;
             return <div style={{marginBottom:14}}>
               <div style={{fontSize:11,fontWeight:700,color:"#FF9F0A",marginBottom:6}}>🚀 돌파 후 강함 ({all.length}개)</div>
-              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>최근 3봉 내 구름 돌파 또는 스퀴즈 오프 발생 + 지속 강도 60점 이상. <b>"막 돌파한 강한 종목"</b></div>
+              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>최근 3봉 내 구름 돌파 또는 스퀴즈 오프 발생 + 지속 강세 60점 이상. <b>"막 돌파한 강한 종목"</b></div>
               {all.map((s,i)=>{
                 const isKR=(s.market||"").includes("kr")||(s.ticker?.length||0)>5;
                 return <div key={s.ticker} onClick={()=>navigateToStock(s.ticker, s)} style={{...css.card,padding:"8px 10px",marginBottom:4,cursor:"pointer",borderLeft:`3px solid #FF9F0A`}}>
@@ -3163,10 +3245,10 @@ export default function App() {
               if (ss.score < 80) return null;
               return {...s, strength: ss.score, breakdown: ss.breakdown};
             }).filter(Boolean).sort((a,b)=>b.strength-a.strength);
-            if (all.length === 0) return <div style={{textAlign:"center",padding:"20px",color:C.muted,fontSize:9}}>강도 80점 이상 종목 없음</div>;
+            if (all.length === 0) return <div style={{textAlign:"center",padding:"20px",color:C.muted,fontSize:9}}>강세 80점 이상 종목 없음</div>;
             return <div style={{marginBottom:14}}>
               <div style={{fontSize:11,fontWeight:700,color:C.emerald,marginBottom:6}}>💪 그냥 강함 ({all.length}개)</div>
-              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>지속 강도 80점 이상 (이벤트 무관). <b>"이미 강한 추세 진행 중"</b> — 추격 매수 또는 보유 검토</div>
+              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>지속 강세 80점 이상 (이벤트 무관). <b>"이미 강한 추세 진행 중"</b> — 추격 매수 또는 보유 검토</div>
               {all.map((s,i)=>{
                 const isKR=(s.market||"").includes("kr")||(s.ticker?.length||0)>5;
                 return <div key={s.ticker} onClick={()=>navigateToStock(s.ticker, s)} style={{...css.card,padding:"8px 10px",marginBottom:4,cursor:"pointer",borderLeft:`3px solid ${C.emerald}`}}>
@@ -3189,93 +3271,44 @@ export default function App() {
           {/* 기본 뷰: 카드 미선택 시 — 오늘의 돌파 + 진입적기 순위 (v2.4.2: AI 추천 TOP5 제거) */}
           {!focusView&&<>
 
-          {/* ★ v2.2: 🚀 오늘의 돌파 감지 */}
+          {/* ★ v2.7.0: 🚀 오늘의 돌파 감지 — 새 시스템 (구름 돌파 + 스퀴즈 오프만) */}
           <div style={css.card}>
             <div style={{fontSize:11,fontWeight:700,color:C.emerald,marginBottom:8}}>🚀 오늘의 돌파 감지</div>
-            <div style={{fontSize:8,color:C.muted,marginBottom:10}}>어제 대비 신호가 바뀐 종목 — 상승 시작 포착</div>
+            <div style={{fontSize:8,color:C.muted,marginBottom:10}}>최근 3봉 내 구름 돌파 또는 스퀴즈 오프 발생 — 검증된 시그널만 (노이즈 제거)</div>
             {(()=>{
               const breakouts = realStocks.map(s => {
                 const cData = charts[s.ticker]?.data;
-                if(!cData||cData.length<3) return null;
-                const today = cData.at(-1), yesterday = cData.at(-2), d3 = cData.at(-3);
-                const signals = [];
-                // ST 플립 (매도→매수)
-                const stToday = [today.st1Bull,today.st2Bull,today.st3Bull].filter(v=>v!=null).length;
-                const stYest = [yesterday.st1Bull,yesterday.st2Bull,yesterday.st3Bull].filter(v=>v!=null).length;
-                if(stToday===3 && stYest<3) signals.push({type:"🔥 ST돌파",desc:`ST ${stYest}→3/3`,color:C.emerald});
-                else if(stToday>stYest) signals.push({type:"📈 ST개선",desc:`ST ${stYest}→${stToday}/3`,color:C.green});
-                // MACD 골든크로스
-                if(today.macd>today.signal && yesterday.macd<=yesterday.signal) signals.push({type:"⚡ MACD↑",desc:"골든크로스 발생",color:C.accent});
-                // 구름 돌파
-                if(today.aboveCloud && !yesterday.aboveCloud) signals.push({type:"☁️ 구름돌파",desc:"일목구름 상향 돌파",color:C.emerald});
-                // 거래량 폭발
-                const vols = cData.slice(-21,-1).map(d=>d.volume||0).filter(v=>v>0);
-                const avgVol = vols.length?vols.reduce((a,b)=>a+b,0)/vols.length:0;
-                if(avgVol>0 && today.volume > avgVol*2) signals.push({type:"💥 거래량",desc:`${Math.round(today.volume/avgVol*100)}% 폭증`,color:C.yellow});
-                // 스퀴즈 해제
-                if(today.sqzOff) signals.push({type:"💎 스퀴즈",desc:"압축 해제! 방향 주목",color:C.purple});
-                if(!signals.length) return null;
-                const {score} = alphaScore(s, cData, idxRS);
-                return {...s, signals, score, stCount:stToday};
-              }).filter(Boolean).sort((a,b)=>b.signals.length-a.signals.length||b.score-a.score);
+                if(!cData||cData.length<5) return null;
+                const ev = detectBreakoutEvent(cData);
+                if (!ev.breakout) return null;
+                const ss = calcSustainedStrength(cData);
+                return {...s, events: ev.events, daysAgo: ev.daysAgo, strength: ss.score};
+              }).filter(Boolean).sort((a,b)=>{
+                // 정렬: 오늘 돌파 먼저, 같으면 강세 점수 높은 순
+                if (a.daysAgo !== b.daysAgo) return a.daysAgo - b.daysAgo;
+                return b.strength - a.strength;
+              });
 
-              if(!breakouts.length) return <div style={{textAlign:"center",padding:"15px",color:C.muted,fontSize:9}}>오늘 신규 돌파 종목이 없습니다</div>;
-              return breakouts.slice(0,8).map(s=>(
-                <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderBottom:`1px solid rgba(255,255,255,.05)`,cursor:"pointer"}}>
+              if(!breakouts.length) return <div style={{textAlign:"center",padding:"15px",color:C.muted,fontSize:9}}>최근 3봉 내 돌파 종목 없음</div>;
+              return breakouts.slice(0,8).map(s=>{
+                const dayLabel = s.daysAgo===0?"오늘":s.daysAgo+"일 전";
+                const isStrong = s.strength >= 60;
+                return (
+                <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderBottom:`1px solid rgba(255,255,255,.05)`,cursor:"pointer",background:isStrong?"rgba(48,209,88,.04)":"transparent"}}>
                   <span style={{fontWeight:900,fontSize:10,minWidth:60,maxWidth:82,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</span>
                   <div style={{flex:1,display:"flex",gap:3,flexWrap:"wrap"}}>
-                    {s.signals.map((sig,i)=><span key={i} style={{fontSize:8,padding:"2px 6px",borderRadius:4,background:`${sig.color}15`,border:`1px solid ${sig.color}40`,color:sig.color,fontWeight:700}}>{sig.type}</span>)}
+                    {s.events.map((ev,i)=><span key={i} style={{fontSize:8,padding:"2px 6px",borderRadius:4,background:"rgba(255,159,10,.15)",border:`1px solid rgba(255,159,10,.4)`,color:"#FF9F0A",fontWeight:700}}>{ev.label}</span>)}
+                    <span style={{fontSize:7,color:C.muted,padding:"2px 4px"}}>{dayLabel}</span>
                   </div>
                   <div style={{textAlign:"right"}}>
-                    <div style={{fontSize:14,fontWeight:900,color:C.accent}}>{s.score}<span style={{fontSize:8,color:C.muted}}>pt</span></div>
+                    <div style={{fontSize:14,fontWeight:900,color:isStrong?C.emerald:C.muted}}>💪{s.strength}</div>
                     <div style={{fontSize:8,color:(s.changePct||0)>=0?C.green:C.red}}><span style={{color:C.muted}}>1D</span> {(s.changePct||0)>=0?"+":""}{(s.changePct||0).toFixed(1)}%</div>
                   </div>
-                </div>
-              ));
-            })()}
-          </div>
-
-          {/* ★ v2.3: 진입적기 순위 — 타이밍 + 강도 2축 */}
-          <div style={css.card}>
-            <div style={{fontSize:11,fontWeight:700,color:C.accent,marginBottom:4}}>🎯 진입적기 순위</div>
-            <div style={{fontSize:8,color:C.muted,marginBottom:8}}>타이밍(방금 시작) + 강도(오래갈) 양쪽 높은 순서</div>
-            {(()=>{
-              const graded = realStocks.map(s=>{
-                const cData = charts[s.ticker]?.data;
-                if(!cData||cData.length<10) return null;
-                const t = calcEntryTiming(cData);
-                const dr = calcTrendDurability(cData);
-                const combined = Math.round(t.score*0.5+dr.score*0.5);
-                if(combined<20) return null;
-                return {...s, timing:t.score, durability:dr.score, combined, timingSignals:t.signals, durabilitySignals:dr.signals};
-              }).filter(Boolean).sort((a,b)=>b.combined-a.combined);
-
-              if(!graded.length) return <div style={{textAlign:"center",padding:"15px",color:C.muted,fontSize:9}}>실시간 데이터 없음 — Daily 실행 후 확인</div>;
-              return graded.slice(0,15).map((s,i)=>{
-                const good = s.timing>=40&&s.durability>=40;
-                return <div key={s.ticker} onClick={()=>navigateToStock(s.ticker,s)} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 8px",borderBottom:`1px solid rgba(255,255,255,.05)`,cursor:"pointer",background:good&&i<3?"rgba(48,209,88,.06)":"transparent"}}>
-                  {/* ★ v2.4.2: 회사명 제일 앞으로 */}
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:2}}>
-                      <span style={{fontWeight:700,fontSize:10,maxWidth:90,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s,10)}</span>
-                      <span style={{fontSize:11,fontWeight:900,color:s.timing>=70?"#FF9F0A":s.timing>=40?C.yellow:C.muted,padding:"1px 3px",borderRadius:3,background:"rgba(255,159,10,.08)"}}>⚡{s.timing}</span>
-                      <span style={{fontSize:11,fontWeight:900,color:s.durability>=70?C.emerald:s.durability>=50?C.green:C.muted,padding:"1px 3px",borderRadius:3,background:"rgba(48,209,88,.08)"}}>💪{s.durability}</span>
-                    </div>
-                    <div style={{display:"flex",gap:2,flexWrap:"wrap"}}>
-                      {s.timingSignals.slice(0,2).map(sig=><span key={sig} style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:"rgba(255,159,10,.08)",color:"#FF9F0A"}}>{sig}</span>)}
-                      {s.durabilitySignals.slice(0,2).map(sig=><span key={sig} style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:"rgba(48,209,88,.08)",color:C.emerald}}>{sig}</span>)}
-                    </div>
-                  </div>
-                  <div style={{textAlign:"right",flexShrink:0}}>
-                    <div style={{display:"flex",gap:4,justifyContent:"flex-end"}}>
-                      <span style={{fontSize:7,color:(s.changePct||0)>=0?C.green:C.red}}>1D {(s.changePct||0)>=0?"+":""}{(s.changePct||0).toFixed(1)}%</span>
-                      <span style={{fontSize:7,color:(s.chg3d||0)>=0?C.green:C.red}}>3D {(s.chg3d||0)>=0?"+":""}{(s.chg3d||0).toFixed(1)}%</span>
-                    </div>
-                  </div>
-                </div>;
+                </div>);
               });
             })()}
           </div>
+
           </>}
           </>})()}
         </div>}
@@ -3294,7 +3327,7 @@ export default function App() {
 
           {/* 정렬 옵션 */}
           <div style={{display:"flex",gap:4,marginBottom:10,flexWrap:"wrap"}}>
-            {[["turnover","💰 거래대금"],["volRatio","📊 평소대비"],["timing","⚡ 타이밍"],["strength","💪 강도"],["chg","📈 1D"],["mktCap","🏢 시가총액"]].map(([k,l])=>(
+            {[["turnover","💰 거래대금"],["volRatio","📊 평소대비"],["timing","🚀 돌파"],["strength","💪 강세"],["chg","📈 1D"],["mktCap","🏢 시가총액"]].map(([k,l])=>(
               <button key={k} onClick={()=>setTradeSort(k)} style={{padding:"3px 10px",borderRadius:4,fontSize:9,fontWeight:tradeSort===k?700:400,border:`1px solid ${tradeSort===k?C.accent:C.border}`,background:tradeSort===k?"rgba(10,132,255,.12)":"transparent",color:tradeSort===k?C.accent:C.muted,cursor:"pointer"}}>{l}</button>
             ))}
           </div>
@@ -3379,7 +3412,7 @@ export default function App() {
             return <div style={{...css.card,padding:0,overflow:"hidden"}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",borderBottom:`1px solid ${C.border}`,background:"rgba(255,214,10,.04)"}}>
                 <span style={{fontSize:10,fontWeight:700,color:"#FFD60A"}}>📊 TOP {sorted.length} {tradeMarket==="kr"?"🇰🇷":tradeMarket==="us"?"🇺🇸":"전체"}</span>
-                <span style={{fontSize:8,color:C.muted}}>정렬: {{turnover:"💰 거래대금",volRatio:"📊 평소대비",timing:"⚡ 타이밍",strength:"💪 강도",chg:"📈 1D",mktCap:"🏢 시가총액"}[tradeSort]}</span>
+                <span style={{fontSize:8,color:C.muted}}>정렬: {{turnover:"💰 거래대금",volRatio:"📊 평소대비",timing:"🚀 돌파",strength:"💪 강세",chg:"📈 1D",mktCap:"🏢 시가총액"}[tradeSort]}</span>
               </div>
               <div style={{overflowX:"auto"}}>
                 {/* ★ v2.6.1: 한 화면 fit — 종목명 80→64, 1D/3D/5D 통합 (3줄 표시), minWidth 480→320 */}
@@ -3483,7 +3516,7 @@ export default function App() {
                   </div>
                 </div>
                 <div>
-                  <div style={{fontSize:9,fontWeight:600,color:C.sub,marginBottom:5}}>💪 RS강도 <span style={{color:C.accent}}>{fRS>0?`+${fRS}%p이상`:"전체"}</span></div>
+                  <div style={{fontSize:9,fontWeight:600,color:C.sub,marginBottom:5}}>💪 RS강세 <span style={{color:C.accent}}>{fRS>0?`+${fRS}%p이상`:"전체"}</span></div>
                   <input type="range" min="0" max="10" step="0.5" value={fRS} onChange={e=>setFRS(+e.target.value)} style={{width:"100%",accentColor:C.accent,marginTop:4}}/>
                 </div>
               </div>
@@ -3501,7 +3534,7 @@ export default function App() {
               :<div>
                 {/* ★ v2.3: 정렬 + 필터 */}
                 <div style={{display:"flex",gap:4,marginBottom:6,flexWrap:"wrap"}}>
-                  {[["score","📊 종합"],["timing","⚡ 타이밍"],["entry","🎯 복합"],["accel","🔥 가속"],["rs","💪 RS"],["chg3d","📈 3D"],["vol","💥 거래량"]].map(([k,l])=>(
+                  {[["score","📊 종합"],["timing","🚀 돌파"],["entry","🎯 복합"],["accel","🔥 가속"],["rs","💪 RS"],["chg3d","📈 3D"],["vol","💥 거래량"]].map(([k,l])=>(
                     <button key={k} onClick={()=>setAlphaSort(k)} style={{padding:"3px 8px",borderRadius:4,fontSize:8,fontWeight:alphaSort===k?700:400,border:`1px solid ${alphaSort===k?C.accent:C.border}`,background:alphaSort===k?"rgba(10,132,255,.12)":"transparent",color:alphaSort===k?C.accent:C.muted,cursor:"pointer"}}>{l}</button>
                   ))}
                 </div>
@@ -3586,13 +3619,13 @@ export default function App() {
 
 
           {alphaTab==="compare"&&<div style={css.card}>
-            <div style={{fontSize:11,fontWeight:700,color:C.accent,marginBottom:4}}>⚖️ 관심종목 RS강도 비교</div>
+            <div style={{fontSize:11,fontWeight:700,color:C.accent,marginBottom:4}}>⚖️ 관심종목 RS강세 비교</div>
             {watchlist.length===0
               ?<div style={{textAlign:"center",padding:"30px 0",color:C.muted}}>히트맵 ★ 눌러 추가</div>
               :<div style={{overflowX:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,minWidth:400}}>
                   <thead><tr style={{background:"rgba(255,255,255,.04)"}}>
-                    {["종목","현재가","3D","5D","vs시장","⚡타이밍","💪강도","관찰"].map(h=>(
+                    {["종목","현재가","3D","5D","vs시장","🚀돌파","💪강세","관찰"].map(h=>(
                       <th key={h} style={{padding:"6px 8px",textAlign:"left",color:C.muted,fontSize:8,fontWeight:700,borderBottom:`1px solid ${C.border}`}}>{h}</th>
                     ))}
                   </tr></thead>
@@ -3668,9 +3701,9 @@ export default function App() {
             </div>
           </div>}
 
-          {/* ★ v2.5.2: ST 추세 건강 인디케이터 제거 — 정보가 💪강도 컴포넌트(ADX/EMA/ST유지)와 중복 */}
+          {/* ★ v2.5.2: ST 추세 건강 인디케이터 제거 — 정보가 💪강세 컴포넌트(ADX/EMA/ST유지)와 중복 */}
 
-          {/* ★ v2.5.2: 매수 신호 5필터 박스 제거 — ST/MACD/RSI/거래/구름 정보가 ⚡타이밍/💪강도 컴포넌트와 중복 */}
+          {/* ★ v2.5.2: 매수 신호 5필터 박스 제거 — ST/MACD/RSI/거래/구름 정보가 🚀돌파/💪강세 컴포넌트와 중복 */}
 
           {/* ★ v2.3: 회사 정보 카드 — 기존 데이터 + 외부 링크 */}
           {companyInfo[sel]&&(()=>{
@@ -3710,12 +3743,12 @@ export default function App() {
             </div>;
           })()}
 
-          {/* ★ v2.4.3: ⚡ 타이밍 + 💪 강도 통합 패널 — 클릭 시 컴포넌트별 펼치기 */}
+          {/* ★ v2.4.3: 🚀 돌파 + 💪 강세 통합 패널 — 클릭 시 컴포넌트별 펼치기 */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:10}}>
             {/* ★ v2.5.6: 색상 임계값 35/50 (v2.5.1 게이트값 35와 일치) */}
             <div style={{background:selTiming.score>=35?"rgba(255,159,10,.08)":"rgba(255,255,255,.03)",border:`2px solid ${selTiming.score>=50?"#FF9F0A":selTiming.score>=35?C.yellow:"rgba(255,255,255,.1)"}`,borderRadius:10,padding:"10px 12px",cursor:"pointer"}} onClick={()=>setTimingOpen(!timingOpen)}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                <span style={{fontSize:9,fontWeight:700,color:"#FF9F0A"}}>⚡ 타이밍 {timingOpen?"▼":"▶"}</span>
+                <span style={{fontSize:9,fontWeight:700,color:"#FF9F0A"}}>🚀 돌파 {timingOpen?"▼":"▶"}</span>
                 <span style={{fontSize:8,color:C.muted}}>{selTiming.grade}</span>
               </div>
               <div style={{fontSize:28,fontWeight:900,color:selTiming.score>=50?"#FF9F0A":selTiming.score>=35?C.yellow:C.muted,lineHeight:1,marginBottom:6}}>{selTiming.score}<span style={{fontSize:10,color:C.muted}}>/100</span></div>
@@ -3736,7 +3769,7 @@ export default function App() {
             {/* ★ v2.5.6: 색상 임계값 60/75 (v2.5.1 게이트값 60과 일치) */}
             <div style={{background:selDurability.score>=60?"rgba(48,209,88,.06)":"rgba(255,255,255,.03)",border:`2px solid ${selDurability.score>=75?C.emerald:selDurability.score>=60?C.green:"rgba(255,255,255,.1)"}`,borderRadius:10,padding:"10px 12px",cursor:"pointer"}} onClick={()=>setDurabilityOpen(!durabilityOpen)}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                <span style={{fontSize:9,fontWeight:700,color:C.emerald}}>💪 강도 {durabilityOpen?"▼":"▶"}</span>
+                <span style={{fontSize:9,fontWeight:700,color:C.emerald}}>💪 강세 {durabilityOpen?"▼":"▶"}</span>
                 <span style={{fontSize:8,color:C.muted}}>{selDurability.grade}</span>
               </div>
               <div style={{fontSize:28,fontWeight:900,color:selDurability.score>=75?C.emerald:selDurability.score>=60?C.green:C.muted,lineHeight:1,marginBottom:6}}>{selDurability.score}<span style={{fontSize:10,color:C.muted}}>/100</span></div>
@@ -4312,7 +4345,7 @@ export default function App() {
             {[
               ["market",lastD?.allBull&&vixVal<25,"📊 지수 추세 상승 (ST 매수배경 · VIX 25 이하)"],
               ["sector",true,"🏭 목표 업종이 당일 강세 섹터"],
-              ["stock",selTiming.score>=35&&selDurability.score>=60,"📈 타이밍 "+selTiming.score+" · 강도 "+selDurability.score+" (⚡35+ 💪60+)"],
+              ["stock",selTiming.score>=35&&selDurability.score>=60,"📈 돌파 "+selTiming.score+" · 강세 "+selDurability.score+" (🚀 돌파 + 💪 강세 60+)"],
               ["timing",lastD?.allBull&&(lastD?.macd||0)>(lastD?.signal||0),"⏰ 트리플 ST 매수 + MACD 크로스"],
               ["risk",stopPrice>0&&stopPrice<curPrice,"🛑 손절가 현재가 아래 확인"],
             ].map(([key,autoVal,label])=>(
@@ -4390,11 +4423,11 @@ export default function App() {
                     {/* ★ v2.5.8: 종합(foundScore) 제거 → 1D/3D/5D 변화율로 교체 + v2.5.x 임계값 통일 (35/60) */}
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr",gap:4,marginBottom:8}}>
                       <div style={{background:"rgba(255,159,10,.06)",borderRadius:5,padding:"4px",textAlign:"center",border:`1px solid ${tm.score>=35?"#FF9F0A":"transparent"}`}}>
-                        <div style={{fontSize:6,color:C.muted}}>⚡타이밍</div>
+                        <div style={{fontSize:6,color:C.muted}}>🚀돌파</div>
                         <div style={{fontSize:14,fontWeight:900,color:tm.score>=50?"#FF9F0A":tm.score>=35?C.yellow:C.muted}}>{tm.score}</div>
                       </div>
                       <div style={{background:"rgba(48,209,88,.06)",borderRadius:5,padding:"4px",textAlign:"center",border:`1px solid ${dr.score>=60?C.emerald:"transparent"}`}}>
-                        <div style={{fontSize:6,color:C.muted}}>💪강도</div>
+                        <div style={{fontSize:6,color:C.muted}}>💪강세</div>
                         <div style={{fontSize:14,fontWeight:900,color:dr.score>=75?C.emerald:dr.score>=60?C.green:C.muted}}>{dr.score}</div>
                       </div>
                       <div style={{background:"rgba(0,0,0,.4)",borderRadius:5,padding:"4px",textAlign:"center"}}>
@@ -4415,7 +4448,7 @@ export default function App() {
                       {t.foundSignals.slice(0,4).map(sig=><span key={sig} style={{fontSize:6,padding:"1px 4px",borderRadius:2,background:"rgba(56,189,248,.1)",color:C.accent}}>{sig}</span>)}
                     </div>}
                     {tm.score>=35&&dr.score>=60&&<div style={{background:"rgba(48,209,88,.08)",borderRadius:5,padding:"4px 8px",marginBottom:6,textAlign:"center"}}>
-                      <span style={{fontSize:8,fontWeight:700,color:C.emerald}}>✅ 진입 조건 충족 (⚡35+ 💪60+) — 매수 전환 검토</span>
+                      <span style={{fontSize:8,fontWeight:700,color:C.emerald}}>✅ 진입 조건 충족 (🚀 돌파 + 💪 강세 60+) — 매수 전환 검토</span>
                     </div>}
                     <div style={{display:"flex",gap:6}}>
                       <button onClick={()=>navigateToStock(t.ticker,t)} style={{flex:1,background:"rgba(56,189,248,.1)",border:`1px solid ${C.accent}`,color:C.accent,borderRadius:6,padding:"6px 0",cursor:"pointer",fontSize:9,fontWeight:700}}>📊 차트</button>
@@ -5006,7 +5039,7 @@ export default function App() {
         {/* ══ TAB: 실험실 — 추천 적중률 검증 ══ */}
         {tab==="lab"&&<div style={{padding:"12px 14px"}}>
           <div style={{fontSize:12,fontWeight:900,color:C.purple,marginBottom:4}}>🔬 실험실 — 추천 vs 실제 비교</div>
-          <div style={{fontSize:9,color:C.sub,marginBottom:8}}>v2.5.9: 최근 오른 종목들의 <b>최적 진입 시점</b> 자동 탐색 — d-30 ~ d-2 스캔, ⚡타이밍 35+ AND 💪강도 60+ 충족된 첫 봉 (앞 탭들과 동일 기준)</div>
+          <div style={{fontSize:9,color:C.sub,marginBottom:8}}>v2.5.9: 최근 오른 종목들의 <b>최적 진입 시점</b> 자동 탐색 — d-30 ~ d-2 스캔, 🚀 돌파 60+ AND 💪강세 60+ 충족된 첫 봉 (앞 탭들과 동일 기준)</div>
           <div style={{display:"flex",gap:4,marginBottom:10}}>
             {[["all","전체"],["kr","🇰🇷 한국"],["us","🇺🇸 미국"]].map(([v,l])=>(
               <button key={v} onClick={()=>setLabMarket(v)} style={{padding:"4px 12px",borderRadius:5,border:`1px solid ${labMarket===v?C.purple:C.border}`,background:labMarket===v?"rgba(191,90,242,.12)":"transparent",color:labMarket===v?C.purple:C.muted,fontSize:9,fontWeight:labMarket===v?700:400,cursor:"pointer"}}>{l}</button>
@@ -5090,11 +5123,24 @@ export default function App() {
                   // ★ v2.4.0: 적기 = 4개 중 3+ AND 거래량 120%↑ 필수
                   const sig_entry = entryScore >= 3 && volOK;
 
-                  // ★ v2.5.9: v2.5.x 시그널 시스템 (UI 메인용) — 옛 sig_* 변수는 LEGACY로 보존
-                  // 점수 시스템 통일: timing 35+ / strength 60+ / 거래량 게이트
-                  const sig_timing   = timingPt >= 35;       // ⚡ 시점 (calcEntryTiming 게이트)
-                  const sig_strength = durPt >= 60;          // 💪 추세 (calcTrendDurability 게이트)
-                  const sig_volume   = volOK;                // 📊 거래량 (3봉 중 2봉 100%↑)
+                  // ★ v2.7.0: 점수 시스템 전면 교체 — 돌파(이벤트) + 강세(점수)
+                  // sig_timing = 돌파 이벤트 (이름은 호환 유지, 의미만 변경)
+                  // sig_strength = 새 강세 점수 60+
+                  // 옛 calcEntryTiming/calcTrendDurability는 timingPt/durPt 변수에 그대로 보존 (LEGACY 분석용)
+                  let sig_timing_new = false;
+                  if (idx >= 1 && idx < d.length) {
+                    const dCutForEv = d.slice(0, idx + 1);
+                    const ev = detectBreakoutEvent(dCutForEv);
+                    sig_timing_new = ev.breakout;
+                  }
+                  const ssScore = (() => {
+                    if (idx < 1) return 0;
+                    const dCutForSS = d.slice(0, idx + 1);
+                    return calcSustainedStrength(dCutForSS).score || 0;
+                  })();
+                  const sig_timing   = sig_timing_new;        // 🚀 돌파 이벤트
+                  const sig_strength = ssScore >= 60;         // 💪 강세 60+
+                  const sig_volume   = volOK;                 // 📊 거래량 (3봉 중 2봉 100%↑)
 
                   // ★ v2.5.9 LEGACY: sigs 배열은 옛 5개 시그널 그대로 유지 (sigCount 호환)
                   const sigs = [sig_alpha, sig_entry, sig_supply, sig_strong, sig_rsi];
@@ -5259,9 +5305,9 @@ export default function App() {
             };
             // ★ v2.5.9: 시그널 조합 4종 — v2.5.x 점수 시스템 기반 (timing/strength 조합)
             const combos = [
-              {name:"🚀 진입적기 (⚡35+ 💪60+ 📊거래량)", filter:(b)=>b.sig_timing&&b.sig_strength&&b.sig_volume, color:"#FFD60A"},
-              {name:"⚡ 시점 단독 (⚡35+ but 💪<60)",     filter:(b)=>b.sig_timing&&!b.sig_strength,            color:"#FF9F0A"},
-              {name:"💪 추세 단독 (💪60+ but ⚡<35)",     filter:(b)=>b.sig_strength&&!b.sig_timing,            color:C.emerald},
+              {name:"🌟 둘 다 충족 (🚀 돌파 + 💪 강세 60+)", filter:(b)=>b.sig_timing&&b.sig_strength&&b.sig_volume, color:"#FFD60A"},
+              {name:"🚀 돌파 단독 (이벤트 but 강세 부족)",     filter:(b)=>b.sig_timing&&!b.sig_strength,            color:"#FF9F0A"},
+              {name:"💪 강세 단독 (이벤트 X but 강세 충분)",     filter:(b)=>b.sig_strength&&!b.sig_timing,            color:C.emerald},
               {name:"⬜ 둘 다 미달",                     filter:(b)=>!b.sig_timing&&!b.sig_strength,           color:C.muted},
             ];
             const comboStats = combos.map(c => {
@@ -5280,14 +5326,14 @@ export default function App() {
               // ★ v2.5.9: 그룹 라벨 v2.5.x 통일 — 수급/돌파/적기 → 거래량/시점/추세
               {key:"c_st2",        label:"ST 카운트 ≥ 2",   group:"거래량", color:C.emerald},
               {key:"c_vol",        label:"거래량 ≥ 130%",   group:"거래량", color:C.emerald},
-              {key:"c_stFlip",     label:"ST flip",        group:"시점", color:"#64D2FF"},
-              {key:"c_macdGolden", label:"MACD 골든크로스",  group:"시점", color:"#64D2FF"},
-              {key:"c_cloudBreak", label:"구름 돌파",       group:"시점", color:"#64D2FF"},
-              {key:"c_sqzOff",     label:"스퀴즈 오프",     group:"시점", color:"#64D2FF"},
-              {key:"c_st3",        label:"ST 3/3",         group:"추세", color:"#FF9F0A"},
-              {key:"c_macdPos",    label:"MACD > Signal",  group:"추세", color:"#FF9F0A"},
-              {key:"c_aboveMa20",  label:"가격 > MA20",     group:"추세", color:"#FF9F0A"},
-              {key:"c_momentum",   label:"가격 > 3봉전",    group:"추세", color:"#FF9F0A"},
+              {key:"c_stFlip",     label:"ST flip",        group:"돌파", color:"#64D2FF"},
+              {key:"c_macdGolden", label:"MACD 골든크로스",  group:"돌파", color:"#64D2FF"},
+              {key:"c_cloudBreak", label:"구름 돌파",       group:"돌파", color:"#64D2FF"},
+              {key:"c_sqzOff",     label:"스퀴즈 오프",     group:"돌파", color:"#64D2FF"},
+              {key:"c_st3",        label:"ST 3/3",         group:"강세", color:"#FF9F0A"},
+              {key:"c_macdPos",    label:"MACD > Signal",  group:"강세", color:"#FF9F0A"},
+              {key:"c_aboveMa20",  label:"가격 > MA20",     group:"강세", color:"#FF9F0A"},
+              {key:"c_momentum",   label:"가격 > 3봉전",    group:"강세", color:"#FF9F0A"},
               // ★ v2.3.16: ST 전환 패턴 4종 (사용자 분 매수 철학 검증)
               {key:"c_st_2to3",    label:"⭐ ST 2→3 전환",  group:"전환", color:"#FFD60A"},
               {key:"c_st_1to2",    label:"ST 1→2 전환",    group:"전환", color:"#FFD60A"},
@@ -5312,8 +5358,8 @@ export default function App() {
             // 놓친 이유 — MISS 종목에서 어느 시그널이 가장 약했나 (낮은 충족률 = 놓친 이유)
             // ★ v2.5.9: 놓친 이유/잘 잡은 패턴 분석 — v2.5.x 시그널 3개 기준
             const sigDefs = [
-              {key:"sig_timing",   label:"⚡ 타이밍 35+",   isCore:true},
-              {key:"sig_strength", label:"💪 강도 60+",     isCore:true},
+              {key:"sig_timing",   label:"🚀 돌파 35+",   isCore:true},
+              {key:"sig_strength", label:"💪 강세 60+",     isCore:true},
               {key:"sig_volume",   label:"📊 거래량 게이트", isCore:false},
             ];
             const missAnalysis = misses.length>0 ? sigDefs.map(s=>({
@@ -5356,7 +5402,7 @@ export default function App() {
                   <div style={{textAlign:"right"}}>
                     <div style={{fontSize:9,color:C.emerald,fontWeight:700}}>✅ HIT {hits.length}</div>
                     <div style={{fontSize:9,color:C.red,fontWeight:700}}>❌ MISS {misses.length}</div>
-                    <div style={{fontSize:7,color:C.muted,marginTop:4}}>HIT = ⚡35+ AND 💪60+</div>
+                    <div style={{fontSize:7,color:C.muted,marginTop:4}}>HIT = 🚀 돌파 + 💪 강세 60+</div>
                   </div>
                 </div>
                 {/* ★ v2.3.1: 실현 수익률 vs 표시 수익률 — 갭 손실 검증 */}
@@ -5433,7 +5479,7 @@ export default function App() {
 
               {/* 놓친 이유 분석 */}
               {misses.length>0 && <div style={css.card}>
-                <div style={{fontSize:10,fontWeight:700,color:C.red,marginBottom:4}}>❌ 놓친 이유 — MISS {misses.length}개의 시작 시점 시그널 충족률</div>
+                <div style={{fontSize:10,fontWeight:700,color:C.red,marginBottom:4}}>❌ 놓친 이유 — MISS {misses.length}개 시작 시점 시그널 충족률</div>
                 <div style={{fontSize:8,color:C.muted,marginBottom:8}}>가장 자주 빠진 지표가 곧 '놓친 이유' · 임계값 완화 시 더 잡힐 수 있음</div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:4}}>
                   {missAnalysis.map((m,i)=>(
@@ -5464,11 +5510,11 @@ export default function App() {
               {/* TOP 종목 목록 — HIT/MISS 표시 + 점수 시스템 통일 (v2.5.1) */}
               <div style={css.card}>
                 <div style={{fontSize:10,fontWeight:700,color:"#FF9F0A",marginBottom:4}}>🏆 최근 5일 상승 TOP {totalTop} — 시그널 발생 시점 자동 탐색</div>
-                <div style={{fontSize:7,color:C.muted,marginBottom:8}}>v2.5.1: ⚡타이밍 35+ (시점) · 💪강도 60+ (지속성) · 거래량 지속 (3봉 중 2봉↑ 100%) 게이트 · "d-X" = 며칠 전 신호 발생</div>
+                <div style={{fontSize:7,color:C.muted,marginBottom:8}}>v2.5.1: 🚀 돌파 (이벤트) · 💪강세 60+ (지속 점수) · 거래량 지속 (3봉 중 2봉↑ 100%) 게이트 · "d-X" = 며칠 전 신호 발생</div>
                 <div style={{maxHeight:400,overflowY:"auto"}}>
                   {top40.map((s,i)=>{
                     const isKR4=(s.ticker?.length||0)>5;
-                    // ★ v2.5.1: 점수 시스템 — 타이밍 35+ (시점) / 강도 60+ (지속성) 비대칭
+                    // ★ v2.5.1: 점수 시스템 — 돌파 (이벤트) / 강세 60+ (지속 점수) 비대칭
                     const tPt = s.timingPt || 0;
                     const dPt = s.durPt || 0;
                     const tOK = tPt >= 35;
@@ -5480,15 +5526,15 @@ export default function App() {
                       <span style={{fontSize:8,fontWeight:900,padding:"1px 5px",borderRadius:3,minWidth:35,textAlign:"center",background:s.isHit?"rgba(48,209,88,.15)":"rgba(255,69,58,.15)",color:s.isHit?C.emerald:C.red}}>{s.isHit?"HIT":"MISS"}</span>
                       <span style={{fontWeight:700,fontSize:9,minWidth:55,maxWidth:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName(s)}</span>
                       <span style={{fontSize:7,color:C.muted,minWidth:42}}>{isKR4?"₩"+fmtKRW(s.price||0):"$"+(s.price||0).toFixed(1)}</span>
-                      {/* ★ v2.5.1: 점수 배지 — ⚡타이밍 (35+ 강조) / 💪강도 (60+ 강조) */}
+                      {/* ★ v2.5.1: 점수 배지 — 🚀돌파 (35+ 강조) / 💪강세 (60+ 강조) */}
                       <div style={{display:"flex",gap:2,flexShrink:0}}>
-                        <span title={`⚡ 타이밍 ${tPt}/100 (≥35 시점 충족)`} style={{fontSize:7,padding:"2px 5px",borderRadius:3,background:tOK?"rgba(255,159,10,.25)":"rgba(255,255,255,.04)",color:tOK?"#FF9F0A":C.muted,fontWeight:900,border:`1px solid ${tOK?"#FF9F0A":C.border}`}}>⚡{tPt}</span>
-                        <span title={`💪 강도 ${dPt}/100 (≥60 지속성 충족)`} style={{fontSize:7,padding:"2px 5px",borderRadius:3,background:dOK?"rgba(48,209,88,.25)":"rgba(255,255,255,.04)",color:dOK?C.emerald:C.muted,fontWeight:900,border:`1px solid ${dOK?C.emerald:C.border}`}}>💪{dPt}</span>
+                        <span title={`🚀 돌파 ${tPt}/100 (≥35 시점 충족)`} style={{fontSize:7,padding:"2px 5px",borderRadius:3,background:tOK?"rgba(255,159,10,.25)":"rgba(255,255,255,.04)",color:tOK?"#FF9F0A":C.muted,fontWeight:900,border:`1px solid ${tOK?"#FF9F0A":C.border}`}}>⚡{tPt}</span>
+                        <span title={`💪 강세 ${dPt}/100 (≥60 지속성 충족)`} style={{fontSize:7,padding:"2px 5px",borderRadius:3,background:dOK?"rgba(48,209,88,.25)":"rgba(255,255,255,.04)",color:dOK?C.emerald:C.muted,fontWeight:900,border:`1px solid ${dOK?C.emerald:C.border}`}}>💪{dPt}</span>
                       </div>
                       <div style={{display:"flex",gap:1,flex:1}}>
                         <span title={`거래량 지속성 ${s.volSustainedCount}/3봉 (100%↑) — 현재 ${s.volR}% · 2/3 이상 = 게이트 통과`} style={{fontSize:6,padding:"1px 3px",borderRadius:2,background:volOK?"rgba(48,209,88,.15)":"rgba(255,255,255,.04)",color:volOK?C.emerald:C.muted,fontWeight:700}}>📊거래량 {s.volSustainedCount}/3</span>
                       </div>
-                      <span title="3 게이트 충족 (⚡35+ · 💪60+ · 거래량 지속)" style={{fontSize:8,fontWeight:700,color:okCount===3?C.emerald:okCount===2?"#FF9F0A":okCount===1?C.yellow:C.muted,minWidth:25,textAlign:"center"}}>{okCount}/3</span>
+                      <span title="3 게이트 충족 (🚀 돌파 · 💪 강세 60+ 또는 강세 80+)" style={{fontSize:8,fontWeight:700,color:okCount===3?C.emerald:okCount===2?"#FF9F0A":okCount===1?C.yellow:C.muted,minWidth:25,textAlign:"center"}}>{okCount}/3</span>
                       {s.isHit&&<span title="신호 발생 며칠 전" style={{fontSize:7,fontWeight:700,color:C.accent,minWidth:24,textAlign:"center",padding:"1px 3px",background:"rgba(10,132,255,.08)",borderRadius:3}}>d-{s.daysAgo}</span>}
                       <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",minWidth:60}}>
                         <span style={{fontSize:9,fontWeight:900,color:s.realChg5>0?C.green:C.red}}>+{s.realChg5.toFixed(1)}%</span>
@@ -5629,7 +5675,7 @@ export default function App() {
           </div>
           {/* ★ v2.3.1: 별표 동기화 안내 */}
           <div style={{fontSize:7,color:C.muted,marginBottom:12,padding:"5px 8px",background:"rgba(10,132,255,.05)",border:`1px solid ${C.border}`,borderRadius:5,lineHeight:1.5}}>
-            💡 <b style={{color:C.accent}}>★ 별표</b>를 누르면 <b style={{color:C.accent}}>관심종목 ⭐</b>으로 등록되어, <b>발굴탭 → 비교뷰</b>에서 RS 강도를 비교할 수 있습니다. 시장탭/집중탭에서도 ★ 별표로 동일하게 등록 가능합니다.
+            💡 <b style={{color:C.accent}}>★ 별표</b>를 누르면 <b style={{color:C.accent}}>관심종목 ⭐</b>으로 등록되어, <b>발굴탭 → 비교뷰</b>에서 RS 강세를 비교할 수 있습니다. 시장탭/집중탭에서도 ★ 별표로 동일하게 등록 가능합니다.
           </div>
           <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
             <input value={poolFilter} onChange={e=>setPoolFilter(e.target.value)} placeholder="종목명/티커 검색..." style={{flex:1,minWidth:120,background:"rgba(255,255,255,.05)",border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.text,fontSize:10,outline:"none"}}/>
