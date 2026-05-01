@@ -1,5 +1,43 @@
 /**
- * Alpha Terminal v2.7.4 — App.jsx
+ * Alpha Terminal v2.7.5 — App.jsx
+ * v2.7.5: [강세 12 컴포넌트 — 데이터 기반 가중치 재조정 + 신규 2개]
+ *          [v2.7.4 검증 결과 분석]
+ *                 ✅ HIT 22 / MISS 18 = 55% (안정)
+ *                 신규 컴포넌트 단독 효과 측정 결과:
+ *                   - ⭐ ADX 25+ : +2.3% / 58% (예상보다 약함)
+ *                   - ⭐ MA20+기울기↑: +3.2% / 61% (예상대로)
+ *                   - ⭐ 52주 -15% : +2.6% / 62% (안전)
+ *                 → ADX 가중치 과대평가 확인, 재조정 필요
+ *          [Q1=A: 가중치 재조정]
+ *                 큰 변화:
+ *                   ADX 25+              18 → 6  (-12) ⭐ 효과 약함 입증
+ *                   ST 3/3 유지          10 → 15 (+5) ⭐ 효과 +3.6% 최고
+ *                   거래량 130% 재추가   —  → 9  (+9) ⭐ 효과 +3.3%, 63%
+ *                 미세 조정:
+ *                   가격>MA20+기울기↑    14 → 13
+ *                   ST 3/3               12 → 11
+ *                   52주 -15%            14 → 10
+ *                   MACD > Signal        11 → 9
+ *                   거래량 5일>20일       9 → 8
+ *                   OBV 동행              6 → 4
+ *                   RSI 50~70             6 → 4
+ *          [Q2=C: 신규 컴포넌트 2개 추가]
+ *                 - MA5 > MA20 (6점): 단기 모멘텀 (며칠~1개월 매매 정합)
+ *                 - +DI > -DI  (5점): ADX 보조 (방향성 확인)
+ *          [Q3=E: 추가 지표 검토는 1주 후로]
+ *          [Q4=A: 1주 검증 후 재분석]
+ *          [실험실 컴포넌트 17 → 19]
+ *                 - c_ma5gt20 (MA5 > MA20) 추가
+ *                 - c_pdiPos (+DI > -DI) 추가
+ *          [영향]
+ *                 - calcSustainedStrength: 9 → 12 컴포넌트
+ *                 - 가중치 분포 더 평탄해짐 (최대 15 → 4)
+ *                 - 둘 다 충족 조합 효과 측정 표본 확대 예상
+ *          [백업] App.v2.7.4.backup.jsx
+ *          [한계 짚기]
+ *                 - 표본 크기 ~3000개 (통계적 유의 가능 단 시장 의존)
+ *                 - 신규 2개는 검증 안 됨 (1주 후 결과 봐야)
+ *                 - 5일 후 측정 → 7일/10일도 봐야 정확
  * v2.7.4: [강세 9 컴포넌트 + 실험실 신규 측정 (사용자 검증 결과 반영)]
  *          [v2.7.3 검증 결과] HIT 22 / MISS 18 = 55% (이전 45% → +10%p)
  *                 둘 다 충족 조합: 평균 +4.1% / 승률 65% / 손실 7%
@@ -1320,21 +1358,28 @@ function detectBreakoutEvent(chartData) {
 //   ✅ 실험실 60%+ 승률 컴포넌트만 사용 (노이즈 제외)
 //   결과: { score: 0-100, breakdown: [...] }
 function calcSustainedStrength(chartData) {
-  // ★ v2.7.4: 9 컴포넌트 차등 가중치 (ST 3/3 유지 추가)
+  // ★ v2.7.5: 12 컴포넌트 데이터 기반 가중치 재조정
   //
-  // 만점 100, 9 컴포넌트:
-  //   1. ADX 25+              (18점) — 추세 강도 핵심
-  //   2. 가격>MA20 + 기울기 양수 (14점) — 진짜 상승 추세
-  //   3. 52주 고점 -15% 이내   (14점) — 강세 지속성
-  //   4. ST 3/3                (12점) — 안심도
-  //   5. ST 3/3 유지            (10점) — 추세 지속 (전 봉도 3/3) ⭐ v2.7.4 신규
-  //   6. MACD > Signal         (11점) — 추세 확인
-  //   7. 거래량 5일 > 20일     (9점)  — 거래량 품질
-  //   8. OBV 동행 (5일)         (6점)  — 거래량 누적
-  //   9. RSI 50~70              (6점)  — 모멘텀 영역
+  // 만점 100, 12 컴포넌트 (효과 큰 순):
+  //   1. ST 3/3 유지            (15점) — 효과 +3.6%/62% (최고)
+  //   2. 가격>MA20 + 기울기 양수 (13점) — 효과 +3.2%/61%
+  //   3. ST 3/3                 (11점) — 효과 +3.4%/61%
+  //   4. 52주 고점 -15% 이내    (10점) — 효과 +2.6%/62% (손실위험 11% 최저)
+  //   5. 거래량 ≥ 130%           (9점) — 효과 +3.3%/63% (재추가)
+  //   6. MACD > Signal          (9점)  — 효과 +2.9%/62%
+  //   7. 거래량 5일 > 20일      (8점)  — 거래량 품질
+  //   8. ADX 25+                (6점)  — 효과 +2.3%/58% (가중치 대폭 감소)
+  //   9. MA5 > MA20 (신규)       (6점)  — 단기 모멘텀
+  //  10. +DI > -DI (신규)        (5점)  — ADX 보조 (방향성)
+  //  11. OBV 동행 (5일)          (4점)  — 거래량 누적
+  //  12. RSI 50~70               (4점)  — 모멘텀 영역
   //
-  // 검증: HIT 22 / MISS 18 = 55% (v2.7.3 검증 완료)
-  //       ST 3/3 유지 = 평균 +3.6% / 승률 62% (실험실 데이터)
+  // 변경 의의:
+  //   - 데이터 기반 가중치 (실험실 측정 결과 반영)
+  //   - ADX 18→6: 효과 58%로 약함, 과대평가였음
+  //   - ST 3/3 유지 10→15: 효과 가장 좋음
+  //   - 거래량 130% 재추가: +3.3%/63% 검증된 효과
+  //   - 신규 2개: 검증 예정 (1주 후)
 
   if (!chartData || chartData.length < 20) {
     return { score: 0, breakdown: [] };
@@ -1345,15 +1390,17 @@ function calcSustainedStrength(chartData) {
   let score = 0;
   const breakdown = [];
 
-  // ① ADX 25+ (18점) — 추세 강도 핵심
-  if (last.adx != null && last.adx >= 25) {
-    score += 18;
-    breakdown.push({ label: "ADX 25+", pts: 18, ok: true, note: `${last.adx.toFixed(0)}` });
+  // ① ST 3/3 유지 (15점) — 효과 +3.6%/62% (최고)
+  const stC = (last.st1Bull ? 1 : 0) + (last.st2Bull ? 1 : 0) + (last.st3Bull ? 1 : 0);
+  const stPrevC = prev ? ((prev.st1Bull ? 1 : 0) + (prev.st2Bull ? 1 : 0) + (prev.st3Bull ? 1 : 0)) : 0;
+  if (stC >= 3 && stPrevC >= 3) {
+    score += 15;
+    breakdown.push({ label: "ST 3/3 유지", pts: 15, ok: true });
   } else {
-    breakdown.push({ label: "ADX 25+", pts: 0, ok: false, note: last.adx != null ? `${last.adx.toFixed(0)}` : "—" });
+    breakdown.push({ label: "ST 3/3 유지", pts: 0, ok: false });
   }
 
-  // ② 가격>MA20 AND MA20 기울기 양수 (14점) — 진짜 상승 추세
+  // ② 가격>MA20 AND MA20 기울기 양수 (13점)
   let ma20Slope = 0;
   if (L >= 6 && last.ma20 != null) {
     const ma20_5ago = chartData[L - 6]?.ma20;
@@ -1361,13 +1408,21 @@ function calcSustainedStrength(chartData) {
   }
   const ma20Cond = last.ma20 != null && last.close > last.ma20 && ma20Slope > 0;
   if (ma20Cond) {
-    score += 14;
-    breakdown.push({ label: "가격>MA20 + 기울기↑", pts: 14, ok: true });
+    score += 13;
+    breakdown.push({ label: "가격>MA20 + 기울기↑", pts: 13, ok: true });
   } else {
     breakdown.push({ label: "가격>MA20 + 기울기↑", pts: 0, ok: false });
   }
 
-  // ③ 52주 고점 -15% 이내 (14점) — 강세 지속성
+  // ③ ST 3/3 (11점)
+  if (stC >= 3) {
+    score += 11;
+    breakdown.push({ label: "ST 3/3", pts: 11, ok: true });
+  } else {
+    breakdown.push({ label: "ST 3/3", pts: 0, ok: false, note: `${stC}/3` });
+  }
+
+  // ④ 52주 고점 -15% 이내 (10점)
   const recent = chartData.slice(-252);
   let high52 = -Infinity;
   for (let i = 0; i < recent.length; i++) {
@@ -1379,39 +1434,30 @@ function calcSustainedStrength(chartData) {
     pctFromHigh = ((last.close - high52) / high52) * 100;
   }
   if (pctFromHigh != null && pctFromHigh >= -15) {
-    score += 14;
-    breakdown.push({ label: "52주 -15% 이내", pts: 14, ok: true, note: `${pctFromHigh.toFixed(1)}%` });
+    score += 10;
+    breakdown.push({ label: "52주 -15% 이내", pts: 10, ok: true, note: `${pctFromHigh.toFixed(1)}%` });
   } else {
     breakdown.push({ label: "52주 -15% 이내", pts: 0, ok: false, note: pctFromHigh != null ? `${pctFromHigh.toFixed(1)}%` : "—" });
   }
 
-  // ④ ST 3/3 (12점) — 안심도
-  const stC = (last.st1Bull ? 1 : 0) + (last.st2Bull ? 1 : 0) + (last.st3Bull ? 1 : 0);
-  if (stC >= 3) {
-    score += 12;
-    breakdown.push({ label: "ST 3/3", pts: 12, ok: true });
+  // ⑤ 거래량 ≥ 130% (9점) — v2.7.5 재추가
+  const vr = last.volRatio || 0;
+  if (vr >= 130) {
+    score += 9;
+    breakdown.push({ label: "거래량 ≥ 130%", pts: 9, ok: true, note: `${vr.toFixed(0)}%` });
   } else {
-    breakdown.push({ label: "ST 3/3", pts: 0, ok: false, note: `${stC}/3` });
+    breakdown.push({ label: "거래량 ≥ 130%", pts: 0, ok: false, note: `${vr.toFixed(0)}%` });
   }
 
-  // ⑤ ST 3/3 유지 (10점) — 전 봉도 3/3, 즉 추세 지속 ⭐ v2.7.4 신규
-  const stPrevC = prev ? ((prev.st1Bull ? 1 : 0) + (prev.st2Bull ? 1 : 0) + (prev.st3Bull ? 1 : 0)) : 0;
-  if (stC >= 3 && stPrevC >= 3) {
-    score += 10;
-    breakdown.push({ label: "ST 3/3 유지", pts: 10, ok: true });
-  } else {
-    breakdown.push({ label: "ST 3/3 유지", pts: 0, ok: false });
-  }
-
-  // ⑥ MACD > Signal (11점) — 추세 확인
+  // ⑥ MACD > Signal (9점)
   if (last.macd != null && last.signal != null && last.macd > last.signal) {
-    score += 11;
-    breakdown.push({ label: "MACD > Signal", pts: 11, ok: true });
+    score += 9;
+    breakdown.push({ label: "MACD > Signal", pts: 9, ok: true });
   } else {
     breakdown.push({ label: "MACD > Signal", pts: 0, ok: false });
   }
 
-  // ⑦ 거래량 5일 평균 > 20일 평균 (9점)
+  // ⑦ 거래량 5일 > 20일 (8점)
   let volQuality = false;
   if (L >= 21) {
     const last5 = chartData.slice(-5).map(c => c.volume || 0).filter(v => v > 0);
@@ -1423,13 +1469,45 @@ function calcSustainedStrength(chartData) {
     }
   }
   if (volQuality) {
-    score += 9;
-    breakdown.push({ label: "거래량 5일>20일", pts: 9, ok: true });
+    score += 8;
+    breakdown.push({ label: "거래량 5일>20일", pts: 8, ok: true });
   } else {
     breakdown.push({ label: "거래량 5일>20일", pts: 0, ok: false });
   }
 
-  // ⑧ OBV 동행 (5일) (6점)
+  // ⑧ ADX 25+ (6점) — 가중치 대폭 감소 (효과 약함 입증)
+  if (last.adx != null && last.adx >= 25) {
+    score += 6;
+    breakdown.push({ label: "ADX 25+", pts: 6, ok: true, note: `${last.adx.toFixed(0)}` });
+  } else {
+    breakdown.push({ label: "ADX 25+", pts: 0, ok: false, note: last.adx != null ? `${last.adx.toFixed(0)}` : "—" });
+  }
+
+  // ⑨ MA5 > MA20 (6점) — v2.7.5 신규 (단기 모멘텀)
+  let ma5gt20 = false;
+  if (L >= 5 && last.ma20 != null) {
+    const last5closes = chartData.slice(-5).map(c => c.close).filter(c => c != null);
+    if (last5closes.length === 5) {
+      const ma5 = last5closes.reduce((a, b) => a + b, 0) / 5;
+      ma5gt20 = ma5 > last.ma20;
+    }
+  }
+  if (ma5gt20) {
+    score += 6;
+    breakdown.push({ label: "MA5 > MA20 (신규)", pts: 6, ok: true });
+  } else {
+    breakdown.push({ label: "MA5 > MA20 (신규)", pts: 0, ok: false });
+  }
+
+  // ⑩ +DI > -DI (5점) — v2.7.5 신규 (방향성)
+  if (last.pdi != null && last.mdi != null && last.pdi > last.mdi) {
+    score += 5;
+    breakdown.push({ label: "+DI > -DI (신규)", pts: 5, ok: true, note: `${last.pdi.toFixed(0)}/${last.mdi.toFixed(0)}` });
+  } else {
+    breakdown.push({ label: "+DI > -DI (신규)", pts: 0, ok: false });
+  }
+
+  // ⑪ OBV 동행 (5일) (4점)
   let obvCohesion = false;
   if (L >= 6 && last.obv != null) {
     const obv5ago = chartData[L - 6]?.obv;
@@ -1439,16 +1517,16 @@ function calcSustainedStrength(chartData) {
     }
   }
   if (obvCohesion) {
-    score += 6;
-    breakdown.push({ label: "OBV 동행 (5일)", pts: 6, ok: true });
+    score += 4;
+    breakdown.push({ label: "OBV 동행 (5일)", pts: 4, ok: true });
   } else {
     breakdown.push({ label: "OBV 동행 (5일)", pts: 0, ok: false });
   }
 
-  // ⑨ RSI 50~70 (6점)
+  // ⑫ RSI 50~70 (4점)
   if (last.rsi != null && last.rsi >= 50 && last.rsi <= 70) {
-    score += 6;
-    breakdown.push({ label: "RSI 50~70", pts: 6, ok: true, note: `${last.rsi.toFixed(0)}` });
+    score += 4;
+    breakdown.push({ label: "RSI 50~70", pts: 4, ok: true, note: `${last.rsi.toFixed(0)}` });
   } else {
     breakdown.push({ label: "RSI 50~70", pts: 0, ok: false, note: last.rsi != null ? `${last.rsi.toFixed(0)}` : "—" });
   }
@@ -5356,6 +5434,16 @@ export default function App() {
                       const pct = ((candle.close - high) / high) * 100;
                       return pct >= -15;
                     })(),
+                    // ★ v2.7.5: 신규 2개 컴포넌트 측정
+                    c_ma5gt20: (() => {                                // 18. MA5 > MA20 (단기 모멘텀)
+                      if (idx < 4 || candle.ma20 == null) return false;
+                      const last5 = [d[idx-4], d[idx-3], d[idx-2], d[idx-1], candle]
+                        .map(c => c?.close).filter(c => c != null);
+                      if (last5.length !== 5) return false;
+                      const ma5 = last5.reduce((a, b) => a + b, 0) / 5;
+                      return ma5 > candle.ma20;
+                    })(),
+                    c_pdiPos: candle.pdi != null && candle.mdi != null && candle.pdi > candle.mdi,  // 19. +DI > -DI
                   };
                 };
 
@@ -5511,6 +5599,9 @@ export default function App() {
               {key:"c_adx",        label:"⭐ ADX 25+ (신규)",      group:"강세", color:"#FF9F0A"},
               {key:"c_ma20Up",     label:"⭐ 가격>MA20+기울기↑ (신규)", group:"강세", color:"#FF9F0A"},
               {key:"c_w52",        label:"⭐ 52주 -15% 이내 (신규)",  group:"강세", color:"#FF9F0A"},
+              // ★ v2.7.5: 신규 2개 추가 (검증 예정)
+              {key:"c_ma5gt20",    label:"🆕 MA5 > MA20 (단기 모멘텀)", group:"강세", color:"#FF9F0A"},
+              {key:"c_pdiPos",     label:"🆕 +DI > -DI (방향성)",    group:"강세", color:"#FF9F0A"},
             ];
             const componentStats = components.map(c => {
               const matchedBars = allBars.filter(b => b[c.key]);
