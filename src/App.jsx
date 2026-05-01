@@ -1,5 +1,38 @@
 /**
- * Alpha Terminal v2.7.2 — App.jsx
+ * Alpha Terminal v2.7.3 — App.jsx
+ * v2.7.3: [강세 점수 재설계 — 추세추종 강화 (B+D 안 적용)]
+ *          [의도] 사용자 매매 결과 분석:
+ *                 잘 매매: GOOGL/DRAM/NVDA — 강한 추세, 52주 고점 근처, MA20 기울기↑
+ *                 못 매매: KO/WMB/VLO/WELL — 횡보주, 52주 멀음, ADX 약함
+ *                 → 추세추종 핵심 지표(ADX/52주/MA20기울기) 가중치 강화
+ *          [B 안: 새 지표 발굴]
+ *                 추가:
+ *                   ⑴ ADX 25+              (20점) — 추세 강도 핵심
+ *                   ⑵ 가격>MA20 + 기울기↑   (15점) — 진짜 상승 추세
+ *                   ⑶ 52주 고점 -15% 이내   (15점) — 강세 지속성
+ *                   ⑹ 거래량 5일 > 20일     (10점) — 거래량 품질
+ *                   ⑺ OBV 동행 (5일)        (8점) — 거래량 누적
+ *                   ⑻ RSI 50~70             (8점) — 모멘텀 영역
+ *                 제거:
+ *                   ❌ 가격>3봉전 (가격>MA20과 중복)
+ *                   ❌ ST 카운트≥2 (ST 3/3과 중복)
+ *                   ❌ 거래량≥130% 단발 (5일>20일이 더 정확)
+ *          [D 안: 가중치 차등]
+ *                 ADX 20 / MA20+기울기 15 / 52주 15 (= 50점, 핵심 추세)
+ *                 ST 12 / MACD 12 (= 24점, 안심도)
+ *                 거래량 10 / OBV 8 / RSI 8 (= 26점, 보조)
+ *                 만점 100
+ *          [영향]
+ *                 - calcSustainedStrength 전체 재작성 (8 컴포넌트)
+ *                 - 모든 탭의 강세 점수 자동 변경 (getSignalsV2가 호출)
+ *                 - 강세 60+/80+ 임계값 그대로 (실험 후 조정 가능)
+ *                 - 데이터 가용: ADX/PDI/MDI/OBV/RSI/MA20 모두 fetch_yahoo에 있음
+ *          [최소 데이터] 20봉 필요 (이전 5봉 → 20봉, MA20/거래량 평균 계산용)
+ *          [예상 효과]
+ *                 - 횡보주 (KO 같은) 강세 점수 낮음 → 추천 안 됨
+ *                 - 추세주 (NVDA/GOOGL 같은) 강세 점수 높음 → 추천 잘 됨
+ *                 - 강세 60+ 통과 종목 수 감소 가능 (더 엄격해짐)
+ *          [백업] App.v2.7.2.backup.jsx
  * v2.7.2: [집중탭 기본 뷰 — 카드와 일관성 통일 (사용자 분 발견 버그)]
  *          [버그] "오늘의 돌파 감지" 카드 8개 보이다가 카드 펼치면 4개로 줄어듦
  *                 = 사용자 인지: "종목이 사라진 것처럼 보임"
@@ -1257,7 +1290,31 @@ function detectBreakoutEvent(chartData) {
 //   ✅ 실험실 60%+ 승률 컴포넌트만 사용 (노이즈 제외)
 //   결과: { score: 0-100, breakdown: [...] }
 function calcSustainedStrength(chartData) {
-  if (!chartData || chartData.length < 5) {
+  // ★ v2.7.3: 추세추종 강화 — 8 컴포넌트 차등 가중치 (사용자 매매 패턴 정합)
+  //
+  // 변경 의도:
+  //   - 사용자 잘 매매한 GOOGL/DRAM/NVDA 공통점:
+  //     ADX 강함, 52주 고점 근처, MA20 기울기 양수, 거래량 꾸준
+  //   - 못 매매한 KO/WMB/VLO 공통점:
+  //     ADX 약함, 52주 고점 멀음, MA20 평탄, 거래량 단발 폭증만
+  //   → 추세추종에 핵심인 ADX/52주/MA20기울기를 더 무겁게
+  //
+  // 만점 100, 8 컴포넌트:
+  //   1. ADX 25+              (20점) — 추세 강도 핵심
+  //   2. 가격>MA20 + 기울기 양수  (15점) — 진짜 상승 추세
+  //   3. 52주 고점 -15% 이내   (15점) — 강세 지속성
+  //   4. ST 3/3                (12점) — 안심도
+  //   5. MACD > Signal         (12점) — 추세 확인
+  //   6. 거래량 5일 > 20일 평균 (10점) — 거래량 품질 (단발 X)
+  //   7. OBV 동행 (5일)         (8점) — 거래량 누적 추적
+  //   8. RSI 50~70              (8점) — 모멘텀 영역 (과열 X)
+  //
+  // 제거된 것:
+  //   - 가격>3봉전 (가격>MA20과 중복)
+  //   - ST 카운트≥2 (ST 3/3과 중복)
+  //   - 거래량≥130% 단발 (5일>20일 평균이 더 정확)
+
+  if (!chartData || chartData.length < 20) {
     return { score: 0, breakdown: [] };
   }
   const L = chartData.length;
@@ -1265,59 +1322,104 @@ function calcSustainedStrength(chartData) {
   let score = 0;
   const breakdown = [];
 
-  // ① ST 3/3 (17점) — 슈퍼트랜드 3개 모두 양수
-  const stC = (last.st1 ? 1 : 0) + (last.st2 ? 1 : 0) + (last.st3 ? 1 : 0);
+  // ① ADX 25+ (20점) — 추세 강도 핵심
+  if (last.adx != null && last.adx >= 25) {
+    score += 20;
+    breakdown.push({ label: "ADX 25+", pts: 20, ok: true, note: `${last.adx.toFixed(0)}` });
+  } else {
+    breakdown.push({ label: "ADX 25+", pts: 0, ok: false, note: last.adx != null ? `${last.adx.toFixed(0)}` : "—" });
+  }
+
+  // ② 가격>MA20 AND MA20 기울기 양수 (15점) — 진짜 상승 추세
+  let ma20Slope = 0;
+  if (L >= 6 && last.ma20 != null) {
+    const ma20_5ago = chartData[L - 6]?.ma20;
+    if (ma20_5ago != null) ma20Slope = last.ma20 - ma20_5ago;
+  }
+  const ma20Cond = last.ma20 != null && last.close > last.ma20 && ma20Slope > 0;
+  if (ma20Cond) {
+    score += 15;
+    breakdown.push({ label: "가격>MA20 + 기울기↑", pts: 15, ok: true });
+  } else {
+    breakdown.push({ label: "가격>MA20 + 기울기↑", pts: 0, ok: false });
+  }
+
+  // ③ 52주 고점 -15% 이내 (15점) — 강세 지속성
+  // 최근 252봉 (1년 영업일) 또는 전체에서 최고가 찾기
+  const recent = chartData.slice(-252);
+  let high52 = -Infinity;
+  for (let i = 0; i < recent.length; i++) {
+    const h = recent[i].high || recent[i].close;
+    if (h > high52) high52 = h;
+  }
+  let pctFromHigh = null;
+  if (high52 > 0 && last.close > 0) {
+    pctFromHigh = ((last.close - high52) / high52) * 100;
+  }
+  if (pctFromHigh != null && pctFromHigh >= -15) {
+    score += 15;
+    breakdown.push({ label: "52주 -15% 이내", pts: 15, ok: true, note: `${pctFromHigh.toFixed(1)}%` });
+  } else {
+    breakdown.push({ label: "52주 -15% 이내", pts: 0, ok: false, note: pctFromHigh != null ? `${pctFromHigh.toFixed(1)}%` : "—" });
+  }
+
+  // ④ ST 3/3 (12점) — 안심도
+  const stC = (last.st1Bull ? 1 : 0) + (last.st2Bull ? 1 : 0) + (last.st3Bull ? 1 : 0);
   if (stC >= 3) {
-    score += 17;
-    breakdown.push({ label: "ST 3/3", pts: 17, ok: true });
+    score += 12;
+    breakdown.push({ label: "ST 3/3", pts: 12, ok: true });
   } else {
     breakdown.push({ label: "ST 3/3", pts: 0, ok: false, note: `${stC}/3` });
   }
 
-  // ② MACD > Signal (17점)
+  // ⑤ MACD > Signal (12점) — 추세 확인
   if (last.macd != null && last.signal != null && last.macd > last.signal) {
-    score += 17;
-    breakdown.push({ label: "MACD > Signal", pts: 17, ok: true });
+    score += 12;
+    breakdown.push({ label: "MACD > Signal", pts: 12, ok: true });
   } else {
     breakdown.push({ label: "MACD > Signal", pts: 0, ok: false });
   }
 
-  // ③ 가격 > MA20 (17점)
-  if (last.ma20 != null && last.close > last.ma20) {
-    score += 17;
-    breakdown.push({ label: "가격 > MA20", pts: 17, ok: true });
-  } else {
-    breakdown.push({ label: "가격 > MA20", pts: 0, ok: false });
-  }
-
-  // ④ 가격 > 3봉전 (17점)
-  if (L >= 4) {
-    const close3ago = chartData[L - 4]?.close;
-    if (close3ago && last.close > close3ago) {
-      score += 17;
-      breakdown.push({ label: "가격 > 3봉전", pts: 17, ok: true });
-    } else {
-      breakdown.push({ label: "가격 > 3봉전", pts: 0, ok: false });
+  // ⑥ 거래량 5일 평균 > 20일 평균 (10점) — 거래량 품질 (단발 폭증 X)
+  let volQuality = false;
+  if (L >= 21) {
+    const last5 = chartData.slice(-5).map(c => c.volume || 0).filter(v => v > 0);
+    const last20 = chartData.slice(-21, -1).map(c => c.volume || 0).filter(v => v > 0);
+    if (last5.length === 5 && last20.length === 20) {
+      const avg5 = last5.reduce((a, b) => a + b, 0) / 5;
+      const avg20 = last20.reduce((a, b) => a + b, 0) / 20;
+      volQuality = avg5 > avg20;
     }
+  }
+  if (volQuality) {
+    score += 10;
+    breakdown.push({ label: "거래량 5일>20일", pts: 10, ok: true });
   } else {
-    breakdown.push({ label: "가격 > 3봉전", pts: 0, ok: false });
+    breakdown.push({ label: "거래량 5일>20일", pts: 0, ok: false });
   }
 
-  // ⑤ ST 카운트 ≥ 2 (16점) — ST 3/3과 일부 중복이지만 의미 있음 (계단식)
-  if (stC >= 2) {
-    score += 16;
-    breakdown.push({ label: "ST 카운트 ≥ 2", pts: 16, ok: true });
+  // ⑦ OBV 동행 (5일) (8점) — 거래량 누적이 가격 따라옴
+  let obvCohesion = false;
+  if (L >= 6 && last.obv != null) {
+    const obv5ago = chartData[L - 6]?.obv;
+    const close5ago = chartData[L - 6]?.close;
+    if (obv5ago != null && close5ago != null) {
+      obvCohesion = (last.close > close5ago) && (last.obv > obv5ago);
+    }
+  }
+  if (obvCohesion) {
+    score += 8;
+    breakdown.push({ label: "OBV 동행 (5일)", pts: 8, ok: true });
   } else {
-    breakdown.push({ label: "ST 카운트 ≥ 2", pts: 0, ok: false, note: `${stC}/3` });
+    breakdown.push({ label: "OBV 동행 (5일)", pts: 0, ok: false });
   }
 
-  // ⑥ 거래량 ≥ 130% (16점)
-  const vr = last.volRatio || 0;
-  if (vr >= 130) {
-    score += 16;
-    breakdown.push({ label: "거래량 ≥ 130%", pts: 16, ok: true, note: `${vr.toFixed(0)}%` });
+  // ⑧ RSI 50~70 (8점) — 모멘텀 영역 (과열 X)
+  if (last.rsi != null && last.rsi >= 50 && last.rsi <= 70) {
+    score += 8;
+    breakdown.push({ label: "RSI 50~70", pts: 8, ok: true, note: `${last.rsi.toFixed(0)}` });
   } else {
-    breakdown.push({ label: "거래량 ≥ 130%", pts: 0, ok: false, note: `${vr.toFixed(0)}%` });
+    breakdown.push({ label: "RSI 50~70", pts: 0, ok: false, note: last.rsi != null ? `${last.rsi.toFixed(0)}` : "—" });
   }
 
   return { score, breakdown };
