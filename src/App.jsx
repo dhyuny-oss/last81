@@ -1,5 +1,23 @@
 /**
- * Alpha Terminal v2.7.5 — App.jsx
+ * Alpha Terminal v2.7.6 — App.jsx
+ * v2.7.6: [차트탭 강세 점수 통일 — 사용자 발견 버그]
+ *          [버그] 사용자 분 발견:
+ *                 SK네트웍스: 집중탭 강세 100, 차트탭 강세 74 (불일치)
+ *          [원인] 차트탭이 옛 calcTrendDurability 함수 직접 호출
+ *                 → ADX/+DI/OBV/MACD히스토 등 옛 컴포넌트 사용
+ *                 → 새 12 컴포넌트 시스템(calcSustainedStrength)과 다름
+ *          [수정] 차트탭의 selDurability를 새 함수로 교체
+ *                 - calcSustainedStrength().score 사용
+ *                 - breakdown / signals 형식 호환 유지 (사용처 20곳 보호)
+ *          [영향] 차트탭 화면에서:
+ *                 - 강세 점수 = 12 컴포넌트 합산 (집중탭과 일치)
+ *                 - 컴포넌트 표시 = ST 3/3 유지/MA20+기울기/52주 등 새 항목
+ *                 - 종합판정 메시지도 새 점수 기준
+ *          [백업] App.v2.7.5.backup.jsx
+ *          [한계 짚기]
+ *                 - 차트탭 다른 곳에서 옛 calcTrendDurability 사용 가능 (확인 필요)
+ *                 - 100점 빈출 = 정상 (12개 모두 충족 가능)
+ *                 - 임계값 60/80 그대로 (분포 보고 조정 가능)
  * v2.7.5: [강세 12 컴포넌트 — 데이터 기반 가중치 재조정 + 신규 2개]
  *          [v2.7.4 검증 결과 분석]
  *                 ✅ HIT 22 / MISS 18 = 55% (안정)
@@ -2604,14 +2622,24 @@ export default function App() {
   // ★ v2.3: 진입타이밍 + 추세강세
   const selPoolInfo = pool[sel] || selInfo || {};
   const selTiming   = calcEntryTiming(cd?.data);
-  const selDurability = calcTrendDurability(cd?.data);
+  // ★ v2.7.6: 차트탭 강세 점수도 새 시스템 사용 (집중탭과 통일)
+  // 옛 calcTrendDurability → 새 calcSustainedStrength
+  // breakdown 형식: [{label, pts, ok, note}] — 기존 코드 호환
+  const selSustained = calcSustainedStrength(cd?.data);
+  const selDurability = {
+    score: selSustained.score,
+    breakdown: selSustained.breakdown,
+    signals: selSustained.breakdown.filter(b => b.ok).map(b => b.label),
+  };
   const entryScore  = calcEntryScore(cd?.data, vixVal, oppScore, selPoolInfo);
   const entryGradeColor = {S:C.emerald,A:C.green,B:C.yellow,C:"#FF9F0A",D:C.red}[entryScore.grade]||C.muted;
 
   // ★ v2.5.2: 3일 전 점수 — 추세(방향성) 측정용
-  // calcEntryTiming/Durability를 3일 전 데이터로 호출하면 그 시점의 점수 산정
   const selTiming3D = (cd?.data && cd.data.length >= 13) ? calcEntryTiming(cd.data.slice(0, -3)) : null;
-  const selDurability3D = (cd?.data && cd.data.length >= 13) ? calcTrendDurability(cd.data.slice(0, -3)) : null;
+  // ★ v2.7.6: 3일 전 강세 점수도 새 시스템
+  const selDurability3D = (cd?.data && cd.data.length >= 13)
+    ? { score: calcSustainedStrength(cd.data.slice(0, -3)).score }
+    : null;
   // 변화량 (Δ): 양 = 상승 추세, 음 = 하락 추세
   const dTiming = selTiming3D ? selTiming.score - selTiming3D.score : 0;
   const dStrength = selDurability3D ? selDurability.score - selDurability3D.score : 0;
