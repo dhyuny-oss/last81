@@ -1,5 +1,25 @@
 /**
- * Alpha Terminal v2.7.7 — App.jsx
+ * Alpha Terminal v2.7.8 — App.jsx
+ * v2.7.8: [집중탭 화면 정리 — 카드 토글 + 1D/3D/5D 표시 + 시장 RS 고정]
+ *          [Q1: "그냥 강함" 카드 토글 + 기본 접힘]
+ *             - 카드 클릭 시 자동 펼침 → 별도 토글 동작으로
+ *             - 기본 접힘 (사용자: "다 안나오게 해줘야 함")
+ *             - "돌파 후 강함" 카드도 동일 (일관성)
+ *          [Q2: 종목 행에 1D/3D/5D 모두 표시]
+ *             - 이전: 1D만 표시
+ *             - 신규: 1D / 3D / 5D 모두 (chg3d, chg5d 데이터 활용)
+ *          [Q3: 컴포넌트 분해 표시 간소화]
+ *             - 12 컴포넌트 모두 펼치는 게 화면 시끄러움
+ *             - 종목 카드 클릭하면 분해 표시 (기본은 안 보임)
+ *          [Q4: 집중탭 상단 시장 RS 고정]
+ *             - S&P 500 / NASDAQ / KOSPI
+ *             - 1D / 3D / 5D 변화율
+ *             - 차트탭 "지수 RS 기준선" 카드와 동일 형식
+ *          [백업] App.v2.7.7.backup.jsx
+ *          [한계 짚기]
+ *             - chg3d/chg5d는 candles 기반 (last 봉 무조건 최신 보장 안 됨)
+ *             - 데이터 39시간 지난 화면 봤을 때 정확성 떨어질 수 있음
+ *             - 시장 RS는 idxRS 객체에서 가져옴 (일관)
  * v2.7.7: [그냥 강함 기본 접힘 + 차트 삼각형 축소 + 가중치 미세 조정]
  *          [요청 처리 — 우선순위 Q3=B]
  *          ① "그냥 강함" 카드 기본 접힘 (펼침/접힘 토글)
@@ -2729,9 +2749,9 @@ export default function App() {
   const selTurnover = cd?.data?.length ? calcTurnover(cd.data.map(d=>({volume:d.volume,close:d.close}))) : 0;
 
   const idxRS = {
-    spy:  {chg3d:indicesData["^GSPC"]?.chg3d??-1.6,chg5d:indicesData["^GSPC"]?.chg5d??-2.0},
-    qqq:  {chg3d:indicesData["^IXIC"]?.chg3d??-2.1,chg5d:indicesData["^IXIC"]?.chg5d??-2.8},
-    kospi:{chg3d:indicesData["^KS11"]?.chg3d??+0.8,chg5d:indicesData["^KS11"]?.chg5d??-0.5},
+    spy:  {chg1d:indicesData["^GSPC"]?.changePct??0,chg3d:indicesData["^GSPC"]?.chg3d??-1.6,chg5d:indicesData["^GSPC"]?.chg5d??-2.0},
+    qqq:  {chg1d:indicesData["^IXIC"]?.changePct??0,chg3d:indicesData["^IXIC"]?.chg3d??-2.1,chg5d:indicesData["^IXIC"]?.chg5d??-2.8},
+    kospi:{chg1d:indicesData["^KS11"]?.changePct??0,chg3d:indicesData["^KS11"]?.chg3d??+0.8,chg5d:indicesData["^KS11"]?.chg5d??-0.5},
   };
 
   // ★ v2.2: 발굴탭 — 종목풀 전체 스캔 (관심종목 + 풀 합산)
@@ -2822,9 +2842,9 @@ export default function App() {
         {[["S&P 500",idxRS.spy],["NASDAQ",idxRS.qqq],["KOSPI",idxRS.kospi]].map(([name,d])=>(
           <div key={name} style={{textAlign:"center"}}>
             <div style={{fontSize:8,color:C.muted,marginBottom:3}}>{name}</div>
-            <div style={{display:"flex",gap:3,justifyContent:"center"}}>
-              {[["3D",d.chg3d],["5D",d.chg5d]].map(([lbl,v])=>(
-                <span key={lbl} style={{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:4,border:`1px solid ${v>=0?"rgba(34,197,94,.35)":"rgba(255,69,58,.35)"}`,background:v>=0?"rgba(34,197,94,.08)":"rgba(255,69,58,.08)",color:v>=0?C.green:C.red}}>{lbl} {v>=0?"+":""}{v}%</span>
+            <div style={{display:"flex",gap:3,justifyContent:"center",flexWrap:"wrap"}}>
+              {[["1D",d.chg1d],["3D",d.chg3d],["5D",d.chg5d]].map(([lbl,v])=>(
+                <span key={lbl} style={{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:4,border:`1px solid ${v>=0?"rgba(34,197,94,.35)":"rgba(255,69,58,.35)"}`,background:v>=0?"rgba(34,197,94,.08)":"rgba(255,69,58,.08)",color:v>=0?C.green:C.red}}>{lbl} {v>=0?"+":""}{(typeof v==="number"?v.toFixed(1):v)}%</span>
               ))}
             </div>
           </div>
@@ -3434,6 +3454,8 @@ export default function App() {
 
         {/* ══ TAB: 집중 — 오늘 볼 종목 ══ */}
         {tab==="focus"&&<div style={{padding:"12px 14px"}}>
+          {/* ★ v2.7.8: 집중탭 상단 시장 RS 고정 (사용자 요청 — 차트탭과 동일 형식) */}
+          <RSBar/>
           <div style={{fontSize:13,fontWeight:900,color:C.accent,marginBottom:4,borderLeft:`3px solid ${C.accent}`,paddingLeft:8}}>🎯 오늘의 집중 종목</div>
           <div style={{fontSize:9,color:C.sub,marginBottom:8}}>돌파 (이벤트 발견) + 강세 60+ (6 컴포넌트 합산) — v2.7.2</div>
           <div style={{display:"flex",gap:4,marginBottom:10}}>
@@ -3511,9 +3533,13 @@ export default function App() {
                     </div>
                     <div style={{fontSize:14,fontWeight:900,color:"#FF9F0A"}}>{s.strength}</div>
                   </div>
-                  <div style={{fontSize:8,color:C.muted,marginTop:3,display:"flex",gap:8,flexWrap:"wrap"}}>
+                  <div style={{fontSize:8,color:C.muted,marginTop:3,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
                     {s.events.map((e,j)=><span key={j} style={{color:"#FFD60A"}}>{e.label} ({e.daysAgo===0?"오늘":e.daysAgo+"일 전"})</span>)}
+                  </div>
+                  <div style={{fontSize:8,color:C.muted,marginTop:3,display:"flex",gap:10,flexWrap:"wrap"}}>
                     <span style={{color:(s.changePct||0)>=0?C.green:C.red}}>1D {(s.changePct||0)>=0?"+":""}{(s.changePct||0).toFixed(1)}%</span>
+                    <span style={{color:(s.chg3d||0)>=0?C.green:C.red}}>3D {(s.chg3d||0)>=0?"+":""}{(s.chg3d||0).toFixed(1)}%</span>
+                    <span style={{color:(s.chg5d||0)>=0?C.green:C.red}}>5D {(s.chg5d||0)>=0?"+":""}{(s.chg5d||0).toFixed(1)}%</span>
                   </div>
                 </div>;
               })}
@@ -3543,9 +3569,10 @@ export default function App() {
                     </div>
                     <div style={{fontSize:14,fontWeight:900,color:C.emerald}}>{s.strength}</div>
                   </div>
-                  <div style={{fontSize:8,color:C.muted,marginTop:3,display:"flex",gap:8,flexWrap:"wrap"}}>
-                    {s.breakdown.filter(b=>b.ok).map((b,j)=><span key={j} style={{color:C.green}}>✓ {b.label}</span>)}
+                  <div style={{fontSize:8,color:C.muted,marginTop:3,display:"flex",gap:10,flexWrap:"wrap"}}>
                     <span style={{color:(s.changePct||0)>=0?C.green:C.red}}>1D {(s.changePct||0)>=0?"+":""}{(s.changePct||0).toFixed(1)}%</span>
+                    <span style={{color:(s.chg3d||0)>=0?C.green:C.red}}>3D {(s.chg3d||0)>=0?"+":""}{(s.chg3d||0).toFixed(1)}%</span>
+                    <span style={{color:(s.chg5d||0)>=0?C.green:C.red}}>5D {(s.chg5d||0)>=0?"+":""}{(s.chg5d||0).toFixed(1)}%</span>
                   </div>
                 </div>;
               })}
