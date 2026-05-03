@@ -608,30 +608,40 @@ def kis_get_kr_volume_top(n=300):
                     if not ticker_code or not name or len(ticker_code)!=6:
                         continue
                     suffix = ".KS" if mkt_code == "J" else ".KQ"
+                    # ★ v2.4.12: kisTurnover 매번 갱신 (이전엔 신규 종목만 등록 후 영원히 같은 값)
+                    try:
+                        kis_turnover = float(item.get("acml_tr_pbmn") or 0)  # 누적 거래대금 (원)
+                        kis_price    = float(item.get("stck_prpr")    or 0)  # 현재가 (원)
+                        kis_volume   = float(item.get("acml_vol")     or 0)  # 누적 거래량 (주)
+                        kis_listed   = float(item.get("lstn_stcn")    or 0)  # 상장 주식수
+                    except (ValueError, TypeError):
+                        kis_turnover = kis_price = kis_volume = kis_listed = 0
+
                     if ticker_code not in stocks:
-                        # ★ v2.4.11: KIS 거래대금/현재가/거래량 직접 저장 (Yahoo candles 폴백 안전망)
-                        try:
-                            kis_turnover = float(item.get("acml_tr_pbmn") or 0)  # 누적 거래대금 (원)
-                            kis_price    = float(item.get("stck_prpr")    or 0)  # 현재가 (원)
-                            kis_volume   = float(item.get("acml_vol")     or 0)  # 누적 거래량 (주)
-                            kis_listed   = float(item.get("lstn_stcn")    or 0)  # 상장 주식수
-                        except (ValueError, TypeError):
-                            kis_turnover = kis_price = kis_volume = kis_listed = 0
+                        # 신규 종목 등록
                         stocks[ticker_code] = {
                             "label":name, "sector":"Korean", "market":"kr", "suffix":suffix,
-                            "kisTurnover": kis_turnover,  # 한투 정확한 거래대금
+                            "kisTurnover": kis_turnover,
                             "kisPrice":    kis_price,
                             "kisVolume":   kis_volume,
                             "kisListed":   kis_listed,
                         }
                         count += 1
-                print(f"    ✅ {mkt_name}: {count}개")
+                    else:
+                        # 기존 종목 — KIS 거래대금/가격/거래량/상장주식수 매번 갱신
+                        stocks[ticker_code]["kisTurnover"] = kis_turnover
+                        stocks[ticker_code]["kisPrice"]    = kis_price
+                        stocks[ticker_code]["kisVolume"]   = kis_volume
+                        stocks[ticker_code]["kisListed"]   = kis_listed
+                print(f"    ✅ {mkt_name}: 신규 {count}개 / 갱신 {len(items)-count}개")
             else:
                 print(f"    ❌ {mkt_name}: HTTP {r.status_code}")
         except Exception as e:
             print(f"    ❌ {mkt_name}: {e}")
         time.sleep(0.3)
     print(f"    📊 한투 API 총 {len(stocks)}개")
+    # ★ v2.4.12: API에서 안 받아온 한국 종목은 kisTurnover 0으로 리셋 (옛 값 유지 방지)
+    # → 호출자(fetch_universe)에서 처리
     return stocks
 
 # ── ★ v2.3.5: 매수 신호 검색 (App.jsx의 5필터 Python 재현) ──────────
@@ -1448,6 +1458,12 @@ def main():
         print(f"\n📦 전체 종목 풀 수집 중...")
         pool = {}
         # ★ KR 종목: 한투 API 우선 → KRX 폴백
+        # ★ v2.4.12: 기존 stocks의 kisTurnover 0으로 리셋 (옛 값 유지 방지)
+        # → KIS API에서 받아온 종목만 새 kisTurnover 가짐, 안 받아온 종목은 0
+        if "stocks" in output:
+            for t, info in output["stocks"].items():
+                if info.get("market") == "kr":
+                    info["kisTurnover"] = 0  # 리셋
         kr_kis = kis_get_kr_volume_top(300) if KIS_TOKEN else {}
         if len(kr_kis) >= 50:
             pool.update(kr_kis)
