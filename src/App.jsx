@@ -1,5 +1,33 @@
 /**
- * Alpha Terminal v2.7.6 — App.jsx
+ * Alpha Terminal v2.7.7 — App.jsx
+ * v2.7.7: [그냥 강함 기본 접힘 + 차트 삼각형 축소 + 가중치 미세 조정]
+ *          [요청 처리 — 우선순위 Q3=B]
+ *          ① "그냥 강함" 카드 기본 접힘 (펼침/접힘 토글)
+ *             - 이전: focusView 상태로 펼침 추적
+ *             - 신규: 기본 null (접힘) → 클릭하면 펼침
+ *          ② 차트 삼각형 신호 크기 25% 축소
+ *             - 사용자: 너무 큼
+ *          ③ 강세 가중치 미세 조정 (Q4=1)
+ *             효과 약한 컴포넌트 가중치 낮춤:
+ *               ADX 25+         6 → 3 (-3) ⭐ 효과 58%
+ *               MA5 > MA20      6 → 3 (-3) ⭐ 효과 59%
+ *               +DI > -DI       5 → 3 (-2) ⭐ 효과 59%
+ *             효과 검증된 컴포넌트 가중치 올림 (+8 재분배):
+ *               ST 3/3 유지     15 → 17 (+2) ⭐ 가장 안정적
+ *               가격>MA20+기울기 13 → 14 (+1)
+ *               ST 3/3          11 → 12 (+1)
+ *               52주 -15%       10 → 12 (+2) ⭐ 손실위험 11% 최저
+ *               거래량 ≥ 130%    9 → 10 (+1)
+ *               MACD > Signal    9 → 10 (+1)
+ *          [한계 인정]
+ *             - 표본 ~3000봉, 시장 조건 의존
+ *             - 5일 후 측정만 → 7일/10일 추가 측정 가능
+ *             - 매번 가중치 만지면 노이즈 과적합 → 앞으로 한두 번 더 검증 후 동결
+ *          [보류 — 다음 작업]
+ *             - 종목 옆 1D/3D/5D 변화율 표시
+ *             - 상단 시장 RS 고정 (1D/3D/5D)
+ *             - 시총 정렬 버그 (fetch_yahoo v2.4.12 검증 후 결정)
+ *          [백업] App.v2.7.6.backup.jsx
  * v2.7.6: [차트탭 강세 점수 통일 — 사용자 발견 버그]
  *          [버그] 사용자 분 발견:
  *                 SK네트웍스: 집중탭 강세 100, 차트탭 강세 74 (불일치)
@@ -1412,8 +1440,8 @@ function calcSustainedStrength(chartData) {
   const stC = (last.st1Bull ? 1 : 0) + (last.st2Bull ? 1 : 0) + (last.st3Bull ? 1 : 0);
   const stPrevC = prev ? ((prev.st1Bull ? 1 : 0) + (prev.st2Bull ? 1 : 0) + (prev.st3Bull ? 1 : 0)) : 0;
   if (stC >= 3 && stPrevC >= 3) {
-    score += 15;
-    breakdown.push({ label: "ST 3/3 유지", pts: 15, ok: true });
+    score += 17;
+    breakdown.push({ label: "ST 3/3 유지", pts: 17, ok: true });
   } else {
     breakdown.push({ label: "ST 3/3 유지", pts: 0, ok: false });
   }
@@ -1426,16 +1454,16 @@ function calcSustainedStrength(chartData) {
   }
   const ma20Cond = last.ma20 != null && last.close > last.ma20 && ma20Slope > 0;
   if (ma20Cond) {
-    score += 13;
-    breakdown.push({ label: "가격>MA20 + 기울기↑", pts: 13, ok: true });
+    score += 14;
+    breakdown.push({ label: "가격>MA20 + 기울기↑", pts: 14, ok: true });
   } else {
     breakdown.push({ label: "가격>MA20 + 기울기↑", pts: 0, ok: false });
   }
 
   // ③ ST 3/3 (11점)
   if (stC >= 3) {
-    score += 11;
-    breakdown.push({ label: "ST 3/3", pts: 11, ok: true });
+    score += 12;
+    breakdown.push({ label: "ST 3/3", pts: 12, ok: true });
   } else {
     breakdown.push({ label: "ST 3/3", pts: 0, ok: false, note: `${stC}/3` });
   }
@@ -1452,8 +1480,8 @@ function calcSustainedStrength(chartData) {
     pctFromHigh = ((last.close - high52) / high52) * 100;
   }
   if (pctFromHigh != null && pctFromHigh >= -15) {
-    score += 10;
-    breakdown.push({ label: "52주 -15% 이내", pts: 10, ok: true, note: `${pctFromHigh.toFixed(1)}%` });
+    score += 12;
+    breakdown.push({ label: "52주 -15% 이내", pts: 12, ok: true, note: `${pctFromHigh.toFixed(1)}%` });
   } else {
     breakdown.push({ label: "52주 -15% 이내", pts: 0, ok: false, note: pctFromHigh != null ? `${pctFromHigh.toFixed(1)}%` : "—" });
   }
@@ -1461,16 +1489,16 @@ function calcSustainedStrength(chartData) {
   // ⑤ 거래량 ≥ 130% (9점) — v2.7.5 재추가
   const vr = last.volRatio || 0;
   if (vr >= 130) {
-    score += 9;
-    breakdown.push({ label: "거래량 ≥ 130%", pts: 9, ok: true, note: `${vr.toFixed(0)}%` });
+    score += 10;
+    breakdown.push({ label: "거래량 ≥ 130%", pts: 10, ok: true, note: `${vr.toFixed(0)}%` });
   } else {
     breakdown.push({ label: "거래량 ≥ 130%", pts: 0, ok: false, note: `${vr.toFixed(0)}%` });
   }
 
   // ⑥ MACD > Signal (9점)
   if (last.macd != null && last.signal != null && last.macd > last.signal) {
-    score += 9;
-    breakdown.push({ label: "MACD > Signal", pts: 9, ok: true });
+    score += 10;
+    breakdown.push({ label: "MACD > Signal", pts: 10, ok: true });
   } else {
     breakdown.push({ label: "MACD > Signal", pts: 0, ok: false });
   }
@@ -1495,8 +1523,8 @@ function calcSustainedStrength(chartData) {
 
   // ⑧ ADX 25+ (6점) — 가중치 대폭 감소 (효과 약함 입증)
   if (last.adx != null && last.adx >= 25) {
-    score += 6;
-    breakdown.push({ label: "ADX 25+", pts: 6, ok: true, note: `${last.adx.toFixed(0)}` });
+    score += 3;
+    breakdown.push({ label: "ADX 25+", pts: 3, ok: true, note: `${last.adx.toFixed(0)}` });
   } else {
     breakdown.push({ label: "ADX 25+", pts: 0, ok: false, note: last.adx != null ? `${last.adx.toFixed(0)}` : "—" });
   }
@@ -1511,16 +1539,16 @@ function calcSustainedStrength(chartData) {
     }
   }
   if (ma5gt20) {
-    score += 6;
-    breakdown.push({ label: "MA5 > MA20 (신규)", pts: 6, ok: true });
+    score += 3;
+    breakdown.push({ label: "MA5 > MA20 (신규)", pts: 3, ok: true });
   } else {
     breakdown.push({ label: "MA5 > MA20 (신규)", pts: 0, ok: false });
   }
 
   // ⑩ +DI > -DI (5점) — v2.7.5 신규 (방향성)
   if (last.pdi != null && last.mdi != null && last.pdi > last.mdi) {
-    score += 5;
-    breakdown.push({ label: "+DI > -DI (신규)", pts: 5, ok: true, note: `${last.pdi.toFixed(0)}/${last.mdi.toFixed(0)}` });
+    score += 3;
+    breakdown.push({ label: "+DI > -DI (신규)", pts: 3, ok: true, note: `${last.pdi.toFixed(0)}/${last.mdi.toFixed(0)}` });
   } else {
     breakdown.push({ label: "+DI > -DI (신규)", pts: 0, ok: false });
   }
@@ -1873,8 +1901,8 @@ function Tip({active,payload,label}){
 }
 function BuyDot({cx,cy,payload,dataKey}){
   if(!payload?.[dataKey])return null;
-  // ★ v2.5.6: buyWeak 분기 제거 (Dead Code) — buyStrong/buyNormal 두 등급만 사용 (v2.5.1 매수 마커 시스템)
-  const cfg={buyStrong:{c:"#30D158",sz:13},buyNormal:{c:"#FFD60A",sz:9}}[dataKey]||{c:"#999",sz:6};
+  // ★ v2.7.7: 삼각형 크기 25% 축소 (사용자 요청 — 너무 큼)
+  const cfg={buyStrong:{c:"#30D158",sz:10},buyNormal:{c:"#FFD60A",sz:7}}[dataKey]||{c:"#999",sz:5};
   return<g><polygon points={`${cx},${cy-cfg.sz} ${cx-cfg.sz*.8},${cy+cfg.sz*.5} ${cx+cfg.sz*.8},${cy+cfg.sz*.5}`} fill={cfg.c} stroke="#000" strokeWidth="1" opacity=".9"/></g>;
 }
 function HistBar({x,y,width,height,value}){if(value==null)return null;const h=Math.abs(height),pos=value>0;return<rect x={x} y={pos?y:y+height-h} width={Math.max(1,width)} height={h} fill={pos?"rgba(34,197,94,.7)":"rgba(255,69,58,.7)"} rx={1}/>;}
@@ -1950,6 +1978,8 @@ export default function App() {
   const [labReturnDays, setLabReturnDays] = useState(5); // ★ v2.3.14: 정확도 측정 기간 토글
   // ★ v2.3: 집중탭 뷰 전환
   const [focusView, setFocusView] = useState(null); // null=기본 | "ranked" | "breakout" | "entry"
+  // ★ v2.7.7: "오늘의 돌파 감지" 기본 접힘 (사용자 요청)
+  const [focusBreakOpen, setFocusBreakOpen] = useState(false);
   const [focusMarket, setFocusMarket] = useState("all"); // all | kr | us
   // ★ v2.5.5: 💰 거래 탭 — 거래대금 절대값 기준 TOP 100
   const [tradeMarket, setTradeMarket] = useState("all"); // all | kr | us
@@ -3522,13 +3552,19 @@ export default function App() {
             </div>;
           })()}
 
-          {/* 기본 뷰: 카드 미선택 시 — 오늘의 돌파 + 진입적기 순위 (v2.4.2: AI 추천 TOP5 제거) */}
+          {/* 기본 뷰: 카드 미선택 시 — 오늘의 돌파 감지 (v2.7.7: 접힘 가능, 기본 펼침) */}
           {!focusView&&<>
 
-          {/* ★ v2.7.2: 🚀 오늘의 돌파 감지 — 카드 카운트와 일관성 (강세 60+ 필터) */}
-          <div style={css.card}>
-            <div style={{fontSize:11,fontWeight:700,color:C.emerald,marginBottom:8}}>🚀 오늘의 돌파 감지</div>
-            <div style={{fontSize:8,color:C.muted,marginBottom:10}}>최근 3봉 내 구름 돌파 또는 스퀴즈 오프 + 강세 60+ — 위 카드와 일관</div>
+          {/* ★ v2.7.7: 🚀 오늘의 돌파 감지 — 토글 가능 (사용자 요청) */}
+          <div style={{...css.card, padding: 0}}>
+            <div onClick={()=>setFocusBreakOpen(!focusBreakOpen)} style={{padding:"10px 12px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div>
+                <div style={{fontSize:11,fontWeight:700,color:C.emerald}}>🚀 오늘의 돌파 감지 {focusBreakOpen?"▼":"▶"}</div>
+                <div style={{fontSize:8,color:C.muted,marginTop:2}}>최근 3봉 내 구름 돌파/스퀴즈 오프 + 강세 60+</div>
+              </div>
+              <span style={{fontSize:8,color:C.muted}}>{focusBreakOpen?"접기":"펼치기"}</span>
+            </div>
+            {focusBreakOpen&&<div style={{padding:"0 12px 10px"}}>
             {(()=>{
               const breakouts = realStocks.map(s => {
                 const cData = charts[s.ticker]?.data;
@@ -3536,7 +3572,7 @@ export default function App() {
                 const ev = detectBreakoutEvent(cData);
                 if (!ev.breakout) return null;
                 const ss = calcSustainedStrength(cData);
-                if (ss.score < 60) return null;  // ★ v2.7.2: 강세 60+ 필터 추가 (카드와 일관)
+                if (ss.score < 60) return null;
                 return {...s, events: ev.events, daysAgo: ev.daysAgo, strength: ss.score};
               }).filter(Boolean).sort((a,b)=>{
                 // 정렬: 오늘 돌파 먼저, 같으면 강세 점수 높은 순
@@ -3562,6 +3598,7 @@ export default function App() {
                 </div>);
               });
             })()}
+            </div>}
           </div>
 
           </>}
