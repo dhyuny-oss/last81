@@ -1,5 +1,34 @@
 /**
- * Alpha Terminal v2.7.8 — App.jsx
+ * Alpha Terminal v2.7.9 — App.jsx
+ * v2.7.9: [신규 컴포넌트: 종목 RS > 시장 (5D) — VCP/Minervini 핵심 영역]
+ *          [트렌드 리서치 결과]
+ *             - VCP (Mark Minervini), AVWAP (Brian Shannon), Squeeze Momentum
+ *             - 모든 가이드의 공통 핵심: "RS > 시장" (시장 대비 outperform)
+ *             - 사용자 매매 패턴(GOOGL/DRAM/NVDA) 정확히 일치
+ *             - 우리 시스템에 결정적으로 빠진 영역
+ *          [신규 컴포넌트 — c_rsMkt]
+ *             - 종목 5일 수익률 > 시장 5일 수익률
+ *             - 한국: KOSPI(^KS11) 비교
+ *             - 미국: S&P 500(^GSPC) 비교
+ *             - 가중치: 8점
+ *          [가중치 재배분 — 합 100 유지]
+ *             - ADX 25+        3 → 0 (제거) ⭐ 일관 약함 (58%, 베이스 60% 미달)
+ *             - 거래량 5일>20일 8 → 3 (-5)
+ *             - 종목 RS>시장   — → 8 (+8) ⭐ 신규
+ *             - 합계: 100 (변동 없음)
+ *          [실험실 c_rsMkt 측정 추가]
+ *             - 단독 효과 1주 후 검증 가능
+ *             - 19 → 20 컴포넌트
+ *          [추가 안 한 것 (의도적)]
+ *             - 52주 신고가 갱신: 1순위 추가 후 효과 보고 결정
+ *             - 변동성 수축 (ATR): 표본 작을 것
+ *             - AVWAP, CVD, VCP 전체 패턴: 데이터/구현 한계
+ *          [백업] App.v2.7.8.backup.jsx
+ *          [한계 짚기]
+ *             - RS 5D는 chg5d 데이터 의존 (last bar 정확도)
+ *             - 시장 데이터 (idxRS) 누락 시 0 처리
+ *             - 1주 검증 후 효과 측정 → 다음 결정
+ *             - ADX 제거는 큰 변경 → 점수 분포 변화 모니터링 필요
  * v2.7.8: [집중탭 화면 정리 — 카드 토글 + 1D/3D/5D 표시 + 시장 RS 고정]
  *          [Q1: "그냥 강함" 카드 토글 + 기본 접힘]
  *             - 카드 클릭 시 자동 펼침 → 별도 토글 동작으로
@@ -1423,29 +1452,37 @@ function detectBreakoutEvent(chartData) {
 // 지속 강도 점수 — 6 컴포넌트 합산 (만점 100)
 //   ✅ 실험실 60%+ 승률 컴포넌트만 사용 (노이즈 제외)
 //   결과: { score: 0-100, breakdown: [...] }
-function calcSustainedStrength(chartData) {
-  // ★ v2.7.5: 12 컴포넌트 데이터 기반 가중치 재조정
+// ★ v2.7.9: 종목 시장(KOSPI/S&P) 5일 수익률 추출 헬퍼
+function getMarketChg5d(stockObj, indicesData) {
+  if (!indicesData) return null;
+  const isKR = (stockObj?.market || "").includes("kr") || (stockObj?.ticker?.length || 0) > 5;
+  const ticker = isKR ? "^KS11" : "^GSPC";
+  return indicesData[ticker]?.chg5d ?? null;
+}
+
+function calcSustainedStrength(chartData, marketChg5d = null, stockChg5d = null) {
+  // ★ v2.7.9: 12 컴포넌트 — 종목 RS > 시장 신규 추가, ADX 제거
   //
   // 만점 100, 12 컴포넌트 (효과 큰 순):
-  //   1. ST 3/3 유지            (15점) — 효과 +3.6%/62% (최고)
-  //   2. 가격>MA20 + 기울기 양수 (13점) — 효과 +3.2%/61%
-  //   3. ST 3/3                 (11점) — 효과 +3.4%/61%
-  //   4. 52주 고점 -15% 이내    (10점) — 효과 +2.6%/62% (손실위험 11% 최저)
-  //   5. 거래량 ≥ 130%           (9점) — 효과 +3.3%/63% (재추가)
-  //   6. MACD > Signal          (9점)  — 효과 +2.9%/62%
-  //   7. 거래량 5일 > 20일      (8점)  — 거래량 품질
-  //   8. ADX 25+                (6점)  — 효과 +2.3%/58% (가중치 대폭 감소)
-  //   9. MA5 > MA20 (신규)       (6점)  — 단기 모멘텀
-  //  10. +DI > -DI (신규)        (5점)  — ADX 보조 (방향성)
+  //   1. ST 3/3 유지            (17점) — 효과 +3.6%/62% (최고)
+  //   2. 가격>MA20 + 기울기 양수 (14점) — 효과 +3.2%/61%
+  //   3. ST 3/3                 (12점) — 효과 +3.4%/61%
+  //   4. 52주 고점 -15% 이내    (12점) — 효과 +2.6%/62% (손실위험 11% 최저)
+  //   5. 거래량 ≥ 130%           (10점) — 효과 +3.3%/63%
+  //   6. MACD > Signal          (10점) — 효과 +2.9%/62%
+  //   7. ⭐ 종목 RS > 시장 (5D)  (8점)  — v2.7.9 신규 (VCP/Minervini 핵심)
+  //   8. 거래량 5일 > 20일      (3점)  — 거래량 품질 (8→3 감소)
+  //   9. MA5 > MA20             (3점)  — 단기 모멘텀
+  //  10. +DI > -DI              (3점)  — 방향성
   //  11. OBV 동행 (5일)          (4점)  — 거래량 누적
   //  12. RSI 50~70               (4점)  — 모멘텀 영역
   //
-  // 변경 의의:
-  //   - 데이터 기반 가중치 (실험실 측정 결과 반영)
-  //   - ADX 18→6: 효과 58%로 약함, 과대평가였음
-  //   - ST 3/3 유지 10→15: 효과 가장 좋음
-  //   - 거래량 130% 재추가: +3.3%/63% 검증된 효과
-  //   - 신규 2개: 검증 예정 (1주 후)
+  // [제거] ADX 25+ (3점 → 0) — 일관 약함 (58%, 베이스 60% 미달)
+  //
+  // 매개변수:
+  //   chartData: 종목 캔들 배열
+  //   marketChg5d: 시장 5일 수익률 (한국=KOSPI, 미국=S&P 500)
+  //   stockChg5d: 종목 5일 수익률 (없으면 chartData에서 계산)
 
   if (!chartData || chartData.length < 20) {
     return { score: 0, breakdown: [] };
@@ -1535,18 +1572,40 @@ function calcSustainedStrength(chartData) {
     }
   }
   if (volQuality) {
-    score += 8;
-    breakdown.push({ label: "거래량 5일>20일", pts: 8, ok: true });
+    score += 3;
+    breakdown.push({ label: "거래량 5일>20일", pts: 3, ok: true });
   } else {
     breakdown.push({ label: "거래량 5일>20일", pts: 0, ok: false });
   }
 
-  // ⑧ ADX 25+ (6점) — 가중치 대폭 감소 (효과 약함 입증)
-  if (last.adx != null && last.adx >= 25) {
-    score += 3;
-    breakdown.push({ label: "ADX 25+", pts: 3, ok: true, note: `${last.adx.toFixed(0)}` });
+  // ⑧ ⭐ 종목 RS > 시장 (5D) (8점) — v2.7.9 신규
+  // VCP/Minervini의 핵심: 시장보다 잘 가는 종목 = 진짜 강함
+  // ADX 25+ 제거하고 이 자리에 추가 (효과 검증된 영역)
+  let rsCalc = null;
+  if (stockChg5d != null) {
+    rsCalc = stockChg5d;
+  } else if (L >= 6) {
+    const close5ago = chartData[L - 6]?.close;
+    if (close5ago != null && close5ago > 0 && last.close > 0) {
+      rsCalc = ((last.close - close5ago) / close5ago) * 100;
+    }
+  }
+  const rsBeatMarket = (rsCalc != null && marketChg5d != null) ? (rsCalc > marketChg5d) : false;
+  if (rsBeatMarket) {
+    score += 8;
+    breakdown.push({
+      label: "종목 RS > 시장 (5D)",
+      pts: 8,
+      ok: true,
+      note: `${rsCalc.toFixed(1)}% > ${marketChg5d.toFixed(1)}%`
+    });
   } else {
-    breakdown.push({ label: "ADX 25+", pts: 0, ok: false, note: last.adx != null ? `${last.adx.toFixed(0)}` : "—" });
+    breakdown.push({
+      label: "종목 RS > 시장 (5D)",
+      pts: 0,
+      ok: false,
+      note: rsCalc != null && marketChg5d != null ? `${rsCalc.toFixed(1)}% vs ${marketChg5d.toFixed(1)}%` : "—"
+    });
   }
 
   // ⑨ MA5 > MA20 (6점) — v2.7.5 신규 (단기 모멘텀)
@@ -1633,8 +1692,10 @@ function getSignalsV2(chartData) {
     else if (ev.daysAgo === 2) breakoutScore = 40;
   }
 
-  // 2. 지속 강세 점수
-  const ss = calcSustainedStrength(chartData);
+  // 2. 지속 강세 점수 (v2.7.9: RS > 시장 컴포넌트 위해 시장 데이터 전달)
+  const _isKR_ss=(s?.market||"").includes("kr")||(s?.ticker?.length||0)>5;
+  const _mktChg5_ss=_isKR_ss?(idxRS?.kospi?.chg5d||null):(idxRS?.spy?.chg5d||null);
+  const ss = calcSustainedStrength(chartData, _mktChg5_ss, s?.chg5d);
   const strength = ss.score;
 
   // 3. 거래량 지속성 (참고용 — UI에 표시될 수 있음)
@@ -2675,7 +2736,10 @@ export default function App() {
   // ★ v2.7.6: 차트탭 강세 점수도 새 시스템 사용 (집중탭과 통일)
   // 옛 calcTrendDurability → 새 calcSustainedStrength
   // breakdown 형식: [{label, pts, ok, note}] — 기존 코드 호환
-  const selSustained = calcSustainedStrength(cd?.data);
+  // ★ v2.7.9: RS > 시장 컴포넌트 위해 시장 데이터 전달
+  const _isKR_sel=(selInfo?.market||"").includes("kr")||(sel?.length||0)>5;
+  const _mktChg5_sel=_isKR_sel?(idxRS?.kospi?.chg5d||null):(idxRS?.spy?.chg5d||null);
+  const selSustained = calcSustainedStrength(cd?.data, _mktChg5_sel, selInfo?.chg5d);
   const selDurability = {
     score: selSustained.score,
     breakdown: selSustained.breakdown,
@@ -2687,8 +2751,9 @@ export default function App() {
   // ★ v2.5.2: 3일 전 점수 — 추세(방향성) 측정용
   const selTiming3D = (cd?.data && cd.data.length >= 13) ? calcEntryTiming(cd.data.slice(0, -3)) : null;
   // ★ v2.7.6: 3일 전 강세 점수도 새 시스템
+  // ★ v2.7.9: 3일 전 시장 데이터는 정확히 모르므로 현재 시장 데이터 사용 (근사)
   const selDurability3D = (cd?.data && cd.data.length >= 13)
-    ? { score: calcSustainedStrength(cd.data.slice(0, -3)).score }
+    ? { score: calcSustainedStrength(cd.data.slice(0, -3), _mktChg5_sel, null).score }
     : null;
   // 변화량 (Δ): 양 = 상승 추세, 음 = 하락 추세
   const dTiming = selTiming3D ? selTiming.score - selTiming3D.score : 0;
@@ -3488,7 +3553,7 @@ export default function App() {
                 if (!cData || cData.length < 10) return false;
                 const ev = detectBreakoutEvent(cData);
                 if (!ev.breakout) return false;
-                const ss = calcSustainedStrength(cData);
+                const ss = calcSustainedStrength(cData, getMarketChg5d(s, indicesData), s?.chg5d);
                 return ss.score >= 60;
               }).length}</div>
               <div style={{fontSize:7,color:focusView==="breakStrong"?"#FF9F0A":C.muted}}>{focusView==="breakStrong"?"▲ 접기":"최근 3봉 돌파 + 강세 60+"}</div>
@@ -3499,7 +3564,7 @@ export default function App() {
               <div style={{fontSize:24,fontWeight:900,color:C.emerald}}>{realStocks.filter(s=>{
                 const cData = charts[s.ticker]?.data;
                 if (!cData || cData.length < 10) return false;
-                const ss = calcSustainedStrength(cData);
+                const ss = calcSustainedStrength(cData, getMarketChg5d(s, indicesData), s?.chg5d);
                 return ss.score >= 80;
               }).length}</div>
               <div style={{fontSize:7,color:focusView==="justStrong"?C.emerald:C.muted}}>{focusView==="justStrong"?"▲ 접기":"강세 80+ (추세 진행 중)"}</div>
@@ -3514,7 +3579,7 @@ export default function App() {
               if(!cData||cData.length<10) return null;
               const ev = detectBreakoutEvent(cData);
               if (!ev.breakout) return null;
-              const ss = calcSustainedStrength(cData);
+              const ss = calcSustainedStrength(cData, getMarketChg5d(s, indicesData), s?.chg5d);
               if (ss.score < 60) return null;
               const last = cData[cData.length-1];
               return {...s, strength: ss.score, breakdown: ss.breakdown, events: ev.events, daysAgo: ev.daysAgo, last};
@@ -3551,7 +3616,7 @@ export default function App() {
             const all=realStocks.map(s=>{
               const cData=charts[s.ticker]?.data;
               if(!cData||cData.length<10) return null;
-              const ss = calcSustainedStrength(cData);
+              const ss = calcSustainedStrength(cData, getMarketChg5d(s, indicesData), s?.chg5d);
               if (ss.score < 80) return null;
               return {...s, strength: ss.score, breakdown: ss.breakdown};
             }).filter(Boolean).sort((a,b)=>b.strength-a.strength);
@@ -3598,7 +3663,7 @@ export default function App() {
                 if(!cData||cData.length<5) return null;
                 const ev = detectBreakoutEvent(cData);
                 if (!ev.breakout) return null;
-                const ss = calcSustainedStrength(cData);
+                const ss = calcSustainedStrength(cData, getMarketChg5d(s, indicesData), s?.chg5d);
                 if (ss.score < 60) return null;
                 return {...s, events: ev.events, daysAgo: ev.daysAgo, strength: ss.score};
               }).filter(Boolean).sort((a,b)=>{
