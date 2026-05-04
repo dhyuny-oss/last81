@@ -1,6 +1,43 @@
 /**
- * Alpha Terminal v2.8.0 — App.jsx (비활성 종목 자동 차단 — EXAS/CFLT 함정 해결)
- * v2.8.0: [근본 원인 — "왜 EXAS/CFLT가 추천에 들어갔나"]
+ * Alpha Terminal v2.8.1 — App.jsx (PTP/인수 종목 추가 + 모멘텀 시스템)
+ * v2.8.1: [점수 시스템 → 모멘텀 시스템 패러다임 전환]
+ *          [근본 발견]
+ *             - 점수 80+ 종목 너무 많음 (불장에 93개)
+ *             - 임계값 올리는 건 임시방편 (대안 D — 보류)
+ *             - 본질적 문제: 시스템이 "지금 강한 종목"을 찾음
+ *             - 진짜 매수 기회 = "강해지는 중인 종목" (Stage 2 시작)
+ *          [해결: calcStrengthMomentum 헬퍼 추가]
+ *             - 현재 점수 + 3일 전 점수 + 7일 전 점수 비교
+ *             - delta = score - score3D (모멘텀)
+ *             - recentlyStrong = score7D < 50 (최근 강해진 종목)
+ *          [카드 정의 변경]
+ *             - 돌파 후 강함: 이벤트 + 강세 60+ + 모멘텀 +20↑
+ *             - 그냥 강함: 강세 80+ + (모멘텀 +30↑ OR 7일 전 < 50)
+ *             - 둘 다 "강해지는 중" 종목만 캐치
+ *          [PTP/인수 종목 EXCLUDED_TICKERS 확장]
+ *             [A] 인수/상장폐지: EXAS, CFLT, ANSS, ALTR, IRBT, SONDR
+ *             [B] PTP 미드스트림 MLP: ET, EPD, MPLX, MMP, PAA, WES, SUN,
+ *                 GEL, USAC, GLP, DKL, NS, NRP, CEQP, EVA, PSXP, AM, NEP
+ *             [B] PTP 자산운용 LP: AB
+ *             - 한국인 매매 시 10% 원천징수 (IRC 1446(f))
+ *             - K-1 세금 신고 부담
+ *          [예상 효과]
+ *             - 그냥 강함: 93 → 약 15-25개 (모멘텀 + PTP 제외)
+ *             - 돌파 후 강함: 7 → 약 3-5개 (모멘텀 추가)
+ *             - 진짜 의미 있는 시그널만 표시
+ *          [성능 영향]
+ *             - calcStrengthMomentum = calcSustainedStrength 3회 호출
+ *             - 495 종목 × 3 = 1485회 (캐싱 안 됨)
+ *             - 약간 느려질 수 있음 (1~2초 추가 예상)
+ *             - 필요 시 React.useMemo 캐싱 추가 가능
+ *          [백업] App.v2.8.0.before-ptp.backup.jsx
+ *          [한계 짚기]
+ *             - 모멘텀 임계값 (+20, +30, 7D<50) 임의 — 데이터 보고 조정
+ *             - 7일 전 점수 < 50: 너무 엄격하면 0개 위험
+ *             - PTP 리스트 보수적 — 사용자 분이 매수하던 종목 잘못 분류 가능
+ *               (잘못 분류 시 EXCLUDED_TICKERS에서 빼면 됨)
+ *             - 다음 GitHub Actions 워크플로 후 stocks.json 정리됨
+ * v2.8.0: [비활성 종목 자동 차단 — EXAS/CFLT 함정 해결]
  *          [사용자 발견]
  *             - EXAS/CFLT (둘 다 인수 후 상장 폐지)가 "돌파 후 강함" 추천에 들어감
  *             - EXCLUDED_TICKERS로 막아도 다른 종목들 같은 패턴 가능
@@ -847,12 +884,33 @@ const SIG = {
 const PERIOD_DAYS = { "1M":22, "3M":66, "6M":130, "1Y":252, "ALL":9999 };
 const INITIAL = [];
 
-// ★ v2.7.9: 상장 폐지/인수 합병으로 거래 정지된 종목 — 종목풀에서 자동 제외
-// 발견된 종목들:
-//   - EXAS (Exact Sciences): Abbott Labs 인수, 2026년 상장 폐지
-//   - CFLT (Confluent):       IBM 인수, 2026-03-17 상장 폐지
-// 추가 발견 시 여기에 추가
-const EXCLUDED_TICKERS = ["EXAS", "CFLT"];
+// ★ v2.8.1: 종목풀에서 자동 제외할 종목들
+//
+// [A] 상장 폐지/인수 완료 종목 (거래 불가)
+//   - EXAS  (Exact Sciences):  Abbott 인수, 2026년 상폐
+//   - CFLT  (Confluent):       IBM 인수, 2026-03-17 상폐
+//   - ANSS  (Ansys):           Synopsys 인수, 상폐
+//   - ALTR  (Altair):          Altair 인수, 상폐
+//   - IRBT  (iRobot):          거래 정지 후 폐지
+//   - SONDR (Sonder Holdings): 거래 정지
+//
+// [B] PTP (Publicly Traded Partnership) — 한국인 매매 시 10% 원천징수
+//   IRC Sec. 1446(f)에 따라 외국인 투자자에 불리. K-1 세금 신고 필요.
+//   주요 PTP (확실한 종목만 — 보수적 리스트):
+//   - 미드스트림 에너지 MLP: ET, EPD, MPLX, MMP, PAA, WES, SUN, GEL,
+//                          USAC, GLP, DKL, NS, NRP, CEQP, EVA, PSXP, AM, NEP
+//   - 자산운용 LP: AB
+//
+// 주의: WMB, KMI는 C-Corp으로 전환됨 — PTP 아님 (포함 X)
+const EXCLUDED_TICKERS = [
+  // [A] 상장 폐지/인수 완료
+  "EXAS", "CFLT", "ANSS", "ALTR", "IRBT", "SONDR",
+  // [B] PTP — 미드스트림 MLP
+  "ET", "EPD", "MPLX", "MMP", "PAA", "WES", "SUN", "GEL",
+  "USAC", "GLP", "DKL", "NS", "NRP", "CEQP", "EVA", "PSXP", "AM", "NEP",
+  // [B] PTP — 자산운용 LP
+  "AB",
+];
 
 // ★ v2.6.0: GitHub 저장소 URL — 헤더 🔄 수동 갱신 버튼이 이 URL로 이동
 // 사용자: 본인 저장소 URL로 교체하세요. 예: "https://github.com/YOUR_NAME/YOUR_REPO"
@@ -1694,6 +1752,37 @@ function calcSustainedStrength(chartData) {
   }
 
   return { score, breakdown };
+}
+
+// ★ v2.8.1: 강세 모멘텀 — 점수 변화량 (대안 A)
+// 의미: "지금 강한 종목"보다 "강해지는 중인 종목"이 진짜 매수 기회
+// 사용:
+//   const mom = calcStrengthMomentum(cData);
+//   mom.score: 현재 점수
+//   mom.score3D: 3일 전 점수
+//   mom.delta: score - score3D (+30 이상 = 강력한 모멘텀)
+//   mom.recentlyStrong: 7일 전 점수 < 50 (대안 B — 최근 강해진 종목)
+function calcStrengthMomentum(chartData) {
+  if (!chartData || chartData.length < 10) {
+    return { score: 0, score3D: 0, score7D: 0, delta: 0, recentlyStrong: false };
+  }
+  const ssNow = calcSustainedStrength(chartData);
+  const ss3D = chartData.length >= 13
+    ? calcSustainedStrength(chartData.slice(0, -3))
+    : { score: 0 };
+  const ss7D = chartData.length >= 17
+    ? calcSustainedStrength(chartData.slice(0, -7))
+    : { score: 0 };
+  const delta = ssNow.score - ss3D.score;
+  const recentlyStrong = ss7D.score < 50;
+  return {
+    score: ssNow.score,
+    score3D: ss3D.score,
+    score7D: ss7D.score,
+    delta,
+    recentlyStrong,
+    breakdown: ssNow.breakdown,
+  };
 }
 
 function getSignalsV2(chartData) {
@@ -3630,21 +3719,25 @@ export default function App() {
                 if (!cData || cData.length < 10) return false;
                 const ev = detectBreakoutEvent(cData);
                 if (!ev.breakout) return false;
-                const ss = calcSustainedStrength(cData);
-                return ss.score >= getThresholds(s).breakStrong;
+                const mom = calcStrengthMomentum(cData);
+                if (mom.score < getThresholds(s).breakStrong) return false;
+                // ★ v2.8.1: 모멘텀 +20↑ (강해지는 중인 종목만)
+                return mom.delta >= 20;
               }).length}</div>
-              <div style={{fontSize:7,color:focusView==="breakStrong"?"#FF9F0A":C.muted}}>{focusView==="breakStrong"?"▲ 접기":`최근 3봉 돌파 + 강세 ${60+Math.max(krAdj,usAdj)}~${60+Math.min(krAdj,usAdj)}+`}</div>
+              <div style={{fontSize:7,color:focusView==="breakStrong"?"#FF9F0A":C.muted}}>{focusView==="breakStrong"?"▲ 접기":`돌파 + 강세 ${60+Math.max(krAdj,usAdj)}+ & 모멘텀 +20↑`}</div>
             </div>
-            {/* 💪 그냥 강함 — 강세 80+ (이벤트 무관) */}
+            {/* 💪 그냥 강함 — 강세 80+ + 모멘텀 (대안 A+B) */}
             <div onClick={()=>setFocusView(focusView==="justStrong"?null:"justStrong")} style={{background:focusView==="justStrong"?"rgba(48,209,88,.15)":"rgba(48,209,88,.06)",border:`2px solid ${focusView==="justStrong"?C.emerald:"rgba(48,209,88,.25)"}`,borderRadius:8,padding:"10px",textAlign:"center",cursor:"pointer"}}>
               <div style={{fontSize:9,color:C.emerald,fontWeight:700}}>💪 그냥 강함</div>
               <div style={{fontSize:24,fontWeight:900,color:C.emerald}}>{realStocks.filter(s=>{
                 const cData = charts[s.ticker]?.data;
                 if (!cData || cData.length < 10) return false;
-                const ss = calcSustainedStrength(cData);
-                return ss.score >= getThresholds(s).justStrong;
+                const mom = calcStrengthMomentum(cData);
+                if (mom.score < getThresholds(s).justStrong) return false;
+                // ★ v2.8.1: 모멘텀 +30↑ OR 7일 전 점수 < 50 (강해지는 중 OR 최근 강해진)
+                return mom.delta >= 30 || mom.recentlyStrong;
               }).length}</div>
-              <div style={{fontSize:7,color:focusView==="justStrong"?C.emerald:C.muted}}>{focusView==="justStrong"?"▲ 접기":`강세 ${80+Math.max(krAdj,usAdj)}~${80+Math.min(krAdj,usAdj)}+`}</div>
+              <div style={{fontSize:7,color:focusView==="justStrong"?C.emerald:C.muted}}>{focusView==="justStrong"?"▲ 접기":`강세 ${80+Math.max(krAdj,usAdj)}+ & 모멘텀↑ 또는 신규`}</div>
             </div>
           </div>
           {realCount>0&&<div style={{fontSize:7,color:C.muted,textAlign:"right",marginTop:-10,marginBottom:8}}>실시간 {realCount}종목 기준 · 실험실 검증 데이터 기반 시그널 (v2.6.7)</div>}
@@ -3656,15 +3749,16 @@ export default function App() {
               if(!cData||cData.length<10) return null;
               const ev = detectBreakoutEvent(cData);
               if (!ev.breakout) return null;
-              const ss = calcSustainedStrength(cData);
-              if (ss.score < getThresholds(s).breakStrong) return null;
+              const mom = calcStrengthMomentum(cData);
+              if (mom.score < getThresholds(s).breakStrong) return null;
+              if (mom.delta < 20) return null;  // ★ v2.8.1: 모멘텀 +20↑
               const last = cData[cData.length-1];
-              return {...s, strength: ss.score, breakdown: ss.breakdown, events: ev.events, daysAgo: ev.daysAgo, last};
+              return {...s, strength: mom.score, score3D: mom.score3D, delta: mom.delta, breakdown: mom.breakdown, events: ev.events, daysAgo: ev.daysAgo, last};
             }).filter(Boolean).sort((a,b)=>b.strength-a.strength);
-            if (all.length === 0) return <div style={{textAlign:"center",padding:"20px",color:C.muted,fontSize:9}}>최근 3봉 내 돌파 후 강한 종목 없음</div>;
+            if (all.length === 0) return <div style={{textAlign:"center",padding:"20px",color:C.muted,fontSize:9}}>최근 3봉 내 돌파 후 강해지는 종목 없음</div>;
             return <div style={{marginBottom:14}}>
               <div style={{fontSize:11,fontWeight:700,color:"#FF9F0A",marginBottom:6}}>🚀 돌파 후 강함 ({all.length}개)</div>
-              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>최근 3봉 내 구름 돌파 또는 스퀴즈 오프 발생 + 지속 강세 60점 이상. <b>"막 돌파한 강한 종목"</b></div>
+              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>최근 3봉 돌파 + 강세 60+ AND <b>모멘텀 +20↑</b> (3일 전 대비 점수 증가). <b>"막 돌파한 강해지는 종목"</b></div>
               {all.map((s,i)=>{
                 const isKR=(s.market||"").includes("kr")||(s.ticker?.length||0)>5;
                 return <div key={s.ticker} onClick={()=>navigateToStock(s.ticker, s)} style={{...css.card,padding:"8px 10px",marginBottom:4,cursor:"pointer",borderLeft:`3px solid #FF9F0A`}}>
@@ -3693,14 +3787,16 @@ export default function App() {
             const all=realStocks.map(s=>{
               const cData=charts[s.ticker]?.data;
               if(!cData||cData.length<10) return null;
-              const ss = calcSustainedStrength(cData);
-              if (ss.score < getThresholds(s).justStrong) return null;
-              return {...s, strength: ss.score, breakdown: ss.breakdown};
+              const mom = calcStrengthMomentum(cData);
+              if (mom.score < getThresholds(s).justStrong) return null;
+              // ★ v2.8.1: 모멘텀 +30↑ OR 7일 전 점수 < 50 (강해지는 중 OR 최근 강해진)
+              if (mom.delta < 30 && !mom.recentlyStrong) return null;
+              return {...s, strength: mom.score, score3D: mom.score3D, score7D: mom.score7D, delta: mom.delta, recentlyStrong: mom.recentlyStrong, breakdown: mom.breakdown};
             }).filter(Boolean).sort((a,b)=>b.strength-a.strength);
-            if (all.length === 0) return <div style={{textAlign:"center",padding:"20px",color:C.muted,fontSize:9}}>강세 80점 이상 종목 없음</div>;
+            if (all.length === 0) return <div style={{textAlign:"center",padding:"20px",color:C.muted,fontSize:9}}>강세 80+ AND 모멘텀↑ 또는 최근 강해진 종목 없음</div>;
             return <div style={{marginBottom:14}}>
               <div style={{fontSize:11,fontWeight:700,color:C.emerald,marginBottom:6}}>💪 그냥 강함 ({all.length}개)</div>
-              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>지속 강세 80점 이상 (이벤트 무관). <b>"이미 강한 추세 진행 중"</b> — 추격 매수 또는 보유 검토</div>
+              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>강세 80+ AND <b>(모멘텀 +30↑ OR 7일 전 점수 &lt; 50)</b>. <b>"강해지는 중 또는 최근 강해진 종목"</b></div>
               {all.map((s,i)=>{
                 const isKR=(s.market||"").includes("kr")||(s.ticker?.length||0)>5;
                 return <div key={s.ticker} onClick={()=>navigateToStock(s.ticker, s)} style={{...css.card,padding:"8px 10px",marginBottom:4,cursor:"pointer",borderLeft:`3px solid ${C.emerald}`}}>
@@ -3740,16 +3836,17 @@ export default function App() {
                 if(!cData||cData.length<5) return null;
                 const ev = detectBreakoutEvent(cData);
                 if (!ev.breakout) return null;
-                const ss = calcSustainedStrength(cData);
-                if (ss.score < getThresholds(s).breakStrong) return null;
-                return {...s, events: ev.events, daysAgo: ev.daysAgo, strength: ss.score};
+                const mom = calcStrengthMomentum(cData);
+                if (mom.score < getThresholds(s).breakStrong) return null;
+                if (mom.delta < 20) return null;  // ★ v2.8.1: 모멘텀 +20↑
+                return {...s, events: ev.events, daysAgo: ev.daysAgo, strength: mom.score, delta: mom.delta};
               }).filter(Boolean).sort((a,b)=>{
                 // 정렬: 오늘 돌파 먼저, 같으면 강세 점수 높은 순
                 if (a.daysAgo !== b.daysAgo) return a.daysAgo - b.daysAgo;
                 return b.strength - a.strength;
               });
 
-              if(!breakouts.length) return <div style={{textAlign:"center",padding:"15px",color:C.muted,fontSize:9}}>최근 3봉 내 강세 60+ 돌파 종목 없음</div>;
+              if(!breakouts.length) return <div style={{textAlign:"center",padding:"15px",color:C.muted,fontSize:9}}>돌파 + 강세 60+ + 모멘텀 +20↑ 종목 없음</div>;
               return breakouts.slice(0,8).map(s=>{
                 const dayLabel = s.daysAgo===0?"오늘":s.daysAgo+"일 전";
                 const isStrong = s.strength >= 60;
