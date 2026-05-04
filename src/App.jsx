@@ -1,5 +1,30 @@
 /**
- * Alpha Terminal v2.7.8 — App.jsx
+ * Alpha Terminal v2.7.9 — App.jsx (Phase 1 — B만)
+ * v2.7.9: [52주 임계값 강화 — 불장에 추천주 너무 많음 해결]
+ *          [B: 52주 -15% → -10% (점수 시스템만)]
+ *             - 사용자: "그냥 강함 91개 = 너무 많음"
+ *             - 원인 1: 불장 (시장 자체 강세)
+ *             - 원인 2: 52주 -15%가 강세장에선 거의 모든 종목 통과
+ *             - 해결: -10%로 강화 (진짜 신고가 근처만)
+ *          [영향]
+ *             - calcSustainedStrength 내부 임계값 변경
+ *             - 가중치 12점 그대로
+ *             - 라벨 "52주 -15% 이내" → "52주 -10% 이내"
+ *          [실험실 측정은 -15% 그대로]
+ *             - 단독 효과 검증용 (학습 목적)
+ *             - 점수 시스템과 분리 (의도적)
+ *          [예상 효과]
+ *             - 그냥 강함 91 → 약 50개 예상 (절반 감소)
+ *             - 의미 회복
+ *          [Phase 2 — C 진행 예정]
+ *             - 정상 작동 확인 후
+ *             - 시장 체제 적응형 임계값
+ *             - 한국/미국 별도 적용
+ *             - ±5점 변동 (75/80/85, 55/60/65)
+ *          [백업] App.v2.7.8.before-b.backup.jsx
+ *          [한계]
+ *             - 1주 검증 후 효과 측정
+ *             - 약세장에선 너무 엄격할 수 있음 → C가 보완
  * v2.7.8: [집중탭 화면 정리 — 카드 토글 + 1D/3D/5D 표시 + 시장 RS 고정]
  *          [Q1: "그냥 강함" 카드 토글 + 기본 접힘]
  *             - 카드 클릭 시 자동 펼침 → 별도 토글 동작으로
@@ -1488,7 +1513,7 @@ function calcSustainedStrength(chartData) {
     breakdown.push({ label: "ST 3/3", pts: 0, ok: false, note: `${stC}/3` });
   }
 
-  // ④ 52주 고점 -15% 이내 (10점)
+  // ④ 52주 고점 -10% 이내 (12점) — v2.7.9: -15% → -10% (불장 시 너무 느슨함 해결)
   const recent = chartData.slice(-252);
   let high52 = -Infinity;
   for (let i = 0; i < recent.length; i++) {
@@ -1499,11 +1524,11 @@ function calcSustainedStrength(chartData) {
   if (high52 > 0 && last.close > 0) {
     pctFromHigh = ((last.close - high52) / high52) * 100;
   }
-  if (pctFromHigh != null && pctFromHigh >= -15) {
+  if (pctFromHigh != null && pctFromHigh >= -10) {
     score += 12;
-    breakdown.push({ label: "52주 -15% 이내", pts: 12, ok: true, note: `${pctFromHigh.toFixed(1)}%` });
+    breakdown.push({ label: "52주 -10% 이내", pts: 12, ok: true, note: `${pctFromHigh.toFixed(1)}%` });
   } else {
-    breakdown.push({ label: "52주 -15% 이내", pts: 0, ok: false, note: pctFromHigh != null ? `${pctFromHigh.toFixed(1)}%` : "—" });
+    breakdown.push({ label: "52주 -10% 이내", pts: 0, ok: false, note: pctFromHigh != null ? `${pctFromHigh.toFixed(1)}%` : "—" });
   }
 
   // ⑤ 거래량 ≥ 130% (9점) — v2.7.5 재추가
