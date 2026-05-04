@@ -1,30 +1,66 @@
 /**
- * Alpha Terminal v2.7.9 — App.jsx (Phase 1 — B만)
- * v2.7.9: [52주 임계값 강화 — 불장에 추천주 너무 많음 해결]
+ * Alpha Terminal v2.8.0 — App.jsx (비활성 종목 자동 차단 — EXAS/CFLT 함정 해결)
+ * v2.8.0: [근본 원인 — "왜 EXAS/CFLT가 추천에 들어갔나"]
+ *          [사용자 발견]
+ *             - EXAS/CFLT (둘 다 인수 후 상장 폐지)가 "돌파 후 강함" 추천에 들어감
+ *             - EXCLUDED_TICKERS로 막아도 다른 종목들 같은 패턴 가능
+ *             - 본질적 문제: 시스템이 "인수 발표 패턴 = 최강 신호"로 오인
+ *          [원인 분석]
+ *             - 인수 발표 시 거래량 폭증 + 가격 급등 = 시스템에 강세로 보임
+ *             - 모든 강세 컴포넌트 충족 → 점수 80~90+
+ *             - 거래 정지 후 가격 변동 없음 = ST 3/3 유지 (17점) 충족
+ *             - "조용히 죽어가는" 종목들 자동 캐치 못 함
+ *          [해결: isStaleStock 필터]
+ *             - 조건 1: 최근 5일 거래량 평균이 평소(직전 15일)의 20% 이하
+ *                       → 거래량 급감 = 시장 관심 사라짐
+ *             - 조건 2: 최근 5일 가격 변동 절대값 합이 1% 이하
+ *                       → 거의 안 움직임 = 거래 정지 직전/인수가 고정
+ *             - 둘 중 하나라도 충족 = 비활성 종목 자동 제외
+ *          [적용 위치]
+ *             - App.jsx: realStocks에서 자동 필터 (집중탭)
+ *             - fetch_yahoo.py: 종목풀 빌드 시 자동 차단 (소스)
+ *             - 둘 다 적용 = 영구 + 즉시
+ *          [화면 안내]
+ *             - "⚠️ 비활성 종목 N개 자동 제외 (거래량 급감 또는 가격 정체)"
+ *             - 사용자가 알 수 있게 표시
+ *          [영향 받는 종목 패턴]
+ *             - 인수/합병 발표 후 거래 줄어든 종목 (EXAS/CFLT)
+ *             - 펌프 후 정체 종목 (단발 급등)
+ *             - 거래량 사라진 종목 (관심 끊김)
+ *          [백업] App.v2.7.9.before-stale.backup.jsx, fetch_yahoo.v2.4.12.backup.py
+ *          [한계]
+ *             - 정상 종목 중 휴장/거래량 적은 종목 잘못 잡힐 가능성 (오차)
+ *             - 임계값 (20%, 1%) 임의 — 데이터 보고 조정 가능
+ *             - 한국 휴장일 영향 받을 수 있음 (조건 2)
+ * v2.7.9: [B + 상장폐지 필터 + Phase 2 적응형 임계값]
  *          [B: 52주 -15% → -10% (점수 시스템만)]
  *             - 사용자: "그냥 강함 91개 = 너무 많음"
- *             - 원인 1: 불장 (시장 자체 강세)
- *             - 원인 2: 52주 -15%가 강세장에선 거의 모든 종목 통과
+ *             - 원인: 불장에 -15%는 거의 모든 종목 통과
  *             - 해결: -10%로 강화 (진짜 신고가 근처만)
- *          [영향]
- *             - calcSustainedStrength 내부 임계값 변경
- *             - 가중치 12점 그대로
- *             - 라벨 "52주 -15% 이내" → "52주 -10% 이내"
- *          [실험실 측정은 -15% 그대로]
- *             - 단독 효과 검증용 (학습 목적)
- *             - 점수 시스템과 분리 (의도적)
+ *             - 실험실 c_w52 측정은 -15% 그대로 (검증용)
+ *          [Phase 1a: EXCLUDED_TICKERS 자동 제외]
+ *             - EXAS (Exact Sciences): Abbott Labs 인수, 상장 폐지
+ *             - CFLT (Confluent):       IBM 인수, 2026-03-17 상장 폐지
+ *             - allStocksForScan에서 자동 필터
+ *          [Phase 1b: fetch_yahoo.py 자동 필터]
+ *             - 최근 5일 거래량 합 = 0 종목 자동 제외
+ *             - 향후 상장 폐지 종목 자동 처리
+ *          [Phase 2: 시장 체제 적응형 임계값]
+ *             - 강세장 (5D > +2%):  +5점 상향 (85/65)
+ *             - 중립      (±2%):    그대로 (80/60)
+ *             - 약세장 (5D < -2%):  -5점 하향 (75/55)
+ *             - 한국/미국 별도 적용 (KOSPI vs S&P)
+ *             - 카드 5곳 모두 동적 임계값
+ *             - 화면 상단 안내 표시: "🇰🇷 한국 🔥강세 (+5)  🇺🇸 미국 ➡️중립 (기본)"
  *          [예상 효과]
- *             - 그냥 강함 91 → 약 50개 예상 (절반 감소)
- *             - 의미 회복
- *          [Phase 2 — C 진행 예정]
- *             - 정상 작동 확인 후
- *             - 시장 체제 적응형 임계값
- *             - 한국/미국 별도 적용
- *             - ±5점 변동 (75/80/85, 55/60/65)
- *          [백업] App.v2.7.8.before-b.backup.jsx
+ *             - B: 그냥 강함 91 → 50개
+ *             - Phase 2 (불장): 50 → 25개
+ *             - Phase 2 (약세장): 자동 완화로 시그널 끊김 방지
+ *          [백업] App.v2.7.9.b.backup.jsx
  *          [한계]
- *             - 1주 검증 후 효과 측정
- *             - 약세장에선 너무 엄격할 수 있음 → C가 보완
+ *             - 한국/미국 임계값 다르면 카드 카운트는 합산값 (혼용)
+ *             - 임계값 ±5점은 임의 — 데이터 검증 후 조정 가능
+ *             - 1주 후 효과 측정 권장
  * v2.7.8: [집중탭 화면 정리 — 카드 토글 + 1D/3D/5D 표시 + 시장 RS 고정]
  *          [Q1: "그냥 강함" 카드 토글 + 기본 접힘]
  *             - 카드 클릭 시 자동 펼침 → 별도 토글 동작으로
@@ -811,6 +847,13 @@ const SIG = {
 const PERIOD_DAYS = { "1M":22, "3M":66, "6M":130, "1Y":252, "ALL":9999 };
 const INITIAL = [];
 
+// ★ v2.7.9: 상장 폐지/인수 합병으로 거래 정지된 종목 — 종목풀에서 자동 제외
+// 발견된 종목들:
+//   - EXAS (Exact Sciences): Abbott Labs 인수, 2026년 상장 폐지
+//   - CFLT (Confluent):       IBM 인수, 2026-03-17 상장 폐지
+// 추가 발견 시 여기에 추가
+const EXCLUDED_TICKERS = ["EXAS", "CFLT"];
+
 // ★ v2.6.0: GitHub 저장소 URL — 헤더 🔄 수동 갱신 버튼이 이 URL로 이동
 // 사용자: 본인 저장소 URL로 교체하세요. 예: "https://github.com/YOUR_NAME/YOUR_REPO"
 const GITHUB_REPO_URL = "https://github.com/YOUR_NAME/YOUR_REPO";
@@ -1448,6 +1491,34 @@ function detectBreakoutEvent(chartData) {
 // 지속 강도 점수 — 6 컴포넌트 합산 (만점 100)
 //   ✅ 실험실 60%+ 승률 컴포넌트만 사용 (노이즈 제외)
 //   결과: { score: 0-100, breakdown: [...] }
+// ★ v2.8.0: 비활성 종목 (인수/상장폐지 직전, 거래 정지) 자동 감지
+// EXAS, CFLT 같은 인수 발표 후 거래 거의 멈춘 종목 캐치
+//   조건 1: 최근 5일 거래량 평균이 평소(직전 15일)의 20% 이하 → 거래 줄어듦
+//   조건 2: 최근 5일 가격 변동 절대값 합이 1% 이하 → 거의 안 움직임
+// 둘 중 하나라도 충족 = 비활성 종목
+function isStaleStock(chartData) {
+  if (!chartData || chartData.length < 20) return false;
+  const last5 = chartData.slice(-5);
+  const last20to5 = chartData.slice(-20, -5);  // 직전 15일
+
+  // 조건 1: 거래량 활동성
+  const avgVol5 = last5.reduce((s,c) => s + (c.volume||0), 0) / 5;
+  const avgVol15 = last20to5.reduce((s,c) => s + (c.volume||0), 0) / 15;
+  if (avgVol15 > 0 && avgVol5 / avgVol15 < 0.2) return true;
+
+  // 조건 2: 가격 변동성
+  let totalChange = 0;
+  for (let i = 1; i < last5.length; i++) {
+    const prev = last5[i-1].close || 0;
+    if (prev > 0) {
+      totalChange += Math.abs((last5[i].close - prev) / prev * 100);
+    }
+  }
+  if (totalChange < 1) return true;
+
+  return false;
+}
+
 function calcSustainedStrength(chartData) {
   // ★ v2.7.5: 12 컴포넌트 데이터 기반 가중치 재조정
   //
@@ -2780,6 +2851,7 @@ export default function App() {
   };
 
   // ★ v2.2: 발굴탭 — 종목풀 전체 스캔 (관심종목 + 풀 합산)
+  // ★ v2.7.9: 상장 폐지/인수 종목 자동 제외 (EXAS=Abbott 인수, CFLT=IBM 인수 등)
   const allStocksForScan = useMemo(() => {
     const merged = {};
     stocks.forEach(s => { merged[s.ticker] = s; });
@@ -2790,7 +2862,8 @@ export default function App() {
         merged[ticker] = { ...merged[ticker], rsPctRank:info.rsPctRank, rsRank:info.rsRank, w52Breakout:info.w52Breakout, w52DistPct:info.w52DistPct };
       }
     });
-    return Object.values(merged);
+    // 상장 폐지 종목 제외
+    return Object.values(merged).filter(s => !EXCLUDED_TICKERS.includes(s.ticker));
   }, [stocks, pool]);
 
   const alphaHits=allStocksForScan.filter(s=>{
@@ -3496,12 +3569,56 @@ export default function App() {
           //          changePct는 fetch_yahoo가 candles[-2].close vs price로 계산 (v2.4.10)
           //          신호 발생 후 상황 악화된 종목 → 진입 위험 → 카드에서 자동 제외
           const GAP_DOWN_THRESHOLD = -2.0;
-          const realStocks = realStocksRaw.filter(s=>(s.changePct||0) > GAP_DOWN_THRESHOLD);
-          const gapDownCount = realStocksRaw.length - realStocks.length;
+          const realStocksAfterGap = realStocksRaw.filter(s=>(s.changePct||0) > GAP_DOWN_THRESHOLD);
+          const gapDownCount = realStocksRaw.length - realStocksAfterGap.length;
+
+          // ★ v2.8.0: 비활성 종목 자동 제외 (EXAS/CFLT 같은 인수 발표 종목)
+          // 거래량 급감 + 가격 변동 거의 없음 = 거래 정지 임박/중단
+          const realStocks = realStocksAfterGap.filter(s => {
+            const cData = charts[s.ticker]?.data;
+            return !isStaleStock(cData);
+          });
+          const staleCount = realStocksAfterGap.length - realStocks.length;
           const realCount = realStocks.length;
+
+          // ★ v2.7.9 Phase 2: 시장 체제 적응형 임계값 (한국/미국 별도)
+          // 강세장 (5D > +2%): 임계값 +5점 상향 (엄격)
+          // 약세장 (5D < -2%): 임계값 -5점 하향 (관대)
+          // 중립: 그대로
+          const kospi5d = indicesData["^KS11"]?.chg5d ?? 0;
+          const sp5d = indicesData["^GSPC"]?.chg5d ?? 0;
+          const krRegime = kospi5d > 2 ? "bull" : kospi5d < -2 ? "bear" : "neutral";
+          const usRegime = sp5d > 2 ? "bull" : sp5d < -2 ? "bear" : "neutral";
+          const regimeAdjust = (regime) => regime === "bull" ? 5 : regime === "bear" ? -5 : 0;
+          const krAdj = regimeAdjust(krRegime);
+          const usAdj = regimeAdjust(usRegime);
+          // 종목별 임계값 결정 (한국/미국)
+          const getThresholds = (s) => {
+            const isKR = (s?.market||"").includes("kr") || (s?.ticker?.length||0) > 5;
+            const adj = isKR ? krAdj : usAdj;
+            return {
+              breakStrong: 60 + adj,    // 돌파 후 강함 (기본 60)
+              justStrong:  80 + adj,    // 그냥 강함 (기본 80)
+            };
+          };
+
+          // 시장 체제 라벨/색상
+          const regimeLabel = (r) => r === "bull" ? "🔥 강세" : r === "bear" ? "❄️ 약세" : "➡️ 중립";
+          const regimeColor = (r) => r === "bull" ? C.red : r === "bear" ? C.accent : C.muted;
+          const regimeAdjLabel = (a) => a > 0 ? `+${a}` : a < 0 ? `${a}` : "기본";
           return<>
           {realCount===0&&<div style={{textAlign:"center",padding:"20px",color:C.muted,fontSize:9}}>실시간 데이터 로딩 중... Daily Actions 실행 후 확인해주세요</div>}
           {gapDownCount>0&&<div style={{fontSize:8,color:C.muted,marginBottom:8,padding:"4px 8px",background:"rgba(255,69,58,.05)",border:`1px solid rgba(255,69,58,.15)`,borderRadius:4}}>⚠️ 당일 -2% 이상 급락 종목 <b>{gapDownCount}개</b> 자동 제외 (장초반 급락/갭다운 보호)</div>}
+          {staleCount>0&&<div style={{fontSize:8,color:C.muted,marginBottom:8,padding:"4px 8px",background:"rgba(191,90,242,.05)",border:`1px solid rgba(191,90,242,.15)`,borderRadius:4}}>⚠️ 비활성 종목 <b>{staleCount}개</b> 자동 제외 (거래량 급감 또는 가격 정체 — 인수/상장폐지 의심)</div>}
+
+          {/* ★ v2.7.9 Phase 2: 시장 체제 적응형 임계값 안내 */}
+          <div style={{fontSize:8,marginBottom:10,padding:"6px 10px",background:"rgba(255,255,255,.03)",border:`1px solid ${C.border}`,borderRadius:6,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            <span style={{color:C.muted}}>🎯 임계값 자동 조정 (시장 체제 따라):</span>
+            <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+              <span><span style={{color:C.muted}}>🇰🇷 한국</span> <span style={{color:regimeColor(krRegime),fontWeight:700}}>{regimeLabel(krRegime)}</span> <span style={{color:C.muted}}>({regimeAdjLabel(krAdj)})</span></span>
+              <span><span style={{color:C.muted}}>🇺🇸 미국</span> <span style={{color:regimeColor(usRegime),fontWeight:700}}>{regimeLabel(usRegime)}</span> <span style={{color:C.muted}}>({regimeAdjLabel(usAdj)})</span></span>
+            </div>
+          </div>
 
           {/* ★ v2.6.7: 카드 3개 → 2개 — 발견 + 센놈 추적 (사용자 의도) */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:14}}>
@@ -3514,9 +3631,9 @@ export default function App() {
                 const ev = detectBreakoutEvent(cData);
                 if (!ev.breakout) return false;
                 const ss = calcSustainedStrength(cData);
-                return ss.score >= 60;
+                return ss.score >= getThresholds(s).breakStrong;
               }).length}</div>
-              <div style={{fontSize:7,color:focusView==="breakStrong"?"#FF9F0A":C.muted}}>{focusView==="breakStrong"?"▲ 접기":"최근 3봉 돌파 + 강세 60+"}</div>
+              <div style={{fontSize:7,color:focusView==="breakStrong"?"#FF9F0A":C.muted}}>{focusView==="breakStrong"?"▲ 접기":`최근 3봉 돌파 + 강세 ${60+Math.max(krAdj,usAdj)}~${60+Math.min(krAdj,usAdj)}+`}</div>
             </div>
             {/* 💪 그냥 강함 — 강세 80+ (이벤트 무관) */}
             <div onClick={()=>setFocusView(focusView==="justStrong"?null:"justStrong")} style={{background:focusView==="justStrong"?"rgba(48,209,88,.15)":"rgba(48,209,88,.06)",border:`2px solid ${focusView==="justStrong"?C.emerald:"rgba(48,209,88,.25)"}`,borderRadius:8,padding:"10px",textAlign:"center",cursor:"pointer"}}>
@@ -3525,9 +3642,9 @@ export default function App() {
                 const cData = charts[s.ticker]?.data;
                 if (!cData || cData.length < 10) return false;
                 const ss = calcSustainedStrength(cData);
-                return ss.score >= 80;
+                return ss.score >= getThresholds(s).justStrong;
               }).length}</div>
-              <div style={{fontSize:7,color:focusView==="justStrong"?C.emerald:C.muted}}>{focusView==="justStrong"?"▲ 접기":"강세 80+ (추세 진행 중)"}</div>
+              <div style={{fontSize:7,color:focusView==="justStrong"?C.emerald:C.muted}}>{focusView==="justStrong"?"▲ 접기":`강세 ${80+Math.max(krAdj,usAdj)}~${80+Math.min(krAdj,usAdj)}+`}</div>
             </div>
           </div>
           {realCount>0&&<div style={{fontSize:7,color:C.muted,textAlign:"right",marginTop:-10,marginBottom:8}}>실시간 {realCount}종목 기준 · 실험실 검증 데이터 기반 시그널 (v2.6.7)</div>}
@@ -3540,7 +3657,7 @@ export default function App() {
               const ev = detectBreakoutEvent(cData);
               if (!ev.breakout) return null;
               const ss = calcSustainedStrength(cData);
-              if (ss.score < 60) return null;
+              if (ss.score < getThresholds(s).breakStrong) return null;
               const last = cData[cData.length-1];
               return {...s, strength: ss.score, breakdown: ss.breakdown, events: ev.events, daysAgo: ev.daysAgo, last};
             }).filter(Boolean).sort((a,b)=>b.strength-a.strength);
@@ -3577,7 +3694,7 @@ export default function App() {
               const cData=charts[s.ticker]?.data;
               if(!cData||cData.length<10) return null;
               const ss = calcSustainedStrength(cData);
-              if (ss.score < 80) return null;
+              if (ss.score < getThresholds(s).justStrong) return null;
               return {...s, strength: ss.score, breakdown: ss.breakdown};
             }).filter(Boolean).sort((a,b)=>b.strength-a.strength);
             if (all.length === 0) return <div style={{textAlign:"center",padding:"20px",color:C.muted,fontSize:9}}>강세 80점 이상 종목 없음</div>;
@@ -3624,7 +3741,7 @@ export default function App() {
                 const ev = detectBreakoutEvent(cData);
                 if (!ev.breakout) return null;
                 const ss = calcSustainedStrength(cData);
-                if (ss.score < 60) return null;
+                if (ss.score < getThresholds(s).breakStrong) return null;
                 return {...s, events: ev.events, daysAgo: ev.daysAgo, strength: ss.score};
               }).filter(Boolean).sort((a,b)=>{
                 // 정렬: 오늘 돌파 먼저, 같으면 강세 점수 높은 순
