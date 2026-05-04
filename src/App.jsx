@@ -1,6 +1,33 @@
 /**
- * Alpha Terminal v2.8.1 — App.jsx (PTP/인수 종목 추가 + 모멘텀 시스템)
- * v2.8.1: [점수 시스템 → 모멘텀 시스템 패러다임 전환]
+ * Alpha Terminal v2.8.2 — App.jsx (돌파 단독 카드 — "놓친 기회" 70% 승률 검증)
+ * v2.8.2: [데이터 기반 새 카드 — 시스템이 놓치는 진짜 기회]
+ *          [실험실 데이터 발견]
+ *             - "둘 다 충족" (현재 추천): 173표본 / 54% 승률 ⚠️ 가장 낮음
+ *             - "돌파 단독" (이벤트 but 강세 부족): 599표본 / 70% 승률 ⭐ 가장 높음
+ *             - "강세 단독": 1651표본 / 62% 승률
+ *          [의의]
+ *             - 시스템이 "강한 종목" 우선 추천
+ *             - 실제로는 "돌파 + 강세 부족" 종목이 더 큰 상승 (Stage 1→2 전환)
+ *             - LG이노텍 +110%, SK스퀘어 +79% (TOP 40 MISS) = 강세 부족이지만 큰 상승
+ *          [신규 카드: 🚀 돌파 단독 (놓친 기회)]
+ *             - 조건: 강세 40-59 + 돌파 이벤트
+ *             - 색상: 보라(#BF5AF2) — 다른 카드와 구분
+ *             - 의미: "이제 막 시작하는 종목"
+ *          [집중탭 카드 3개로]
+ *             - 🚀 돌파 단독 (40-59 + 돌파)  — 신규, 70% 승률
+ *             - 🔥 돌파 후 강함 (60+ + 돌파 + 모멘텀↑)
+ *             - 💪 그냥 강함 (80+ + 모멘텀↑)
+ *          [예상 효과]
+ *             - 돌파 단독: 약 30-50개 (599/8501 비율 추정)
+ *             - 시스템 약점 정확히 보완
+ *             - 진짜 기회들 보임
+ *          [한계 짚기]
+ *             - 표본 599개는 시장 조건 의존
+ *             - 강세 40-59 = "약한 종목" 영역 → 일부는 진짜 약함 (False Positive)
+ *             - 매수 시 추가 검증 권장 (거래량, 시장 RS, 차트 패턴)
+ *             - 돌파 신호 5종 (구름/스퀴즈/ST flip/MACD/ST jump) — 신호별 강도 차이 있음
+ *          [백업] App.v2.8.1.before-missed.backup.jsx
+ * v2.8.1: [PTP/인수 종목 추가 + 모멘텀 시스템]
  *          [근본 발견]
  *             - 점수 80+ 종목 너무 많음 (불장에 93개)
  *             - 임계값 올리는 건 임시방편 (대안 D — 보류)
@@ -3709,38 +3736,90 @@ export default function App() {
             </div>
           </div>
 
-          {/* ★ v2.6.7: 카드 3개 → 2개 — 발견 + 센놈 추적 (사용자 의도) */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:14}}>
-            {/* 🚀 돌파 후 강함 — 최근 3봉 내 돌파 이벤트 + 강세 60+ */}
-            <div onClick={()=>setFocusView(focusView==="breakStrong"?null:"breakStrong")} style={{background:focusView==="breakStrong"?"rgba(255,159,10,.15)":"rgba(255,159,10,.06)",border:`2px solid ${focusView==="breakStrong"?"#FF9F0A":"rgba(255,159,10,.25)"}`,borderRadius:8,padding:"10px",textAlign:"center",cursor:"pointer"}}>
-              <div style={{fontSize:9,color:"#FF9F0A",fontWeight:700}}>🚀 돌파 후 강함</div>
-              <div style={{fontSize:24,fontWeight:900,color:"#FF9F0A"}}>{realStocks.filter(s=>{
+          {/* ★ v2.8.2: 카드 3개 — 돌파 단독 (놓친 기회) + 돌파 후 강함 + 그냥 강함 */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:5,marginBottom:14}}>
+            {/* ★ v2.8.2 신규: 🚀 돌파 단독 (놓친 기회) — 강세 40-59 + 돌파 (70% 승률 검증) */}
+            <div onClick={()=>setFocusView(focusView==="missed"?null:"missed")} style={{background:focusView==="missed"?"rgba(191,90,242,.15)":"rgba(191,90,242,.06)",border:`2px solid ${focusView==="missed"?"#BF5AF2":"rgba(191,90,242,.25)"}`,borderRadius:8,padding:"8px",textAlign:"center",cursor:"pointer"}}>
+              <div style={{fontSize:8,color:"#BF5AF2",fontWeight:700}}>🚀 돌파 단독</div>
+              <div style={{fontSize:22,fontWeight:900,color:"#BF5AF2"}}>{realStocks.filter(s=>{
+                const cData = charts[s.ticker]?.data;
+                if (!cData || cData.length < 10) return false;
+                const ev = detectBreakoutEvent(cData);
+                if (!ev.breakout) return false;
+                const ss = calcSustainedStrength(cData);
+                // ★ v2.8.2: 강세 40-59 (실험실 70% 승률 검증, 표본 599)
+                return ss.score >= 40 && ss.score < 60;
+              }).length}</div>
+              <div style={{fontSize:7,color:focusView==="missed"?"#BF5AF2":C.muted}}>{focusView==="missed"?"▲ 접기":"강세 40-59 + 돌파 (70%)"}</div>
+            </div>
+            {/* 🚀 돌파 후 강함 — 강세 60+ + 돌파 + 모멘텀 */}
+            <div onClick={()=>setFocusView(focusView==="breakStrong"?null:"breakStrong")} style={{background:focusView==="breakStrong"?"rgba(255,159,10,.15)":"rgba(255,159,10,.06)",border:`2px solid ${focusView==="breakStrong"?"#FF9F0A":"rgba(255,159,10,.25)"}`,borderRadius:8,padding:"8px",textAlign:"center",cursor:"pointer"}}>
+              <div style={{fontSize:8,color:"#FF9F0A",fontWeight:700}}>🔥 돌파 후 강함</div>
+              <div style={{fontSize:22,fontWeight:900,color:"#FF9F0A"}}>{realStocks.filter(s=>{
                 const cData = charts[s.ticker]?.data;
                 if (!cData || cData.length < 10) return false;
                 const ev = detectBreakoutEvent(cData);
                 if (!ev.breakout) return false;
                 const mom = calcStrengthMomentum(cData);
                 if (mom.score < getThresholds(s).breakStrong) return false;
-                // ★ v2.8.1: 모멘텀 +20↑ (강해지는 중인 종목만)
                 return mom.delta >= 20;
               }).length}</div>
-              <div style={{fontSize:7,color:focusView==="breakStrong"?"#FF9F0A":C.muted}}>{focusView==="breakStrong"?"▲ 접기":`돌파 + 강세 ${60+Math.max(krAdj,usAdj)}+ & 모멘텀 +20↑`}</div>
+              <div style={{fontSize:7,color:focusView==="breakStrong"?"#FF9F0A":C.muted}}>{focusView==="breakStrong"?"▲ 접기":`강세 ${60+Math.max(krAdj,usAdj)}+ & 모멘텀↑`}</div>
             </div>
-            {/* 💪 그냥 강함 — 강세 80+ + 모멘텀 (대안 A+B) */}
-            <div onClick={()=>setFocusView(focusView==="justStrong"?null:"justStrong")} style={{background:focusView==="justStrong"?"rgba(48,209,88,.15)":"rgba(48,209,88,.06)",border:`2px solid ${focusView==="justStrong"?C.emerald:"rgba(48,209,88,.25)"}`,borderRadius:8,padding:"10px",textAlign:"center",cursor:"pointer"}}>
-              <div style={{fontSize:9,color:C.emerald,fontWeight:700}}>💪 그냥 강함</div>
-              <div style={{fontSize:24,fontWeight:900,color:C.emerald}}>{realStocks.filter(s=>{
+            {/* 💪 그냥 강함 — 강세 80+ + 모멘텀 */}
+            <div onClick={()=>setFocusView(focusView==="justStrong"?null:"justStrong")} style={{background:focusView==="justStrong"?"rgba(48,209,88,.15)":"rgba(48,209,88,.06)",border:`2px solid ${focusView==="justStrong"?C.emerald:"rgba(48,209,88,.25)"}`,borderRadius:8,padding:"8px",textAlign:"center",cursor:"pointer"}}>
+              <div style={{fontSize:8,color:C.emerald,fontWeight:700}}>💪 그냥 강함</div>
+              <div style={{fontSize:22,fontWeight:900,color:C.emerald}}>{realStocks.filter(s=>{
                 const cData = charts[s.ticker]?.data;
                 if (!cData || cData.length < 10) return false;
                 const mom = calcStrengthMomentum(cData);
                 if (mom.score < getThresholds(s).justStrong) return false;
-                // ★ v2.8.1: 모멘텀 +30↑ OR 7일 전 점수 < 50 (강해지는 중 OR 최근 강해진)
                 return mom.delta >= 30 || mom.recentlyStrong;
               }).length}</div>
-              <div style={{fontSize:7,color:focusView==="justStrong"?C.emerald:C.muted}}>{focusView==="justStrong"?"▲ 접기":`강세 ${80+Math.max(krAdj,usAdj)}+ & 모멘텀↑ 또는 신규`}</div>
+              <div style={{fontSize:7,color:focusView==="justStrong"?C.emerald:C.muted}}>{focusView==="justStrong"?"▲ 접기":`강세 ${80+Math.max(krAdj,usAdj)}+ & 모멘텀↑`}</div>
             </div>
           </div>
           {realCount>0&&<div style={{fontSize:7,color:C.muted,textAlign:"right",marginTop:-10,marginBottom:8}}>실시간 {realCount}종목 기준 · 실험실 검증 데이터 기반 시그널 (v2.6.7)</div>}
+
+          {/* ★ v2.8.2 신규: 🚀 돌파 단독 (놓친 기회) — 펼침 리스트 */}
+          {focusView==="missed"&&(()=>{
+            const all=realStocks.map(s=>{
+              const cData=charts[s.ticker]?.data;
+              if(!cData||cData.length<10) return null;
+              const ev = detectBreakoutEvent(cData);
+              if (!ev.breakout) return null;
+              const ss = calcSustainedStrength(cData);
+              // 강세 40-59: 막 시작한 종목 (실험실 70% 승률 검증)
+              if (ss.score < 40 || ss.score >= 60) return null;
+              const last = cData[cData.length-1];
+              return {...s, strength: ss.score, breakdown: ss.breakdown, events: ev.events, daysAgo: ev.daysAgo, last};
+            }).filter(Boolean).sort((a,b)=>b.strength-a.strength);
+            if (all.length === 0) return <div style={{textAlign:"center",padding:"20px",color:C.muted,fontSize:9}}>강세 40-59 + 돌파 종목 없음</div>;
+            return <div style={{marginBottom:14}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#BF5AF2",marginBottom:6}}>🚀 돌파 단독 — 놓친 기회 ({all.length}개)</div>
+              <div style={{fontSize:8,color:C.muted,marginBottom:8}}>강세 40-59 + 돌파 이벤트. <b>"이제 막 시작하는 종목"</b> — 실험실 70% 승률 (599 표본) · 시스템이 강세 부족으로 놓친 진짜 기회</div>
+              {all.map((s,i)=>{
+                const isKR=(s.market||"").includes("kr")||(s.ticker?.length||0)>5;
+                return <div key={s.ticker} onClick={()=>navigateToStock(s.ticker, s)} style={{...css.card,padding:"8px 10px",marginBottom:4,cursor:"pointer",borderLeft:`3px solid #BF5AF2`}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div>
+                      <span style={{fontSize:11,fontWeight:700}}>{s.label||s.ticker}</span>
+                      <span style={{fontSize:8,color:C.muted,marginLeft:6}}>{s.ticker} {isKR?"🇰🇷":"🇺🇸"}</span>
+                    </div>
+                    <div style={{fontSize:14,fontWeight:900,color:"#BF5AF2"}}>{s.strength}</div>
+                  </div>
+                  <div style={{fontSize:8,color:C.muted,marginTop:3,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                    {s.events.map((e,j)=><span key={j} style={{color:"#FFD60A"}}>{e.label} ({e.daysAgo===0?"오늘":e.daysAgo+"일 전"})</span>)}
+                  </div>
+                  <div style={{fontSize:8,color:C.muted,marginTop:3,display:"flex",gap:10,flexWrap:"wrap"}}>
+                    <span style={{color:(s.changePct||0)>=0?C.green:C.red}}>1D {(s.changePct||0)>=0?"+":""}{(s.changePct||0).toFixed(1)}%</span>
+                    <span style={{color:(s.chg3d||0)>=0?C.green:C.red}}>3D {(s.chg3d||0)>=0?"+":""}{(s.chg3d||0).toFixed(1)}%</span>
+                    <span style={{color:(s.chg5d||0)>=0?C.green:C.red}}>5D {(s.chg5d||0)>=0?"+":""}{(s.chg5d||0).toFixed(1)}%</span>
+                  </div>
+                </div>;
+              })}
+            </div>;
+          })()}
 
           {/* ★ v2.6.7: 🚀 돌파 후 강함 — 펼침 리스트 */}
           {focusView==="breakStrong"&&(()=>{
@@ -6249,4 +6328,90 @@ export default function App() {
                    : hitRate>=40 ? <> · 중간 효과. 가장 약한 지표(<b>{missAnalysis[0]?.label}</b>)가 놓친 주된 이유 — 이 조건을 완화하면 적중률 상승 가능.</>
                    : <> · 약한 효과. 다수 종목이 <b>{missAnalysis[0]?.label}</b>·<b>{missAnalysis[1]?.label}</b> 미충족. 시그널 자체 재검토 필요.</>}
                   <br/>HIT 종목들은 <b style={{color:C.emerald}}>{hitAnalysis[0]?.label}</b>(<b>{hitAnalysis[0]?.pct}%</b>) 거의 항상 갖춤 — 이게 핵심 필터.
-                  {hits.length>0&&<><br/>📅 평균 <b style=
+                  {hits.length>0&&<><br/>📅 평균 <b style={{color:C.accent}}>d-{avgDaysAgo.toFixed(1)}</b>에 신호 발견 = 5일 상승 시작 <b>{Math.max(0,avgDaysAgo-5).toFixed(1)}일 전</b>에 미리 잡음. 매일 daily 알림 받으면 평균 +{hitsAvgReal}% 가능.</>}
+                </div>
+              </div>
+            </>;
+          })()}
+        </div>}
+
+        {/* ══ TAB 5: 종목풀 ══ */}
+        {tab==="pool"&&<div style={{padding:"12px 14px"}}>
+          <div style={{fontSize:12,fontWeight:900,color:C.accent,marginBottom:4}}>🗂 종목풀 관리</div>
+          <div style={{fontSize:9,color:C.sub,marginBottom:6}}>
+            {(()=>{
+              const entries=Object.entries(pool);
+              const kr=entries.filter(([t,v])=>/^\d{6}$/.test(t)||v.market==="kr").length;
+              const us=entries.length-kr;
+              return`총 ${entries.length}개 (🇰🇷${kr} · 🇺🇸${us})${us<10?" ⚠️ US종목 부족":""}`;
+            })()}
+          </div>
+          {/* ★ v2.3.1: 별표 동기화 안내 */}
+          <div style={{fontSize:7,color:C.muted,marginBottom:12,padding:"5px 8px",background:"rgba(10,132,255,.05)",border:`1px solid ${C.border}`,borderRadius:5,lineHeight:1.5}}>
+            💡 <b style={{color:C.accent}}>★ 별표</b>를 누르면 <b style={{color:C.accent}}>관심종목 ⭐</b>으로 등록되어, <b>발굴탭 → 비교뷰</b>에서 RS 강세를 비교할 수 있습니다. 시장탭/집중탭에서도 ★ 별표로 동일하게 등록 가능합니다.
+          </div>
+          <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
+            <input value={poolFilter} onChange={e=>setPoolFilter(e.target.value)} placeholder="종목명/티커 검색..." style={{flex:1,minWidth:120,background:"rgba(255,255,255,.05)",border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.text,fontSize:10,outline:"none"}}/>
+            {[["all","전체"],["kr","🇰🇷 한국"],["us","🇺🇸 미국"]].map(([v,l])=>(
+              <button key={v} onClick={()=>setPoolMarket(v)} style={{padding:"5px 10px",borderRadius:6,border:`1px solid ${poolMarket===v?C.accent:C.border}`,background:poolMarket===v?"rgba(10,132,255,.12)":"transparent",color:poolMarket===v?C.accent:C.muted,fontSize:9,cursor:"pointer"}}>{l}</button>
+            ))}
+            <button onClick={async()=>{
+              setPoolMsg("📦 종목풀 로딩 중...");
+              try{
+                const r2=await fetch("/data/stocks.json?t="+Date.now());
+                const j2=await r2.json();
+                setPool(j2.pool||{});setPoolLoaded(true);
+                setPoolMsg(`✅ ${Object.keys(j2.pool||{}).length}개 종목 로드됨`);
+              }catch{setPoolMsg("❌ 로드 실패 — Actions daily 먼저 실행");}
+              setTimeout(()=>setPoolMsg(""),4000);
+            }} style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${C.accent}`,background:"rgba(56,189,248,.1)",color:C.accent,fontSize:9,cursor:"pointer",fontWeight:700}}>
+              {poolLoaded?"🔄 새로고침":"📦 풀 로드"}
+            </button>
+          </div>
+          {poolMsg&&<div style={{fontSize:9,color:C.accent,marginBottom:8,padding:"6px 10px",background:"rgba(10,132,255,.08)",borderRadius:6}}>{poolMsg}</div>}
+          <div style={css.card}>
+            <div style={{fontSize:10,fontWeight:700,color:C.accent,marginBottom:8}}>⭐ 현재 관심종목 ({stocks.length}개)</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+              {stocks.map(s=>(
+                <div key={s.ticker} style={{display:"flex",alignItems:"center",gap:4,background:"rgba(10,132,255,.08)",border:`1px solid rgba(10,132,255,.15)`,borderRadius:5,padding:"3px 8px"}}>
+                  <span style={{fontSize:9,fontWeight:700,color:C.accent}}>{fmtName(s,8)}</span>
+                  <button onClick={()=>removeStock(s.ticker)} style={{background:"none",border:"none",color:"rgba(255,69,58,.6)",cursor:"pointer",fontSize:10,padding:0}}>✕</button>
+                </div>
+              ))}
+            </div>
+          </div>
+          {!poolLoaded
+            ?<div style={{textAlign:"center",padding:"40px 0",color:C.muted}}><div style={{fontSize:24,marginBottom:8}}>📦</div><div style={{fontSize:10}}>위 "풀 로드" 버튼을 눌러주세요</div></div>
+            :<div>
+              <div style={{fontSize:9,color:C.muted,marginBottom:8}}>{poolFiltered.length}개 표시 중</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:6}}>
+                {poolFiltered.slice(0,200).map(([ticker,info])=>{
+                  const inWatch=stocks.find(s=>s.ticker===ticker);
+                  const chg=info.changePct||0;
+                  return<div key={ticker} style={{background:C.panel2,border:`1px solid ${inWatch?"rgba(56,189,248,.4)":C.border}`,borderRadius:7,padding:"7px 9px"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                      <div>
+                        <div style={{fontSize:9,fontWeight:700,color:inWatch?C.accent:C.text,maxWidth:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtName({ticker,...info},8)}</div>
+                        <div style={{fontSize:7,color:C.muted}}>{/^\d{6}$/.test(ticker)?ticker:info.label?.slice(0,12)||""}</div>
+                      </div>
+                      <button onClick={async()=>{
+                        if(inWatch){removeStock(ticker);}
+                        else{try{await fetch("/api/watchlist",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ticker,...info})});setStocks(p=>[...p,{ticker,...info,...(pool[ticker]||{})}]);setPoolMsg(`✅ ${info.label} 추가`);}catch{setPoolMsg("❌ 실패");}}
+                        setTimeout(()=>setPoolMsg(""),3000);
+                      }} style={{background:inWatch?"rgba(10,132,255,.12)":"rgba(255,255,255,.04)",border:`1px solid ${inWatch?C.accent:C.border}`,borderRadius:4,padding:"2px 6px",cursor:"pointer",color:inWatch?C.accent:C.muted,fontSize:10,flexShrink:0}}>{inWatch?"★":"☆"}</button>
+                    </div>
+                    {info.price>0&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4}}>
+                      <span style={{fontSize:9}}>{info.market==="kr"?"₩":"$"}{info.market==="kr"?fmtKRW(info.price||0):(info.price||0).toLocaleString()}</span>
+                      <span style={{fontSize:8,fontWeight:700,color:chg>=0?C.green:C.red}}><span style={{color:C.muted,fontWeight:400}}>1D</span>{chg>=0?"+":""}{chg.toFixed(1)}%</span>
+                    </div>}
+                  </div>;
+                })}
+              </div>
+              {poolFiltered.length>200&&<div style={{textAlign:"center",padding:"10px",fontSize:9,color:C.muted}}>검색으로 범위를 좁혀주세요 ({poolFiltered.length}개 중 200개 표시)</div>}
+            </div>}
+        </div>}
+
+      </div>
+    </div>
+  );
+}
