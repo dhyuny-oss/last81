@@ -1239,6 +1239,38 @@ def fetch_pool_batch(pool, range_="6mo", batch_size=50, delay_between_batches=5)
                 else:
                     continue
 
+                # ★ v2.7.9: 상장 폐지/거래 정지 종목 자동 필터 (EXAS/CFLT 같은 인수 종목)
+                # 조건: 최근 5일 거래량 합 = 0 → 거래 중단된 종목
+                if candles and len(candles) >= 5:
+                    recent_vol_sum = sum(c.get("volume", 0) or 0 for c in candles[-5:])
+                    if recent_vol_sum == 0:
+                        print(f"⚠️  {ticker} 상장 폐지/거래 정지 의심 — 최근 5일 거래량 0, 제외")
+                        continue
+
+                # ★ v2.8.0: 비활성 종목 추가 필터 (거래량 급감 또는 가격 정체)
+                #   인수 발표 후 거래 거의 멈춘 종목 캐치 (EXAS/CFLT 패턴)
+                if candles and len(candles) >= 20:
+                    last5 = candles[-5:]
+                    last20to5 = candles[-20:-5]  # 직전 15일
+
+                    # 조건 1: 거래량 활동성 (최근 5일이 평소의 20% 이하)
+                    avg_vol5 = sum(c.get("volume", 0) or 0 for c in last5) / 5
+                    avg_vol15 = sum(c.get("volume", 0) or 0 for c in last20to5) / 15
+                    vol_dead = avg_vol15 > 0 and avg_vol5 / avg_vol15 < 0.2
+
+                    # 조건 2: 가격 변동성 (최근 5일 변동 합이 1% 이하)
+                    total_change = 0
+                    for i in range(1, len(last5)):
+                        prev = last5[i-1].get("close", 0) or 0
+                        if prev > 0:
+                            total_change += abs((last5[i]["close"] - prev) / prev * 100)
+                    price_dead = total_change < 1
+
+                    if vol_dead or price_dead:
+                        reason = "거래량 급감" if vol_dead else "가격 정체"
+                        print(f"⚠️  {ticker} 비활성 종목 — {reason}, 제외")
+                        continue
+
                 mktCap = float(meta.get("marketCap") or 0)
                 isKR = mkt == "kr"
                 # ★ v2.4.11: 한국 종목 — Yahoo 시총 누락 시 KIS의 (현재가 × 상장주식수)로 폴백
