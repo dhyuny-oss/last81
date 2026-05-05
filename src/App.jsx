@@ -3084,7 +3084,11 @@ export default function App() {
       <div style={{borderBottom:`1px solid ${C.border}`,padding:"8px 14px",background:"#0d1526",position:"sticky",top:0,zIndex:50}}>
         {/* 1행: 로고 + 상태 + 검색 + 설정 */}
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
-          <span style={{fontSize:15,fontWeight:900,color:C.accent,letterSpacing:2}}>✦ AT</span>
+         {/* ── 알파 헤더에 α/β 로고 (베타와 통일) ── */}
+<div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+  <div style={{width:28,height:28,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:14,background:"rgba(59, 130, 246, .12)",color:"#60A5FA",border:"1px solid rgba(59, 130, 246, .25)"}}>α</div>
+  <button onClick={()=>{window.location.href="/beta";}} title="베타 터미널 (가치 평가)로 이동" style={{width:28,height:28,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:14,background:"linear-gradient(135deg,#F59E0B,#92400E)",color:"#1a1a1a",border:"none",cursor:"pointer"}}>β</button>
+</div>      
           <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap"}}>
             {dataStatus==="loading"&&<span style={{fontSize:9,color:C.accent}}>로딩중...</span>}
             {dataStatus==="real"&&(()=>{
