@@ -1,18 +1,13 @@
 /**
- * Beta Terminal — F-Score · Magic Formula · 적정가 모델 계산
+ * Beta Terminal — F-Score · Magic Formula · 적정가 모델 계산 v0.3
  * ============================================================================
  *
- * 입력: stocks.json의 financials[ticker] 객체
- * 출력: { fScore, mfRank, fairValue, ... } 종목별 평가 결과
- *
- * ⚠️ 모든 함수는 데이터 누락에 안전 (null 처리). 누락 시 부분 점수 반환.
- *
- * 한계 짚기:
- *   - 자기 5년 평균 multiple 계산은 데이터 부족 (Yahoo는 현재 multiple만 줌)
- *     → 현재 P/E, P/B, EV/EBITDA를 "기준선"으로 사용
- *   - F-Score 9개 중 일부 (특히 발행주식수 변화)는 yfinance에서 직접 안 받음
- *     → 8개 지표로 우선 계산, 나머지 1개는 추후 확장
- *   - 한국 종목 P/E 누락 → 모델 일치도 자동 낮아짐 (정직한 표시)
+ * v0.2 → v0.3 변경:
+ *   - candles 기반 RSI 14 계산 추가
+ *   - candles 기반 변동성 (최근 20일 표준편차) 추가
+ *   - 가격 변화율 1d / 3d / 5d 추가
+ *   - 야후 목표가 대비 차이 (currentPrice vs targetMeanPrice)
+ *   - oversold / box 카드 분류 활성화
  */
 
 // ─── 헬퍼 ─────────────────────────────────────────────
@@ -30,16 +25,66 @@ const safeDiv = (a, b) => {
   return x / y;
 };
 
-// ─── F-Score (Piotroski 9-point) ───────────────────────
-// 1. ROA > 0
-// 2. CFO > 0
-// 3. ΔROA > 0 (전년 대비)
-// 4. CFO > NI (수익의 질)
-// 5. ΔLeverage < 0 (부채 감소)
-// 6. ΔCurrent Ratio > 0 (유동성 개선)
-// 7. 발행주식수 동일 또는 감소 (희석 없음) — yfinance에서 직접 안 옴, 스킵
-// 8. ΔGross Margin > 0
-// 9. ΔAsset Turnover > 0 (자산회전 개선)
+// ─── 가격 시계열 분석 ─────────────────────────────────
+
+/** RSI 14 (Wilder smoothing) — 표준 공식 */
+export function calculateRSI(candles, period = 14) {
+  if (!candles || candles.length < period + 1) return null;
+  const closes = candles.map(c => c.close).filter(c => c != null);
+  if (closes.length < period + 1) return null;
+
+  // 첫 N개 봉의 평균 gain/loss
+  let gains = 0;
+  let losses = 0;
+  for (let i = 1; i <= period; i++) {
+    const diff = closes[i] - closes[i - 1];
+    if (diff >= 0) gains += diff;
+    else losses += -diff;
+  }
+  let avgGain = gains / period;
+  let avgLoss = losses / period;
+
+  // 이후 봉은 Wilder smoothing
+  for (let i = period + 1; i < closes.length; i++) {
+    const diff = closes[i] - closes[i - 1];
+    const gain = diff >= 0 ? diff : 0;
+    const loss = diff < 0 ? -diff : 0;
+    avgGain = (avgGain * (period - 1) + gain) / period;
+    avgLoss = (avgLoss * (period - 1) + loss) / period;
+  }
+
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return 100 - 100 / (1 + rs);
+}
+
+/** 최근 N일 가격 변화율 (%) */
+export function calculatePriceChange(candles, days) {
+  if (!candles || candles.length < days + 1) return null;
+  const recent = candles[candles.length - 1]?.close;
+  const past = candles[candles.length - 1 - days]?.close;
+  if (!recent || !past) return null;
+  return ((recent - past) / past) * 100;
+}
+
+/**
+ * 박스권 판정용 변동성 계산
+ * 최근 20일 종가의 (최고 - 최저) / 평균 → %
+ * 예: ±5% 이내면 박스권
+ */
+export function calculateBoxRange(candles, days = 20) {
+  if (!candles || candles.length < days) return null;
+  const recent = candles.slice(-days).map(c => c.close).filter(c => c != null);
+  if (recent.length < days) return null;
+  const max = Math.max(...recent);
+  const min = Math.min(...recent);
+  const avg = recent.reduce((s, x) => s + x, 0) / recent.length;
+  if (avg === 0) return null;
+  // 최고~최저 폭이 평균의 몇 % 인지
+  return ((max - min) / avg) * 100;
+}
+
+// ─── F-Score (Piotroski 9-point, 8개 평가 가능) ───────
 
 export function calculateFScore(fin) {
   if (!fin) return { score: 0, max: 8, components: {}, available: false };
@@ -55,61 +100,45 @@ export function calculateFScore(fin) {
 
   const components = {};
 
-  // 1. ROA > 0 (latest)
   if (incL && balC) {
     const roaL = safeDiv(incL.netIncome, balC.totalAssets);
     components.roaPositive = roaL !== null ? roaL > 0 : null;
   }
-
-  // 2. CFO > 0
   if (cfL) {
     const cfo = safeNum(cfL.operatingCashflow);
     components.cfoPositive = cfo !== null ? cfo > 0 : null;
   }
-
-  // 3. ΔROA > 0
   if (incL && incP && balC && balY) {
     const roaL = safeDiv(incL.netIncome, balC.totalAssets);
     const roaP = safeDiv(incP.netIncome, balY.totalAssets);
     components.roaImproving = roaL !== null && roaP !== null ? roaL > roaP : null;
   }
-
-  // 4. CFO > NI (수익의 질)
   if (cfL && incL) {
     const cfo = safeNum(cfL.operatingCashflow);
     const ni = safeNum(incL.netIncome);
     components.cfoOverNi = cfo !== null && ni !== null ? cfo > ni : null;
   }
-
-  // 5. ΔLeverage < 0 (totalDebt / totalAssets 감소)
   if (balC && balY) {
     const levL = safeDiv(balC.totalDebt, balC.totalAssets);
     const levY = safeDiv(balY.totalDebt, balY.totalAssets);
     components.leverageImproving = levL !== null && levY !== null ? levL < levY : null;
   }
-
-  // 6. ΔCurrent Ratio > 0
   if (balC && balY) {
     const crL = safeDiv(balC.currentAssets, balC.currentLiabilities);
     const crY = safeDiv(balY.currentAssets, balY.currentLiabilities);
     components.currentRatioImproving = crL !== null && crY !== null ? crL > crY : null;
   }
-
-  // 7. ΔGross Margin > 0
   if (incL && incP) {
     const gmL = safeDiv(incL.grossProfit, incL.revenue);
     const gmP = safeDiv(incP.grossProfit, incP.revenue);
     components.grossMarginImproving = gmL !== null && gmP !== null ? gmL > gmP : null;
   }
-
-  // 8. ΔAsset Turnover > 0
   if (incL && incP && balC && balY) {
     const atL = safeDiv(incL.revenue, balC.totalAssets);
     const atP = safeDiv(incP.revenue, balY.totalAssets);
     components.assetTurnoverImproving = atL !== null && atP !== null ? atL > atP : null;
   }
 
-  // 점수 합산 (true=1, false=0, null=skip)
   let score = 0;
   let max = 0;
   for (const v of Object.values(components)) {
@@ -119,34 +148,25 @@ export function calculateFScore(fin) {
 
   return {
     score,
-    max,            // 실제 평가 가능한 항목 수 (보통 8, 일부 누락 시 적음)
-    score9: max > 0 ? Math.round(score * 9 / max) : 0,  // 9점 만점으로 환산
+    max,
+    score9: max > 0 ? Math.round(score * 9 / max) : 0,
     components,
-    available: max >= 5,  // 5개 이상 평가됐을 때만 의미 있다고 간주
+    available: max >= 5,
   };
 }
 
 // ─── Magic Formula ────────────────────────────────────
-// ROC = EBIT / (Working Capital + Net PPE)
-// EY  = EBIT / Enterprise Value
-// → 두 지표의 종합 랭킹 (낮을수록 좋음)
 
 export function calculateMagicFormula(fin) {
   if (!fin) return { roc: null, ey: null, available: false };
-
   const inc = fin.income || {};
   const ks = fin.keyStats || {};
   const incL = inc.latest;
-
   if (!incL) return { roc: null, ey: null, available: false };
 
-  // ROC = EBIT / (시총 - 현금 + 부채) ≈ EBIT / EV (간이 버전)
   const ebit = safeNum(incL.ebit) || safeNum(incL.operatingIncome);
   const ev = safeNum(ks.enterpriseValue) || safeNum(ks.marketCap);
-
   const ey = ebit && ev ? ebit / ev : null;
-
-  // ROC: ROE를 대용 (정확한 ROC는 추가 계산 필요 — 다음 버전)
   const roc = safeNum(ks.returnOnEquity);
 
   return {
@@ -157,8 +177,6 @@ export function calculateMagicFormula(fin) {
 }
 
 // ─── 적정가 모델 ──────────────────────────────────────
-// 각 모델은 "현재가 대비 % 차이" 반환 (양수 = 저평가)
-// 자기 5년 평균 multiple 데이터 없음 → 현재 multiple과 동일 가정 + 트렌드 보정
 
 export function calculateFairValue(fin) {
   if (!fin) return { models: [], median: null, agreement: null, available: false };
@@ -170,16 +188,13 @@ export function calculateFairValue(fin) {
 
   const models = [];
 
-  // 모델 1: PER × EPS — 자기 회복력 기반
-  // 현재 PER이 자기 평균보다 낮으면 저평가, 이익 성장하면 추가 보정
+  // 모델 1: PER × EPS — 이익 성장 기반
   const pe = safeNum(ks.trailingPE);
   if (pe !== null && pe > 0 && incL && incP) {
     const niL = safeNum(incL.netIncome);
     const niP = safeNum(incP.netIncome);
     if (niL !== null && niP !== null && niP !== 0) {
-      // 이익 성장률 기반 보정: 작년 대비 N% 성장 → 적정가 N% 상승
       const earningsGrowth = (niL - niP) / Math.abs(niP);
-      // 보수적: 성장률의 절반만 반영 (역성장 시도 절반만)
       const pctChange = earningsGrowth * 50;
       models.push({
         name: 'PER × EPS',
@@ -189,13 +204,10 @@ export function calculateFairValue(fin) {
     }
   }
 
-  // 모델 2: PBR × BPS
-  // ROE 높으면 적정 PBR 높아야 함 (가치투자 공식: 적정 PBR = ROE × 10 같은 단순화)
+  // 모델 2: PBR × BPS — ROE × 8 공식
   const pb = safeNum(ks.priceToBook);
   const roe = safeNum(ks.returnOnEquity);
   if (pb !== null && pb > 0 && roe !== null) {
-    // 단순화: ROE × 10 = 적정 PBR (ROE 10% → 적정 PBR 1.0)
-    // 보수적으로 ROE × 8
     const fairPB = Math.max(0.5, Math.min(15, roe * 8));
     const pctChange = ((fairPB - pb) / pb) * 100;
     models.push({
@@ -205,11 +217,9 @@ export function calculateFairValue(fin) {
     });
   }
 
-  // 모델 3: EV/EBITDA
-  // EV/EBITDA가 8 미만 = 저평가, 15 이상 = 고평가 (전통적 기준)
+  // 모델 3: EV/EBITDA — 적정 10
   const ev2eb = safeNum(ks.evToEbitda);
   if (ev2eb !== null && ev2eb > 0) {
-    // 적정 EV/EBITDA = 10 (시장 평균)
     const fairMultiple = 10;
     const pctChange = ((fairMultiple - ev2eb) / ev2eb) * 100;
     models.push({
@@ -223,20 +233,18 @@ export function calculateFairValue(fin) {
     return { models: [], median: null, agreement: null, available: false };
   }
 
-  // 중앙값
   const pcts = models.map(m => m.pct).sort((a, b) => a - b);
   const median = pcts[Math.floor(pcts.length / 2)];
 
-  // 일치도: 표준편차 기반
   const mean = pcts.reduce((s, x) => s + x, 0) / pcts.length;
   const variance = pcts.reduce((s, x) => s + (x - mean) ** 2, 0) / pcts.length;
   const stdDev = Math.sqrt(variance);
 
   let agreement;
-  if (models.length === 1) agreement = 'low';     // 모델 1개 = 신뢰 낮음
-  else if (stdDev < 8) agreement = 'high';        // 매우 비슷
-  else if (stdDev < 18) agreement = 'mid';        // 약간 분산
-  else agreement = 'low';                         // 따로 놀음
+  if (models.length === 1) agreement = 'low';
+  else if (stdDev < 8) agreement = 'high';
+  else if (stdDev < 18) agreement = 'mid';
+  else agreement = 'low';
 
   return {
     models,
@@ -246,23 +254,62 @@ export function calculateFairValue(fin) {
   };
 }
 
-// ─── 통합: 한 종목 전체 평가 ────────────────────────────
+// ─── 야후 목표가 대비 차이 ──────────────────────────────
+
+/**
+ * 현재가 vs 야후 애널리스트 목표가
+ * @returns { pct: 양수면 목표가가 현재가보다 높음 (상승여력), 음수면 하락 }
+ */
+export function calculateTargetDiff(fin) {
+  if (!fin) return null;
+  const ks = fin.keyStats || {};
+  const current = safeNum(ks.currentPrice);
+  const target = safeNum(ks.targetMeanPrice);
+  const high = safeNum(ks.targetHighPrice);
+  const low = safeNum(ks.targetLowPrice);
+  const numAnalysts = ks.numberOfAnalystOpinions;
+
+  if (!current || current <= 0 || !target) return null;
+
+  const pct = ((target - current) / current) * 100;
+  const highPct = high ? ((high - current) / current) * 100 : null;
+  const lowPct = low ? ((low - current) / current) * 100 : null;
+
+  return {
+    currentPrice: current,
+    targetMean: target,
+    targetHigh: high,
+    targetLow: low,
+    pct,           // 평균 목표가 vs 현재가
+    highPct,
+    lowPct,
+    numAnalysts,
+    available: numAnalysts && numAnalysts >= 3,  // 최소 3명 분석
+  };
+}
+
+// ─── 통합 평가 ────────────────────────────────────────
 
 export function evaluateStock(ticker, fin, poolInfo, candles) {
-  if (!fin) {
-    return null;
-  }
+  if (!fin) return null;
 
   const ks = fin.keyStats || {};
 
   const fScoreResult = calculateFScore(fin);
   const mfResult = calculateMagicFormula(fin);
   const fairValueResult = calculateFairValue(fin);
+  const targetDiff = calculateTargetDiff(fin);
 
-  // 가치 평가 가능 여부
   if (!fScoreResult.available && !fairValueResult.available) {
     return null;
   }
+
+  // ── 가격 시계열 분석 ──
+  const rsi = calculateRSI(candles);
+  const boxRange = calculateBoxRange(candles, 20);
+  const chg1d = calculatePriceChange(candles, 1);
+  const chg3d = calculatePriceChange(candles, 3);
+  const chg5d = calculatePriceChange(candles, 5);
 
   return {
     ticker,
@@ -296,19 +343,28 @@ export function evaluateStock(ticker, fin, poolInfo, candles) {
     evToEbitda: safeNum(ks.evToEbitda),
     marketCap: safeNum(ks.marketCap),
 
-    // 야후 애널리스트 목표가 (참고용)
-    targetMeanPrice: safeNum(ks.targetMeanPrice),
-    numberOfAnalystOpinions: ks.numberOfAnalystOpinions,
+    // 야후 목표가
+    targetDiff,
+
+    // 가격 시계열
+    rsi,
+    boxRange,
+    chg1d,
+    chg3d,
+    chg5d,
+    hasCandles: candles && candles.length >= 20,
+
+    // 메타
+    currentPrice: safeNum(ks.currentPrice),
   };
 }
 
-// ─── 카드별 분류 ─────────────────────────────────────
+// ─── 카드별 분류 (oversold/box 활성화) ──────────────────
 
 export function classifyForCards(evaluations) {
-  // 미국/한국 분리
   const all = evaluations.filter(e => e !== null);
 
-  // 카드 1: 최고점 (F-Score 9, 또는 max 점수)
+  // 카드 1: 최고점 (F-Score 8+)
   const top = all.filter(e => e.fScore >= 8);
 
   // 카드 2: 저평가 우량주 (F-Score 7+ AND 적정가 +20%)
@@ -318,17 +374,20 @@ export function classifyForCards(evaluations) {
   );
 
   // 카드 3: 과매도 우량주 (F-Score 7+ AND RSI < 35)
-  // RSI는 candles에서 계산 — 다음 단계에서 (이번엔 빈 배열)
-  const oversold = [];
+  const oversold = all.filter(e =>
+    e.fScore >= 7 &&
+    e.rsi !== null && e.rsi < 35
+  );
 
-  // 카드 4: 박스권 우량주 (F-Score 7+ AND 변동성 낮음)
-  // 마찬가지로 candles 필요 — 다음 단계에서
-  const box = [];
+  // 카드 4: 박스권 우량주 (F-Score 7+ AND 박스 범위 ±10% 이내)
+  const box = all.filter(e =>
+    e.fScore >= 7 &&
+    e.boxRange !== null && e.boxRange < 10
+  );
 
   // 카드 5: 위험 종목 (F-Score 0-3)
   const risk = all.filter(e => e.fScore <= 3);
 
-  // 정렬: 적정가 % 내림차순 (가장 저평가된 게 위로)
   const sortByFair = (a, b) => {
     const av = a.fairValuePct ?? -999;
     const bv = b.fairValuePct ?? -999;
@@ -338,8 +397,8 @@ export function classifyForCards(evaluations) {
   return {
     top: top.sort(sortByFair),
     value: value.sort(sortByFair),
-    oversold: oversold.sort(sortByFair),
-    box: box.sort(sortByFair),
+    oversold: oversold.sort((a, b) => (a.rsi || 99) - (b.rsi || 99)),  // 가장 과매도된 게 위
+    box: box.sort((a, b) => (a.boxRange || 99) - (b.boxRange || 99)),  // 가장 좁은 박스가 위
     risk: risk.sort((a, b) => a.fScore - b.fScore),
   };
 }
