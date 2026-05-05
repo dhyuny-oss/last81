@@ -1,15 +1,987 @@
 {
   "_meta": {
     "type": "beta_financials_test",
-    "version": "v0.1",
-    "generated": "2026-05-05T07:27:41.279734",
+    "version": "v0.2-yfinance",
+    "yfinance_version": "1.3.0",
+    "generated": "2026-05-05T07:39:03.036213",
     "warning": "이 파일은 PoC 결과. stocks.json과 별개. 알파 영향 없음.",
     "stats": {
       "total": 10,
-      "success": 0,
-      "full_complete": 0,
-      "skip": 10
+      "success": 10,
+      "full_complete": 10,
+      "skip": 0
     }
   },
-  "data": {}
+  "data": {
+    "AAPL": {
+      "updatedAt": "2026-05-05T07:38:47Z",
+      "currency": "USD",
+      "fiscalYearEnd": "2025-09-30",
+      "income": {
+        "latest": {
+          "endDate": "2025-09-30",
+          "revenue": 416161000000.0,
+          "costOfRevenue": 220960000000.0,
+          "grossProfit": 195201000000.0,
+          "operatingIncome": 133050000000.0,
+          "ebit": 133050000000.0,
+          "netIncome": 112010000000.0
+        },
+        "prior": {
+          "endDate": "2024-09-30",
+          "revenue": 391035000000.0,
+          "costOfRevenue": 210352000000.0,
+          "grossProfit": 180683000000.0,
+          "operatingIncome": 123216000000.0,
+          "ebit": 123216000000.0,
+          "netIncome": 93736000000.0
+        }
+      },
+      "balance": {
+        "current": {
+          "endDate": "2025-09-30",
+          "totalAssets": 359241000000.0,
+          "totalLiabilities": 285508000000.0,
+          "totalEquity": 73733000000.0,
+          "currentAssets": 147957000000.0,
+          "currentLiabilities": 165631000000.0,
+          "cash": 35934000000.0,
+          "totalDebt": 98657000000.0
+        },
+        "yearAgo": {
+          "endDate": "2024-09-30",
+          "totalAssets": 364980000000.0,
+          "totalLiabilities": 308030000000.0,
+          "totalEquity": 56950000000.0,
+          "currentAssets": 152987000000.0,
+          "currentLiabilities": 176392000000.0,
+          "cash": 29943000000.0,
+          "totalDebt": 106629000000.0
+        }
+      },
+      "cashflow": {
+        "latest": {
+          "endDate": "2025-09-30",
+          "operatingCashflow": 111482000000.0,
+          "capex": -12715000000.0,
+          "freeCashflow": 98767000000.0,
+          "dividendsPaid": -15421000000.0,
+          "netIncome": 112010000000.0
+        },
+        "prior": {
+          "endDate": "2024-09-30",
+          "operatingCashflow": 118254000000.0,
+          "capex": -9447000000.0,
+          "freeCashflow": 108807000000.0,
+          "dividendsPaid": -15234000000.0,
+          "netIncome": 93736000000.0
+        }
+      },
+      "keyStats": {
+        "marketCap": 4065900625920,
+        "enterpriseValue": 4082104795136,
+        "trailingPE": 33.88372,
+        "forwardPE": 28.96708,
+        "priceToBook": 46.153713,
+        "priceToSalesTTM": 9.006474,
+        "evToEbitda": 25.517,
+        "trailingEps": 8.17,
+        "forwardEps": 9.55671,
+        "returnOnAssets": 0.26229,
+        "returnOnEquity": 1.4147099,
+        "debtToEquity": 79.548,
+        "currentRatio": 1.07,
+        "quickRatio": 0.906,
+        "grossMargins": 0.47862,
+        "operatingMargins": 0.32275,
+        "profitMargins": 0.27152002,
+        "ebitdaMargins": 0.35437,
+        "dividendYield": 0.39,
+        "payoutRatio": 0.1259,
+        "beta": 1.065,
+        "revenueGrowth": 0.166,
+        "earningsGrowth": 0.218,
+        "targetMeanPrice": 300.6535,
+        "targetHighPrice": 355.0,
+        "targetLowPrice": 215.0,
+        "numberOfAnalystOpinions": 43,
+        "sector": "Technology",
+        "industry": "Consumer Electronics",
+        "longName": "Apple Inc."
+      }
+    },
+    "MSFT": {
+      "updatedAt": "2026-05-05T07:38:49Z",
+      "currency": "USD",
+      "fiscalYearEnd": "2025-06-30",
+      "income": {
+        "latest": {
+          "endDate": "2025-06-30",
+          "revenue": 281724000000.0,
+          "costOfRevenue": 87831000000.0,
+          "grossProfit": 193893000000.0,
+          "operatingIncome": 128528000000.0,
+          "ebit": 126012000000.0,
+          "netIncome": 101832000000.0
+        },
+        "prior": {
+          "endDate": "2024-06-30",
+          "revenue": 245122000000.0,
+          "costOfRevenue": 74114000000.0,
+          "grossProfit": 171008000000.0,
+          "operatingIncome": 109433000000.0,
+          "ebit": 110722000000.0,
+          "netIncome": 88136000000.0
+        }
+      },
+      "balance": {
+        "current": {
+          "endDate": "2025-06-30",
+          "totalAssets": 619003000000.0,
+          "totalLiabilities": 275524000000.0,
+          "totalEquity": 343479000000.0,
+          "currentAssets": 191131000000.0,
+          "currentLiabilities": 141218000000.0,
+          "cash": 30242000000.0,
+          "totalDebt": 60588000000.0
+        },
+        "yearAgo": {
+          "endDate": "2024-06-30",
+          "totalAssets": 512163000000.0,
+          "totalLiabilities": 243686000000.0,
+          "totalEquity": 268477000000.0,
+          "currentAssets": 159734000000.0,
+          "currentLiabilities": 125286000000.0,
+          "cash": 18315000000.0,
+          "totalDebt": 67127000000.0
+        }
+      },
+      "cashflow": {
+        "latest": {
+          "endDate": "2025-06-30",
+          "operatingCashflow": 136162000000.0,
+          "capex": -64551000000.0,
+          "freeCashflow": 71611000000.0,
+          "dividendsPaid": -24082000000.0,
+          "netIncome": 101832000000.0
+        },
+        "prior": {
+          "endDate": "2024-06-30",
+          "operatingCashflow": 118548000000.0,
+          "capex": -44477000000.0,
+          "freeCashflow": 74071000000.0,
+          "dividendsPaid": -21771000000.0,
+          "netIncome": 88136000000.0
+        }
+      },
+      "keyStats": {
+        "marketCap": 3072549191680,
+        "enterpriseValue": 3119753199616,
+        "trailingPE": 24.693731,
+        "forwardPE": 21.41604,
+        "priceToBook": 7.861256,
+        "priceToSalesTTM": 9.653817,
+        "evToEbitda": 16.913,
+        "trailingEps": 16.75,
+        "forwardEps": 19.31356,
+        "returnOnAssets": 0.14814,
+        "returnOnEquity": 0.34013999,
+        "debtToEquity": 30.271,
+        "currentRatio": 1.283,
+        "quickRatio": 1.142,
+        "grossMargins": 0.68309,
+        "operatingMargins": 0.46326,
+        "profitMargins": 0.39341998,
+        "ebitdaMargins": 0.57956004,
+        "dividendYield": 0.88,
+        "payoutRatio": 0.20729999,
+        "beta": 1.093,
+        "revenueGrowth": 0.183,
+        "earningsGrowth": 0.234,
+        "targetMeanPrice": 560.7736,
+        "targetHighPrice": 730.0,
+        "targetLowPrice": 400.0,
+        "numberOfAnalystOpinions": 52,
+        "sector": "Technology",
+        "industry": "Software - Infrastructure",
+        "longName": "Microsoft Corporation"
+      }
+    },
+    "BRK-B": {
+      "updatedAt": "2026-05-05T07:38:50Z",
+      "currency": "USD",
+      "fiscalYearEnd": "2025-12-31",
+      "income": {
+        "latest": {
+          "endDate": "2025-12-31",
+          "revenue": 410522000000.0,
+          "costOfRevenue": null,
+          "grossProfit": null,
+          "operatingIncome": null,
+          "ebit": 87528000000.0,
+          "netIncome": 66968000000.0
+        },
+        "prior": {
+          "endDate": "2024-12-31",
+          "revenue": 424232000000.0,
+          "costOfRevenue": null,
+          "grossProfit": null,
+          "operatingIncome": null,
+          "ebit": 115576000000.0,
+          "netIncome": 88995000000.0
+        }
+      },
+      "balance": {
+        "current": {
+          "endDate": "2025-12-31",
+          "totalAssets": 1222176000000.0,
+          "totalLiabilities": 502473000000.0,
+          "totalEquity": 719703000000.0,
+          "currentAssets": null,
+          "currentLiabilities": null,
+          "cash": 51877000000.0,
+          "totalDebt": 129081000000.0
+        },
+        "yearAgo": {
+          "endDate": "2024-12-31",
+          "totalAssets": 1153881000000.0,
+          "totalLiabilities": 502226000000.0,
+          "totalEquity": 651655000000.0,
+          "currentAssets": null,
+          "currentLiabilities": null,
+          "cash": 47729000000.0,
+          "totalDebt": 124762000000.0
+        }
+      },
+      "cashflow": {
+        "latest": {
+          "endDate": "2025-12-31",
+          "operatingCashflow": 45969000000.0,
+          "capex": -20927000000.0,
+          "freeCashflow": 25042000000.0,
+          "dividendsPaid": null,
+          "netIncome": 67260000000.0
+        },
+        "prior": {
+          "endDate": "2024-12-31",
+          "operatingCashflow": 30592000000.0,
+          "capex": -18976000000.0,
+          "freeCashflow": 11616000000.0,
+          "dividendsPaid": null,
+          "netIncome": 89561000000.0
+        }
+      },
+      "keyStats": {
+        "marketCap": 1010529075200,
+        "enterpriseValue": -265554313216,
+        "trailingPE": 15.246339,
+        "forwardPE": 21.741087,
+        "priceToBook": 0.0009395523,
+        "priceToSalesTTM": 2.6919158,
+        "evToEbitda": -2.25,
+        "trailingEps": 30.73,
+        "forwardEps": 21.54998,
+        "returnOnAssets": 0.053940002,
+        "returnOnEquity": 0.10499,
+        "debtToEquity": 17.669,
+        "currentRatio": 2.876,
+        "quickRatio": 2.7,
+        "grossMargins": 0.2778,
+        "operatingMargins": 0.14352,
+        "profitMargins": 0.19305,
+        "ebitdaMargins": 0.31435,
+        "dividendYield": null,
+        "payoutRatio": 0.0,
+        "beta": 0.622,
+        "revenueGrowth": 0.044,
+        "earningsGrowth": 1.196,
+        "targetMeanPrice": 524.0,
+        "targetHighPrice": 581.0,
+        "targetLowPrice": 481.0,
+        "numberOfAnalystOpinions": 3,
+        "sector": "Financial Services",
+        "industry": "Insurance - Diversified",
+        "longName": "Berkshire Hathaway Inc."
+      }
+    },
+    "JNJ": {
+      "updatedAt": "2026-05-05T07:38:52Z",
+      "currency": "USD",
+      "fiscalYearEnd": "2025-12-31",
+      "income": {
+        "latest": {
+          "endDate": "2025-12-31",
+          "revenue": 94193000000.0,
+          "costOfRevenue": 30256000000.0,
+          "grossProfit": 63937000000.0,
+          "operatingIncome": 25596000000.0,
+          "ebit": 33552000000.0,
+          "netIncome": 26804000000.0
+        },
+        "prior": {
+          "endDate": "2024-12-31",
+          "revenue": 88821000000.0,
+          "costOfRevenue": 27471000000.0,
+          "grossProfit": 61350000000.0,
+          "operatingIncome": 21249000000.0,
+          "ebit": 17442000000.0,
+          "netIncome": 14066000000.0
+        }
+      },
+      "balance": {
+        "current": {
+          "endDate": "2025-12-31",
+          "totalAssets": 199210000000.0,
+          "totalLiabilities": 117666000000.0,
+          "totalEquity": 81544000000.0,
+          "currentAssets": 55624000000.0,
+          "currentLiabilities": 54126000000.0,
+          "cash": 19709000000.0,
+          "totalDebt": 47933000000.0
+        },
+        "yearAgo": {
+          "endDate": "2024-12-31",
+          "totalAssets": 180104000000.0,
+          "totalLiabilities": 108614000000.0,
+          "totalEquity": 71490000000.0,
+          "currentAssets": 55893000000.0,
+          "currentLiabilities": 50321000000.0,
+          "cash": 24105000000.0,
+          "totalDebt": 36634000000.0
+        }
+      },
+      "cashflow": {
+        "latest": {
+          "endDate": "2025-12-31",
+          "operatingCashflow": 24530000000.0,
+          "capex": -5217000000.0,
+          "freeCashflow": 19313000000.0,
+          "dividendsPaid": -12381000000.0,
+          "netIncome": 26804000000.0
+        },
+        "prior": {
+          "endDate": "2024-12-31",
+          "operatingCashflow": 24266000000.0,
+          "capex": -6207000000.0,
+          "freeCashflow": 18059000000.0,
+          "dividendsPaid": -11823000000.0,
+          "netIncome": 14066000000.0
+        }
+      },
+      "keyStats": {
+        "marketCap": 539698036736,
+        "enterpriseValue": 572634038272,
+        "trailingPE": 26.314552,
+        "forwardPE": 17.639044,
+        "priceToBook": 6.6459165,
+        "priceToSalesTTM": 5.600735,
+        "evToEbitda": 16.683,
+        "trailingEps": 8.52,
+        "forwardEps": 12.71044,
+        "returnOnAssets": 0.08424,
+        "returnOnEquity": 0.26416,
+        "debtToEquity": 67.73,
+        "currentRatio": 1.025,
+        "quickRatio": 0.689,
+        "grossMargins": 0.68035007,
+        "operatingMargins": 0.27408,
+        "profitMargins": 0.21834,
+        "ebitdaMargins": 0.35621,
+        "dividendYield": 2.36,
+        "payoutRatio": 0.6025,
+        "beta": 0.263,
+        "revenueGrowth": 0.099,
+        "earningsGrowth": -0.529,
+        "targetMeanPrice": 252.41667,
+        "targetHighPrice": 285.0,
+        "targetLowPrice": 155.0,
+        "numberOfAnalystOpinions": 24,
+        "sector": "Healthcare",
+        "industry": "Drug Manufacturers - General",
+        "longName": "Johnson & Johnson"
+      }
+    },
+    "KO": {
+      "updatedAt": "2026-05-05T07:38:54Z",
+      "currency": "USD",
+      "fiscalYearEnd": "2025-12-31",
+      "income": {
+        "latest": {
+          "endDate": "2025-12-31",
+          "revenue": 47941000000.0,
+          "costOfRevenue": 18397000000.0,
+          "grossProfit": 29544000000.0,
+          "operatingIncome": 14911000000.0,
+          "ebit": 17652000000.0,
+          "netIncome": 13107000000.0
+        },
+        "prior": {
+          "endDate": "2024-12-31",
+          "revenue": 47061000000.0,
+          "costOfRevenue": 18324000000.0,
+          "grossProfit": 28737000000.0,
+          "operatingIncome": 14022000000.0,
+          "ebit": 14742000000.0,
+          "netIncome": 10631000000.0
+        }
+      },
+      "balance": {
+        "current": {
+          "endDate": "2025-12-31",
+          "totalAssets": 104816000000.0,
+          "totalLiabilities": 70541000000.0,
+          "totalEquity": 34275000000.0,
+          "currentAssets": 31044000000.0,
+          "currentLiabilities": 21281000000.0,
+          "cash": 10270000000.0,
+          "totalDebt": 45492000000.0
+        },
+        "yearAgo": {
+          "endDate": "2024-12-31",
+          "totalAssets": 100549000000.0,
+          "totalLiabilities": 74177000000.0,
+          "totalEquity": 26372000000.0,
+          "currentAssets": 25997000000.0,
+          "currentLiabilities": 25249000000.0,
+          "cash": 10828000000.0,
+          "totalDebt": 44522000000.0
+        }
+      },
+      "cashflow": {
+        "latest": {
+          "endDate": "2025-12-31",
+          "operatingCashflow": 7408000000.0,
+          "capex": -2112000000.0,
+          "freeCashflow": 5296000000.0,
+          "dividendsPaid": -8779000000.0,
+          "netIncome": 13137000000.0
+        },
+        "prior": {
+          "endDate": "2024-12-31",
+          "operatingCashflow": 6805000000.0,
+          "capex": -2064000000.0,
+          "freeCashflow": 4741000000.0,
+          "dividendsPaid": -8359000000.0,
+          "netIncome": 10649000000.0
+        }
+      },
+      "keyStats": {
+        "marketCap": 336411099136,
+        "enterpriseValue": 369339105280,
+        "trailingPE": 24.665615,
+        "forwardPE": 22.480925,
+        "priceToBook": 10.003839,
+        "priceToSalesTTM": 6.8259697,
+        "evToEbitda": 22.092,
+        "trailingEps": 3.17,
+        "forwardEps": 3.47806,
+        "returnOnAssets": 0.09512,
+        "returnOnEquity": 0.43372002,
+        "debtToEquity": 124.943,
+        "currentRatio": 1.358,
+        "quickRatio": 0.782,
+        "grossMargins": 0.61744,
+        "operatingMargins": 0.35055,
+        "profitMargins": 0.278,
+        "ebitdaMargins": 0.33922002,
+        "dividendYield": 2.7,
+        "payoutRatio": 0.64779997,
+        "beta": 0.356,
+        "revenueGrowth": 0.121,
+        "earningsGrowth": 0.182,
+        "targetMeanPrice": 85.75565,
+        "targetHighPrice": 92.0,
+        "targetLowPrice": 71.38,
+        "numberOfAnalystOpinions": 23,
+        "sector": "Consumer Defensive",
+        "industry": "Beverages - Non-Alcoholic",
+        "longName": "The Coca-Cola Company"
+      }
+    },
+    "JPM": {
+      "updatedAt": "2026-05-05T07:38:55Z",
+      "currency": "USD",
+      "fiscalYearEnd": "2025-12-31",
+      "income": {
+        "latest": {
+          "endDate": "2025-12-31",
+          "revenue": 181847000000.0,
+          "costOfRevenue": null,
+          "grossProfit": null,
+          "operatingIncome": null,
+          "ebit": null,
+          "netIncome": 57048000000.0
+        },
+        "prior": {
+          "endDate": "2024-12-31",
+          "revenue": 169439000000.0,
+          "costOfRevenue": null,
+          "grossProfit": null,
+          "operatingIncome": null,
+          "ebit": null,
+          "netIncome": 58471000000.0
+        }
+      },
+      "balance": {
+        "current": {
+          "endDate": "2025-12-31",
+          "totalAssets": 4424900000000.0,
+          "totalLiabilities": 4062462000000.0,
+          "totalEquity": 362438000000.0,
+          "currentAssets": null,
+          "currentLiabilities": null,
+          "cash": 343338000000.0,
+          "totalDebt": 499982000000.0
+        },
+        "yearAgo": {
+          "endDate": "2024-12-31",
+          "totalAssets": 4002814000000.0,
+          "totalLiabilities": 3658056000000.0,
+          "totalEquity": 344758000000.0,
+          "currentAssets": null,
+          "currentLiabilities": null,
+          "cash": 469317000000.0,
+          "totalDebt": 454311000000.0
+        }
+      },
+      "cashflow": {
+        "latest": {
+          "endDate": "2025-12-31",
+          "operatingCashflow": -147782000000.0,
+          "capex": null,
+          "freeCashflow": -147782000000.0,
+          "dividendsPaid": -16625000000.0,
+          "netIncome": 57048000000.0
+        },
+        "prior": {
+          "endDate": "2024-12-31",
+          "operatingCashflow": -42012000000.0,
+          "capex": null,
+          "freeCashflow": -42012000000.0,
+          "dividendsPaid": -14783000000.0,
+          "netIncome": 58471000000.0
+        }
+      },
+      "keyStats": {
+        "marketCap": 824351653888,
+        "enterpriseValue": 583255719936,
+        "trailingPE": 14.948979,
+        "forwardPE": 13.073525,
+        "priceToBook": 2.39642,
+        "priceToSalesTTM": 4.749691,
+        "evToEbitda": null,
+        "trailingEps": 20.58,
+        "forwardEps": 23.53229,
+        "returnOnAssets": 0.01272,
+        "returnOnEquity": 0.16465001,
+        "debtToEquity": null,
+        "currentRatio": null,
+        "quickRatio": null,
+        "grossMargins": 0.0,
+        "operatingMargins": 0.43741,
+        "profitMargins": 0.33936,
+        "ebitdaMargins": 0.0,
+        "dividendYield": 1.92,
+        "payoutRatio": 0.2824,
+        "beta": 1.023,
+        "revenueGrowth": 0.127,
+        "earningsGrowth": 0.172,
+        "targetMeanPrice": 341.22726,
+        "targetHighPrice": 391.0,
+        "targetLowPrice": 288.0,
+        "numberOfAnalystOpinions": 22,
+        "sector": "Financial Services",
+        "industry": "Banks - Diversified",
+        "longName": "JPMorgan Chase & Co."
+      }
+    },
+    "XOM": {
+      "updatedAt": "2026-05-05T07:38:57Z",
+      "currency": "USD",
+      "fiscalYearEnd": "2025-12-31",
+      "income": {
+        "latest": {
+          "endDate": "2025-12-31",
+          "revenue": 323905000000.0,
+          "costOfRevenue": 252665000000.0,
+          "grossProfit": 71240000000.0,
+          "operatingIncome": 33938000000.0,
+          "ebit": 41871000000.0,
+          "netIncome": 28844000000.0
+        },
+        "prior": {
+          "endDate": "2024-12-31",
+          "revenue": 339247000000.0,
+          "costOfRevenue": 262505000000.0,
+          "grossProfit": 76742000000.0,
+          "operatingIncome": 39652000000.0,
+          "ebit": 49869000000.0,
+          "netIncome": 33680000000.0
+        }
+      },
+      "balance": {
+        "current": {
+          "endDate": "2025-12-31",
+          "totalAssets": 448980000000.0,
+          "totalLiabilities": 182354000000.0,
+          "totalEquity": 266626000000.0,
+          "currentAssets": 83382000000.0,
+          "currentLiabilities": 72330000000.0,
+          "cash": 10681000000.0,
+          "totalDebt": 43537000000.0
+        },
+        "yearAgo": {
+          "endDate": "2024-12-31",
+          "totalAssets": 453475000000.0,
+          "totalLiabilities": 182869000000.0,
+          "totalEquity": 270606000000.0,
+          "currentAssets": 91990000000.0,
+          "currentLiabilities": 70307000000.0,
+          "cash": 23029000000.0,
+          "totalDebt": 41710000000.0
+        }
+      },
+      "cashflow": {
+        "latest": {
+          "endDate": "2025-12-31",
+          "operatingCashflow": 51970000000.0,
+          "capex": -28358000000.0,
+          "freeCashflow": 23612000000.0,
+          "dividendsPaid": -17231000000.0,
+          "netIncome": 29764000000.0
+        },
+        "prior": {
+          "endDate": "2024-12-31",
+          "operatingCashflow": 55022000000.0,
+          "capex": -24306000000.0,
+          "freeCashflow": 30716000000.0,
+          "dividendsPaid": -16704000000.0,
+          "netIncome": 35063000000.0
+        }
+      },
+      "keyStats": {
+        "marketCap": 637045047296,
+        "enterpriseValue": 682886037504,
+        "trailingPE": 25.700668,
+        "forwardPE": 15.176202,
+        "priceToBook": 2.4761152,
+        "priceToSalesTTM": 1.9540778,
+        "evToEbitda": 12.193,
+        "trailingEps": 5.98,
+        "forwardEps": 10.12704,
+        "returnOnAssets": 0.04221,
+        "returnOnEquity": 0.09873,
+        "debtToEquity": 18.261,
+        "currentRatio": 1.036,
+        "quickRatio": 0.744,
+        "grossMargins": 0.29768,
+        "operatingMargins": 0.06355,
+        "profitMargins": 0.077649996,
+        "ebitdaMargins": 0.1718,
+        "dividendYield": 2.7,
+        "payoutRatio": 0.6801,
+        "beta": 0.183,
+        "revenueGrowth": 0.026,
+        "earningsGrowth": -0.434,
+        "targetMeanPrice": 165.63635,
+        "targetHighPrice": 195.0,
+        "targetLowPrice": 123.0,
+        "numberOfAnalystOpinions": 22,
+        "sector": "Energy",
+        "industry": "Oil & Gas Integrated",
+        "longName": "Exxon Mobil Corporation"
+      }
+    },
+    "WMT": {
+      "updatedAt": "2026-05-05T07:38:58Z",
+      "currency": "USD",
+      "fiscalYearEnd": "2026-01-31",
+      "income": {
+        "latest": {
+          "endDate": "2026-01-31",
+          "revenue": 713163000000.0,
+          "costOfRevenue": 535395000000.0,
+          "grossProfit": 177768000000.0,
+          "operatingIncome": 29825000000.0,
+          "ebit": 32268000000.0,
+          "netIncome": 21893000000.0
+        },
+        "prior": {
+          "endDate": "2025-01-31",
+          "revenue": 680985000000.0,
+          "costOfRevenue": 511753000000.0,
+          "grossProfit": 169232000000.0,
+          "operatingIncome": 29348000000.0,
+          "ebit": 29037000000.0,
+          "netIncome": 19436000000.0
+        }
+      },
+      "balance": {
+        "current": {
+          "endDate": "2026-01-31",
+          "totalAssets": 284668000000.0,
+          "totalLiabilities": 178488000000.0,
+          "totalEquity": 106180000000.0,
+          "currentAssets": 84874000000.0,
+          "currentLiabilities": 107469000000.0,
+          "cash": 10727000000.0,
+          "totalDebt": 67095000000.0
+        },
+        "yearAgo": {
+          "endDate": "2025-01-31",
+          "totalAssets": 260823000000.0,
+          "totalLiabilities": 163131000000.0,
+          "totalEquity": 97692000000.0,
+          "currentAssets": 79458000000.0,
+          "currentLiabilities": 96584000000.0,
+          "cash": 9037000000.0,
+          "totalDebt": 60114000000.0
+        }
+      },
+      "cashflow": {
+        "latest": {
+          "endDate": "2026-01-31",
+          "operatingCashflow": 41565000000.0,
+          "capex": -26642000000.0,
+          "freeCashflow": 14923000000.0,
+          "dividendsPaid": -7507000000.0,
+          "netIncome": 22270000000.0
+        },
+        "prior": {
+          "endDate": "2025-01-31",
+          "operatingCashflow": 36443000000.0,
+          "capex": -23783000000.0,
+          "freeCashflow": 12660000000.0,
+          "dividendsPaid": -6688000000.0,
+          "netIncome": 20157000000.0
+        }
+      },
+      "keyStats": {
+        "marketCap": 1038859239424,
+        "enterpriseValue": 1103305244672,
+        "trailingPE": 48.27037,
+        "forwardPE": 39.70619,
+        "priceToBook": 10.425566,
+        "priceToSalesTTM": 1.4566926,
+        "evToEbitda": 25.059,
+        "trailingEps": 2.7,
+        "forwardEps": 3.28236,
+        "returnOnAssets": 0.06834,
+        "returnOnEquity": 0.21847,
+        "debtToEquity": 64.443,
+        "currentRatio": 0.79,
+        "quickRatio": 0.204,
+        "grossMargins": 0.24927,
+        "operatingMargins": 0.04567,
+        "profitMargins": 0.0307,
+        "ebitdaMargins": 0.061739996,
+        "dividendYield": 0.75,
+        "payoutRatio": 0.3443,
+        "beta": 0.652,
+        "revenueGrowth": 0.056,
+        "earningsGrowth": -0.19,
+        "targetMeanPrice": 136.56097,
+        "targetHighPrice": 150.0,
+        "targetLowPrice": 62.0,
+        "numberOfAnalystOpinions": 41,
+        "sector": "Consumer Defensive",
+        "industry": "Discount Stores",
+        "longName": "Walmart Inc."
+      }
+    },
+    "TSLA": {
+      "updatedAt": "2026-05-05T07:39:00Z",
+      "currency": "USD",
+      "fiscalYearEnd": "2025-12-31",
+      "income": {
+        "latest": {
+          "endDate": "2025-12-31",
+          "revenue": 94827000000.0,
+          "costOfRevenue": 77733000000.0,
+          "grossProfit": 17094000000.0,
+          "operatingIncome": 4849000000.0,
+          "ebit": 5616000000.0,
+          "netIncome": 3794000000.0
+        },
+        "prior": {
+          "endDate": "2024-12-31",
+          "revenue": 97690000000.0,
+          "costOfRevenue": 80240000000.0,
+          "grossProfit": 17450000000.0,
+          "operatingIncome": 7760000000.0,
+          "ebit": 9340000000.0,
+          "netIncome": 7130000000.0
+        }
+      },
+      "balance": {
+        "current": {
+          "endDate": "2025-12-31",
+          "totalAssets": 137806000000.0,
+          "totalLiabilities": 54941000000.0,
+          "totalEquity": 82865000000.0,
+          "currentAssets": 68642000000.0,
+          "currentLiabilities": 31714000000.0,
+          "cash": 16513000000.0,
+          "totalDebt": 14719000000.0
+        },
+        "yearAgo": {
+          "endDate": "2024-12-31",
+          "totalAssets": 122070000000.0,
+          "totalLiabilities": 48390000000.0,
+          "totalEquity": 73680000000.0,
+          "currentAssets": 58360000000.0,
+          "currentLiabilities": 28821000000.0,
+          "cash": 16139000000.0,
+          "totalDebt": 13623000000.0
+        }
+      },
+      "cashflow": {
+        "latest": {
+          "endDate": "2025-12-31",
+          "operatingCashflow": 14747000000.0,
+          "capex": -8527000000.0,
+          "freeCashflow": 6220000000.0,
+          "dividendsPaid": null,
+          "netIncome": 3855000000.0
+        },
+        "prior": {
+          "endDate": "2024-12-31",
+          "operatingCashflow": 14923000000.0,
+          "capex": -11342000000.0,
+          "freeCashflow": 3581000000.0,
+          "dividendsPaid": null,
+          "netIncome": 7153000000.0
+        }
+      },
+      "keyStats": {
+        "marketCap": 1474159181824,
+        "enterpriseValue": 1445992202240,
+        "trailingPE": 356.82727,
+        "forwardPE": 154.8143,
+        "priceToBook": 17.925287,
+        "priceToSalesTTM": 15.061036,
+        "evToEbitda": 130.34,
+        "trailingEps": 1.1,
+        "forwardEps": 2.53536,
+        "returnOnAssets": 0.022330001,
+        "returnOnEquity": 0.04901,
+        "debtToEquity": 18.738,
+        "currentRatio": 2.043,
+        "quickRatio": 1.43,
+        "grossMargins": 0.19065,
+        "operatingMargins": 0.04203,
+        "profitMargins": 0.03946,
+        "ebitdaMargins": 0.11334,
+        "dividendYield": null,
+        "payoutRatio": 0.0,
+        "beta": 1.793,
+        "revenueGrowth": 0.158,
+        "earningsGrowth": 0.083,
+        "targetMeanPrice": 413.1878,
+        "targetHighPrice": 600.0,
+        "targetLowPrice": 123.0,
+        "numberOfAnalystOpinions": 41,
+        "sector": "Consumer Cyclical",
+        "industry": "Auto Manufacturers",
+        "longName": "Tesla, Inc."
+      }
+    },
+    "PG": {
+      "updatedAt": "2026-05-05T07:39:02Z",
+      "currency": "USD",
+      "fiscalYearEnd": "2025-06-30",
+      "income": {
+        "latest": {
+          "endDate": "2025-06-30",
+          "revenue": 84284000000.0,
+          "costOfRevenue": 41164000000.0,
+          "grossProfit": 43120000000.0,
+          "operatingIncome": 20451000000.0,
+          "ebit": 21074000000.0,
+          "netIncome": 15974000000.0
+        },
+        "prior": {
+          "endDate": "2024-06-30",
+          "revenue": 84039000000.0,
+          "costOfRevenue": 40848000000.0,
+          "grossProfit": 43191000000.0,
+          "operatingIncome": 19886000000.0,
+          "ebit": 19686000000.0,
+          "netIncome": 14879000000.0
+        }
+      },
+      "balance": {
+        "current": {
+          "endDate": "2025-06-30",
+          "totalAssets": 125231000000.0,
+          "totalLiabilities": 72947000000.0,
+          "totalEquity": 52284000000.0,
+          "currentAssets": 25392000000.0,
+          "currentLiabilities": 36058000000.0,
+          "cash": 9556000000.0,
+          "totalDebt": 35463000000.0
+        },
+        "yearAgo": {
+          "endDate": "2024-06-30",
+          "totalAssets": 122370000000.0,
+          "totalLiabilities": 71812000000.0,
+          "totalEquity": 50558000000.0,
+          "currentAssets": 24709000000.0,
+          "currentLiabilities": 33627000000.0,
+          "cash": 9482000000.0,
+          "totalDebt": 33369000000.0
+        }
+      },
+      "cashflow": {
+        "latest": {
+          "endDate": "2025-06-30",
+          "operatingCashflow": 17817000000.0,
+          "capex": -3773000000.0,
+          "freeCashflow": 14044000000.0,
+          "dividendsPaid": -9872000000.0,
+          "netIncome": 16065000000.0
+        },
+        "prior": {
+          "endDate": "2024-06-30",
+          "operatingCashflow": 19846000000.0,
+          "capex": -3322000000.0,
+          "freeCashflow": 16524000000.0,
+          "dividendsPaid": -9312000000.0,
+          "netIncome": 14974000000.0
+        }
+      },
+      "keyStats": {
+        "marketCap": 333967654912,
+        "enterpriseValue": 359672676352,
+        "trailingPE": 21.566917,
+        "forwardPE": 20.227835,
+        "priceToBook": 6.213769,
+        "priceToSalesTTM": 3.8512363,
+        "evToEbitda": 14.363,
+        "trailingEps": 6.65,
+        "forwardEps": 7.09023,
+        "returnOnAssets": 0.10925999,
+        "returnOnEquity": 0.31112,
+        "debtToEquity": 67.651,
+        "currentRatio": 0.732,
+        "quickRatio": 0.487,
+        "grossMargins": 0.50984,
+        "operatingMargins": 0.23047,
+        "profitMargins": 0.19162,
+        "ebitdaMargins": 0.28878,
+        "dividendYield": 2.89,
+        "payoutRatio": 0.618,
+        "beta": 0.398,
+        "revenueGrowth": 0.074,
+        "earningsGrowth": 0.058,
+        "targetMeanPrice": 164.09091,
+        "targetHighPrice": 186.0,
+        "targetLowPrice": 145.0,
+        "numberOfAnalystOpinions": 22,
+        "sector": "Consumer Defensive",
+        "industry": "Household & Personal Products",
+        "longName": "The Procter & Gamble Company"
+      }
+    }
+  }
 }
