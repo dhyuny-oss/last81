@@ -21,7 +21,7 @@ import {
   evaluateStock,
   classifyForCards,
   distributionFor,
-} from './lib/fScore.js';
+} from '../lib/fScore.js';
 
 export default function DiscoveryTab() {
   const [expanded, setExpanded] = useState({
