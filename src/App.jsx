@@ -2199,6 +2199,7 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [searchRes, setSearchRes] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
+  
     // ★ 베타에서 ?search=AAPL 로 들어오면 자동 검색 실행
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -2208,6 +2209,7 @@ export default function App() {
       setShowSearch(true);
     }
   }, []);
+  
   const [showSearch, setShowSearch] = useState(false);
   const [addMsg, setAddMsg] = useState("");
   const [period, setPeriod] = useState("3M");
