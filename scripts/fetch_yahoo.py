@@ -1338,6 +1338,7 @@ def main():
         "pool":    existing.get("pool", {}),
         "breadth": existing.get("breadth", {"kr":{"upPct":0,"up":0,"down":0},"us":{"upPct":0,"up":0,"down":0}}),
         "ibVol":   existing.get("ibVol", 100),
+        "financials": existing.get("financials", {}),     
         "updatedAt": now_str,
         "mode": MODE,
     }
