@@ -2199,8 +2199,8 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [searchRes, setSearchRes] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
-  
-    // ★ 베타에서 ?search=AAPL 로 들어오면 자동 검색 실행
+
+ // ★ 베타에서 ?search=AAPL 로 들어오면 자동 검색 + 자동 클릭
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const q = params.get('search');
@@ -2209,6 +2209,20 @@ export default function App() {
       setShowSearch(true);
     }
   }, []);
+ 
+  // ★ 자동 클릭: 검색 결과 들어오면 첫 결과 자동 선택 (차트 모달 열림)
+  const [autoClickedQuery, setAutoClickedQuery] = useState(null);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get('search');
+    // q가 있고, 결과가 들어왔고, 아직 자동클릭 안 한 쿼리면 → 첫 결과 클릭
+    if (q && searchRes.length > 0 && autoClickedQuery !== q) {
+      setAutoClickedQuery(q);
+      addStock(searchRes[0]);
+      // URL에서 ?search 파라미터 제거 (다시 새로고침해도 또 클릭 안 되게)
+      window.history.replaceState({}, '', '/');
+    }
+  }, [searchRes]);
   
   const [showSearch, setShowSearch] = useState(false);
   const [addMsg, setAddMsg] = useState("");
