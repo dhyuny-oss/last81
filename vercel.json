@@ -1,4 +1,7 @@
 {
+  "rewrites": [
+    { "source": "/beta", "destination": "/beta.html" }
+  ],
   "headers": [
     {
       "source": "/data/(.*)",
@@ -8,6 +11,12 @@
     },
     {
       "source": "/api/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/beta(.*)",
       "headers": [
         { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
       ]
