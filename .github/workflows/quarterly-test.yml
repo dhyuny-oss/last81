@@ -1,11 +1,10 @@
 name: Beta Quarterly Test (PoC)
-# Beta Terminal v0.1 — 재무 데이터 PoC
-# 미국 10종목 재무 데이터 수집 시도. stocks.json 안 건드림.
-# 결과: public/data/financials_test.json (별도 파일)
-# 알파 영향: 0% (수동 실행만 + 별도 파일)
+# Beta Terminal v0.2 — 재무 데이터 PoC (yfinance 기반)
+# 알파 quarterly.yml과 동일한 'pip install yfinance requests' 스택 사용 — 한몸 처럼.
+# 미국 10종목 재무 수집. stocks.json 안 건드림. 알파 영향 0%.
 
 on:
-  workflow_dispatch:  # 수동 트리거만 — 자동 실행 없음
+  workflow_dispatch:  # 수동 트리거만
 
 jobs:
   test-financials:
@@ -21,7 +20,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests
+        run: pip install yfinance requests
 
       - name: Run PoC
         run: python scripts/test_financials_poc.py
@@ -32,7 +31,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add public/data/financials_test.json public/data/financials_test_log.txt
           git diff --staged --quiet || (
-            git commit -m "🧪 Beta PoC 재무 데이터 수집 결과"
+            git commit -m "🧪 Beta PoC 재무 데이터 (yfinance v0.2)"
             git pull --rebase origin main
             git push
           )
