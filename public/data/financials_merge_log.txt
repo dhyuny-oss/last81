@@ -1,5 +1,5 @@
 # financials_us → stocks.json 병합 결과
-# 2026-05-05 08:52:25
+# 2026-05-05 20:53:11
 
 ## 병합 통계
 - 베타 미국 데이터: 433종목
@@ -9,12 +9,12 @@
 
 ## 알파 데이터 무결성 (변경 전 = 후)
 - stocks: 622 → 622 ✅
-- pool: 723 → 723 ✅
+- pool: 724 → 724 ✅
 - indices: 11 → 11 ✅
 - sectors: 18 → 18 ✅
 
 ## 파일 크기
-- stocks.json: 9172KB
+- stocks.json: 9205KB
 
 ## 다음 단계
 - ✅ 베타 UI에서 stocks.json의 financials 섹션 fetch 가능
