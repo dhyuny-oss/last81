@@ -3359,10 +3359,12 @@ export default function App() {
             </div>
           </div>;
         })()}
-        {/* 2행: 탭바 */}
-        <div style={{display:"flex",borderRadius:6,overflow:"hidden",border:`1px solid ${C.border}`,overflowX:"auto"}}>
-          {TABS.map(([k,l])=><button key={k} onClick={()=>setTab(k)} style={{background:tab===k?"rgba(56,189,248,.18)":"transparent",color:tab===k?C.accent:C.muted,border:"none",padding:"5px 7px",cursor:"pointer",fontSize:8,fontWeight:tab===k?700:400,whiteSpace:"nowrap"}}>{l}</button>)}
-        </div>
+{/* 2행: 탭바 */}
+<div style={{display:"flex",borderRadius:6,overflow:"hidden",border:`1px solid ${C.border}`,overflowX:"auto"}}>
+  {TABS.map(([k,l])=><button key={k} onClick={()=>setTab(k)} style={{background:tab===k?"rgba(56,189,248,.18)":"transparent",color:tab===k?C.accent:C.muted,border:"none",padding:"5px 7px",cursor:"pointer",fontSize:8,fontWeight:tab===k?700:400,whiteSpace:"nowrap"}}>{l}</button>)}
+  {/* ── 베타 점프 버튼 (탭바 우측 끝) ── */}
+  <button onClick={()=>{window.location.href="/beta";}} style={{background:"linear-gradient(135deg,#F59E0B,#92400E)",color:"#1a1a1a",border:"none",borderLeft:`1px solid ${C.border}`,padding:"5px 9px",cursor:"pointer",fontSize:9,fontWeight:900,whiteSpace:"nowrap",marginLeft:"auto"}} title="베타 터미널 (가치 평가)로 이동">β 가치</button>
+</div>
       </div>
 
       {/* ── 종목바 ───────────────────────────────── */}
