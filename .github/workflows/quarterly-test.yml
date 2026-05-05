@@ -1,21 +1,22 @@
 name: Beta Quarterly Test (PoC)
+# Beta Terminal v0.1 — 재무 데이터 PoC
+# 미국 10종목 재무 데이터 수집 시도. stocks.json 안 건드림.
+# 결과: public/data/financials_test.json (별도 파일)
+# 알파 영향: 0% (수동 실행만 + 별도 파일)
 
-# 수동 실행만. 자동 실행 안 됨 → 알파 데이터 보호
 on:
-  workflow_dispatch:
-
-permissions:
-  contents: write
+  workflow_dispatch:  # 수동 트리거만 — 자동 실행 없음
 
 jobs:
-  test:
+  test-financials:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
@@ -25,10 +26,13 @@ jobs:
       - name: Run PoC
         run: python scripts/test_financials_poc.py
 
-      - name: Commit results
+      - name: Commit and push results
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add public/data/financials_test.json public/data/financials_test_log.txt
-          git diff --cached --quiet || git commit -m "chore(beta): PoC financial data test results"
-          git push
+          git diff --staged --quiet || (
+            git commit -m "🧪 Beta PoC 재무 데이터 수집 결과"
+            git pull --rebase origin main
+            git push
+          )
