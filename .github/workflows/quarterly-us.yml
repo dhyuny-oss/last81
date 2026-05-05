@@ -1,0 +1,38 @@
+name: Beta Quarterly US (Full Pool)
+# Beta Terminal v0.4 — 미국 풀 전체 재무 수집
+# stocks.json의 pool에서 미국 종목 전부 추출 → financials_us.json 별도 저장
+# 알파 stocks.json 안 건드림 → 알파 영향 0%
+# 시간: ~10분 (500종목 × 1.2초)
+
+on:
+  workflow_dispatch:  # 수동 트리거만
+
+jobs:
+  fetch-us:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install yfinance requests
+
+      - name: Fetch US financials
+        run: python scripts/fetch_financials_us.py
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/data/financials_us.json public/data/financials_us_log.txt
+          git diff --staged --quiet || (
+            git commit -m "📊 Beta 미국 풀 재무 데이터 갱신"
+            git pull --rebase origin main
+            git push
+          )
