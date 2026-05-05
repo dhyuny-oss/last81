@@ -1,24 +1,15 @@
 #!/usr/bin/env python3
 """
-Beta Terminal v0.2 — 재무 데이터 PoC (yfinance 기반)
+Beta Terminal v0.3 — 재무 데이터 PoC (US + KR)
 ================================================================================
 
-⚠️ 안전 원칙:
-  - stocks.json 절대 안 건드림
-  - 결과는 public/data/financials_test.json 별도 저장
-  - 알파의 quarterly.yml과 같은 'yfinance + requests' 스택 사용
+v0.2 → v0.3 변경:
+  - 한국 종목 5개 추가 (`.KS` / `.KQ` 접미사 자동 처리)
+  - BRK-B 스타일 PB 0.0 폴백 추가 (info.priceToBook 누락 시
+    bookValue × sharesOutstanding 또는 currentPrice / bookValue 로 계산)
+  - 한국 종목 데이터 가용성 진단 (어느 필드 누락되는지)
 
-PoC v0.1 (직접 quoteSummary 호출) → v0.2 변경:
-  - HTTP 401 회피 위해 yfinance 라이브러리 사용
-  - 알파 quarterly.yml과 동일한 의존성 (한몸 처럼 돌게)
-  - yfinance가 내부적으로 crumb + cookie + retry 자동 처리
-
-수집 항목:
-  - 손익 (latest + prior 연간)
-  - 재무상태표 (current + yearAgo)
-  - 현금흐름 (latest + prior 연간)
-  - keyStats (시총, PER, PBR, ROE, ROA, 부채비율, 마진, 베타 등)
-  - 야후 애널리스트 목표가 (numberOfAnalystOpinions, targetMeanPrice 등)
+⚠️ 안전 원칙: stocks.json 안 건드림. 결과는 별도 financials_test.json.
 """
 
 import json
@@ -30,22 +21,29 @@ from datetime import datetime
 try:
     import yfinance as yf
 except ImportError:
-    print("❌ yfinance 모듈 없음 — workflow YAML에 'pip install yfinance' 확인")
+    print("❌ yfinance 모듈 없음")
     sys.exit(1)
 
 
-# ─── 테스트 종목 10개 ─────────────────────────────────────
+# ─── 테스트 종목 (US 10 + KR 5 = 15) ──────────────────────
 TEST_TICKERS = [
-    ("AAPL",  "Tech 메가캡"),
-    ("MSFT",  "Tech 메가캡"),
-    ("BRK-B", "Holdings"),
-    ("JNJ",   "Healthcare"),
-    ("KO",    "Consumer Staples"),
-    ("JPM",   "⚠️ Financial — 비율 의미 다름"),
-    ("XOM",   "Energy 사이클릭"),
-    ("WMT",   "Retail"),
-    ("TSLA",  "Auto/Tech 고P/E"),
-    ("PG",    "Consumer Staples 안정"),
+    # 미국 메가캡 + 다양한 섹터
+    ("AAPL",      "us", "Tech 메가캡"),
+    ("MSFT",      "us", "Tech 메가캡"),
+    ("BRK-B",     "us", "Holdings ⚠ PB 폴백 테스트"),
+    ("JNJ",       "us", "Healthcare"),
+    ("KO",        "us", "Consumer Staples"),
+    ("JPM",       "us", "⚠️ Financial — 비율 의미 다름"),
+    ("XOM",       "us", "Energy 사이클릭"),
+    ("WMT",       "us", "Retail"),
+    ("TSLA",      "us", "Auto/Tech 고P/E"),
+    ("PG",        "us", "Consumer Staples 안정"),
+    # ── 한국 종목 5개 (PoC) ──
+    ("005930.KS", "kr", "삼성전자 (코스피 시총 1위)"),
+    ("000660.KS", "kr", "SK하이닉스 (반도체)"),
+    ("035420.KS", "kr", "NAVER (인터넷)"),
+    ("035720.KS", "kr", "카카오 (코스피)"),
+    ("207940.KS", "kr", "삼성바이오로직스 (헬스)"),
 ]
 
 WORKSPACE = os.environ.get("GITHUB_WORKSPACE", ".")
@@ -53,15 +51,11 @@ OUTPUT_PATH = os.path.join(WORKSPACE, "public", "data", "financials_test.json")
 LOG_PATH = os.path.join(WORKSPACE, "public", "data", "financials_test_log.txt")
 
 
-# ─── 헬퍼: pandas DataFrame에서 안전 추출 ─────────────────
+# ─── 헬퍼 ─────────────────────────────────────────────────
 
 def _df_get(df, row_keys, col_idx):
-    """DataFrame에서 row 이름 list 중 첫 매치, col 인덱스로 값 추출.
-    yfinance의 financials/balance_sheet/cashflow는 row=항목, col=날짜 형식.
-    """
     if df is None or df.empty or col_idx >= len(df.columns):
         return None
-    # row_keys가 단일 문자열이면 리스트로 변환
     if isinstance(row_keys, str):
         row_keys = [row_keys]
     for key in row_keys:
@@ -70,7 +64,6 @@ def _df_get(df, row_keys, col_idx):
                 v = df.iloc[df.index.get_loc(key), col_idx]
                 if v is None:
                     return None
-                # NaN 처리
                 import math
                 v = float(v)
                 if math.isnan(v):
@@ -82,7 +75,6 @@ def _df_get(df, row_keys, col_idx):
 
 
 def _df_date(df, col_idx):
-    """DataFrame col의 날짜 추출 (YYYY-MM-DD)."""
     if df is None or df.empty or col_idx >= len(df.columns):
         return None
     try:
@@ -95,7 +87,6 @@ def _df_date(df, col_idx):
 
 
 def extract_income(df, col_idx):
-    """손익계산서에서 우리 필요한 필드 추출."""
     if df is None or df.empty or col_idx >= len(df.columns):
         return None
     return {
@@ -110,13 +101,11 @@ def extract_income(df, col_idx):
 
 
 def extract_balance(df, col_idx):
-    """재무상태표에서 필드 추출."""
     if df is None or df.empty or col_idx >= len(df.columns):
         return None
     sl = _df_get(df, ["Short Term Debt", "ShortTermDebt", "Current Debt"], col_idx)
     lt = _df_get(df, ["Long Term Debt", "LongTermDebt", "Long Term Debt And Capital Lease Obligation"], col_idx)
     total_debt = (sl or 0) + (lt or 0) if (sl is not None or lt is not None) else None
-    # yfinance가 직접 Total Debt 줄 때도 있음 — 있으면 그걸 우선
     direct_total = _df_get(df, ["Total Debt", "TotalDebt"], col_idx)
     if direct_total is not None:
         total_debt = direct_total
@@ -133,7 +122,6 @@ def extract_balance(df, col_idx):
 
 
 def extract_cashflow(df, col_idx):
-    """현금흐름표에서 필드 추출."""
     if df is None or df.empty or col_idx >= len(df.columns):
         return None
     return {
@@ -146,23 +134,47 @@ def extract_cashflow(df, col_idx):
     }
 
 
-def extract_keystats(info):
-    """yfinance ticker.info 에서 비율/목표가 등 추출."""
+def extract_keystats(info, balance_current=None):
+    """info.priceToBook 누락 시 (BRK-B 사례) bookValue 기반 폴백 계산"""
     if not info:
         return {}
-    # 안전 추출 (None 보존)
+
     def g(*keys):
         for k in keys:
             v = info.get(k)
             if v is not None:
                 return v
         return None
+
+    pb = g("priceToBook")
+
+    # ── PB 폴백: priceToBook이 0/None일 때 ──
+    # bookValue (= 주당순자산) × currentPrice / bookValue
+    if pb in (None, 0, 0.0):
+        current_price = g("currentPrice", "regularMarketPrice", "previousClose")
+        book_value_per_share = g("bookValue")
+        if current_price and book_value_per_share and book_value_per_share > 0:
+            try:
+                pb = float(current_price) / float(book_value_per_share)
+            except Exception:
+                pb = None
+        # 그래도 None이면 — totalEquity / sharesOutstanding 으로 시도
+        if pb in (None, 0, 0.0) and balance_current:
+            equity = balance_current.get("totalEquity")
+            shares = g("sharesOutstanding")
+            mkt_cap = g("marketCap")
+            if equity and equity > 0 and mkt_cap:
+                try:
+                    pb = float(mkt_cap) / float(equity)  # P/B = 시총/순자산
+                except Exception:
+                    pass
+
     return {
         "marketCap":            g("marketCap"),
         "enterpriseValue":      g("enterpriseValue"),
         "trailingPE":           g("trailingPE"),
         "forwardPE":            g("forwardPE"),
-        "priceToBook":          g("priceToBook"),
+        "priceToBook":          pb,
         "priceToSalesTTM":      g("priceToSalesTrailing12Months"),
         "evToEbitda":           g("enterpriseToEbitda"),
         "trailingEps":          g("trailingEps"),
@@ -190,33 +202,28 @@ def extract_keystats(info):
         "sector":               g("sector"),
         "industry":             g("industry"),
         "longName":             g("longName", "shortName"),
+        "currentPrice":         g("currentPrice", "regularMarketPrice"),
+        "bookValuePerShare":    g("bookValue"),
     }
 
 
-# ─── 메인 fetch ────────────────────────────────────────
-
-def fetch_financials(ticker):
-    """yfinance로 한 종목 재무 수집. 성공: (dict, 'OK') / 실패: (None, '에러')"""
+def fetch_financials(yt):
+    """yfinance로 한 종목 재무 수집."""
     try:
-        t = yf.Ticker(ticker)
+        t = yf.Ticker(yt)
 
-        # info (시총, 비율, 목표가 등)
         try:
             info = t.info or {}
-        except Exception as e:
+        except Exception:
             info = {}
 
-        keyStats = extract_keystats(info)
-
-        # 연간 손익
         try:
-            inc_df = t.financials  # 4년치, col=날짜
+            inc_df = t.financials
         except Exception:
             inc_df = None
         income_latest = extract_income(inc_df, 0) if inc_df is not None else None
         income_prior  = extract_income(inc_df, 1) if inc_df is not None else None
 
-        # 연간 재무상태표
         try:
             bal_df = t.balance_sheet
         except Exception:
@@ -224,7 +231,6 @@ def fetch_financials(ticker):
         balance_current = extract_balance(bal_df, 0) if bal_df is not None else None
         balance_yearAgo = extract_balance(bal_df, 1) if bal_df is not None else None
 
-        # 연간 현금흐름
         try:
             cf_df = t.cashflow
         except Exception:
@@ -232,11 +238,12 @@ def fetch_financials(ticker):
         cashflow_latest = extract_cashflow(cf_df, 0) if cf_df is not None else None
         cashflow_prior  = extract_cashflow(cf_df, 1) if cf_df is not None else None
 
-        # 데이터 한 개도 없으면 실패 처리
+        # PB 폴백을 위해 balance_current 전달
+        keyStats = extract_keystats(info, balance_current)
+
         if not info and income_latest is None and balance_current is None:
             return None, "yfinance 응답 없음 (info+재무 모두 비어있음)"
 
-        # 통화/회계연도 끝
         currency = info.get("financialCurrency") or info.get("currency")
         fy_end = (income_latest or {}).get("endDate") if income_latest else None
 
@@ -263,29 +270,31 @@ def fetch_financials(ticker):
         return None, f"예외: {type(e).__name__}: {e}"
 
 
-# ─── 결측 분석 ───────────────────────────────────────────
-
 def analyze_completeness(result):
     if result is None:
         return ["전체 수집 실패"]
     missing = []
     inc, bal, cf, ks = result["income"], result["balance"], result["cashflow"], result["keyStats"]
     if not inc["latest"]: missing.append("income.latest")
-    if not inc["prior"]:  missing.append("income.prior (델타 불가)")
+    if not inc["prior"]:  missing.append("income.prior")
     if not bal["current"]: missing.append("balance.current")
-    if not bal["yearAgo"]: missing.append("balance.yearAgo (델타 불가)")
+    if not bal["yearAgo"]: missing.append("balance.yearAgo")
     if not cf["latest"]: missing.append("cashflow.latest")
     elif cf["latest"].get("operatingCashflow") is None:
         missing.append("cashflow.operatingCashflow")
     for f in ["marketCap", "trailingPE", "priceToBook", "returnOnEquity"]:
-        if ks.get(f) is None:
+        if ks.get(f) is None or ks.get(f) == 0:
             missing.append(f"keyStats.{f}")
     return missing
 
 
-def fmt_money(v):
+def fmt_money(v, kr=False):
     if v is None: return "—"
     try:
+        if kr:  # 원 단위
+            if abs(v) >= 1e12: return f"{v/1e12:.2f}조"
+            if abs(v) >= 1e8:  return f"{v/1e8:.1f}억"
+            return f"{v:.0f}"
         if abs(v) >= 1e12: return f"{v/1e12:.2f}T"
         if abs(v) >= 1e9:  return f"{v/1e9:.2f}B"
         if abs(v) >= 1e6:  return f"{v/1e6:.1f}M"
@@ -302,72 +311,93 @@ def fmt_ratio(v):
         return "—"
 
 
-# ─── 메인 ─────────────────────────────────────────────
-
 def main():
     print("=" * 70)
-    print(f"Beta Terminal v0.2 — 재무 PoC (yfinance)")
+    print(f"Beta Terminal v0.3 — 재무 PoC (US + KR)")
     print(f"yfinance: {yf.__version__}")
     print(f"시작: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"대상: {len(TEST_TICKERS)} 종목")
-    print(f"결과 → {OUTPUT_PATH}")
+    print(f"대상: {len(TEST_TICKERS)} 종목 (US 10 + KR 5)")
     print("=" * 70)
 
     all_results = {}
     log_lines = [
-        f"# Beta Terminal PoC 결과 (yfinance)",
+        f"# Beta Terminal PoC v0.3 결과 (US + KR)",
         f"# 시작: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f"# yfinance v{yf.__version__}",
+        f"",
+        f"## 미국 종목 (10)",
         f"",
         f"| 티커 | 시총 | P/E | P/B | ROE | CR | CFO | 결측 | 메모 |",
         f"|------|------|-----|-----|-----|-----|-----|------|------|",
     ]
 
     success = 0
-    skip = 0
     full = 0
+    skip = 0
+    us_full = us_partial = us_fail = 0
+    kr_full = kr_partial = kr_fail = 0
 
-    for ticker, note in TEST_TICKERS:
-        print(f"\n[{ticker}] {note}")
-        result, status = fetch_financials(ticker)
+    for yt, market, note in TEST_TICKERS:
+        # 키는 .KS / .KQ 빼고
+        key = yt.replace(".KS", "").replace(".KQ", "")
+
+        print(f"\n[{key}] ({market}) {note}")
+        result, status = fetch_financials(yt)
 
         if result is None:
             print(f"  ❌ 실패: {status}")
-            log_lines.append(f"| {ticker} | ❌ | — | — | — | — | — | 실패 | {note} ({status}) |")
+            log_lines.append(f"| {key} | ❌ | — | — | — | — | — | 실패 | {note} ({status}) |")
             skip += 1
+            if market == "us": us_fail += 1
+            else: kr_fail += 1
             time.sleep(0.8)
             continue
 
-        all_results[ticker] = result
+        all_results[key] = {**result, "_market": market, "_yahooTicker": yt}
         success += 1
         ks = result["keyStats"]
         cf_l = result["cashflow"]["latest"] or {}
         missing = analyze_completeness(result)
         if not missing:
             full += 1
+            if market == "us": us_full += 1
+            else: kr_full += 1
+        else:
+            if market == "us": us_partial += 1
+            else: kr_partial += 1
 
+        is_kr = market == "kr"
         print(f"  통화: {result['currency']} | FY끝: {result['fiscalYearEnd']}")
-        print(f"  시총: {fmt_money(ks.get('marketCap'))} | "
+        print(f"  시총: {fmt_money(ks.get('marketCap'), is_kr)} | "
               f"PE: {fmt_ratio(ks.get('trailingPE'))} | "
               f"PB: {fmt_ratio(ks.get('priceToBook'))} | "
               f"ROE: {fmt_ratio(ks.get('returnOnEquity'))}")
-        print(f"  CFO: {fmt_money(cf_l.get('operatingCashflow'))} | "
+        print(f"  CFO: {fmt_money(cf_l.get('operatingCashflow'), is_kr)} | "
               f"목표가: {fmt_ratio(ks.get('targetMeanPrice'))} | "
               f"애널 수: {ks.get('numberOfAnalystOpinions')} | "
+              f"섹터: {ks.get('sector')} | "
               f"결측: {len(missing)}건")
         if missing:
             for m in missing[:5]:
                 print(f"     - {m}")
 
         log_lines.append(
-            f"| {ticker} | {fmt_money(ks.get('marketCap'))} | "
+            f"| {key} | {fmt_money(ks.get('marketCap'), is_kr)} | "
             f"{fmt_ratio(ks.get('trailingPE'))} | "
             f"{fmt_ratio(ks.get('priceToBook'))} | "
             f"{fmt_ratio(ks.get('returnOnEquity'))} | "
             f"{fmt_ratio(ks.get('currentRatio'))} | "
-            f"{fmt_money(cf_l.get('operatingCashflow'))} | "
+            f"{fmt_money(cf_l.get('operatingCashflow'), is_kr)} | "
             f"{len(missing)}건 | {note} |"
         )
+
+        # KR 섹션 헤더 삽입
+        if yt == TEST_TICKERS[9][0]:  # 마지막 미국 종목 다음
+            log_lines.append("")
+            log_lines.append("## 한국 종목 (5)")
+            log_lines.append("")
+            log_lines.append(f"| 티커 | 시총 | P/E | P/B | ROE | CR | CFO | 결측 | 메모 |")
+            log_lines.append(f"|------|------|-----|-----|-----|-----|-----|------|------|")
 
         time.sleep(0.8)
 
@@ -377,37 +407,47 @@ def main():
         json.dump({
             "_meta": {
                 "type": "beta_financials_test",
-                "version": "v0.2-yfinance",
+                "version": "v0.3-yfinance-us-kr",
                 "yfinance_version": yf.__version__,
                 "generated": datetime.now().isoformat(),
-                "warning": "이 파일은 PoC 결과. stocks.json과 별개. 알파 영향 없음.",
+                "warning": "PoC 결과. stocks.json과 별개. 알파 영향 없음.",
                 "stats": {
                     "total": len(TEST_TICKERS),
                     "success": success,
                     "full_complete": full,
                     "skip": skip,
+                    "us": {"full": us_full, "partial": us_partial, "fail": us_fail},
+                    "kr": {"full": kr_full, "partial": kr_partial, "fail": kr_fail},
                 },
             },
             "data": all_results,
         }, f, ensure_ascii=False, indent=2)
 
     log_lines.append("")
-    log_lines.append(f"## 통계")
+    log_lines.append("## 통계")
     log_lines.append(f"- 시도: {len(TEST_TICKERS)}")
     log_lines.append(f"- 성공: {success}")
     log_lines.append(f"- 완전 수집 (결측 0): {full}")
     log_lines.append(f"- 실패: {skip}")
     log_lines.append("")
-    log_lines.append("## 알파 호환성")
-    log_lines.append(f"- yfinance: 알파 quarterly.yml과 동일 의존성 ✅")
-    log_lines.append(f"- 알파 stocks.json: 영향 없음 ✅")
-    log_lines.append(f"- 다음 단계: 결과 좋으면 본 quarterly.yml에 통합")
+    log_lines.append(f"### 미국 (10종목)")
+    log_lines.append(f"- 완전: {us_full} | 부분: {us_partial} | 실패: {us_fail}")
+    log_lines.append("")
+    log_lines.append(f"### 한국 (5종목) ⭐ PR #3b 핵심 검증")
+    log_lines.append(f"- 완전: {kr_full} | 부분: {kr_partial} | 실패: {kr_fail}")
+    log_lines.append("")
+    log_lines.append("## 다음 단계 결정 기준")
+    log_lines.append(f"- 한국 완전 수집 ≥ 3 → ✅ PR #3c (UI 연결) 진행 가능")
+    log_lines.append(f"- 한국 완전 수집 < 3 → ⚠️ 자기 5년 평균 모델로 충분한지 추가 분석 필요")
+    log_lines.append(f"- 한국 모두 실패 → ❌ DART API 별도 작업 (다음 스프린트)")
 
     with open(LOG_PATH, "w", encoding="utf-8") as f:
         f.write("\n".join(log_lines))
 
     print("\n" + "=" * 70)
-    print(f"✅ 완료: 성공 {success}/{len(TEST_TICKERS)} | 완전 수집 {full}")
+    print(f"✅ 완료")
+    print(f"   미국: 완전 {us_full} | 부분 {us_partial} | 실패 {us_fail}")
+    print(f"   한국: 완전 {kr_full} | 부분 {kr_partial} | 실패 {kr_fail}")
     print(f"💾 {OUTPUT_PATH}")
     print(f"📝 {LOG_PATH}")
     print("=" * 70)
