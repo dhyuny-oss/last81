@@ -1,0 +1,15 @@
+{
+  "_meta": {
+    "type": "beta_financials_test",
+    "version": "v0.1",
+    "generated": "2026-05-05T07:27:41.279734",
+    "warning": "이 파일은 PoC 결과. stocks.json과 별개. 알파 영향 없음.",
+    "stats": {
+      "total": 10,
+      "success": 0,
+      "full_complete": 0,
+      "skip": 10
+    }
+  },
+  "data": {}
+}
