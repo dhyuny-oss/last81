@@ -1,19 +1,12 @@
 /**
- * Beta Terminal — 발굴탭 v0.2 (진짜 데이터 연결)
+ * Beta Terminal — 발굴탭 v0.3
  * ============================================================================
  *
- * v0.1 (PR #2): 가짜 데이터 시안
- * v0.2 (PR #3c-3): stocks.json fetch + fScore.js 계산
- *
- * 데이터 흐름:
- *   1. fetch /data/stocks.json
- *   2. financials 섹션 → 종목별 evaluateStock() 호출
- *   3. 카드별 분류 (classifyForCards)
- *   4. 분포 차트 (distributionFor)
- *   5. UI 렌더
- *
- * 한국 종목: P/E 누락 패턴 → 모델 일치도 자동 낮음 (정직한 표시)
- * candles 기반 시그널 (RSI/박스권): 다음 단계에서 추가 — 이번엔 빈 카드
+ * v0.2 → v0.3 변경:
+ *   - 가변 사이즈 (모바일 ~ 데스크톱 자동) — 알파처럼
+ *   - 종목 디테일에 1/3/5일 변화율 + 야후 목표가 대비 차이 추가
+ *   - 과매도 (RSI<35) / 박스권 (변동폭<10%) 카드 활성화
+ *   - 종목 행에 RSI / 박스 폭 시그널 태그
  */
 
 import { useState, useEffect } from 'react';
@@ -30,7 +23,6 @@ export default function DiscoveryTab() {
   const [marketFilter, setMarketFilter] = useState('all');
   const [selectedKey, setSelectedKey] = useState(null);
 
-  // 데이터 상태
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [evaluations, setEvaluations] = useState([]);
@@ -56,7 +48,6 @@ export default function DiscoveryTab() {
       try {
         setLoading(true);
         setError(null);
-
         const r = await fetch('/data/stocks.json', { cache: 'no-cache' });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = await r.json();
@@ -66,14 +57,11 @@ export default function DiscoveryTab() {
         const pool = data.pool || {};
         const stocks = data.stocks || {};
 
-        // 종목별 평가
         const evals = [];
         let withFin = 0;
         for (const [ticker, fin] of Object.entries(financials)) {
-          // 베타 데이터 (income/balance) 있는 종목만
           if (!fin.income && !fin.balance) continue;
           withFin++;
-
           const poolInfo = pool[ticker] || stocks[ticker] || {};
           const candles = stocks[ticker]?.candles || [];
           const result = evaluateStock(ticker, fin, poolInfo, candles);
@@ -98,21 +86,18 @@ export default function DiscoveryTab() {
     return () => { cancelled = true; };
   }, []);
 
-  // ─── 시장 필터 ───
   const filteredEvals = marketFilter === 'all'
     ? evaluations
     : evaluations.filter(e => e.market === marketFilter);
 
-  // ─── 카드별 분류 + 분포 ───
   const cards = classifyForCards(filteredEvals);
   const distribution = distributionFor(filteredEvals);
 
-  // 분포 색상
   const distColors = {
     '9': C.gold, '8': '#FCD34D', '7': '#FDE68A', '6': C.muted, '5-': '#475569',
   };
 
-  // ─── lucide 대신 인라인 SVG ───
+  // ─── SVG 아이콘 ───
   const IconChevronDown = ({ size = 16 }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -139,6 +124,7 @@ export default function DiscoveryTab() {
   const fmtPB = (pb) => pb == null ? '—' : pb.toFixed(1);
   const fmtROE = (roe) => roe == null ? '—' : `${roe > 0 ? '+' : ''}${(roe * 100).toFixed(0)}%`;
   const fmtPct = (n) => n == null ? '—' : `${n > 0 ? '+' : ''}${n.toFixed(0)}%`;
+  const fmtPctDecimal = (n) => n == null ? '—' : `${n > 0 ? '+' : ''}${n.toFixed(1)}%`;
 
   function MarketBadge({ market }) {
     const isUS = market === 'us';
@@ -167,15 +153,29 @@ export default function DiscoveryTab() {
     );
   }
 
+  function SignalTag({ type, value }) {
+    if (type === 'rsi') return (
+      <span style={{ fontSize: 10, fontWeight: 700, borderRadius: 4, padding: '2px 6px',
+        background: 'rgba(6, 182, 212, .15)', color: C.cyan, border: '1px solid rgba(6, 182, 212, .3)', ...mono }}>
+        RSI {value.toFixed(0)}
+      </span>
+    );
+    if (type === 'box') return (
+      <span style={{ fontSize: 10, fontWeight: 700, borderRadius: 4, padding: '2px 6px',
+        background: 'rgba(167, 139, 250, .15)', color: C.violet, border: '1px solid rgba(167, 139, 250, .3)', ...mono }}>
+        ±{(value/2).toFixed(1)}%
+      </span>
+    );
+    return null;
+  }
+
   const SCALE = 50;
   function ValuationBar({ name, pct, source = 'self' }) {
     const clamped = Math.max(-SCALE, Math.min(SCALE, pct));
     const isPositive = clamped >= 0;
     const barLeft = isPositive ? 50 : 50 + (clamped / SCALE * 50);
     const barWidth = Math.abs(clamped / SCALE * 50);
-    const barColor = source === 'industry'
-      ? (isPositive ? C.violet : C.gold)
-      : (isPositive ? C.emerald : C.red);
+    const barColor = isPositive ? C.emerald : C.red;
 
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, ...mono }}>
@@ -226,6 +226,78 @@ export default function DiscoveryTab() {
     );
   }
 
+  // ─── 추가 동향 (1/3/5일 + 목표가) ───
+  function PriceMovementSection({ stock }) {
+    const showCandles = stock.hasCandles && (stock.chg1d != null || stock.chg3d != null || stock.chg5d != null);
+    const showTarget = stock.targetDiff && stock.targetDiff.available;
+
+    if (!showCandles && !showTarget) return null;
+
+    return (
+      <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
+        <div style={{ fontSize: 10, fontWeight: 600, color: C.cyan, letterSpacing: '0.04em', marginBottom: 8 }}>
+          📈 최근 동향
+        </div>
+
+        {/* 가격 변화율 */}
+        {showCandles && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4, marginBottom: showTarget ? 8 : 0 }}>
+            {[
+              { label: '1일', value: stock.chg1d },
+              { label: '3일', value: stock.chg3d },
+              { label: '5일', value: stock.chg5d },
+            ].map((it, i) => (
+              <div key={i} style={{
+                padding: '6px 8px', borderRadius: 4, textAlign: 'center',
+                background: 'rgba(255,255,255,.02)',
+                border: `1px solid ${C.border}`,
+              }}>
+                <div style={{ fontSize: 9, color: C.muted, letterSpacing: '0.04em' }}>{it.label}</div>
+                <div style={{
+                  fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums',
+                  color: it.value == null ? C.muted : it.value >= 0 ? C.emerald : C.red,
+                  ...mono,
+                }}>
+                  {fmtPctDecimal(it.value)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 야후 목표가 */}
+        {showTarget && (
+          <div style={{
+            padding: 8, borderRadius: 4,
+            background: 'rgba(6, 182, 212, .04)',
+            border: `1px solid rgba(6, 182, 212, .15)`,
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, fontSize: 10 }}>
+              <span style={{ color: C.muted }}>야후 애널리스트 목표가 ({stock.targetDiff.numAnalysts}명)</span>
+              <span style={{
+                color: stock.targetDiff.pct > 0 ? C.emerald : C.red,
+                fontWeight: 700, ...mono,
+              }}>
+                {fmtPctDecimal(stock.targetDiff.pct)}
+              </span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: C.textDim, ...mono }}>
+              <span>현재 ${stock.targetDiff.currentPrice.toFixed(2)}</span>
+              <span>→</span>
+              <span>평균 ${stock.targetDiff.targetMean.toFixed(2)}</span>
+            </div>
+            {stock.targetDiff.targetLow != null && stock.targetDiff.targetHigh != null && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: C.muted, ...mono, marginTop: 2 }}>
+                <span>저 ${stock.targetDiff.targetLow.toFixed(2)} ({fmtPctDecimal(stock.targetDiff.lowPct)})</span>
+                <span>고 ${stock.targetDiff.targetHigh.toFixed(2)} ({fmtPctDecimal(stock.targetDiff.highPct)})</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   function DetailPanel({ stock, accent }) {
     const models = stock.fairValueModels || [];
 
@@ -241,6 +313,7 @@ export default function DiscoveryTab() {
           </button>
         </div>
 
+        {/* 적정가 모델 */}
         {models.length > 0 ? (
           <>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -267,12 +340,15 @@ export default function DiscoveryTab() {
           </div>
         )}
 
+        {/* 최근 동향 + 목표가 */}
+        <PriceMovementSection stock={stock} />
+
         {/* F-Score 컴포넌트 */}
         <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
           <div style={{ fontSize: 10, fontWeight: 600, color: C.gold, letterSpacing: '0.04em', marginBottom: 8 }}>
             🎯 F-Score 컴포넌트 ({stock.fScoreRaw}/{stock.fScoreMax} 평가됨)
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 4 }}>
             {Object.entries(stock.fScoreComponents || {}).map(([k, v]) => {
               const labels = {
                 roaPositive: 'ROA > 0',
@@ -297,18 +373,20 @@ export default function DiscoveryTab() {
         </div>
 
         <div style={{ fontSize: 9, lineHeight: 1.6, paddingTop: 4, color: C.muted }}>
-          ※ 적정가 모델 한계: yfinance에서 자기 5년 평균 multiple 직접 안 옴 →
-          현재 P/E/P/B/EV/EBITDA 기준 + 이익 성장률 보정으로 간이 계산.
-          {stock.market === 'kr' && ' 한국 종목은 P/E 누락 잦음 → 일치도 자동 낮아짐 (정직한 표시).'}
+          ※ 적정가는 자기 5년 평균 multiple 기준 간이 모델 (이익 성장률 + ROE 보정).
+          {stock.market === 'kr' && ' 한국 종목은 P/E 누락 잦음 → 일치도 자동 낮음.'}
         </div>
       </div>
     );
   }
 
-  function TickerRow({ stock, accentColor, cardId }) {
+  function TickerRow({ stock, accentColor, cardId, signalType }) {
     const fairValuePositive = stock.fairValuePct != null && stock.fairValuePct > 0;
     const rowKey = `${cardId}:${stock.ticker}`;
     const isSelected = selectedKey === rowKey;
+    const signalValue = signalType === 'rsi' ? stock.rsi
+                      : signalType === 'box' ? stock.boxRange
+                      : null;
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -328,6 +406,7 @@ export default function DiscoveryTab() {
                   <span style={{ marginLeft: 8, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: C.textDim }}>{stock.label}</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                  {signalType && signalValue != null && <SignalTag type={signalType} value={signalValue} />}
                   <span style={{ fontWeight: 700, fontSize: 14, color: accentColor, ...mono }}>{stock.fScore}/9</span>
                 </div>
               </div>
@@ -344,9 +423,13 @@ export default function DiscoveryTab() {
                     </span>
                   </span>
                   <AgreementDots level={stock.agreement} />
-                  <span style={{ marginLeft: 'auto', color: C.muted }}>
-                    {stock.fairValueModels.length}개 모델
-                  </span>
+                  {stock.targetDiff && stock.targetDiff.available && (
+                    <span style={{ marginLeft: 'auto', color: C.muted }}>
+                      목표가 <span style={{ color: stock.targetDiff.pct > 0 ? C.emerald : C.red, fontWeight: 600 }}>
+                        {fmtPctDecimal(stock.targetDiff.pct)}
+                      </span>
+                    </span>
+                  )}
                 </div>
               )}
             </button>
@@ -364,7 +447,7 @@ export default function DiscoveryTab() {
     );
   }
 
-  function ExpandableCard({ id, accent, glow, icon, title, subtitle, stocks }) {
+  function ExpandableCard({ id, accent, glow, icon, title, subtitle, stocks, signalType }) {
     const isOpen = expanded[id];
     const count = stocks.length;
     return (
@@ -400,7 +483,7 @@ export default function DiscoveryTab() {
         {isOpen && count > 0 && (
           <div style={{ padding: '0 12px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
             {stocks.slice(0, 30).map((s, i) => (
-              <TickerRow key={s.ticker + i} stock={s} accentColor={accent} cardId={id} />
+              <TickerRow key={s.ticker + i} stock={s} accentColor={accent} cardId={id} signalType={signalType} />
             ))}
             {stocks.length > 30 && (
               <div style={{ textAlign: 'center', fontSize: 11, padding: '8px 0', color: C.muted }}>
@@ -439,19 +522,19 @@ export default function DiscoveryTab() {
     );
   }
 
-  // ─── 분포 ───
   const totalStocks = distribution.reduce((s, d) => s + d.count, 0);
   const maxCount = Math.max(...distribution.map(d => d.count), 1);
 
-  // ─── 렌더 ───
   return (
     <div style={{ background: C.bg, minHeight: '100vh', color: C.text, fontFamily: '-apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif' }}>
-      <div style={{ maxWidth: 420, margin: '0 auto', paddingBottom: 48 }}>
+      {/* ★ 가변 사이즈: maxWidth 100% / 모바일 ~ 데스크톱 자동 */}
+      <div style={{ maxWidth: 1280, margin: '0 auto', padding: '0 16px', paddingBottom: 48 }}>
         {/* 헤더 */}
         <div style={{
-          padding: '16px 16px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '16px 0 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           position: 'sticky', top: 0, zIndex: 10, backdropFilter: 'blur(8px)',
           background: 'rgba(10, 14, 26, 0.85)', borderBottom: `1px solid ${C.border}`,
+          margin: '0 -16px', paddingLeft: 16, paddingRight: 16,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
             <button onClick={() => { window.location.href = '/'; }}
@@ -466,7 +549,7 @@ export default function DiscoveryTab() {
               <div style={{ fontSize: 14, fontWeight: 700, letterSpacing: '-0.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: C.text }}>
                 Beta Terminal
               </div>
-              <div style={{ fontSize: 10, color: C.textDim }}>가치 평가 · v0.2 (실데이터)</div>
+              <div style={{ fontSize: 10, color: C.textDim }}>가치 평가 · v0.3</div>
             </div>
           </div>
           {!loading && !error && (
@@ -478,7 +561,7 @@ export default function DiscoveryTab() {
         </div>
 
         {/* 페이지 헤더 */}
-        <div style={{ padding: '20px 16px 8px' }}>
+        <div style={{ padding: '20px 0 8px' }}>
           <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 4, color: C.text, margin: '0 0 4px' }}>
             🌟 가치 발굴
           </h1>
@@ -490,16 +573,15 @@ export default function DiscoveryTab() {
           <MarketFilterToggle />
         </div>
 
-        {/* 로딩/에러 상태 */}
         {loading && (
-          <div style={{ padding: '60px 16px', textAlign: 'center', color: C.muted, fontSize: 13 }}>
+          <div style={{ padding: '60px 0', textAlign: 'center', color: C.muted, fontSize: 13 }}>
             <div style={{ fontSize: 32, marginBottom: 8 }}>⏳</div>
             stocks.json 로드 중...
           </div>
         )}
 
         {error && (
-          <div style={{ margin: '20px 16px', padding: 16, borderRadius: 8, background: 'rgba(255,69,58,.08)', border: `1px solid ${C.red}`, fontSize: 12, color: C.text }}>
+          <div style={{ margin: '20px 0', padding: 16, borderRadius: 8, background: 'rgba(255,69,58,.08)', border: `1px solid ${C.red}`, fontSize: 12, color: C.text }}>
             <div style={{ fontWeight: 600, color: C.red, marginBottom: 4 }}>⚠️ 데이터 로드 실패</div>
             <div style={{ color: C.textDim }}>{error}</div>
           </div>
@@ -508,7 +590,7 @@ export default function DiscoveryTab() {
         {!loading && !error && (
           <>
             {/* F-Score 분포 */}
-            <div style={{ padding: '0 16px', marginTop: 16 }}>
+            <div style={{ marginTop: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                 <span style={{ fontSize: 12, fontWeight: 600, color: C.textDim }}>
                   F-Score 분포
@@ -542,17 +624,22 @@ export default function DiscoveryTab() {
               </div>
             </div>
 
-            {/* 카드 5개 */}
-            <div style={{ padding: '0 16px', marginTop: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {/* 카드 5개 — 가변 사이즈일 때 2열 그리드 (md 이상) */}
+            <div style={{
+              marginTop: 16,
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))',
+              gap: 12,
+            }}>
               <ExpandableCard id="top"      accent={C.gold}    glow={C.goldGlow}    icon="💎" title="최고점 (F-Score 8+)" subtitle="펀더멘털 상위" stocks={cards.top} />
               <ExpandableCard id="value"    accent={C.emerald} glow={C.emeraldGlow} icon="🔍" title="저평가 우량주"      subtitle="F-Score 7+ AND 적정가 +20%" stocks={cards.value} />
-              <ExpandableCard id="oversold" accent={C.cyan}    glow={C.cyanGlow}    icon="📉" title="과매도 우량주"      subtitle="다음 단계: candles 기반 RSI" stocks={cards.oversold} />
-              <ExpandableCard id="box"      accent={C.violet}  glow={C.violetGlow}  icon="📦" title="박스권 우량주"      subtitle="다음 단계: candles 기반 변동성" stocks={cards.box} />
+              <ExpandableCard id="oversold" accent={C.cyan}    glow={C.cyanGlow}    icon="📉" title="과매도 우량주"      subtitle="F-Score 7+ AND RSI < 35" stocks={cards.oversold} signalType="rsi" />
+              <ExpandableCard id="box"      accent={C.violet}  glow={C.violetGlow}  icon="📦" title="박스권 우량주"      subtitle="F-Score 7+ AND 변동폭 ±10% 이내" stocks={cards.box} signalType="box" />
               <ExpandableCard id="risk"     accent={C.red}     glow={C.redGlow}     icon="⚠️" title="위험 종목"          subtitle="F-Score 0-3 — 매수 주의" stocks={cards.risk} />
             </div>
 
             {/* 푸터 */}
-            <div style={{ margin: '20px 16px 0', padding: 12, borderRadius: 6, fontSize: 11, lineHeight: 1.6,
+            <div style={{ margin: '20px 0 0', padding: 12, borderRadius: 6, fontSize: 11, lineHeight: 1.6,
               background: 'rgba(48,209,88,.06)', color: C.textDim, border: `1px solid rgba(48,209,88,.15)` }}>
               <div style={{ fontWeight: 600, marginBottom: 4, color: C.emerald }}>
                 ✅ 실데이터 연결됨
@@ -560,10 +647,9 @@ export default function DiscoveryTab() {
               {meta.betaMergedAt && (
                 <div>마지막 갱신: {new Date(meta.betaMergedAt).toLocaleString('ko-KR')}</div>
               )}
-              <div>F-Score 9점 만점, 적정가 = PER/PBR/EV 모델 중앙값.</div>
+              <div>F-Score 9점 만점, 적정가 = PER/PBR/EV 모델 중앙값. 종목 클릭 시 1/3/5일 변화율 + 야후 목표가 표시.</div>
               <div style={{ marginTop: 4, color: C.muted, fontSize: 10 }}>
                 ⚠️ 한국 종목은 P/E 누락 잦음 → 모델 일치도 자동 낮음.
-                과매도/박스권은 candles 기반 — 다음 단계.
               </div>
             </div>
           </>
