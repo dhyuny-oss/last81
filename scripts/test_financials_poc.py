@@ -15,11 +15,7 @@ Beta Terminal v0.1 — 재무 데이터 PoC
   - 재무상태표 (현재 + 1년 전)
   - 현금흐름 (최근 2년 연간)
   - 야후 직접 제공 비율 (PER, PBR, ROE, ROA, 부채비율 등)
-
-다음 단계 결정용 데이터:
-  - 어느 필드가 잘 들어오는지
-  - 어느 종목이 실패하는지
-  - 한국 종목 별도 PoC 필요한지
+  - 야후 애널리스트 목표가
 """
 
 import json
@@ -34,7 +30,6 @@ except ImportError:
     print("❌ requests 모듈 없음 — workflow YAML에 'pip install requests' 확인")
     sys.exit(1)
 
-# ─── 설정 ─────────────────────────────────────────────────
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
 # 테스트 종목 10개 (다양한 섹터 커버)
@@ -51,16 +46,12 @@ TEST_TICKERS = [
     ("PG",    "PG",    "Consumer Staples 안정"),
 ]
 
-# GitHub Actions 환경에서는 GITHUB_WORKSPACE 사용
 WORKSPACE = os.environ.get("GITHUB_WORKSPACE", ".")
 OUTPUT_PATH = os.path.join(WORKSPACE, "public", "data", "financials_test.json")
 LOG_PATH = os.path.join(WORKSPACE, "public", "data", "financials_test_log.txt")
 
 
-# ─── 헬퍼 ─────────────────────────────────────────────────
-
 def _yval(d, *keys):
-    """Yahoo quoteSummary 응답에서 중첩 값 추출. {raw, fmt} 패턴 처리."""
     cur = d
     for k in keys:
         if not isinstance(cur, dict):
@@ -118,7 +109,6 @@ def _cashflow_pick(stmt):
 
 
 def fetch_financials(ticker, yt):
-    """한 종목의 재무 데이터 수집."""
     modules = ",".join([
         "summaryDetail", "defaultKeyStatistics", "financialData",
         "incomeStatementHistory", "balanceSheetHistory", "cashflowStatementHistory",
@@ -174,7 +164,6 @@ def fetch_financials(ticker, yt):
         "profitMargins": _yval(fin, "profitMargins"),
         "dividendYield": _yval(summary, "dividendYield"),
         "beta": _yval(summary, "beta"),
-        # 야후 애널리스트 목표가
         "targetMeanPrice": _yval(fin, "targetMeanPrice"),
         "targetHighPrice": _yval(fin, "targetHighPrice"),
         "targetLowPrice": _yval(fin, "targetLowPrice"),
@@ -209,8 +198,6 @@ def fetch_financials(ticker, yt):
     }, "OK"
 
 
-# ─── 결측 체크 ────────────────────────────────────────────
-
 def analyze_completeness(result):
     if result is None:
         return ["전체 수집 실패"]
@@ -243,8 +230,6 @@ def fmt_money(v):
 def fmt_ratio(v):
     return "—" if v is None else f"{v:.2f}"
 
-
-# ─── 메인 ─────────────────────────────────────────────────
 
 def main():
     print("=" * 70)
@@ -307,9 +292,8 @@ def main():
             f"{len(missing)}건 | {note} |"
         )
 
-        time.sleep(0.5)  # rate limit 방지
+        time.sleep(0.5)
 
-    # 결과 저장
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
     with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
         json.dump({
