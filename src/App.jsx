@@ -3119,6 +3119,7 @@ export default function App() {
             {dataStatus==="real"&&(()=>{
               const now=new Date();const h=now.getHours(),m=now.getMinutes(),t=h*60+m;
               const krOpen=t>=540&&t<=930;const usOpen=t>=1410||t<=360;
+              const refreshMode=h<3?{label:"갱신OFF",color:C.muted}:{label:"30분갱신",color:C.emerald};
               const upd=lastUpdated?new Date(lastUpdated):null;
               // ★ v2.3.1: 신선도 기반 라벨 — 현재 시각 기준 데이터 경과시간으로 판단
               // 기존 버그: 라벨이 갱신 시각의 분 단위만 보고 결정됨 → 일요일에도 "장중" 표시되는 문제
@@ -3134,6 +3135,7 @@ export default function App() {
               return<>
                 <span style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:krOpen?"rgba(48,209,88,.12)":"rgba(255,255,255,.04)",color:krOpen?C.green:C.muted,fontWeight:600}}>🇰🇷 {krOpen?"장중":"휴장"}</span>
                 <span style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:usOpen?"rgba(48,209,88,.12)":"rgba(255,255,255,.04)",color:usOpen?C.green:C.muted,fontWeight:600}}>🇺🇸 {usOpen?"장중":"휴장"}</span>
+                <span style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:`${refreshMode.color}15`,color:refreshMode.color,fontWeight:600,border:`1px solid ${refreshMode.color}40`}}>⏱ {refreshMode.label}</span>
                 <span title={`마지막 갱신: ${updFmt}`} style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:`${stale.color}15`,color:stale.color,fontWeight:700,border:`1px solid ${stale.color}40`}}>{stale.emoji} {stale.label}</span>
                 {updFmt&&<span style={{fontSize:7,color:C.muted}}>{updFmt}</span>}
               </>;
