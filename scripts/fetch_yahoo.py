@@ -1338,6 +1338,18 @@ def fetch_pool_batch(pool, range_="6mo", batch_size=50, delay_between_batches=5)
         print(f"  🔑 한투 API 가격: {kis_ok}건 사용")
     return results
 
+    # ★ v2.5.0: 휴일 자동 감지 — 양쪽 다 휴장이면 hourly 스킵
+    if MODE == "hourly":
+        us_holiday = is_market_holiday("us")
+        kr_holiday = is_market_holiday("kr")
+        if us_holiday and kr_holiday:
+            print("🏖️ 미국/한국 양쪽 휴장 — hourly 스킵 (한도 절약)")
+            return
+        if us_holiday:
+            print("🏖️ 미국 휴장 — 한국 종목만 갱신")
+        if kr_holiday:
+            print("🏖️ 한국 휴장 — 미국 종목만 갱신")
+
 def main():
     now_str = datetime.now(timezone.utc).isoformat()
     print(f"\n{'='*60}")
