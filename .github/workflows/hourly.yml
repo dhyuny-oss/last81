@@ -1,12 +1,23 @@
-name: 주가 데이터 자동 업데이트
+name: Hourly Stock Update
+
 on:
   schedule:
-    - cron: '0 0-6 * * 1-5'   # UTC 0~6 = KST 9~15 (한국 장중 매시간)
-    - cron: '0 14-20 * * 1-5'  # UTC 14~20 = KST 23~05 (미국 장중 매시간)
+    # ── 평일 03:00~08:30 KST (UTC 18:00~23:30 일~목) ──
+    # 미국장 후반 + 마감, 자는 시간 후
+    - cron: '0,30 18-23 * * 0-4'
+
+    # ── 평일 09:00~23:30 KST (UTC 0:00~14:30 월~금) ──
+    # 한국장 + 낮 + 미국 프리마켓 + 미국 정규장 시작
+    - cron: '0,30 0-14 * * 1-5'
+
+    # ── 토요일 03:00~05:30 KST (UTC 18:00~20:30 금) ──
+    # 미국 금요 정규장 막판~마감
+    - cron: '0,30 18-20 * * 5'
+
   workflow_dispatch:
 
 jobs:
-  update-data:
+  update-hourly:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
@@ -20,24 +31,20 @@ jobs:
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
       - name: Install dependencies
         run: pip install yfinance requests
-
-      - name: Fetch price data
+      - name: Run hourly update
         run: python scripts/fetch_yahoo.py
-
       - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add public/data/stocks.json
+          git add public/data/stocks.json public/data/alpha_hits.json public/data/alert_state.json
           git diff --staged --quiet || (
-            git commit -m "⏰ $(date +%H:%M) 현재가 업데이트"
+            git commit -m "🕐 $(date +%Y-%m-%d_%H:%M) 시간별 갱신"
             git pull --rebase origin main
             git push
           )
