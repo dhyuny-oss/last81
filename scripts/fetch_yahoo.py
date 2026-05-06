@@ -335,6 +335,29 @@ KR_MAJOR_STOCKS = {
 _request_count = 0
 _rate_limit_hits = 0
 
+def is_market_holiday(market="us"):
+    """시장 데이터로 휴장 자동 감지 (마지막 봉 날짜와 오늘 비교)"""
+    ticker = "SPY" if market == "us" else "^KS11"
+    try:
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=5d"
+        r = requests.get(url, headers=HEADERS, timeout=10)
+        if r.status_code != 200:
+            return False
+        ts_list = r.json().get("chart", {}).get("result", [{}])[0].get("timestamp", [])
+        if not ts_list:
+            return False
+        last_ts = ts_list[-1]
+        last_date = datetime.fromtimestamp(last_ts).date()
+        today = datetime.now(timezone(timedelta(hours=9))).date() if market == "kr" else datetime.now(timezone.utc).date()
+        days_since = (today - last_date).days
+        if market == "us":
+            return days_since >= 2 if datetime.now().weekday() >= 5 else days_since >= 1
+        else:
+            return days_since >= 1 if datetime.now().weekday() < 5 else False
+    except Exception as e:
+        print(f"  ⚠️ 휴일 감지 실패 ({market}): {e}")
+        return False
+
 def fetch_yahoo(ticker, range_="6mo", interval="1d"):
     global _request_count, _rate_limit_hits
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval={interval}&range={range_}"
