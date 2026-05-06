@@ -37,7 +37,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add public/data/stocks.json public/data/alpha_hits.json public/data/alert_state.json
+          git add public/data/
           git diff --staged --quiet || (
             git commit -m "🕐 $(date +%Y-%m-%d_%H:%M) 시간별 갱신"
             git pull --rebase origin main
