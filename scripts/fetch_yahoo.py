@@ -1695,7 +1695,7 @@ def main():
             print("\n📊 상위 종목 캔들 갱신 (확대 batch)...")
             candle_stocks = [(t,s) for t,s in output.get("stocks",{}).items() if s.get("candles") and len(s["candles"])>=10]
             candle_stocks.sort(key=lambda x: x[1].get("rsPctRank",0), reverse=True)
-            TOP_N = 500  # v2.4.9: 300 → 500 (집중/추적탭 종목 커버 확대 — 시간당 캔들 갱신 종목 수 추가 확대)
+            TOP_N = 380  # v2.5.0: 500 → 380 (한도 절약, 30분 갱신 위해)
             top_for_candle = candle_stocks[:TOP_N]
             candle_updated = 0
             candle_failed = 0
