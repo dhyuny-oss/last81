@@ -4802,8 +4802,31 @@ export default function App() {
             const candles = cd?.data;
             const isKR = (selInfo?.market||"").includes("kr") || (sel||"").length > 5;
             // 분기 데이터 (미국 종목 위주)
-            const revYoY = fin?.revQuarterly ? calcYoY(fin.revQuarterly, "revenue") : null;
-            const epsYoY = fin?.epsQuarterly ? calcYoY(fin.epsQuarterly, "actual") : null;
+            let revYoY = fin?.revQuarterly ? calcYoY(fin.revQuarterly, "revenue") : null;
+            let epsYoY = fin?.epsQuarterly ? calcYoY(fin.epsQuarterly, "actual") : null;
+            // ★ v2.5.0: 베타 financials 데이터 fallback (annual income.latest/prior 사용)
+            if (!revYoY && fin?.income?.latest?.revenue && fin?.income?.prior?.revenue) {
+              const lr = fin.income.latest.revenue;
+              const pr = fin.income.prior.revenue;
+              if (pr > 0) {
+                revYoY = {
+                  yoyPct: ((lr - pr) / pr) * 100,
+                  latestLabel: fin.income.latest.endDate?.slice(0,7) || "최근",
+                  priorLabel: fin.income.prior.endDate?.slice(0,7) || "전년",
+                };
+              }
+            }
+            if (!epsYoY && fin?.income?.latest?.netIncome && fin?.income?.prior?.netIncome) {
+              const ln = fin.income.latest.netIncome;
+              const pn = fin.income.prior.netIncome;
+              if (Math.abs(pn) > 0) {
+                epsYoY = {
+                  yoyPct: ((ln - pn) / Math.abs(pn)) * 100,
+                  latestLabel: fin.income.latest.endDate?.slice(0,7) || "최근",
+                  priorLabel: fin.income.prior.endDate?.slice(0,7) || "전년",
+                };
+              }
+            }
             // 52주 고점은 candles에서 (한국/미국 모두)
             const w52 = candles ? calc52WeekHigh(candles) : null;
             // 재무 데이터 하나도 없으면 카드 자체 미표시 (한국 종목 대부분)
