@@ -2,10 +2,15 @@ name: Beta Merge Financials → stocks.json
 # Beta Terminal v0.5 — financials_us.json을 stocks.json에 병합
 # 알파의 다른 필드 (stocks/pool/indices 등) 절대 안 건드림
 # 무결성 검증 실패 시 저장 안 함
-# 수동 트리거만
 
 on:
-  workflow_dispatch:
+  schedule:
+    # 매월 1일 KST 10:00 (UTC 01:00) — quarterly-us 후 1시간 뒤
+    - cron: '0 1 1 * *'
+  # quarterly-us가 끝나면 자동 트리거
+  repository_dispatch:
+    types: [financials-updated]
+  workflow_dispatch:  # 수동도 가능
 
 jobs:
   merge:
@@ -27,7 +32,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add public/data/stocks.json public/data/financials_merge_log.txt
+          git add public/data/
           git diff --staged --quiet || (
             git commit -m "🔗 Beta financials → stocks.json 병합"
             git pull --rebase origin main
