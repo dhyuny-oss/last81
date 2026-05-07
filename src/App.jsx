@@ -2210,19 +2210,39 @@ export default function App() {
     }
   }, []);
  
- // ★ 자동 클릭: 검색 결과 들어오면 첫 결과 자동 선택 (차트 모달 열림)
-  const [autoClickedQuery, setAutoClickedQuery] = useState(null);
+// ★ 베타에서 ?watch=AAPL&label=Apple 로 들어오면 알파 관찰 종목에 자동 추가
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const q = params.get('search');
-    // q가 있고, 검색 끝났고, 결과가 들어왔고, 아직 자동클릭 안 한 쿼리면 → 첫 결과 클릭
-    if (q && !searchLoading && searchRes.length > 0 && autoClickedQuery !== q) {
-      setAutoClickedQuery(q);
-      addStock(searchRes[0]);
-      // URL에서 ?search 파라미터 제거 (다시 새로고침해도 또 클릭 안 되게)
+    const ticker = params.get('watch');
+    const label = params.get('label') || ticker;
+    const market = params.get('market') || 'us';
+    if (ticker) {
+      const exists = tracking.find(t => t.ticker === ticker);
+      if (!exists) {
+        setTracking(p => [...p, {
+          id: Date.now(),
+          ticker: ticker,
+          label: label,
+          market: market,
+          basePrice: 0,
+          addedDate: new Date().toLocaleDateString("ko-KR"),
+          foundScore: 0,
+          foundSignals: ['β 베타에서 추가'],
+          foundRS: 0,
+        }]);
+        setAddMsg(`👁 ${label} 베타에서 관찰 등록`);
+        setTimeout(() => setAddMsg(""), 3000);
+      } else {
+        setAddMsg(`⚠️ ${label} 이미 관찰 중`);
+        setTimeout(() => setAddMsg(""), 2000);
+      }
+      // 추적 탭으로 자동 이동
+      setTab("track");
+      setTrackTab("watch");
+      // URL 정리
       window.history.replaceState({}, '', '/');
     }
-  }, [searchRes, searchLoading]);
+  }, []);
   
   const [showSearch, setShowSearch] = useState(false);
   const [addMsg, setAddMsg] = useState("");
