@@ -3871,6 +3871,7 @@ export default function App() {
                     <span style={{color:(s.changePct||0)>=0?C.green:C.red}}>1D {(s.changePct||0)>=0?"+":""}{(s.changePct||0).toFixed(1)}%</span>
                     <span style={{color:(s.chg3d||0)>=0?C.green:C.red}}>3D {(s.chg3d||0)>=0?"+":""}{(s.chg3d||0).toFixed(1)}%</span>
                     <span style={{color:(s.chg5d||0)>=0?C.green:C.red}}>5D {(s.chg5d||0)>=0?"+":""}{(s.chg5d||0).toFixed(1)}%</span>
+                    {(()=>{const f=financials[s.ticker];const lr=f?.income?.latest?.revenue;const pr=f?.income?.prior?.revenue;if(!lr||!pr||pr<=0)return null;const yoy=((lr-pr)/pr)*100;const c=yoy>=20?C.emerald:yoy>=0?C.green:C.red;return <span style={{color:c,fontWeight:700,marginLeft:"auto"}}>📊 매출 {yoy>=0?"+":""}{yoy.toFixed(0)}%</span>;})()}
                   </div>
                 </div>;
               })}
@@ -3911,6 +3912,7 @@ export default function App() {
                     <span style={{color:(s.changePct||0)>=0?C.green:C.red}}>1D {(s.changePct||0)>=0?"+":""}{(s.changePct||0).toFixed(1)}%</span>
                     <span style={{color:(s.chg3d||0)>=0?C.green:C.red}}>3D {(s.chg3d||0)>=0?"+":""}{(s.chg3d||0).toFixed(1)}%</span>
                     <span style={{color:(s.chg5d||0)>=0?C.green:C.red}}>5D {(s.chg5d||0)>=0?"+":""}{(s.chg5d||0).toFixed(1)}%</span>
+                    {(()=>{const f=financials[s.ticker];const lr=f?.income?.latest?.revenue;const pr=f?.income?.prior?.revenue;if(!lr||!pr||pr<=0)return null;const yoy=((lr-pr)/pr)*100;const c=yoy>=20?C.emerald:yoy>=0?C.green:C.red;return <span style={{color:c,fontWeight:700,marginLeft:"auto"}}>📊 매출 {yoy>=0?"+":""}{yoy.toFixed(0)}%</span>;})()}
                   </div>
                 </div>;
               })}
@@ -3946,6 +3948,7 @@ export default function App() {
                     <span style={{color:(s.changePct||0)>=0?C.green:C.red}}>1D {(s.changePct||0)>=0?"+":""}{(s.changePct||0).toFixed(1)}%</span>
                     <span style={{color:(s.chg3d||0)>=0?C.green:C.red}}>3D {(s.chg3d||0)>=0?"+":""}{(s.chg3d||0).toFixed(1)}%</span>
                     <span style={{color:(s.chg5d||0)>=0?C.green:C.red}}>5D {(s.chg5d||0)>=0?"+":""}{(s.chg5d||0).toFixed(1)}%</span>
+                    {(()=>{const f=financials[s.ticker];const lr=f?.income?.latest?.revenue;const pr=f?.income?.prior?.revenue;if(!lr||!pr||pr<=0)return null;const yoy=((lr-pr)/pr)*100;const c=yoy>=20?C.emerald:yoy>=0?C.green:C.red;return <span style={{color:c,fontWeight:700,marginLeft:"auto"}}>📊 매출 {yoy>=0?"+":""}{yoy.toFixed(0)}%</span>;})()}
                   </div>
                 </div>;
               })}
