@@ -434,7 +434,7 @@ export default function DiscoveryTab() {
               )}
             </button>
 
-            <button onClick={(e) => { e.stopPropagation(); window.location.href = `/?watch=${stock.ticker}&label=${encodeURIComponent(stock.label)}&market=${stock.market}`; }}
+            <button onClick={(e) => { e.stopPropagation(); window.location.href = `/?watch=${stock.ticker}&label=${encodeURIComponent(stock.label)}&market=${stock.market}&price=${stock.currentPrice || 0}`; }}
               style={{ padding: '0 12px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, borderRadius: '0 6px 6px 0', flexShrink: 0, background: 'rgba(59, 130, 246, .06)', borderLeft: `1px solid ${C.border}`, border: 'none', borderLeftWidth: 1, color: '#60A5FA', cursor: 'pointer' }}
               title="알파 터미널로 이동">
             
