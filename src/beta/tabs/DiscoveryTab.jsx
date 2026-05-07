@@ -86,6 +86,26 @@ export default function DiscoveryTab() {
     return () => { cancelled = true; };
   }, []);
 
+  // ★ v0.4: 알파에서 ?ticker=AAPL 로 들어오면 그 종목 자동 펼침
+  useEffect(() => {
+    if (loading || evaluations.length === 0) return;
+    const params = new URLSearchParams(window.location.search);
+    const targetTicker = params.get('ticker');
+    if (targetTicker) {
+      const cards = classifyForCards(evaluations);
+      const cardKeys = ['top', 'value', 'oversold', 'box', 'risk'];
+      for (const cardKey of cardKeys) {
+        const found = cards[cardKey].find(s => s.ticker === targetTicker);
+        if (found) {
+          setExpanded(prev => ({ ...prev, [cardKey]: true }));
+          setSelectedKey(`${cardKey}:${targetTicker}`);
+          window.history.replaceState({}, '', '/beta');
+          break;
+        }
+      }
+    }
+  }, [loading, evaluations]);
+
   const filteredEvals = marketFilter === 'all'
     ? evaluations
     : evaluations.filter(e => e.market === marketFilter);
@@ -434,7 +454,7 @@ export default function DiscoveryTab() {
               )}
             </button>
 
-            <button onClick={(e) => { e.stopPropagation(); window.location.href = `/?watch=${stock.ticker}&label=${encodeURIComponent(stock.label)}&market=${stock.market}&price=${stock.currentPrice || 0}`; }}
+            <button onClick={(e) => { e.stopPropagation(); window.location.href = `/?watch=${stock.ticker}&label=${encodeURIComponent(stock.label)}&market=${stock.market}&price=${stock.currentPrice || 0}&fScore=${stock.fScore || 0}`; }}
               style={{ padding: '0 12px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, borderRadius: '0 6px 6px 0', flexShrink: 0, background: 'rgba(59, 130, 246, .06)', borderLeft: `1px solid ${C.border}`, border: 'none', borderLeftWidth: 1, color: '#60A5FA', cursor: 'pointer' }}
               title="알파 터미널로 이동">
             
