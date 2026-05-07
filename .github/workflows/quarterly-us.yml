@@ -1,11 +1,15 @@
 name: Beta Quarterly US (Full Pool)
-# Beta Terminal v0.4 — 미국 풀 전체 재무 수집
+# Beta Terminal v0.5 — 미국 풀 전체 재무 수집
 # stocks.json의 pool에서 미국 종목 전부 추출 → financials_us.json 별도 저장
 # 알파 stocks.json 안 건드림 → 알파 영향 0%
 # 시간: ~10분 (500종목 × 1.2초)
 
 on:
-  workflow_dispatch:  # 수동 트리거만
+  schedule:
+    # 매월 1일 KST 09:00 (UTC 00:00)
+    # 알파 quarterly보다 약간 늦게 — 알파 풀 갱신 후 베타가 그걸 사용
+    - cron: '0 0 1 * *'
+  workflow_dispatch:  # 수동 트리거도 가능
 
 jobs:
   fetch-us:
@@ -30,9 +34,17 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add public/data/financials_us.json public/data/financials_us_log.txt
+          git add public/data/
           git diff --staged --quiet || (
             git commit -m "📊 Beta 미국 풀 재무 데이터 갱신"
             git pull --rebase origin main
             git push
           )
+
+      # ★ v0.5: 자동으로 merge 워크플로 트리거
+      - name: Trigger merge workflow
+        if: success()
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          event-type: financials-updated
