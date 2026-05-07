@@ -2216,6 +2216,7 @@ export default function App() {
     const ticker = params.get('watch');
     const label = params.get('label') || ticker;
     const market = params.get('market') || 'us';
+    const price = parseFloat(params.get('price')) || 0;
     if (ticker) {
       const exists = tracking.find(t => t.ticker === ticker);
       if (!exists) {
@@ -2224,7 +2225,7 @@ export default function App() {
           ticker: ticker,
           label: label,
           market: market,
-          basePrice: 0,
+          basePrice: price,
           addedDate: new Date().toLocaleDateString("ko-KR"),
           foundScore: 0,
           foundSignals: ['β 베타에서 추가'],
