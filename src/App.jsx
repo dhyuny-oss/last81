@@ -2210,13 +2210,14 @@ export default function App() {
     }
   }, []);
  
-// ★ 베타에서 ?watch=AAPL&label=Apple 로 들어오면 알파 관찰 종목에 자동 추가
+// ★ 베타에서 ?watch=AAPL&label=Apple&price=...&fScore=... 로 들어오면 알파 관찰 종목에 자동 추가
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const ticker = params.get('watch');
     const label = params.get('label') || ticker;
     const market = params.get('market') || 'us';
     const price = parseFloat(params.get('price')) || 0;
+    const fScore = parseInt(params.get('fScore')) || 0;
     if (ticker) {
       const exists = tracking.find(t => t.ticker === ticker);
       if (!exists) {
@@ -2227,11 +2228,12 @@ export default function App() {
           market: market,
           basePrice: price,
           addedDate: new Date().toLocaleDateString("ko-KR"),
-          foundScore: 0,
+          foundScore: fScore,
           foundSignals: ['β 베타에서 추가'],
           foundRS: 0,
+          betaFScore: fScore,
         }]);
-        setAddMsg(`👁 ${label} 베타에서 관찰 등록`);
+        setAddMsg(`👁 ${label} 베타에서 관찰 등록 (F-Score ${fScore}/9)`);
         setTimeout(() => setAddMsg(""), 3000);
       } else {
         setAddMsg(`⚠️ ${label} 이미 관찰 중`);
@@ -5030,6 +5032,11 @@ export default function App() {
             <button onClick={()=>{setTab("track");setTrackTab("watch");}} style={{fontSize:9,color:C.accent,background:"none",border:"none",cursor:"pointer",textDecoration:"underline",fontWeight:700}}>추적탭에서 확인</button>
           </div>}
 
+          {/* ★ v2.5.0: 베타 가치 평가 점프 버튼 (미국 종목만) */}
+          {selInfo&&selInfo.market==="us"&&<button onClick={()=>{window.location.href=`/beta?ticker=${selInfo.ticker}`;}} style={{width:"100%",padding:"8px",fontWeight:700,fontSize:10,marginBottom:10,background:"linear-gradient(135deg,rgba(245,158,11,.15),rgba(146,64,14,.15))",border:"1px solid #F59E0B",color:"#F59E0B",borderRadius:8,cursor:"pointer"}}>
+            β 베타에서 가치 평가 보기 — F-Score · 적정가 · 야후 목표가
+          </button>}
+
           {/* 체크리스트 */}
           <div style={{...css.card,marginBottom:10,border:`1px solid ${checkOk?C.emerald:C.border}`}}>
             <div style={{fontSize:10,fontWeight:700,color:C.accent,marginBottom:8}}>✅ 매매 전 체크리스트</div>
@@ -5102,6 +5109,7 @@ export default function App() {
                       <div>
                         <span style={{fontWeight:900,fontSize:12}}>{fmtName(t,8)}</span>
                         <span style={{fontSize:7,color:C.muted,marginLeft:6}}>{daysWatched}일째 관찰</span>
+                        {t.betaFScore>0 && <span style={{marginLeft:6,fontSize:9,padding:"1px 5px",borderRadius:3,background:t.betaFScore>=8?"rgba(245,158,11,.15)":t.betaFScore>=7?"rgba(48,209,88,.15)":"rgba(255,159,10,.15)",color:t.betaFScore>=8?"#F59E0B":t.betaFScore>=7?"#30D158":"#FF9F0A",border:`1px solid ${t.betaFScore>=8?"#F59E0B":t.betaFScore>=7?"#30D158":"#FF9F0A"}40`,fontWeight:700}}>β F{t.betaFScore}/9</span>}
                       </div>
                       <div style={{textAlign:"right"}}>
                         <span style={{fontSize:18,fontWeight:900,color:chg>=0?C.green:C.red}}>{chg>=0?"+":""}{chg}%</span>
