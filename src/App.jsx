@@ -4284,7 +4284,26 @@ export default function App() {
                                 onClick={()=>navigateToStock(stock.ticker,stock)}>
                                 <td style={{padding:"5px 5px"}}>
                                   <div style={{fontWeight:700,fontSize:9,maxWidth:82,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isFlip?"🚀":isBreakout?"🔥":""}{fmtName(stock,8)}</div>
-                                  <div style={{fontSize:6,color:C.muted}}>{/^\d{6}$/.test(stock.ticker)?stock.ticker:stock.label?.slice(0,8)}</div>
+                                  <div style={{fontSize:6,color:C.muted,display:"flex",gap:3,alignItems:"center"}}>
+                                    <span>{/^\d{6}$/.test(stock.ticker)?stock.ticker:stock.label?.slice(0,8)}</span>
+                                    {(() => {
+                                      const fin = financials[stock.ticker];
+                                      if (!fin) return null;
+                                      const ks = fin.keyStats || {};
+                                      const incL = fin.income?.latest;
+                                      const balC = fin.balance?.current;
+                                      if (!incL || !balC) return null;
+                                      // 간이 F-Score (3개 핵심)
+                                      let s = 0, m = 0;
+                                      if (incL.netIncome != null) { m++; if (incL.netIncome > 0) s++; }
+                                      if (fin.cashflow?.latest?.operatingCashflow != null) { m++; if (fin.cashflow.latest.operatingCashflow > 0) s++; }
+                                      if (ks.returnOnAssets != null) { m++; if (ks.returnOnAssets > 0) s++; }
+                                      if (m === 0) return null;
+                                      const score9 = Math.round(s * 9 / m);
+                                      const c = score9 >= 8 ? "#F59E0B" : score9 >= 6 ? C.emerald : "#FF9F0A";
+                                      return <span style={{color:c,fontWeight:800,fontSize:6,padding:"0 3px",borderRadius:2,border:`1px solid ${c}40`}}>βF{score9}</span>;
+                                    })()}
+                                  </div>
                                 </td>
                                 <td style={{padding:"5px 4px"}}><span style={{fontWeight:800,fontSize:10,color:isGold?"#FF9F0A":C.accent}}>{stock.score}</span></td>
                                 <td style={{padding:"5px 3px"}}><span style={{fontWeight:900,fontSize:10,color:tColor}}>{stock.timing||0}</span></td>
@@ -5036,6 +5055,53 @@ export default function App() {
           {selInfo&&selInfo.market==="us"&&<button onClick={()=>{window.location.href=`/beta?ticker=${selInfo.ticker}`;}} style={{width:"100%",padding:"8px",fontWeight:700,fontSize:10,marginBottom:10,background:"linear-gradient(135deg,rgba(245,158,11,.15),rgba(146,64,14,.15))",border:"1px solid #F59E0B",color:"#F59E0B",borderRadius:8,cursor:"pointer"}}>
             β 베타에서 가치 평가 보기 — F-Score · 적정가 · 야후 목표가
           </button>}
+
+          {/* ★ v2.5.0: 펀더멘탈 요약 (베타 데이터) */}
+          {selInfo&&financials[sel]&&(() => {
+            const fin = financials[sel];
+            const ks = fin.keyStats || {};
+            const incL = fin.income?.latest;
+            const incP = fin.income?.prior;
+            const balC = fin.balance?.current;
+            const balY = fin.balance?.yearAgo;
+            const cfL = fin.cashflow?.latest;
+            if (!incL || !balC) return null;
+            // F-Score 8개 컴포넌트 평가
+            let score = 0, max = 0;
+            const checks = [];
+            if (incL.netIncome != null && balC.totalAssets) { max++; const v = incL.netIncome / balC.totalAssets > 0; if(v) score++; checks.push({k:"ROA>0",v}); }
+            if (cfL?.operatingCashflow != null) { max++; const v = cfL.operatingCashflow > 0; if(v) score++; checks.push({k:"CFO>0",v}); }
+            if (incL.netIncome && incP?.netIncome && balC.totalAssets && balY?.totalAssets) { max++; const v = (incL.netIncome/balC.totalAssets) > (incP.netIncome/balY.totalAssets); if(v) score++; checks.push({k:"ROA↑",v}); }
+            if (cfL?.operatingCashflow != null && incL.netIncome != null) { max++; const v = cfL.operatingCashflow > incL.netIncome; if(v) score++; checks.push({k:"CFO>NI",v}); }
+            if (balC.totalDebt != null && balY?.totalDebt != null && balC.totalAssets && balY.totalAssets) { max++; const v = (balC.totalDebt/balC.totalAssets) < (balY.totalDebt/balY.totalAssets); if(v) score++; checks.push({k:"부채↓",v}); }
+            if (balC.currentAssets && balC.currentLiabilities && balY?.currentAssets && balY?.currentLiabilities) { max++; const v = (balC.currentAssets/balC.currentLiabilities) > (balY.currentAssets/balY.currentLiabilities); if(v) score++; checks.push({k:"유동성↑",v}); }
+            if (incL.grossProfit && incL.revenue && incP?.grossProfit && incP?.revenue) { max++; const v = (incL.grossProfit/incL.revenue) > (incP.grossProfit/incP.revenue); if(v) score++; checks.push({k:"마진↑",v}); }
+            if (incL.revenue && balC.totalAssets && incP?.revenue && balY?.totalAssets) { max++; const v = (incL.revenue/balC.totalAssets) > (incP.revenue/balY.totalAssets); if(v) score++; checks.push({k:"자산회전↑",v}); }
+            if (max === 0) return null;
+            const score9 = Math.round(score * 9 / max);
+            const fc = score9 >= 8 ? "#F59E0B" : score9 >= 7 ? C.emerald : score9 >= 5 ? C.yellow : C.red;
+            return (
+              <div style={{padding:"8px 10px",marginBottom:10,borderRadius:8,background:`${fc}10`,border:`1px solid ${fc}40`}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                  <span style={{fontSize:9,color:C.muted,fontWeight:600}}>📊 펀더멘탈 (베타)</span>
+                  <span style={{fontSize:14,fontWeight:900,color:fc}}>F {score9}/9</span>
+                </div>
+                <div style={{display:"flex",gap:4,flexWrap:"wrap",fontSize:7}}>
+                  {checks.map((c,i)=>(
+                    <span key={i} style={{padding:"1px 4px",borderRadius:2,background:c.v?"rgba(48,209,88,.1)":"rgba(255,69,58,.1)",color:c.v?C.emerald:C.red}}>
+                      {c.v?"✓":"✗"} {c.k}
+                    </span>
+                  ))}
+                </div>
+                <div style={{fontSize:7,color:C.muted,marginTop:5,display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {ks.trailingPE && <span>P/E {ks.trailingPE.toFixed(1)}</span>}
+                  {ks.priceToBook && <span>P/B {ks.priceToBook.toFixed(1)}</span>}
+                  {ks.returnOnEquity != null && <span>ROE {(ks.returnOnEquity*100).toFixed(0)}%</span>}
+                  {ks.targetMeanPrice && ks.currentPrice && <span style={{color:ks.targetMeanPrice>ks.currentPrice?C.emerald:C.red}}>목표가 {((ks.targetMeanPrice-ks.currentPrice)/ks.currentPrice*100).toFixed(1)}%</span>}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* 체크리스트 */}
           <div style={{...css.card,marginBottom:10,border:`1px solid ${checkOk?C.emerald:C.border}`}}>
