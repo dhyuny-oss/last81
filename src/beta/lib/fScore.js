@@ -260,10 +260,11 @@ export function calculateFairValue(fin) {
  * 현재가 vs 야후 애널리스트 목표가
  * @returns { pct: 양수면 목표가가 현재가보다 높음 (상승여력), 음수면 하락 }
  */
-export function calculateTargetDiff(fin) {
+export function calculateTargetDiff(fin, livePrice = null) {
   if (!fin) return null;
   const ks = fin.keyStats || {};
-  const current = safeNum(ks.currentPrice);
+  // ★ 가격 소스 통일: 알파의 최신가(livePrice) 우선, 없으면 월 1회 스냅샷 폴백
+  const current = safeNum(livePrice) ?? safeNum(ks.currentPrice);
   const target = safeNum(ks.targetMeanPrice);
   const high = safeNum(ks.targetHighPrice);
   const low = safeNum(ks.targetLowPrice);
@@ -295,10 +296,15 @@ export function evaluateStock(ticker, fin, poolInfo, candles) {
 
   const ks = fin.keyStats || {};
 
+  // ★ 가격 소스 통일: 알파 최신가 → 마지막 캔들 종가 → keyStats(구 스냅샷)
+  const livePrice = safeNum(poolInfo?.price)
+    ?? safeNum(candles?.length ? candles[candles.length - 1]?.close : null)
+    ?? safeNum(ks.currentPrice);
+
   const fScoreResult = calculateFScore(fin);
   const mfResult = calculateMagicFormula(fin);
   const fairValueResult = calculateFairValue(fin);
-  const targetDiff = calculateTargetDiff(fin);
+  const targetDiff = calculateTargetDiff(fin, livePrice);
 
   if (!fScoreResult.available && !fairValueResult.available) {
     return null;
@@ -355,7 +361,9 @@ export function evaluateStock(ticker, fin, poolInfo, candles) {
     hasCandles: candles && candles.length >= 20,
 
     // 메타
-    currentPrice: safeNum(ks.currentPrice),
+    currentPrice: livePrice,
+    priceSource: safeNum(poolInfo?.price) != null ? 'alpha'
+      : (candles?.length ? 'candle' : 'keyStats-stale'),
   };
 }
 
