@@ -8,7 +8,7 @@ on:
   schedule:
     # 매월 1일 KST 09:00 (UTC 00:00)
     # 알파 quarterly보다 약간 늦게 — 알파 풀 갱신 후 베타가 그걸 사용
-    - cron: '0 0 1 * *'
+    - cron: '30 0 1 * *'
   workflow_dispatch:  # 수동 트리거도 가능
 
 jobs:
