@@ -1298,8 +1298,8 @@ function calcEntryTiming(chartData) {
   let stPts = 0, stLabel = "ST 변화 없음";
   for (let ago = 0; ago < Math.min(5, L-1); ago++) {
     const ci = L-1-ago, pi = ci-1;
-    const stNow = [d[ci].st1Bull,d[ci].st2Bull,d[ci].st3Bull].filter(v=>v!=null).length;
-    const stPrev = [d[pi].st1Bull,d[pi].st2Bull,d[pi].st3Bull].filter(v=>v!=null).length;
+    const stNow = (d[ci]?.bullCount ?? 0);
+    const stPrev = (d[pi]?.bullCount ?? 0);
     if (stNow === 3 && stPrev < 3) {
       stPts = ago === 0 ? 30 : ago === 1 ? 22 : ago === 2 ? 14 : 6;
       stLabel = `ST돌파${ago===0?"오늘":ago+"일전"}`;
@@ -1469,7 +1469,7 @@ function calcTrendDurability(chartData) {
   // ⑦ ST 유지 기간
   let stDays = 0;
   for (let i = L-1; i >= Math.max(0, L-20); i--) {
-    const sc = [d[i].st1Bull, d[i].st2Bull, d[i].st3Bull].filter(v => v != null).length;
+    const sc = (d[i]?.bullCount ?? 0);
     if (sc >= 2) stDays++; else break;
   }
   let stPts = 0, stLabel = stDays > 0 ? `ST ${stDays}일 유지` : "ST 강세 없음";
@@ -1638,8 +1638,8 @@ function calcSustainedStrength(chartData) {
   const breakdown = [];
 
   // ① ST 3/3 유지 (15점) — 효과 +3.6%/62% (최고)
-  const stC = (last.st1Bull ? 1 : 0) + (last.st2Bull ? 1 : 0) + (last.st3Bull ? 1 : 0);
-  const stPrevC = prev ? ((prev.st1Bull ? 1 : 0) + (prev.st2Bull ? 1 : 0) + (prev.st3Bull ? 1 : 0)) : 0;
+  const stC = (last?.bullCount ?? 0);
+  const stPrevC = prev ? ((prev?.bullCount ?? 0)) : 0;
   if (stC >= 3 && stPrevC >= 3) {
     score += 17;
     breakdown.push({ label: "ST 3/3 유지", pts: 17, ok: true });
@@ -1895,7 +1895,7 @@ function getTSTSig(data){if(!data?.length)return{sig:"N/A",bull:0};const l=data[
 // 간략 주식 신호 (SECTORS 없이)
 function getStockSig(chartData){
   const last=chartData?.at(-1);if(!last)return"HOLD";
-  const stC=[last.st1Bull,last.st2Bull,last.st3Bull].filter(v=>v!=null).length;
+  const stC=(last?.bullCount ?? 0);
   if(stC===3&&last.aboveCloud)return"BUY";
   if(stC===0)return"SELL";
   return"HOLD";
@@ -1913,7 +1913,7 @@ function alphaScore(s, chartData, idxRS) {
 
   // 차트 데이터 있을 때 → 전체 지표 활용
   if(last?.aboveCloud){sc+=10;signals.push("구름위");}
-  const stBull=[last?.st1Bull,last?.st2Bull,last?.st3Bull].filter(v=>v!=null).length;
+  const stBull=(last?.bullCount ?? 0);
   if(stBull===3){sc+=15;signals.push("ST매수");}else if(stBull>=2){sc+=8;}
   if(last?.goldenCross){sc+=10;signals.push("골든크로스");}
   if(cd.length>=5){
@@ -2210,14 +2210,13 @@ export default function App() {
     }
   }, []);
  
-// ★ 베타에서 ?watch=AAPL&label=Apple&price=...&fScore=... 로 들어오면 알파 관찰 종목에 자동 추가
+// ★ 외부 링크 ?watch=AAPL&label=Apple&price=... 로 들어오면 관찰 종목에 자동 추가
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const ticker = params.get('watch');
     const label = params.get('label') || ticker;
     const market = params.get('market') || 'us';
     const price = parseFloat(params.get('price')) || 0;
-    const fScore = parseInt(params.get('fScore')) || 0;
     if (ticker) {
       const exists = tracking.find(t => t.ticker === ticker);
       if (!exists) {
@@ -2228,12 +2227,11 @@ export default function App() {
           market: market,
           basePrice: price,
           addedDate: new Date().toLocaleDateString("ko-KR"),
-          foundScore: fScore,
+          foundScore: 0,
           foundSignals: ['β 베타에서 추가'],
           foundRS: 0,
-          betaFScore: fScore,
         }]);
-        setAddMsg(`👁 ${label} 베타에서 관찰 등록 (F-Score ${fScore}/9)`);
+        setAddMsg(`👁 ${label} 관찰 등록`);
         setTimeout(() => setAddMsg(""), 3000);
       } else {
         setAddMsg(`⚠️ ${label} 이미 관찰 중`);
@@ -2622,7 +2620,7 @@ export default function App() {
     const stk = stocks.find(s=>s.ticker===tk) || (pool[tk] ? {ticker:tk, ...pool[tk]} : null);
     const cData = charts[tk]?.data;
     const lastPt = cData?.at(-1);
-    const stCount = [lastPt?.st1Bull,lastPt?.st2Bull,lastPt?.st3Bull].filter(v=>v!=null).length;
+    const stCount = (lastPt?.bullCount ?? 0);
     const entry = {
       id: Date.now(),
       date: new Date().toLocaleDateString("ko-KR"),
@@ -3039,7 +3037,7 @@ export default function App() {
   }).map(s=>{
     const r=alphaScore(s,charts[s.ticker]?.data,idxRS);
     const lD=charts[s.ticker]?.data?.at(-1);
-    const stCount=[lD?.st1Bull,lD?.st2Bull,lD?.st3Bull].filter(v=>v!=null).length;
+    const stCount=(lD?.bullCount ?? 0);
     const cloudSt=lD?.aboveCloud?"above":lD?.nearCloud?"near":"below";
     const rsVal=r.rs||0;
     if(fST>0&&stCount<fST)return null;
@@ -3053,7 +3051,7 @@ export default function App() {
     if(chg3d>0&&chg3d>chg5d){accelTags.push("🚀가속");accelScore+=3;}
     if(chg3d>2&&chg5d>0){accelTags.push("⚡급등");accelScore+=2;}
     const pD=charts[s.ticker]?.data?.at(-2);
-    const stPrev=pD?[pD.st1Bull,pD.st2Bull,pD.st3Bull].filter(v=>v!=null).length:0;
+    const stPrev=pD?(pD?.bullCount ?? 0):0;
     if(stCount>stPrev&&stCount>=2){accelTags.push("📈ST↑");accelScore+=2;}
     if(stCount===3&&stPrev<3){accelTags.push("🔥ST풀");accelScore+=3;}
     if(lD&&pD&&lD.macd>lD.signal&&pD.macd<=pD.signal){accelTags.push("⚡MACD↑");accelScore+=2;}
@@ -4274,7 +4272,7 @@ export default function App() {
                           {hits.map((stock,i)=>{
                             const cdc=charts[stock.ticker]?.data;
                             const lD=cdc?.at(-1);const prevD=cdc?.at(-2);
-                            const stC=[lD?.st1Bull,lD?.st2Bull,lD?.st3Bull].filter(v=>v!=null).length;
+                            const stC=(lD?.bullCount ?? 0);
                             const isGold=(stock.score||0)>=85;
                             const inW=watchlist.find(w=>w.ticker===stock.ticker);
                             const pInfo=pool[stock.ticker]||{};
@@ -4289,23 +4287,6 @@ export default function App() {
                                   <div style={{fontWeight:700,fontSize:9,maxWidth:82,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isFlip?"🚀":isBreakout?"🔥":""}{fmtName(stock,8)}</div>
                                   <div style={{fontSize:6,color:C.muted,display:"flex",gap:3,alignItems:"center"}}>
                                     <span>{/^\d{6}$/.test(stock.ticker)?stock.ticker:stock.label?.slice(0,8)}</span>
-                                    {(() => {
-                                      const fin = financials[stock.ticker];
-                                      if (!fin) return null;
-                                      const ks = fin.keyStats || {};
-                                      const incL = fin.income?.latest;
-                                      const balC = fin.balance?.current;
-                                      if (!incL || !balC) return null;
-                                      // 간이 F-Score (3개 핵심)
-                                      let s = 0, m = 0;
-                                      if (incL.netIncome != null) { m++; if (incL.netIncome > 0) s++; }
-                                      if (fin.cashflow?.latest?.operatingCashflow != null) { m++; if (fin.cashflow.latest.operatingCashflow > 0) s++; }
-                                      if (ks.returnOnAssets != null) { m++; if (ks.returnOnAssets > 0) s++; }
-                                      if (m === 0) return null;
-                                      const score9 = Math.round(s * 9 / m);
-                                      const c = score9 >= 8 ? "#F59E0B" : score9 >= 6 ? C.emerald : "#FF9F0A";
-                                      return <span style={{color:c,fontWeight:800,fontSize:6,padding:"0 3px",borderRadius:2,border:`1px solid ${c}40`}}>βF{score9}</span>;
-                                    })()}
                                   </div>
                                 </td>
                                 <td style={{padding:"5px 4px"}}><span style={{fontWeight:800,fontSize:10,color:isGold?"#FF9F0A":C.accent}}>{stock.score}</span></td>
@@ -4543,8 +4524,8 @@ export default function App() {
             const prev = cd.data.at(-2);
             const prev3 = cd.data.at(-4);
             // ① ST
-            const stC = [last.st1Bull,last.st2Bull,last.st3Bull].filter(v=>v!=null).length;
-            const stPrev = [prev?.st1Bull,prev?.st2Bull,prev?.st3Bull].filter(v=>v!=null).length;
+            const stC = (last?.bullCount ?? 0);
+            const stPrev = (prev?.bullCount ?? 0);
             const stArrow = stC>stPrev?"↑":stC<stPrev?"↓":"→";
             const stColor = stC===3?C.emerald:stC===2?C.green:stC===1?C.yellow:C.muted;
             // ② MACD 방향 (hist 가속/둔화 + 양/음)
@@ -5077,58 +5058,6 @@ export default function App() {
             <button onClick={()=>{setTab("track");setTrackTab("watch");}} style={{fontSize:9,color:C.accent,background:"none",border:"none",cursor:"pointer",textDecoration:"underline",fontWeight:700}}>추적탭에서 확인</button>
           </div>}
 
-          {/* ★ v2.5.0: 베타 가치 평가 점프 버튼 (미국 종목만) */}
-          {selInfo&&selInfo.market==="us"&&<button onClick={()=>{window.location.href=`/beta?ticker=${selInfo.ticker}`;}} style={{width:"100%",padding:"8px",fontWeight:700,fontSize:10,marginBottom:10,background:"linear-gradient(135deg,rgba(245,158,11,.15),rgba(146,64,14,.15))",border:"1px solid #F59E0B",color:"#F59E0B",borderRadius:8,cursor:"pointer"}}>
-            β 베타에서 가치 평가 보기 — F-Score · 적정가 · 야후 목표가
-          </button>}
-
-          {/* ★ v2.5.0: 펀더멘탈 요약 (베타 데이터) */}
-          {selInfo&&financials[sel]&&(() => {
-            const fin = financials[sel];
-            const ks = fin.keyStats || {};
-            const incL = fin.income?.latest;
-            const incP = fin.income?.prior;
-            const balC = fin.balance?.current;
-            const balY = fin.balance?.yearAgo;
-            const cfL = fin.cashflow?.latest;
-            if (!incL || !balC) return null;
-            // F-Score 8개 컴포넌트 평가
-            let score = 0, max = 0;
-            const checks = [];
-            if (incL.netIncome != null && balC.totalAssets) { max++; const v = incL.netIncome / balC.totalAssets > 0; if(v) score++; checks.push({k:"ROA>0",v}); }
-            if (cfL?.operatingCashflow != null) { max++; const v = cfL.operatingCashflow > 0; if(v) score++; checks.push({k:"CFO>0",v}); }
-            if (incL.netIncome && incP?.netIncome && balC.totalAssets && balY?.totalAssets) { max++; const v = (incL.netIncome/balC.totalAssets) > (incP.netIncome/balY.totalAssets); if(v) score++; checks.push({k:"ROA↑",v}); }
-            if (cfL?.operatingCashflow != null && incL.netIncome != null) { max++; const v = cfL.operatingCashflow > incL.netIncome; if(v) score++; checks.push({k:"CFO>NI",v}); }
-            if (balC.totalDebt != null && balY?.totalDebt != null && balC.totalAssets && balY.totalAssets) { max++; const v = (balC.totalDebt/balC.totalAssets) < (balY.totalDebt/balY.totalAssets); if(v) score++; checks.push({k:"부채↓",v}); }
-            if (balC.currentAssets && balC.currentLiabilities && balY?.currentAssets && balY?.currentLiabilities) { max++; const v = (balC.currentAssets/balC.currentLiabilities) > (balY.currentAssets/balY.currentLiabilities); if(v) score++; checks.push({k:"유동성↑",v}); }
-            if (incL.grossProfit && incL.revenue && incP?.grossProfit && incP?.revenue) { max++; const v = (incL.grossProfit/incL.revenue) > (incP.grossProfit/incP.revenue); if(v) score++; checks.push({k:"마진↑",v}); }
-            if (incL.revenue && balC.totalAssets && incP?.revenue && balY?.totalAssets) { max++; const v = (incL.revenue/balC.totalAssets) > (incP.revenue/balY.totalAssets); if(v) score++; checks.push({k:"자산회전↑",v}); }
-            if (max === 0) return null;
-            const score9 = Math.round(score * 9 / max);
-            const fc = score9 >= 8 ? "#F59E0B" : score9 >= 7 ? C.emerald : score9 >= 5 ? C.yellow : C.red;
-            return (
-              <div style={{padding:"8px 10px",marginBottom:10,borderRadius:8,background:`${fc}10`,border:`1px solid ${fc}40`}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                  <span style={{fontSize:9,color:C.muted,fontWeight:600}}>📊 펀더멘탈 (베타)</span>
-                  <span style={{fontSize:14,fontWeight:900,color:fc}}>F {score9}/9</span>
-                </div>
-                <div style={{display:"flex",gap:4,flexWrap:"wrap",fontSize:7}}>
-                  {checks.map((c,i)=>(
-                    <span key={i} style={{padding:"1px 4px",borderRadius:2,background:c.v?"rgba(48,209,88,.1)":"rgba(255,69,58,.1)",color:c.v?C.emerald:C.red}}>
-                      {c.v?"✓":"✗"} {c.k}
-                    </span>
-                  ))}
-                </div>
-                <div style={{fontSize:7,color:C.muted,marginTop:5,display:"flex",gap:8,flexWrap:"wrap"}}>
-                  {ks.trailingPE && <span>P/E {ks.trailingPE.toFixed(1)}</span>}
-                  {ks.priceToBook && <span>P/B {ks.priceToBook.toFixed(1)}</span>}
-                  {ks.returnOnEquity != null && <span>ROE {(ks.returnOnEquity*100).toFixed(0)}%</span>}
-                  {ks.targetMeanPrice && ks.currentPrice && <span style={{color:ks.targetMeanPrice>ks.currentPrice?C.emerald:C.red}}>목표가 {((ks.targetMeanPrice-ks.currentPrice)/ks.currentPrice*100).toFixed(1)}%</span>}
-                </div>
-              </div>
-            );
-          })()}
-
           {/* 체크리스트 */}
           <div style={{...css.card,marginBottom:10,border:`1px solid ${checkOk?C.emerald:C.border}`}}>
             <div style={{fontSize:10,fontWeight:700,color:C.accent,marginBottom:8}}>✅ 매매 전 체크리스트</div>
@@ -5152,7 +5081,7 @@ export default function App() {
           {/* 매수 등록 */}
           <button onClick={()=>{
             if(!checkOk)return;
-            const snap={stCount:[lastD?.st1Bull,lastD?.st2Bull,lastD?.st3Bull].filter(v=>v!=null).length,cloud:lastD?.aboveCloud?"above":lastD?.nearCloud?"near":"below",macdCross:lastD?.macd>lastD?.signal,rsi:lastD?.rsi?+lastD.rsi.toFixed(0):null,vix:+vixVal.toFixed(1),oppScore,foundTiming:selTiming.score,foundDurability:selDurability.score};
+            const snap={stCount:(lastD?.bullCount ?? 0),cloud:lastD?.aboveCloud?"above":lastD?.nearCloud?"near":"below",macdCross:lastD?.macd>lastD?.signal,rsi:lastD?.rsi?+lastD.rsi.toFixed(0):null,vix:+vixVal.toFixed(1),oppScore,foundTiming:selTiming.score,foundDurability:selDurability.score};
             const initAmt=prompt("투입 금액 (만원 단위, 예: 50):");
             if(!initAmt)return;
             const realAmt=parseInt(initAmt)*10000;
@@ -5201,7 +5130,6 @@ export default function App() {
                       <div>
                         <span style={{fontWeight:900,fontSize:12}}>{fmtName(t,8)}</span>
                         <span style={{fontSize:7,color:C.muted,marginLeft:6}}>{daysWatched}일째 관찰</span>
-                        {t.betaFScore>0 && <span style={{marginLeft:6,fontSize:9,padding:"1px 5px",borderRadius:3,background:t.betaFScore>=8?"rgba(245,158,11,.15)":t.betaFScore>=7?"rgba(48,209,88,.15)":"rgba(255,159,10,.15)",color:t.betaFScore>=8?"#F59E0B":t.betaFScore>=7?"#30D158":"#FF9F0A",border:`1px solid ${t.betaFScore>=8?"#F59E0B":t.betaFScore>=7?"#30D158":"#FF9F0A"}40`,fontWeight:700}}>β F{t.betaFScore}/9</span>}
                       </div>
                       <div style={{textAlign:"right"}}>
                         <span style={{fontSize:18,fontWeight:900,color:chg>=0?C.green:C.red}}>{chg>=0?"+":""}{chg}%</span>
@@ -5245,7 +5173,7 @@ export default function App() {
                       <button onClick={()=>navigateToStock(t.ticker,t)} style={{flex:1,background:"rgba(56,189,248,.1)",border:`1px solid ${C.accent}`,color:C.accent,borderRadius:6,padding:"6px 0",cursor:"pointer",fontSize:9,fontWeight:700}}>📊 차트</button>
                       <button onClick={()=>{
                         const lD=cdc?.at(-1);const pInfo=pool[t.ticker]||{};
-                        const snap={stCount:[lD?.st1Bull,lD?.st2Bull,lD?.st3Bull].filter(v=>v!=null).length,cloud:lD?.aboveCloud?"above":lD?.nearCloud?"near":"below",vix:+vixVal.toFixed(1),oppScore,foundTiming:tm.score,foundDurability:dr.score};
+                        const snap={stCount:(lD?.bullCount ?? 0),cloud:lD?.aboveCloud?"above":lD?.nearCloud?"near":"below",vix:+vixVal.toFixed(1),oppScore,foundTiming:tm.score,foundDurability:dr.score};
                         const amt=prompt("투입 금액 (만원 단위, 예: 50):");
                         if(!amt)return;const realAmt=parseInt(amt)*10000;
                         const autoMode=realAmt>(riskSettings.totalCapital||5000000)?"special":"basic";
@@ -5305,7 +5233,7 @@ export default function App() {
                   const isTimeCut=tc.isTimeCut;
                   // ★ v2.2: BUY/HOLD/SELL 판정
                   const posLd=charts[pos.ticker]?.data?.at(-1);
-                  const posStCount=[posLd?.st1Bull,posLd?.st2Bull,posLd?.st3Bull].filter(v=>v!=null).length;
+                  const posStCount=(posLd?.bullCount ?? 0);
                   const nextPyramid=(pos.pyramid||[]).find(lv=>!lv.triggered);
                   const holdSignal=near?"SELL":isTimeCut?"SELL":posStCount===0&&posLd?"SELL":pnl<-7?"SELL":volDrop&&pnl<0?"SELL"
                     :nextPyramid&&pnl>=nextPyramid.targetPct?"ADD":posStCount===3&&pnl>0&&rs>0?"ADD"
@@ -5869,7 +5797,7 @@ export default function App() {
                   try { timingPt = calcEntryTiming(dCut).score || 0; } catch{}
                   try { durPt = calcTrendDurability(dCut).score || 0; } catch{}
 
-                  const stC = [candle.st1Bull, candle.st2Bull, candle.st3Bull].filter(v=>v!=null).length;
+                  const stC = (candle?.bullCount ?? 0);
                   const volR = candle.volRatio || 0;
 
                   // ★ v2.4.0: 수급 시그널 제거 + 거래량 120%↑를 돌파/적기 필수 조건으로 통합
@@ -5895,7 +5823,7 @@ export default function App() {
                   const prev = idx > 0 ? d[idx-1] : null;
                   let breakoutCount = 0;
                   if (prev) {
-                    const stPrev = [prev.st1Bull, prev.st2Bull, prev.st3Bull].filter(v=>v!=null).length;
+                    const stPrev = (prev?.bullCount ?? 0);
                     if (stC > stPrev) breakoutCount++;
                     if (candle.macd > candle.signal && prev.macd <= prev.signal) breakoutCount++;
                     if (candle.aboveCloud && !prev.aboveCloud) breakoutCount++;
@@ -5945,11 +5873,11 @@ export default function App() {
                     cloudBreak = (candle.aboveCloud && !prev.aboveCloud);
                     sqzOff = (candle.sqzOff && prev.sqzOn);
                   }
-                  const stFlip = prev ? (stC > [prev.st1Bull,prev.st2Bull,prev.st3Bull].filter(v=>v!=null).length) : false;
+                  const stFlip = prev ? (stC > (prev?.bullCount ?? 0)) : false;
 
                   // ★ v2.3.16: ST 전환 패턴 분리 (사용자 분 매수 철학)
                   // "계속 가겠네 싶을 때 사는 것" = ST 2→3 전환이 진짜 매수 타점
-                  const stPrevCount = prev ? [prev.st1Bull, prev.st2Bull, prev.st3Bull].filter(v=>v!=null).length : 0;
+                  const stPrevCount = prev ? (prev?.bullCount ?? 0) : 0;
                   const c_st_2to3 = (stPrevCount === 2 && stC === 3);  // 사용자 분 매수 타점
                   const c_st_1to2 = (stPrevCount === 1 && stC === 2);  // 오르자마자 (위험)
                   const c_st_0to3 = (stPrevCount <= 1 && stC === 3);   // 약세→3 점프 (드물지만 강력)
