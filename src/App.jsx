@@ -1890,6 +1890,70 @@ function getSignalsV2(chartData) {
   };
 }
 
+
+// ═══════════════════════════════════════════════════════════
+// ★ v3.4.0: 데이터 신호 — 세션 인식 신선도 판정
+//   원칙: "오래됐다"가 아니라 "지금 장중인데 오래됐다"만 경고
+//   세션 시각은 야후 currentTradingPeriod 실측 기준 (KST)
+// ═══════════════════════════════════════════════════════════
+const APP_VERSION = "v3.4.0";
+
+// 갱신 예정 시각 (KST, 평일) — .github/workflows 크론과 반드시 일치시킬 것
+const UPDATE_SLOTS_KST = [
+  [9,5,"한국 개장"],[12,30,"한국 점심"],[16,0,"한국 마감 후"],
+  [20,0,"미국 프리마켓"],[22,45,"미국 개장"],[23,45,"미국 개장(겨울)"],
+  [2,0,"미국 장중"],[6,30,"미국 마감 후"],
+];
+
+function getMarketState(nowMs){
+  const now = new Date(nowMs);
+  // KST 로 변환 (브라우저 시간대와 무관하게 계산)
+  const kst = new Date(now.getTime() + now.getTimezoneOffset()*60000 + 9*3600000);
+  const dow = kst.getDay();                       // 0=일 … 6=토
+  const mins = kst.getHours()*60 + kst.getMinutes();
+  const wd = dow>=1 && dow<=5;
+
+  // 한국: 프리 07:30~09:00 · 정규 09:00~15:30 · 시간외 ~18:00
+  const krRegular = wd && mins>=540 && mins<=930;
+  const krExt     = wd && ((mins>=450 && mins<540) || (mins>930 && mins<=1080));
+  // 미국(여름 기준): 프리 17:00~22:30 · 정규 22:30~05:00 · 애프터 05:00~09:00
+  const usRegular = (wd && mins>=1350) || (mins<=300 && dow>=2 && dow<=6);
+  const usPre     = wd && mins>=1020 && mins<1350;
+  const usAfter   = mins>300 && mins<=540 && dow>=2 && dow<=6;
+
+  // 주말: 토 05:00 이후 ~ 월 07:30 이전
+  const weekend = (dow===0) || (dow===6 && mins>300) || (dow===1 && mins<450);
+  const anyOpen = krRegular || usRegular;
+  const anySession = anyOpen || krExt || usPre || usAfter;
+
+  // 다음 갱신 예정
+  let next = null;
+  if (!weekend) {
+    let best = Infinity;
+    for (const [h,m,label] of UPDATE_SLOTS_KST){
+      let d = (h*60+m) - mins;
+      if (d < 0) d += 1440;
+      if (d < best){ best = d; next = {label, hh:h, mm:m, inMin:d}; }
+    }
+  }
+  return {kst, dow, mins, wd, krRegular, krExt, usRegular, usPre, usAfter, weekend, anyOpen, anySession, next};
+}
+
+// 신선도 배지 — 세션을 알고 판단
+function getFreshness(lastUpdatedMs, nowMs){
+  const st = getMarketState(nowMs);
+  if (!lastUpdatedMs) return {...st, emoji:"⚪", label:"데이터 없음", color:"#6B7280", tone:"none"};
+  const ageMin = Math.floor((nowMs - lastUpdatedMs)/60000);
+  const ageTxt = ageMin<60 ? `${ageMin}분 전`
+    : ageMin<1440 ? `${Math.floor(ageMin/60)}시간 전`
+    : `${(ageMin/1440).toFixed(1)}일 전`;
+  if (st.weekend)   return {...st, ageMin, emoji:"🔵", label:`주말 휴장 · ${ageTxt}`, color:"#06B6D4", tone:"closed"};
+  if (!st.anyOpen)  return {...st, ageMin, emoji:"⚪", label:`장마감 · ${ageTxt}`,    color:"#6B7280", tone:"closed"};
+  if (ageMin < 60)  return {...st, ageMin, emoji:"🟢", label:ageTxt, color:"#30D158", tone:"fresh"};
+  if (ageMin < 240) return {...st, ageMin, emoji:"🟡", label:ageTxt, color:"#F59E0B", tone:"lag"};
+  return {...st, ageMin, emoji:"🔴", label:`${ageTxt} — 수집 지연`, color:"#FF453A", tone:"bad"};
+}
+
 function getTSTSig(data){if(!data?.length)return{sig:"N/A",bull:0};const l=data[data.length-1];return{sig:l.bullCount===3?"BUY":l.bullCount>=2?"HOLD":"SELL",bull:l.bullCount};}
 
 // 간략 주식 신호 (SECTORS 없이)
@@ -3138,27 +3202,25 @@ export default function App() {
           <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap"}}>
             {dataStatus==="loading"&&<span style={{fontSize:9,color:C.accent}}>로딩중...</span>}
             {dataStatus==="real"&&(()=>{
-              const now=new Date();const h=now.getHours(),m=now.getMinutes(),t=h*60+m;
-              const krOpen=t>=540&&t<=930;const usOpen=t>=1410||t<=360;
-              const refreshMode=h<3?{label:"갱신OFF",color:C.muted}:{label:"30분갱신",color:C.emerald};
-              const upd=lastUpdated?new Date(lastUpdated):null;
-              // ★ v2.3.1: 신선도 기반 라벨 — 현재 시각 기준 데이터 경과시간으로 판단
-              // 기존 버그: 라벨이 갱신 시각의 분 단위만 보고 결정됨 → 일요일에도 "장중" 표시되는 문제
-              const ageMin = upd ? Math.floor((now - upd) / 60000) : Infinity;
-              const ageH = ageMin / 60;
-              const stale = ageMin === Infinity ? {emoji:"⚪",label:"없음",color:C.muted}
-                : ageMin < 90 ? {emoji:"🟢",label:`${ageMin}분전`,color:C.emerald}
-                : ageH < 9 ? {emoji:"🟡",label:`${ageH.toFixed(0)}시간전`,color:C.yellow}
-                : ageH < 24 ? {emoji:"🟠",label:`${ageH.toFixed(0)}시간전`,color:"#FF9F0A"}
-                : ageH < 48 ? {emoji:"🔴",label:`${ageH.toFixed(0)}시간전`,color:C.red}
-                : {emoji:"🔴",label:`${(ageH/24).toFixed(1)}일전`,color:C.red};
-              const updFmt=upd?`${upd.getMonth()+1}/${upd.getDate()} ${upd.toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit"})}`:"";
+              // ★ v3.4.0: 세션 인식 데이터 신호 — 신호(종가) / 가격(갱신) / 다음 예정 분리
+              const nowMs = Date.now();
+              const fr = getFreshness(lastUpdated ? new Date(lastUpdated).getTime() : null, nowMs);
+              const upd = lastUpdated ? new Date(lastUpdated) : null;
+              const updFmt = upd ? `${upd.getMonth()+1}/${upd.getDate()} ${upd.toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit"})}` : "";
+              const sigDate = upd ? `${String(upd.getMonth()+1).padStart(2,"0")}-${String(upd.getDate()).padStart(2,"0")}` : "—";
+              const nx = fr.next;
+              const nxTxt = fr.weekend ? "월요일 09:05"
+                : nx ? `${String(nx.hh).padStart(2,"0")}:${String(nx.mm).padStart(2,"0")}` : "—";
+              const chip=(bg,col,bd)=>({fontSize:9,padding:"2px 6px",borderRadius:4,background:bg,color:col,fontWeight:600,border:bd});
+              const mk=(open,ext)=>open?{t:"장중",c:C.green,b:"rgba(48,209,88,.12)"}:ext?{t:"시간외",c:C.yellow,b:"rgba(245,158,11,.10)"}:{t:"휴장",c:C.muted,b:"rgba(255,255,255,.04)"};
+              const kr=mk(fr.krRegular,fr.krExt), us=mk(fr.usRegular,fr.usPre||fr.usAfter);
               return<>
-                <span style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:krOpen?"rgba(48,209,88,.12)":"rgba(255,255,255,.04)",color:krOpen?C.green:C.muted,fontWeight:600}}>🇰🇷 {krOpen?"장중":"휴장"}</span>
-                <span style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:usOpen?"rgba(48,209,88,.12)":"rgba(255,255,255,.04)",color:usOpen?C.green:C.muted,fontWeight:600}}>🇺🇸 {usOpen?"장중":"휴장"}</span>
-                <span style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:`${refreshMode.color}15`,color:refreshMode.color,fontWeight:600,border:`1px solid ${refreshMode.color}40`}}>⏱ {refreshMode.label}</span>
-                <span title={`마지막 갱신: ${updFmt}`} style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:`${stale.color}15`,color:stale.color,fontWeight:700,border:`1px solid ${stale.color}40`}}>{stale.emoji} {stale.label}</span>
-                {updFmt&&<span style={{fontSize:7,color:C.muted}}>{updFmt}</span>}
+                <span style={chip(kr.b,kr.c,"none")}>🇰🇷 {kr.t}</span>
+                <span style={chip(us.b,us.c,"none")}>🇺🇸 {us.t}</span>
+                <span title="지표·판단의 기준일 (종가 스냅샷)" style={chip("rgba(255,255,255,.04)",C.muted,`1px solid ${C.border}`)}>신호 {sigDate} 종가</span>
+                <span title={`마지막 갱신: ${updFmt}`} style={chip(`${fr.color}15`,fr.color,`1px solid ${fr.color}40`)}>{fr.emoji} 가격 {fr.label}</span>
+                <span title="다음 자동 갱신 예정" style={chip("rgba(255,255,255,.04)",C.muted,`1px solid ${C.border}`)}>다음 {nxTxt}</span>
+                <span title={`Alpha Terminal ${APP_VERSION}`} style={{fontSize:7,color:C.muted,opacity:.6}}>{APP_VERSION}</span>
               </>;
             })()}
             {dataStatus==="sim"&&<span style={{fontSize:9,color:C.yellow}}>🟡 시뮬</span>}
@@ -3399,15 +3461,17 @@ export default function App() {
         </div>}
         {/* ★ v2.3.1: 데이터 24시간 이상 노후화 시 강력 경고 — 잘못된 분석 방지 */}
         {dataStatus==="real"&&lastUpdated&&(()=>{
-          const ageH = (Date.now() - new Date(lastUpdated).getTime()) / 3600000;
-          if (ageH < 24) return null;
-          // ageH가 30이면 "1.3일", 50이면 "2.1일" 같이 정확히
+          // ★ v3.4.0: 장중인데 수집이 밀린 경우에만 경고 (주말·장마감은 정상이므로 표시 안 함)
+          const fr = getFreshness(new Date(lastUpdated).getTime(), Date.now());
+          if (fr.tone !== "bad") return null;
+          const ageH = fr.ageMin / 60;
           const ageDisplay = ageH < 48 ? `${ageH.toFixed(0)}시간` : `${(ageH/24).toFixed(1)}일`;
+          const where = fr.krRegular ? "한국 장중" : "미국 장중";
           return <div style={{background:"rgba(255,69,58,.12)",border:`1px solid ${C.red}`,borderRadius:6,padding:"6px 10px",margin:"6px 0",display:"flex",alignItems:"center",gap:8,fontSize:9}}>
             <span style={{fontSize:13}}>⚠️</span>
             <div style={{flex:1}}>
-              <div style={{color:C.red,fontWeight:900}}>데이터가 {ageDisplay} 지났어요</div>
-              <div style={{fontSize:7,color:C.muted,marginTop:1}}>워크플로우 누락 가능성 — GitHub Actions에서 수동 실행 필요. 실시간 분석/매매 판단 보류 권장.</div>
+              <div style={{color:C.red,fontWeight:900}}>{where}인데 데이터가 {ageDisplay} 멈춰 있어요</div>
+              <div style={{fontSize:7,color:C.muted,marginTop:1}}>GitHub Actions 실패 가능성 — Actions 탭에서 확인하거나 수동 실행하세요. 매매 판단 보류 권장.</div>
             </div>
           </div>;
         })()}
