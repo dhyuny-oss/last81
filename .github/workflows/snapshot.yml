@@ -1,0 +1,70 @@
+name: Snapshot Build (v4)
+
+# ─────────────────────────────────────────────────────────────
+# v4 지표 스냅샷 파이프라인 — scripts/build_snapshot.py 실행
+#
+# ⚠️ 지금은 수동 실행 전용입니다 (schedule 없음).
+#    이유: 기존 daily/hourly 워크플로가 여전히 stocks.json 을 커밋하고 있어서,
+#          자동 스케줄을 켜면 같은 시각에 두 워크플로가 push 를 시도해 충돌합니다.
+#    새 프론트가 올라가 stocks.json 을 더 안 쓰게 되면 그때 아래 schedule 주석을 풀고
+#    기존 daily/hourly 를 끄면 됩니다.
+#
+# 만드는 파일 (기존 파일은 건드리지 않음):
+#   public/data/snapshot.json   종목별 지표      ~231KB
+#   public/data/market.json     지수·섹터·판단    ~3KB
+#   public/data/candles.json    차트용 일봉      ~8MB
+#
+# 외부 라이브러리 불필요 (파이썬 표준 라이브러리만 사용) → pip install 없음
+# 소요 시간: 약 11분 (726종목)
+# ─────────────────────────────────────────────────────────────
+
+on:
+  workflow_dispatch:          # Actions 탭에서 "Run workflow" 버튼으로 수동 실행
+
+  # ── 프론트 전환 후 아래 주석을 풀어 자동화 (기존 daily/hourly 는 끄고) ──
+  # schedule:
+  #   - cron: '5 0 * * 1-5'     # KST 09:05  한국 개장
+  #   - cron: '30 3 * * 1-5'    # KST 12:30  한국 점심
+  #   - cron: '0 7 * * 1-5'     # KST 16:00  한국 마감 후
+  #   - cron: '0 11 * * 1-5'    # KST 20:00  미국 프리마켓
+  #   - cron: '45 13 * * 1-5'   # KST 22:45  미국 개장 (여름)
+  #   - cron: '45 14 * * 1-5'   # KST 23:45  미국 개장 (겨울)
+  #   - cron: '0 17 * * 1-5'    # KST 02:00  미국 장중
+  #   - cron: '30 21 * * 1-5'   # KST 06:30  미국 마감 후
+  #   - cron: '0 0 * * 6'       # KST 토 09:00 주간 정리
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build snapshot
+        run: python scripts/build_snapshot.py
+
+      - name: Show result
+        run: |
+          echo "── 생성된 파일 ──"
+          ls -lh public/data/snapshot.json public/data/market.json public/data/candles.json
+          echo ""
+          echo "── 요약 ──"
+          python -c "import json;d=json.load(open('public/data/snapshot.json'));print('종목',d['meta']['counts']['stocks'],'· 실패',d['meta']['counts']['failed'],'· 생성',d['meta']['generatedKST'])"
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/data/snapshot.json public/data/market.json public/data/candles.json
+          git diff --staged --quiet || (
+            git commit -m "📦 $(date -u +'%Y-%m-%d %H:%M') 스냅샷 빌드 (v4)"
+            git pull --rebase origin main
+            git push
+          )
