@@ -45,11 +45,13 @@ BENCH = {"us":"^GSPC", "kr":"^KS11"}
 # ══════════════════════════════════════════════════════════════
 # 데이터 수집
 # ══════════════════════════════════════════════════════════════
-def fetch_candles(ticker, tries=3):
-    """전체 히스토리 일봉. period1/period2 방식 (range=max 는 월봉을 줌)"""
-    url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
-           f"?period1=0&period2=9999999999&interval=1d")
+def fetch_candles(ticker, tries=3, min_bars=200):
+    """전체 히스토리 일봉. period1/period2 방식 (range=max 는 월봉을 줌)
+       ★ query1 이 막히면 query2 로 한 번 더 (야후는 종종 한쪽만 404 를 냅니다)"""
     for a in range(tries):
+        host = "query2" if a % 2 else "query1"
+        url = (f"https://{host}.finance.yahoo.com/v8/finance/chart/{ticker}"
+               f"?period1=0&period2=9999999999&interval=1d")
         try:
             req = urllib.request.Request(url, headers=UA)
             d = json.load(urllib.request.urlopen(req, timeout=30))["chart"]["result"][0]
@@ -60,6 +62,10 @@ def fetch_candles(ticker, tries=3):
                 if None in (o,h,l,c): continue
                 out.append({"t":ts[i],"o":round(o,4),"h":round(h,4),
                             "l":round(l,4),"c":round(c,4),"v":int(v or 0)})
+            # ★ 200 OK 인데 봉이 몇 개 안 오는 경우가 있습니다. 조용히 받아들이면
+            #   ma200/추세템플릿이 전부 None 인 종목이 정상인 척 배포됩니다.
+            if len(out) < min_bars and a < tries-1:
+                time.sleep(1.2*(a+1)); continue
             return out, d.get("meta", {})
         except Exception:
             if a == tries-1: return [], {}
@@ -99,6 +105,7 @@ def rsi_wilder(c, n=14):
         d = c[i]-c[i-1]
         ag = (ag*(n-1)+max(d,0))/n
         al = (al*(n-1)+max(-d,0))/n
+    if al == 0 and ag == 0: return None      # 완전 횡보 — 100 이 아니라 값 없음
     if al == 0: return 100.0
     return 100 - 100/(1+ag/al)
 
@@ -147,13 +154,20 @@ def st_count(cd):
     if len(cd) < 20: return None
     return sum(1 for p,m in ((10,1),(11,2),(12,3)) if supertrend(cd,p,m) == 1)
 
+DISP = 26   # 선행스팬 변위
+
 def ichimoku_pos(cd):
-    """★ 최저 '저가' 사용 (기존 App.jsx 는 최고가만 써서 구름 위치가 틀렸음)"""
-    if len(cd) < 52: return None
-    hi=[x["h"] for x in cd]; lo=[x["l"] for x in cd]; n=len(cd)
-    mid = lambda s,e: (max(hi[s:e])+min(lo[s:e]))/2      # ← lows 정상 사용
-    tenkan, kijun = mid(n-9,n), mid(n-26,n)
-    spanA, spanB  = (tenkan+kijun)/2, mid(n-52,n)
+    """일목 구름 위치. 두 가지를 바로잡았습니다.
+       ① 저가 사용 (기존 App.jsx 는 최고가만 써서 중간값이 틀렸음)
+       ② ★ 선행스팬 26봉 변위 — 오늘 자리의 구름은 26봉 전 데이터로 만든 것입니다.
+          변위를 빼먹으면 '아직 그려지지도 않은 미래 구름'과 오늘 종가를 비교하게 됩니다.
+          실제 데이터에서 719종목 중 255종목(35%)의 판정이 달라졌습니다."""
+    if len(cd) < 52 + DISP: return None
+    hi=[x["h"] for x in cd]; lo=[x["l"] for x in cd]
+    e = len(cd) - DISP                                   # 26봉 전에서 창을 끊습니다
+    mid = lambda w: (max(hi[e-w:e])+min(lo[e-w:e]))/2
+    tenkan, kijun = mid(9), mid(26)
+    spanA, spanB  = (tenkan+kijun)/2, mid(52)
     top, bot, c = max(spanA,spanB), min(spanA,spanB), cd[-1]["c"]
     return 1 if c > top else (-1 if c < bot else 0)      # 위/안/아래
 
@@ -171,7 +185,10 @@ def trend_template(cd):
     if None in (ma50, ma150, ma200): return None
     ma200_prev = sma(c[:-22], 200) if len(c) >= 222 else None
     if ma200_prev is None: return None
-    hi252, lo252, px = max(c[-252:]), min(c[-252:]), c[-1]
+    # ★ 52주 고/저는 장중 고가·저가 기준 (증권사·차트사이트와 같은 정의).
+    #   종가만 쓰면 INFY 처럼 -45% vs 실제 -63% 로 18%p 나 벌어집니다.
+    hi252 = max(x["h"] for x in cd[-252:]); lo252 = min(x["l"] for x in cd[-252:])
+    px = c[-1]
     return bool(
         px > ma150 and px > ma200 and ma150 > ma200 and ma200 > ma200_prev and
         ma50 > ma150 and ma50 > ma200 and px > ma50 and
@@ -197,18 +214,27 @@ def healthy_ratio(cd, years=3):
     span = min(756, len(c)-200)
     above = sum(1 for i in range(len(c)-span, len(c))
                 if ma[i] is not None and c[i] > ma[i])
-    return round(above/span, 3)
+    # ★ 실제로 몇 년을 봤는지도 같이 돌려줍니다 — 상장 3년 미만 종목에
+    #   "3년 건강도"라고 적어 놓는 것이 거짓말이 되지 않도록.
+    return round(above/span, 3), round(span/252, 1)
 
 # ══════════════════════════════════════════════════════════════
 # 종목 1개 지표 계산
 # ══════════════════════════════════════════════════════════════
 def build_stock(ticker, cd, meta, name, market, sector):
     if len(cd) < 30: return None
+    # ★ 종목명 — stocks.json 의 label 이 티커와 같으면(미국 425종목이 전부 그랬음)
+    #   야후 meta 의 회사명으로 채웁니다. 추가 요청 0회 (이미 받아둔 응답).
+    if not name or name == ticker:
+        name = meta.get("longName") or meta.get("shortName") or ticker
     c = [x["c"] for x in cd]; v = [x["v"] for x in cd]
     px = c[-1]
     ma200 = sma(c, 200)
     v20 = sma(v, 20); v5 = sma(v, 5)
-    hi252 = max(c[-252:]) if len(c) >= 252 else max(c)
+    # ★ 52주 고점은 장중 고가 기준 — 증권사·차트사이트와 같은 정의입니다.
+    #   종가만 쓰면 INFY 가 -45% 로 나오지만 실제 고점 대비로는 -63% 입니다.
+    win = cd[-252:] if len(cd) >= 252 else cd
+    hi252 = max(x["h"] for x in win)
     hist, prevh = macd_hist(c)
     turn20 = sma([c[i]*v[i] for i in range(len(c))][-20:], 20)
     d = {
@@ -227,7 +253,8 @@ def build_stock(ticker, cd, meta, name, market, sector):
         "w52p":   _r((px/hi252-1)*100) if hi252 else None,
         "tmpl": trend_template(cd),
         "brk":  rebreak(cd),
-        "hlt":  healthy_ratio(cd),
+        "hlt":  (healthy_ratio(cd) or (None,None))[0],
+        "hltY": (healthy_ratio(cd) or (None,None))[1],   # 실제 관측 연수 (3년 미만이면 그대로 표시)
         "bars": len(cd),
         "asOf": datetime.fromtimestamp(cd[-1]["t"], timezone.utc).strftime("%Y-%m-%d"),
     }
@@ -237,6 +264,9 @@ def build_stock(ticker, cd, meta, name, market, sector):
 
 def _r(x, nd=2):
     return None if x is None else round(x, nd)
+
+def _f(x):
+    return "  —  " if x is None else f"{x:+.2f}%"
 
 # ══════════════════════════════════════════════════════════════
 # 시장 · 섹터
@@ -252,14 +282,17 @@ def build_market():
                    "d1":_r(chg(cd,1)),"d3":_r(chg(cd,3)),"d5":_r(chg(cd,5)),"d21":_r(chg(cd,21)),
                    "ma200p": _r((c[-1]/ma200-1)*100) if ma200 else None,
                    "asOf": datetime.fromtimestamp(cd[-1]["t"],timezone.utc).strftime("%Y-%m-%d")}
-        print(f"  {label:8s} {c[-1]:>10,.2f}  1일 {idx[tk]['d1']:+.2f}%  200일선 {idx[tk]['ma200p']:+.1f}%")
+        print(f"  {label:8s} {c[-1]:>10,.2f}  1일 {_f(idx[tk]['d1'])}  200일선 {_f(idx[tk]['ma200p'])}")
 
     risk = {}
     for tk,label in RISK.items():
         cd,_ = fetch_candles(tk); time.sleep(0.25)
         if not cd: continue
         risk[tk] = {"label":label,"c":_r(cd[-1]["c"],3),
-                    "d1":_r(chg(cd,1)),"d5":_r(chg(cd,5)),"d21":_r(chg(cd,21))}
+                    "d1":_r(chg(cd,1)),"d5":_r(chg(cd,5)),"d21":_r(chg(cd,21)),
+                    # ★ 금리는 그 자체가 % 입니다. 상대변화(+6.3%)만 보여주면
+                    #   "6.3%포인트 올랐다"로 읽힙니다 → 절대 변화(%p)도 함께.
+                    "d21p": _r(cd[-1]["c"]-cd[-22]["c"],3) if len(cd)>22 else None}
     if "^TNX" in risk and "^IRX" in risk:
         risk["curve"] = {"label":"10Y-3M","c":_r(risk["^TNX"]["c"]-risk["^IRX"]["c"],3)}
 
@@ -278,7 +311,6 @@ def build_market():
 
     # 섹터 — ★ 캔들로 직접 계산 (chartPreviousClose 폴백 버그 회피)
     secs=[]
-    spy_cd,_ = fetch_candles("^GSPC"); time.sleep(0.2)
     for tk,label in SECTOR_ETFS.items():
         cd,_ = fetch_candles(tk); time.sleep(0.25)
         if len(cd) < 130:
@@ -288,13 +320,19 @@ def build_market():
                      "d1":_r(chg(cd,1)),"d3":_r(chg(cd,3)),"d5":_r(chg(cd,5)),"d21":_r(chg(cd,21)),
                      "m3":_r(chg(cd,63)),"m6":_r(chg(cd,126)),
                      "ma200p":_r((c[-1]/ma200-1)*100) if ma200 else None})
-        print(f"  {label:8s} 1일 {secs[-1]['d1']:+6.2f}%  6개월 {secs[-1]['m6']:+7.2f}%")
+        print(f"  {label:8s} 1일 {_f(secs[-1]['d1'])}  6개월 {_f(secs[-1]['m6'])}")
     secs.sort(key=lambda s: -(s["m6"] if s["m6"] is not None else -999))
     for i,s in enumerate(secs): s["rank"] = i+1
     holds = [s["tk"] for s in secs[:3] if (s["m6"] or 0) > 0]
     defense = len(holds) < 3
 
-    return {"indices":idx, "risk":risk, "judge":judge,
+    # ★ 원/달러 — 배분탭이 "얼마 넣어서 몇 주"를 원화로 말하려면 필요합니다
+    fx = None
+    fx_cd,_ = fetch_candles("USDKRW=X"); time.sleep(0.2)
+    if fx_cd: fx = _r(fx_cd[-1]["c"], 2)
+    print(f"  USD/KRW  {fx}")
+
+    return {"indices":idx, "risk":risk, "judge":judge, "fx":{"usdkrw":fx},
             "sectors":secs, "allocation":{"holds":holds,"defense":defense,"nPositive":len(holds)}}
 
 # ══════════════════════════════════════════════════════════════
@@ -308,8 +346,11 @@ def main():
     universe = {}
     for tk, s in (src.get("stocks") or {}).items():
         mkt = (s.get("market") or "us").lower()
+        # ★ 기존 sector 는 전부 "US"/"Korean" — 섹터가 아니라 시장 이름이라 버립니다
+        sec = s.get("sector") or ""
+        if sec in ("US", "Korean", "KR", "us", "kr"): sec = ""
         universe[tk] = {"name": s.get("label") or tk, "market": mkt,
-                        "sector": s.get("sector") or "",
+                        "sector": sec,
                         "y": tk + (".KS" if mkt=="kr" and not tk.endswith(".KS") else "")}
     print(f"\n📋 유니버스 {len(universe)}종목 "
           f"(kr {sum(1 for x in universe.values() if x['market']=='kr')} · "
@@ -319,27 +360,42 @@ def main():
     market = build_market()
 
     print(f"\n📊 종목 지표 계산 ({len(universe)}종목)")
-    stocks, candles, fails = {}, {}, []
-    for i,(tk,info) in enumerate(universe.items()):
+    stocks, candles = {}, {}
+
+    def try_one(tk, info, pause):
+        """1종목 처리. 성공하면 True. 코스닥(.KQ) 대체까지 포함."""
         cd, meta = fetch_candles(info["y"])
         if len(cd) < 30 and info["market"] == "kr" and info["y"].endswith(".KS"):
-            # ★ 코스닥 종목은 .KS 가 아니라 .KQ — 44종목이 이 때문에 실패했음
+            # ★ 코스닥 종목은 .KS 가 아니라 .KQ — 43종목이 이 때문에 실패했음
+            time.sleep(pause)
             cd, meta = fetch_candles(info["y"][:-3] + ".KQ")
             if len(cd) >= 30: info["y"] = info["y"][:-3] + ".KQ"
-            time.sleep(0.15)
         if len(cd) < 30:
-            fails.append(tk); time.sleep(0.15); continue
+            time.sleep(pause); return False
         cd = cd[-max(BARS_KEEP, 1000):]                # 3년(756일) 건강도 + 200일선 = 956봉 필요
         d = build_stock(tk, cd, meta, info["name"], info["market"], info["sector"])
-        if d:
-            stocks[tk] = d
-            candles[tk] = [[x["t"],x["o"],x["h"],x["l"],x["c"],x["v"]] for x in cd[-BARS_KEEP:]]
-        else:
-            fails.append(tk)
+        time.sleep(pause)
+        if not d: return False
+        stocks[tk] = d
+        candles[tk] = [[x["t"],x["o"],x["h"],x["l"],x["c"],x["v"]] for x in cd[-BARS_KEEP:]]
+        return True
+
+    fails = []
+    for i,(tk,info) in enumerate(universe.items()):
+        if not try_one(tk, info, 0.15): fails.append(tk)
         if (i+1) % 50 == 0:
             print(f"    {i+1}/{len(universe)}  성공 {len(stocks)} 실패 {len(fails)}  "
                   f"({time.time()-t0:.0f}s)", flush=True)
-        time.sleep(0.15)
+
+    # ★ 재시도 패스 — 실패의 대부분은 야후 일시적 스로틀입니다.
+    #   간격을 4배로 늘려 한 번만 다시 시도합니다 (43종목이 이렇게 살아났습니다).
+    if fails:
+        print(f"\n🔁 실패 {len(fails)}종목 재시도 (간격 0.6초)")
+        still = []
+        for tk in fails:
+            if not try_one(tk, universe[tk], 0.6): still.append(tk)
+        print(f"    복구 {len(fails)-len(still)} · 최종 실패 {len(still)}")
+        fails = still
 
     # RS 백분위 — 교차단면 (시장별로 따로)
     print("\n📈 RS 백분위 계산 (교차단면)")
@@ -347,6 +403,8 @@ def main():
         grp = [(tk,d) for tk,d in stocks.items() if d["m"]==mkt and d.get("d21") is not None]
         if len(grp) < 10: continue
         # 63일 수익률 기준 (백테스트와 동일)
+        # ★ 이력이 짧은 종목을 -999 로 밀어 넣으면 "RS 0.0" 이 되어
+        #   진짜 폭락 종목과 구분이 안 됩니다 → 아예 값을 주지 않습니다(None).
         vals=[]
         for tk,d in grp:
             cds = candles.get(tk)
@@ -354,24 +412,60 @@ def main():
             if cds and len(cds) > 63:
                 a,b = cds[-1][4], cds[-64][4]
                 r63 = (a/b-1)*100 if b else None
-            vals.append((tk, r63 if r63 is not None else -999))
-        vals.sort(key=lambda x: x[1])
+            if r63 is None: stocks[tk]["rs"] = None
+            else: vals.append((tk, r63))
         n = len(vals)
-        for rank,(tk,_) in enumerate(vals):
-            stocks[tk]["rs"] = round(rank/(n-1)*100, 1) if n > 1 else 50.0
-        print(f"  {mkt}: {n}종목")
+        if n > 1:
+            vals.sort(key=lambda x: x[1])
+            # 동점은 평균 순위 (같은 수익률인데 백분위가 다르면 안 됩니다)
+            i = 0
+            while i < n:
+                j = i
+                while j+1 < n and vals[j+1][1] == vals[i][1]: j += 1
+                pctl = round(((i+j)/2)/(n-1)*100, 1)
+                for k in range(i, j+1): stocks[vals[k][0]]["rs"] = pctl
+                i = j+1
+        elif n == 1:
+            stocks[vals[0][0]]["rs"] = 50.0
+        print(f"  {mkt}: {n}종목 (이력부족 {len(grp)-n})")
 
     # 거래대금 백분위
     for mkt in ("us","kr"):
-        grp = [(tk,d["tv"]) for tk,d in stocks.items() if d["m"]==mkt and d.get("tv")]
+        # ★ tv==0 을 `if d.get("tv")` 로 걸러내면 그 종목엔 tvr 키가 아예 안 생겨
+        #   프론트의 (tvr ?? 0) >= 40 에서 조용히 사라집니다 → None 체크로 변경
+        grp = [(tk,d["tv"]) for tk,d in stocks.items() if d["m"]==mkt and d.get("tv") is not None]
         if len(grp) < 10: continue
         grp.sort(key=lambda x: x[1]); n=len(grp)
-        for rank,(tk,_) in enumerate(grp):
-            stocks[tk]["tvr"] = round(rank/(n-1)*100, 1)
+        i = 0
+        while i < n:
+            j = i
+            while j+1 < n and grp[j+1][1] == grp[i][1]: j += 1
+            pctl = round(((i+j)/2)/(n-1)*100, 1)
+            for k in range(i, j+1): stocks[grp[k][0]]["tvr"] = pctl
+            i = j+1
+
+    # ══════════════════════════════════════════════════════════
+    # ★ 안전장치 — 야후가 통째로 막힌 날 좋은 데이터를 빈 데이터로 덮어쓰지 않도록.
+    #   기존 파일보다 종목 수가 20% 넘게 줄면 아무것도 쓰지 않고 실패 처리합니다.
+    # ══════════════════════════════════════════════════════════
+    MIN_OK = 0.8
+    if len(stocks) < MIN_OK * len(universe):
+        print(f"\n❌ 성공 {len(stocks)}/{len(universe)} — 유니버스의 {MIN_OK:.0%} 미만입니다. "
+              f"기존 파일을 지키기 위해 쓰지 않고 종료합니다.")
+        sys.exit(1)
+    prev_n = 0
+    try:
+        prev_n = len(json.load(open(f"{OUT_DIR}/snapshot.json", encoding="utf-8"))["stocks"])
+    except Exception: pass
+    if prev_n and len(stocks) < prev_n * MIN_OK:
+        print(f"\n❌ 이번 {len(stocks)}종목 < 기존 {prev_n}종목의 {MIN_OK:.0%}. "
+              f"이상 축소로 보고 쓰지 않고 종료합니다.")
+        sys.exit(1)
 
     now = datetime.now(timezone.utc)
     meta = {"version":VERSION, "generatedAt":now.isoformat(),
             "generatedKST":now.astimezone(KST).strftime("%Y-%m-%d %H:%M"),
+            "failed": fails[:60],
             "counts":{"stocks":len(stocks),"failed":len(fails),
                       "sectors":len(market["sectors"]),"indices":len(market["indices"])}}
 
