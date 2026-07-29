@@ -438,12 +438,43 @@ def build_market():
             "sectors":secs, "allocation":{"holds":holds,"defense":defense,"nPositive":len(holds)}}
 
 # ══════════════════════════════════════════════════════════════
+EXTRA_FILE = "scripts/tickers_extra.txt"
+
+def load_extra(universe):
+    """★ 내가 직접 넣는 종목 목록.
+
+    scripts/tickers_extra.txt 에 한 줄에 하나씩 적으면 됩니다.
+    깃허브 웹에서 그냥 파일 열어 고치시면 됩니다 — 형식은 셋 다 됩니다:
+
+        AAPL                 (미국 — 이름은 야후에서 자동)
+        005930               (숫자 6자리면 한국으로 인식, .KS→.KQ 자동)
+        042660  한화오션        (이름을 직접 적고 싶을 때)
+
+    # 로 시작하는 줄과 빈 줄은 무시합니다.
+    이미 stocks.json 에 있는 종목은 건너뜁니다(중복 추가 안 됨).
+    """
+    if not os.path.exists(EXTRA_FILE):
+        return []
+    added = []
+    for raw in open(EXTRA_FILE, encoding="utf-8"):
+        line = raw.split("#")[0].strip()
+        if not line: continue
+        parts = line.split(None, 1)
+        tk = parts[0].strip().upper()
+        name = parts[1].strip() if len(parts) > 1 else ""
+        if not tk or tk in universe: continue
+        mkt = "kr" if (tk.isdigit() and len(tk) == 6) else "us"
+        universe[tk] = {"name": name or tk, "market": mkt, "sector": "",
+                        "y": tk + (".KS" if mkt == "kr" else "")}
+        added.append(tk)
+    return added
+
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     t0 = time.time()
     print("="*64); print(f"  Alpha Terminal 스냅샷 파이프라인 v{VERSION}"); print("="*64)
 
-    # 유니버스 — 기존 stocks.json 에서 승계
+    # 유니버스 — 기존 stocks.json 승계 + 내가 직접 넣은 종목(EXTRA_FILE)
     src = json.load(open(f"{OUT_DIR}/stocks.json", encoding="utf-8"))
     universe = {}
     for tk, s in (src.get("stocks") or {}).items():
@@ -454,9 +485,13 @@ def main():
         universe[tk] = {"name": s.get("label") or tk, "market": mkt,
                         "sector": sec,
                         "y": tk + (".KS" if mkt=="kr" and not tk.endswith(".KS") else "")}
+    base_n = len(universe)
+    extra_added = load_extra(universe)
     print(f"\n📋 유니버스 {len(universe)}종목 "
           f"(kr {sum(1 for x in universe.values() if x['market']=='kr')} · "
           f"us {sum(1 for x in universe.values() if x['market']=='us')})")
+    print(f"   · stocks.json {base_n}개 + 직접추가 {len(extra_added)}개"
+          + (f" → {', '.join(extra_added)}" if extra_added else ""))
 
     print("\n🌐 시장·섹터 수집")
     market = build_market()
@@ -502,6 +537,11 @@ def main():
             if not try_one(tk, universe[tk], 0.6): still.append(tk)
         print(f"    복구 {len(fails)-len(still)} · 최종 실패 {len(still)}")
         fails = still
+        miss_extra = [t for t in fails if t in extra_added]
+        if miss_extra:
+            print(f"    ⚠️ 직접 추가한 종목 중 못 받은 것: {', '.join(miss_extra)}")
+            print(f"       → 티커가 야후 기준인지 확인해 주세요 "
+                  f"(한국은 6자리 숫자, 미국은 영문. 예: 042660 / AAPL)")
 
     # RS 백분위 — 교차단면 (시장별로 따로)
     print("\n📈 RS 백분위 계산 (교차단면)")
@@ -572,6 +612,7 @@ def main():
     meta = {"version":VERSION, "generatedAt":now.isoformat(),
             "generatedKST":now.astimezone(KST).strftime("%Y-%m-%d %H:%M"),
             "failed": fails[:60],
+            "pool": {"base": base_n, "extra": extra_added},
             "counts":{"stocks":len(stocks),"failed":len(fails),
                       "sectors":len(market["sectors"]),"indices":len(market["indices"])}}
 
