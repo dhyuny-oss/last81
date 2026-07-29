@@ -92,7 +92,15 @@ function marketState(nowMs = Date.now()) {
       if (d < best) { best = d; next = { hh: h, mm: m, inMin: d }; }
     }
   }
-  return { krRegular, krExt, usRegular, usPre, usAfter, weekend, anyOpen, next, dst };
+  // ★ 라벨 — "휴장"은 아예 안 여는 날에만 씁니다.
+  //   장이 열렸다가 끝난 평일 저녁을 "휴장"이라고 하면 데이터가 없는 것처럼 읽힙니다.
+  const krLabel = weekend ? "휴장"
+    : mins < 450 ? "개장 전" : mins < 540 ? "장전" : mins <= 930 ? "장중"
+    : mins <= 1080 ? "장후" : "장마감";
+  const usLabel = weekend ? "휴장"
+    : usRegular ? "장중" : usPre ? "프리마켓" : usAfter ? "애프터"
+    : (mins > usClose + 240 && mins < usOpen - 330) ? "장마감" : "개장 전";
+  return { krRegular, krExt, usRegular, usPre, usAfter, weekend, anyOpen, next, dst, krLabel, usLabel };
 }
 function freshness(updMs, nowMs = Date.now()) {
   const st = marketState(nowMs);
@@ -150,6 +158,13 @@ const Star = ({ on, onClick }) => (
 
 const Empty = ({ children }) => (
   <div style={{ padding: "22px 12px", textAlign: "center", color: C.muted, fontSize: 11.5 }}>{children}</div>
+);
+
+const Range4Head = () => (
+  <div style={{ display: "flex", justifyContent: "flex-end", padding: "0 4px 5px",
+                fontSize: 9, color: C.muted, fontFamily: "ui-monospace,monospace", letterSpacing: .2 }}>
+    1일 · 3일 · 5일 · 1달 (누적)
+  </div>
 );
 
 const Range4 = ({ s }) => (
@@ -260,9 +275,9 @@ export default function App() {
           <div style={{ width: 26, height: 26, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center",
                         fontWeight: 700, fontSize: 13, background: "rgba(59,130,246,.12)", color: "#60A5FA", border: "1px solid rgba(59,130,246,.25)", flexShrink: 0 }}>α</div>
           <span style={css.chip(fr.krRegular ? "rgba(48,209,88,.12)" : "rgba(255,255,255,.04)", fr.krRegular ? C.emerald : C.muted)}>
-            🇰🇷 {fr.krRegular ? "장중" : fr.krExt ? "시간외" : "휴장"}</span>
+            🇰🇷 {fr.krLabel}</span>
           <span style={css.chip(fr.usRegular ? "rgba(48,209,88,.12)" : "rgba(255,255,255,.04)", fr.usRegular ? C.emerald : C.muted)}>
-            🇺🇸 {fr.usRegular ? "장중" : (fr.usPre || fr.usAfter) ? "시간외" : "휴장"}</span>
+            🇺🇸 {fr.usLabel}</span>
           <span title="지표·판단의 기준일 (종가 스냅샷) — 시장마다 다를 수 있습니다"
             style={css.chip("rgba(255,255,255,.04)", C.muted, `1px solid ${C.border}`)}>
             신호 🇰🇷{asOfBy.kr || "—"} · 🇺🇸{asOfBy.us || "—"}</span>
@@ -275,6 +290,17 @@ export default function App() {
               onKeyDown={e => { if (e.key === "Enter" && results[0]) openStock(results[0].t); }}
               placeholder="🔍 종목 검색"
               style={{ background: "rgba(255,255,255,.05)", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 9px", color: C.text, fontSize: 10.5, outline: "none", width: 128 }} />
+            {showQ && q.trim() && results.length === 0 && (
+              <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, width: 250, background: "#0f172a",
+                            border: `1px solid ${C.border}`, borderRadius: 7, zIndex: 200, padding: "9px 11px",
+                            boxShadow: "0 8px 32px rgba(0,0,0,.8)" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.gold }}>“{q.trim()}” 는 목록에 없습니다</div>
+                <div style={{ fontSize: 10, color: C.dim, marginTop: 5, lineHeight: 1.65 }}>
+                  깃허브에서 <code style={{ color: C.cyan }}>scripts/tickers_extra.txt</code> 를 열어
+                  한 줄 추가하고 <b style={{ color: C.text }}>Snapshot Build</b> 를 돌리면 다음부터 나옵니다.
+                  <br />한국은 숫자 6자리, 미국은 영문 티커입니다.
+                </div>
+              </div>)}
             {showQ && results.length > 0 && (
               <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, minWidth: 190, background: "#0f172a",
                             border: `1px solid ${C.border}`, borderRadius: 7, zIndex: 200, overflow: "hidden", boxShadow: "0 8px 32px rgba(0,0,0,.8)" }}>
@@ -314,6 +340,8 @@ export default function App() {
 
       <div style={{ padding: "10px 12px 24px", fontSize: 9.5, color: C.muted, textAlign: "center", borderTop: `1px solid ${C.border}` }}>
         지표는 파이프라인이 한 번 계산한 값을 표시만 합니다 · 생성 {snap.meta.generatedKST} · 종목 {snap.meta.counts.stocks}
+        {snap.meta.pool?.extra?.length > 0 && <> (직접 추가 {snap.meta.pool.extra.length})</>}
+        {snap.meta.counts.failed > 0 && <> · 못 받은 종목 {snap.meta.counts.failed}</>}
         <br />투자자문이 아니며 과거 성과가 미래를 보장하지 않습니다
       </div>
     </Shell>
@@ -361,15 +389,17 @@ function MarketTab({ market, setTab }) {
       <h2 style={css.h2}>🌐 지수 <span style={css.lbl}>— 근거 숫자는 여기 한 곳에만</span></h2>
       <div style={css.card}>
         <Scroll>
+          <div style={{ fontSize: 9, color: C.muted, marginBottom: 3 }}>3일·5일·1달은 그 기간 누적 등락입니다 (소수 1자리)</div>
           <table style={tbl}>
-            <thead><tr>{["지수", "종가", "1일", "3일누적", "5일누적", "1달누적", "200일선"].map((h, i) =>
+            <thead><tr>{["지수 · 200일선", "종가", "1일", "3일", "5일", "1달"].map((h, i) =>
               <th key={h} style={{ ...th, textAlign: i === 0 ? "left" : "right" }}>{h}</th>)}</tr></thead>
             <tbody>{idxRows.map(([k, v]) => (
               <tr key={k}>
-                <td style={{ ...td, fontWeight: 700 }}>{v.label}</td>
-                <td style={tdR}>{num(v.c)}</td>
-                {["d1", "d3", "d5", "d21"].map(f => <td key={f} style={{ ...tdR, color: col(v[f]) }}>{pct(v[f])}</td>)}
-                <td style={{ ...tdR, color: col(v.ma200p) }}>{pct(v.ma200p, 1)} {v.ma200p >= 0 ? "위" : "아래"}</td>
+                <td style={{ ...td, fontWeight: 700 }}>{v.label}
+                  <div style={{ fontSize: 8.5, fontWeight: 400, color: col(v.ma200p) }}>
+                    200일선 {pct(v.ma200p, 1)} {v.ma200p >= 0 ? "위" : "아래"}</div></td>
+                <td style={tdR}>{num(v.c, 0)}</td>
+                {["d1", "d3", "d5", "d21"].map(f => <td key={f} style={{ ...tdR, color: col(v[f]) }}>{pct(v[f], 1)}</td>)}
               </tr>))}</tbody>
           </table>
         </Scroll>
@@ -377,17 +407,17 @@ function MarketTab({ market, setTab }) {
 
       <h2 style={css.h2}>⚠️ 위험 지표</h2>
       <div style={css.card}>
-        <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>
+        <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
           {[["^VIX", "VIX (공포지수)", "", v => v.c < 22 ? ["안정", C.emerald] : v.c < 30 ? ["주의", C.gold] : ["위험", C.red]],
             ["^TNX", "미국 10년물", "%", v => [`1달 ${v.d21p >= 0 ? "+" : ""}${num(v.d21p, 2)}%p`, C.muted]],
             ["^IRX", "미국 3개월물", "%", v => [`1달 ${v.d21p >= 0 ? "+" : ""}${num(v.d21p, 2)}%p`, C.muted]],
             ["curve", "금리커브 (10Y−3M)", "%p", v => v.c > 0 ? ["정상 · 역전 아님", C.emerald] : ["역전 — 침체 경고", C.red]],
           ].map(([k, label, unit, f]) => { const v = risk[k]; if (!v) return null; const [s, c] = f(v);
-            return (<div key={k} style={{ flex: 1, minWidth: 138, background: C.panel2, border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 12px" }}>
-              <div style={{ fontSize: 10, color: C.dim }}>{label}</div>
-              <div style={{ fontSize: 18, fontWeight: 800, fontFamily: "ui-monospace,monospace", marginTop: 2 }}>
-                {num(v.c, 3)}<span style={{ fontSize: 11, color: C.muted }}>{unit}</span></div>
-              <div style={{ fontSize: 9.5, color: c, marginTop: 2 }}>{s}</div>
+            return (<div key={k} style={{ background: C.panel2, border: `1px solid ${C.border}`, borderRadius: 10, padding: "9px 11px" }}>
+              <div style={{ fontSize: 9.5, color: C.dim, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</div>
+              <div style={{ fontSize: 17, fontWeight: 800, fontFamily: "ui-monospace,monospace", marginTop: 1 }}>
+                {num(v.c, 3)}<span style={{ fontSize: 10.5, color: C.muted }}>{unit}</span></div>
+              <div style={{ fontSize: 9, color: c, marginTop: 1 }}>{s}</div>
             </div>); })}
         </div>
       </div>
@@ -396,16 +426,18 @@ function MarketTab({ market, setTab }) {
       <div style={css.card}>
         <Scroll>
           <table style={tbl}>
-            <thead><tr>{["#", "섹터", "1일", "3일누적", "5일누적", "1달누적", "6개월", "배분"].map((h, i) =>
-              <th key={h} style={{ ...th, textAlign: i <= 1 ? "left" : "right" }}>{h}</th>)}</tr></thead>
+            <thead><tr>{["섹터", "1일", "3일", "5일", "1달", "6개월"].map((h, i) =>
+              <th key={h} style={{ ...th, textAlign: i === 0 ? "left" : "right" }}>{h}</th>)}</tr></thead>
             <tbody>{sectors.map(s => {
               const hold = holds.includes(s.tk);
               return (<tr key={s.tk} style={hold ? { background: "rgba(48,209,88,.06)" } : undefined}>
-                <td style={{ ...td, color: C.muted }}>{s.rank}</td>
-                <td style={td}><b>{s.label}</b> <span style={{ color: C.muted, fontSize: 9.5 }}>{s.tk}</span></td>
-                {["d1", "d3", "d5", "d21"].map(f => <td key={f} style={{ ...tdR, color: col(s[f]) }}>{pct(s[f])}</td>)}
-                <td style={{ ...tdR, color: col(s.m6), fontWeight: 700 }}>{pct(s.m6, 1)}</td>
-                <td style={{ ...tdR }}>{hold ? <Chip tone="g">보유 {s.rank}위</Chip> : <span style={{ color: C.muted, fontSize: 9.5 }}>—</span>}</td>
+                <td style={td}>
+                  <span style={{ color: C.muted }}>{s.rank}</span> <b>{s.label}</b>
+                  {hold && <span style={{ color: C.emerald, fontSize: 9, fontWeight: 700 }}> ● 보유</span>}
+                  <div style={{ fontSize: 8.5, color: C.muted }}>{s.tk} · 200일선 <span style={{ color: col(s.ma200p) }}>{pct(s.ma200p, 0)}</span></div>
+                </td>
+                {["d1", "d3", "d5", "d21"].map(f => <td key={f} style={{ ...tdR, color: col(s[f]) }}>{pct(s[f], 1)}</td>)}
+                <td style={{ ...tdR, color: col(s.m6), fontWeight: 700 }}>{pct(s.m6, 0)}</td>
               </tr>);
             })}</tbody>
           </table>
@@ -536,6 +568,7 @@ function FindTab({ list, openStock, watch, toggleWatch, market }) {
         </div>
       </div>
       <div style={css.card}>
+        <Range4Head />
         {rows.length === 0 ? <Empty>조건에 맞는 종목이 없습니다.</Empty> : rows.map(({ s, v }) => (
           <StockRow key={s.t} s={s} verdict={v} isWatch={watch.includes(s.t)} onToggle={toggleWatch} onOpen={openStock}
             chips={<>
@@ -579,6 +612,7 @@ function OversoldTab({ list, openStock, watch, toggleWatch }) {
         </div>
       </div>
       <div style={css.card}>
+        <Range4Head />
         {rows.length === 0 ? <Empty>조건에 맞는 종목이 없습니다.</Empty> : rows.map(({ s, v }) => (
           <StockRow key={s.t} s={s} verdict={v} isWatch={watch.includes(s.t)} onToggle={toggleWatch} onOpen={openStock}
             chips={<>
@@ -688,6 +722,10 @@ function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab
   const power = (s.rsi ?? 0) > 75 ? ["과열", C.red] : (s.macdH ?? 0) > 0 ? ["양호", C.emerald] : ["둔화", C.muted];
   const rel = (s.rs ?? 0) >= 70 ? ["우위", C.emerald] : (s.rs ?? 0) >= 40 ? ["보통", C.dim] : ["열위", C.red];
   const pf = (val) => price(val, s.m);
+  // MACD 히스토그램을 원/달러 그대로 쓰면 SK하이닉스가 "-40401.99" 로 찍혀 읽을 수 없습니다.
+  // 같은 값을 주가 대비 %로 바꿔 종목끼리 비교되게 합니다 (재계산이 아니라 단위 환산).
+  const macdTxt = (s.macdH != null && s.c)
+    ? `${s.macdH >= 0 ? "+" : ""}${(s.macdH / s.c * 100).toFixed(2)}% (${s.macdH >= 0 ? "양" : "음"})` : "—";
   const axis = { fontSize: 8.5, fill: C.muted };
   const tip = {
     contentStyle: { background: "#0f172a", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 11 },
@@ -695,6 +733,13 @@ function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab
   };
   const cloudTone = data?.length ? (data[data.length - 1].cloudUp ? C.emerald : C.red) : C.emerald;
   const stNow = data?.length ? data[data.length - 1].stUpCount : null;
+  // 축 폭 — 삼성전자·SK하이닉스는 눈금이 7자리라 고정 54px 로는 "​,000,000" 처럼 잘렸습니다.
+  // 한글 단위(만·억·조)는 숫자보다 두 배 가까이 넓어서 글자 수로만 재면 잘립니다.
+  const axisW = useMemo(() => {
+    const t = view?.ticks?.length ? view.ticks : [100];
+    const px = (str) => [...String(str)].reduce((a, ch) => a + (/[가-힣]/.test(ch) ? 8.6 : 4.9), 0);
+    return Math.max(34, Math.min(62, Math.ceil(Math.max(...t.map(x => px(shortNum(x)))) + 12)));
+  }, [view]);
 
   return (
     <>
@@ -755,11 +800,11 @@ function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab
             </PanelLabel>
             <div style={{ height: 264 }}>
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={data} syncId="v4chart" margin={{ top: 4, right: 6, left: -14, bottom: 0 }}>
+                <ComposedChart data={data} syncId="v4chart" margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                   <CartesianGrid stroke="rgba(255,255,255,.045)" vertical={false} />
                   <XAxis dataKey="d" tick={axis} tickLine={false} interval="preserveStartEnd" minTickGap={38} />
-                  <YAxis yAxisId="p" domain={view.dom} ticks={view.ticks} allowDataOverflow tick={axis} width={54}
-                    tickFormatter={x => num(x, x >= 1000 ? 0 : x >= 100 ? 1 : 2)} />
+                  <YAxis yAxisId="p" domain={view.dom} ticks={view.ticks} allowDataOverflow tick={axis}
+                    width={axisW} tickFormatter={shortNum} />
                   <YAxis yAxisId="v" orientation="right" domain={[0, (m) => m * 4]} hide />
                   <Tooltip {...tip} filterNull
                     formatter={(val, name) => name === "거래량" ? [num(val, 0), name] : [pf(val), name]}
@@ -797,9 +842,9 @@ function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab
             </PanelLabel>
             <div style={{ height: 96 }}>
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={data} syncId="v4chart" margin={{ top: 2, right: 6, left: -14, bottom: 0 }}>
+                <ComposedChart data={data} syncId="v4chart" margin={{ top: 2, right: 4, left: 0, bottom: 0 }}>
                   <XAxis dataKey="d" tick={false} tickLine={false} height={1} />
-                  <YAxis tick={axis} width={54} tickFormatter={x => num(x, 1)} />
+                  <YAxis tick={axis} width={axisW} tickFormatter={shortNum} />
                   <Tooltip {...tip} formatter={val => [num(val, 3), ""]} />
                   <ReferenceLine y={0} stroke="rgba(255,255,255,.18)" />
                   <Bar dataKey="hist" name="히스토그램" isAnimationActive={false}
@@ -819,9 +864,9 @@ function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab
             </PanelLabel>
             <div style={{ height: 96 }}>
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={data} syncId="v4chart" margin={{ top: 2, right: 6, left: -14, bottom: 0 }}>
+                <ComposedChart data={data} syncId="v4chart" margin={{ top: 2, right: 4, left: 0, bottom: 0 }}>
                   <XAxis dataKey="d" tick={axis} tickLine={false} interval="preserveStartEnd" minTickGap={38} />
-                  <YAxis domain={[0, 100]} ticks={[30, 50, 70]} tick={axis} width={54} />
+                  <YAxis domain={[0, 100]} ticks={[30, 50, 70]} tick={axis} width={axisW} />
                   <Tooltip {...tip} formatter={val => [num(val, 1), "RSI"]} />
                   <ReferenceLine y={70} stroke="rgba(255,69,58,.35)" strokeDasharray="3 3" />
                   <ReferenceLine y={50} stroke="rgba(255,255,255,.10)" />
@@ -841,7 +886,7 @@ function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab
       <h2 style={css.h2}>📈 근거 <span style={css.lbl}>— 추세 · 동력 · 상대 (모든 종목 같은 순서)</span></h2>
       <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>
         {[["추세 (구조)", trend, `가격구조 ${s.tmpl ? "✓" : "✕"} · ST ${s.st ?? "—"}/3 · 구름 ${s.cloud === 1 ? "위" : s.cloud === 0 ? "안" : s.cloud === -1 ? "아래" : "—"} · 200일선 ${pct(s.ma200p, 1)}`],
-          ["동력 (모멘텀)", power, `RSI ${s.rsi?.toFixed(1) ?? "—"} · MACD ${s.macdH != null ? s.macdH.toFixed(2) : "—"} · 거래량 ${s.vr5?.toFixed(2) ?? "—"}x`],
+          ["동력 (모멘텀)", power, `RSI ${s.rsi?.toFixed(1) ?? "—"} · MACD ${macdTxt} · 거래량 ${s.vr5?.toFixed(2) ?? "—"}x`],
           ["상대 (시장 대비)", rel, `RS 백분위 ${s.rs?.toFixed(1) ?? "—"} · 52주 고점 대비 ${pct(s.w52p, 1)}`],
         ].map(([label, [t, c], detail]) => (
           <div key={label} style={{ flex: 1, minWidth: 190, background: C.panel2, border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 12px" }}>
@@ -864,6 +909,18 @@ function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab
 }
 
 /** 트리플 슈퍼트렌드 열 이름 — 파이프라인의 ST_SET (10,1)(11,2)(12,3) 과 같은 순서 */
+/** 축 눈금 축약 — 1,401,000 → 140만 / 2.3조. 원화 종목의 7자리 눈금이 잘리지 않게. */
+function shortNum(x) {
+  if (x == null || !isFinite(x)) return "";
+  const a = Math.abs(x), sg = x < 0 ? "-" : "";
+  if (a >= 1e12) return `${sg}${+(a / 1e12).toFixed(1)}조`;
+  if (a >= 1e8) return `${sg}${+(a / 1e8).toFixed(a >= 1e9 ? 0 : 1)}억`;
+  if (a >= 1e4) return `${sg}${+(a / 1e4).toFixed(a >= 1e5 ? 0 : 1)}만`;
+  if (a >= 100) return `${sg}${Math.round(a).toLocaleString("ko-KR")}`;
+  if (a >= 1) return `${sg}${+a.toFixed(1)}`;
+  return `${sg}${+a.toFixed(2)}`;
+}
+
 const ST_KEYS = ["st1", "st2", "st3"];
 const ST_DOM = ["st1Up", "st1Dn", "st2Up", "st2Dn", "st3Up", "st3Dn"];
 
@@ -974,6 +1031,7 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market }
 
       <h2 style={css.h2}>👁 관심 종목 <span style={css.lbl}>— 어느 탭에서든 ★ 를 누르면 여기에 모입니다</span></h2>
       <div style={css.card}>
+        {watch.length > 0 && <Range4Head />}
         {watch.length === 0 ? <Empty>★ 를 눌러 관심 종목을 등록해 보세요.</Empty> :
           watch.map(t => { const s = look(t); if (!s) return null;
             return <StockRow key={t} s={s} isWatch onToggle={toggleWatch} onOpen={openStock}
@@ -989,9 +1047,9 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market }
 }
 
 /* ══════════════ 잡 UI ══════════════ */
-const tbl = { width: "100%", borderCollapse: "collapse", fontSize: 11.5 };
-const th = { padding: "6px 5px", borderBottom: `1px solid ${C.border}`, color: C.dim, fontWeight: 600, fontSize: 9.5, whiteSpace: "nowrap" };
-const td = { padding: "6px 5px", borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap" };
+const tbl = { width: "100%", borderCollapse: "collapse", fontSize: 10.5 };
+const th = { padding: "5px 3px", borderBottom: `1px solid ${C.border}`, color: C.dim, fontWeight: 600, fontSize: 9, whiteSpace: "nowrap" };
+const td = { padding: "6px 3px", borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap" };
 const tdR = { ...td, textAlign: "right", fontFamily: "ui-monospace,monospace" };
 const linkBtn = { background: "none", border: "none", color: C.cyan, cursor: "pointer", fontSize: 10, padding: 0, textDecoration: "underline" };
 const inp = (w) => ({ background: "rgba(255,255,255,.05)", border: `1px solid ${C.border}`, borderRadius: 6,
