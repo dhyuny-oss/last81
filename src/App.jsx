@@ -4,9 +4,9 @@
  * 데이터는 파이프라인(scripts/build_snapshot.py)이 계산한 값을 "읽기만" 합니다.
  * 이 파일에는 지표 계산이 한 줄도 없습니다 — 통일성의 핵심.
  *
- *   /data/snapshot.json  종목별 지표 (231KB, 첫 화면)
- *   /data/market.json    지수·섹터·판단 (3KB, 첫 화면)
- *   /data/candles.json   차트용 일봉 (8MB, 차트 탭 열 때만)
+ *   /data/snapshot.json    종목별 지표 (약 260KB, 첫 화면)
+ *   /data/market.json      지수·섹터·판단 (3KB, 첫 화면)
+ *   /data/bars/<티커>.json  차트용 시계열 (약 16KB, 누른 종목 하나만)
  *
  * 탭 6개 — 시장 · 배분 · 발굴 · 과매도 · 차트 · 추적
  * 전역 상태 하나로 탭 간 연계 (종목 클릭 → 차트 / 관심 토글 즉시 반영 / 검색)
@@ -188,8 +188,6 @@ function StockRow({ s, verdict, chips, right, onOpen, isWatch, onToggle }) {
 export default function App() {
   const [snap, setSnap] = useState(null);
   const [market, setMarket] = useState(null);
-  const [candles, setCandles] = useState(null);
-  const [loadingCandles, setLoadingCandles] = useState(false);
   const [err, setErr] = useState(null);
   const [tab, setTab] = useState("market");
   const [sel, setSel] = useState(null);
@@ -214,17 +212,6 @@ export default function App() {
       } catch (e) { setErr(e.message); }
     })();
   }, []);
-
-  /* ── 차트 탭 열릴 때만 캔들 로드 (8MB 지연) ── */
-  useEffect(() => {
-    if (tab !== "chart" || candles || loadingCandles) return;
-    setLoadingCandles(true);
-    fetch("/data/candles.json?t=" + Date.now())
-      .then(r => r.ok ? r.json() : Promise.reject(new Error("candles " + r.status)))
-      .then(d => setCandles(d.candles))
-      .catch(e => setErr(e.message))
-      .finally(() => setLoadingCandles(false));
-  }, [tab, candles, loadingCandles]);
 
   /* ── 탭 간 연계: 종목 열기 = 선택 + 차트로 ── */
   const openStock = useCallback((t) => { setSel(t); setTab("chart"); setShowQ(false); }, []);
@@ -321,7 +308,7 @@ export default function App() {
         {tab === "alloc" && <AllocTab {...shared} />}
         {tab === "find" && <FindTab {...shared} />}
         {tab === "over" && <OversoldTab {...shared} />}
-        {tab === "chart" && <ChartTab {...shared} sel={sel} candles={candles} loading={loadingCandles} />}
+        {tab === "chart" && <ChartTab {...shared} sel={sel} />}
         {tab === "track" && <TrackTab {...shared} />}
       </div>
 
@@ -613,26 +600,101 @@ function OversoldTab({ list, openStock, watch, toggleWatch }) {
 }
 
 /* ══════════════ 5. 차트 ══════════════ */
-function ChartTab({ stocks, sel, candles, loading, watch, toggleWatch, market, pos, setPos, setTab }) {
+/** 차트에 그리는 값은 전부 /data/bars/<티커>.json 에 들어 있는 값입니다.
+ *  이 컴포넌트는 지표를 하나도 계산하지 않습니다 — 그래서 차트와 위 판단이 어긋날 수 없습니다. */
+function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab }) {
   const s = sel ? stocks[sel] : null;
-  const data = useMemo(() => {
-    const rows = candles?.[sel]; if (!rows) return null;
-    return rows.map(r => ({ d: new Date(r[0] * 1000).toISOString().slice(5, 10), c: r[4], v: r[5] }));
-  }, [candles, sel]);
+  const [bars, setBars] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [berr, setBerr] = useState(null);
+  const cache = useRef({});
+  const [span, setSpan] = useState(126);                       // 기본 6개월
+  const [opt, setOpt] = useState(() => {
+    try { return { ...{ ichi: true, st: true, ma: true }, ...JSON.parse(localStorage.getItem("v4.chart") || "{}") }; }
+    catch { return { ichi: true, st: true, ma: true }; }
+  });
+  useEffect(() => { localStorage.setItem("v4.chart", JSON.stringify(opt)); }, [opt]);
+
+  /* 누른 종목 파일 하나만 받습니다 (약 16KB) */
+  useEffect(() => {
+    if (!sel) return;
+    if (cache.current[sel]) { setBars(cache.current[sel]); setBerr(null); return; }
+    let dead = false;
+    setBusy(true); setBerr(null); setBars(null);
+    fetch(`/data/bars/${encodeURIComponent(sel)}.json?t=${Date.now()}`)
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(String(r.status))))
+      .then(d => { if (dead) return; cache.current[sel] = d; setBars(d); })
+      .catch(e => { if (!dead) setBerr(e.message); })
+      .finally(() => { if (!dead) setBusy(false); });
+    return () => { dead = true; };
+  }, [sel]);
+
+  /* 열 이름은 파일이 알려 줍니다 — 순서가 바뀌어도 화면이 깨지지 않도록 */
+  const view = useMemo(() => {
+    if (!bars?.rows?.length) return null;
+    const ix = {}; (bars.cols || []).forEach((c, i) => ix[c] = i);
+    const raw = bars.rows.slice(-span);
+    const rows = raw.map(r => {
+      const g = k => (ix[k] == null ? null : (r[ix[k]] ?? null));
+      const mask = g("stDir"), macd = g("macd"), hist = g("hist");
+      const sA = g("spanA"), sB = g("spanB");
+      const o = {
+        d: new Date(g("t") * 1000).toISOString().slice(5, 10),
+        c: g("c"), v: g("v"), ma20: g("ma20"), ma200: g("ma200"),
+        cloudLo: (sA != null && sB != null) ? Math.min(sA, sB) : null,
+        cloudBand: (sA != null && sB != null) ? Math.abs(sA - sB) : null,
+        cloudUp: (sA != null && sB != null) ? (sA >= sB ? 1 : 0) : null,
+        rsi: g("rsi"), macd, hist,
+        signal: (macd != null && hist != null) ? +(macd - hist).toFixed(3) : null,
+      };
+      // 트리플 슈퍼트렌드 — 상승/하락을 따로 담아야 한 선 안에서 색이 바뀝니다.
+      // stDir 은 3비트 묶음(1=st1, 2=st2, 4=st3)이고, 켜진 비트 수가 곧 ST n/3 입니다.
+      let up = 0;
+      for (let k = 0; k < 3; k++) {
+        const val = g(ST_KEYS[k]);
+        const bull = mask != null && ((mask >> k) & 1) === 1;
+        if (mask != null && bull) up++;
+        o[`st${k + 1}Up`] = (val != null && mask != null && bull) ? val : null;
+        o[`st${k + 1}Dn`] = (val != null && mask != null && !bull) ? val : null;
+      }
+      o.stUpCount = mask == null ? null : up;
+      return o;
+    });
+    // 가격축 범위 — 구름을 stack 으로 깔면 0 이 축에 끌려 들어와 가격선이 납작해집니다.
+    // 축 범위는 가까이 읽는 것(종가·20일선·구름·슈퍼트렌드)으로만 잡습니다.
+    // 200일선까지 넣으면 크게 오른 종목(예: 삼성전자)에서 축이 0 근처까지 늘어나
+    // 정작 봐야 할 가격 움직임이 위쪽에 눌려 붙어 안 보입니다. 200일선은 화면 밖으로
+    // 나가면 잘리고, 가격이 다가오면 자연스럽게 들어옵니다 (수치는 아래 '근거'에 있습니다).
+    const vals = [];
+    for (const r of rows) {
+      for (const k of ["c", "ma20", "cloudLo", ...ST_DOM]) if (r[k] != null) vals.push(r[k]);
+      if (r.cloudLo != null && r.cloudBand != null) vals.push(r.cloudLo + r.cloudBand);
+    }
+    if (!vals.length) return { rows, dom: ["auto", "auto"], ticks: undefined };
+    const lo = Math.min(...vals), hi = Math.max(...vals), pad = (hi - lo) * 0.06 || hi * 0.02;
+    return { rows, ...niceAxis(Math.max(0, lo - pad), hi + pad) };
+  }, [bars, span]);
+  const data = view?.rows || null;
 
   if (!sel) return <Empty>위 검색창에서 종목을 찾거나, 다른 탭에서 종목을 누르면 여기에 열립니다.</Empty>;
   if (!s) return <Empty>{sel} 는 스냅샷에 없습니다.</Empty>;
 
   const v = verdictFind(s, market.judge[s.m]?.verdict);
-  // 기준선 — 스냅샷 값에서 역산 (화면에서 이동평균을 다시 돌리지 않기 위해)
-  const ma200 = s.ma200p != null ? s.c / (1 + s.ma200p / 100) : null;
+  const ma200v = s.ma200p != null ? s.c / (1 + s.ma200p / 100) : null;
   const hi52 = s.w52p != null ? s.c / (1 + s.w52p / 100) : null;
   const held = (pos || []).some(p => p.t === s.t);
-  // 추세템플릿은 '가격구조' 7개 조건입니다(RS 는 별도). 둘 다 충족해야 '강'.
   const trend = (s.tmpl && (s.rs ?? 0) >= 70) ? ["강", C.emerald]
     : (s.tmpl || (s.st ?? 0) >= 2) ? ["중", C.gold] : ["약", C.muted];
   const power = (s.rsi ?? 0) > 75 ? ["과열", C.red] : (s.macdH ?? 0) > 0 ? ["양호", C.emerald] : ["둔화", C.muted];
   const rel = (s.rs ?? 0) >= 70 ? ["우위", C.emerald] : (s.rs ?? 0) >= 40 ? ["보통", C.dim] : ["열위", C.red];
+  const pf = (val) => price(val, s.m);
+  const axis = { fontSize: 8.5, fill: C.muted };
+  const tip = {
+    contentStyle: { background: "#0f172a", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 11 },
+    labelStyle: { color: C.dim }, itemStyle: { padding: 0 },
+  };
+  const cloudTone = data?.length ? (data[data.length - 1].cloudUp ? C.emerald : C.red) : C.emerald;
+  const stNow = data?.length ? data[data.length - 1].stUpCount : null;
 
   return (
     <>
@@ -649,7 +711,6 @@ function ChartTab({ stocks, sel, candles, loading, watch, toggleWatch, market, p
         <div style={{ marginTop: 9, paddingTop: 9, borderTop: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
           <Verdict v={v} size={14} />
           <span style={{ fontSize: 11.5, color: C.dim }}>{v?.why}</span>
-          {/* 탭 연계 — 여기서 바로 보유 등록. 역할은 판단 논리에 맞춰 자동 선택 */}
           <button onClick={() => {
             if (held) { setTab("track"); return; }
             setPos(vs => [...vs, { id: Date.now(), t: s.t, avg: s.c,
@@ -663,45 +724,118 @@ function ChartTab({ stocks, sel, candles, loading, watch, toggleWatch, market, p
         </div>
       </div>
 
-      {/* 차트 */}
-      <div style={{ ...css.card, marginTop: 9 }}>
-        {loading ? <Empty>캔들 불러오는 중… (8MB, 차트 탭에서만 로드)</Empty>
-          : !data ? <Empty>이 종목의 캔들 데이터가 없습니다.</Empty>
-            : (<>
-              <div style={{ height: 250 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={data} margin={{ top: 6, right: 6, left: -18, bottom: 0 }}>
-                    <CartesianGrid stroke="rgba(255,255,255,.05)" vertical={false} />
-                    <XAxis dataKey="d" tick={{ fontSize: 9, fill: C.muted }} interval="preserveStartEnd" minTickGap={40} />
-                    <YAxis domain={["auto", "auto"]} tick={{ fontSize: 9, fill: C.muted }} width={58}
-                      tickFormatter={v => num(v, v >= 1000 ? 0 : 2)} />
-                    <Tooltip contentStyle={{ background: "#0f172a", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 11 }}
-                      labelStyle={{ color: C.dim }} formatter={val => [price(val, s.m), "종가"]} />
-                    {/* 기준선은 파이프라인 값에서 역산합니다 — 화면에서 이동평균을 다시 계산하지 않습니다 */}
-                    {ma200 && <ReferenceLine y={ma200} stroke={C.violet} strokeDasharray="4 4" strokeWidth={1}
-                      label={{ value: "200일선", position: "insideTopLeft", fill: C.violet, fontSize: 9 }} />}
-                    {hi52 && <ReferenceLine y={hi52} stroke={C.gold} strokeDasharray="2 5" strokeWidth={1}
-                      label={{ value: "52주 고점", position: "insideTopRight", fill: C.gold, fontSize: 9 }} />}
-                    <Area type="monotone" dataKey="c" stroke={C.cyan} fill="rgba(6,182,212,.10)" strokeWidth={1.6} dot={false} />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
-              <div style={{ height: 62, marginTop: 2 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={data} margin={{ top: 2, right: 6, left: -18, bottom: 0 }}>
-                    <XAxis dataKey="d" hide />
-                    <YAxis tick={{ fontSize: 8, fill: C.muted }} width={58} tickFormatter={v => v >= 1e6 ? `${(v / 1e6).toFixed(0)}M` : `${(v / 1e3).toFixed(0)}K`} />
-                    <Tooltip contentStyle={{ background: "#0f172a", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 11 }}
-                      labelStyle={{ color: C.dim }} formatter={val => [num(val, 0), "거래량"]} />
-                    <Bar dataKey="v" fill="rgba(148,163,184,.45)" />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
-              <div style={{ fontSize: 9.5, color: C.muted, marginTop: 4 }}>
-                최근 {data.length}거래일 · 보라 점선 = 200일선, 금색 점선 = 52주 고점 (둘 다 스냅샷 값에서 역산)
-              </div>
-            </>)}
+      {/* 차트 옵션 */}
+      <div style={{ ...css.card, marginTop: 9, padding: "9px 12px" }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          {[[63, "3개월"], [126, "6개월"], [200, "전체"]].map(([n, l]) =>
+            <Toggle key={n} on={span === n} onClick={() => setSpan(n)}>{l}</Toggle>)}
+          <span style={{ width: 1, height: 16, background: C.border, margin: "0 3px" }} />
+          {[["st", "슈퍼트렌드"], ["ichi", "구름"], ["ma", "이평선"]].map(([k, l]) =>
+            <Toggle key={k} on={opt[k]} onClick={() => setOpt(o => ({ ...o, [k]: !o[k] }))}>{l}</Toggle>)}
+        </div>
       </div>
+
+      {busy ? <div style={{ ...css.card, marginTop: 9 }}><Empty>차트 불러오는 중… ({sel})</Empty></div>
+        : berr ? <div style={{ ...css.card, marginTop: 9 }}><Empty>
+            차트 파일을 찾지 못했습니다 ({berr}).<br />
+            <span style={{ fontSize: 10.5 }}>Actions 탭에서 <b style={{ color: C.dim }}>Snapshot Build (v4)</b> 를 한 번 실행하면 <code style={{ color: C.gold }}>public/data/bars/</code> 가 생깁니다.</span>
+          </Empty></div>
+        : !data ? <div style={{ ...css.card, marginTop: 9 }}><Empty>이 종목의 차트 데이터가 없습니다.</Empty></div>
+        : (<>
+          {/* ① 가격 — 구름 · 슈퍼트렌드 · 이평선 */}
+          <div style={{ ...css.card, marginTop: 9, padding: "10px 8px 4px" }}>
+            <PanelLabel>가격
+              {opt.st && <LegendDot c={C.emerald}>ST 상승</LegendDot>}
+              {opt.st && <LegendDot c={C.red}>하락</LegendDot>}
+              {opt.st && stNow != null && <span style={{ fontSize: 9, color: stNow === 3 ? C.emerald : stNow === 0 ? C.red : C.gold, fontWeight: 700 }}>
+                지금 {stNow}/3</span>}
+              {opt.ichi && <LegendDot c={cloudTone}>구름</LegendDot>}
+              {opt.ma && <LegendDot c={C.orange}>20일</LegendDot>}
+              {opt.ma && <LegendDot c={C.violet}>200일</LegendDot>}
+            </PanelLabel>
+            <div style={{ height: 264 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={data} syncId="v4chart" margin={{ top: 4, right: 6, left: -14, bottom: 0 }}>
+                  <CartesianGrid stroke="rgba(255,255,255,.045)" vertical={false} />
+                  <XAxis dataKey="d" tick={axis} tickLine={false} interval="preserveStartEnd" minTickGap={38} />
+                  <YAxis yAxisId="p" domain={view.dom} ticks={view.ticks} allowDataOverflow tick={axis} width={54}
+                    tickFormatter={x => num(x, x >= 1000 ? 0 : x >= 100 ? 1 : 2)} />
+                  <YAxis yAxisId="v" orientation="right" domain={[0, (m) => m * 4]} hide />
+                  <Tooltip {...tip} filterNull
+                    formatter={(val, name) => name === "거래량" ? [num(val, 0), name] : [pf(val), name]}
+                    itemSorter={(it) => (it.name === "종가" ? -1 : 0)} />
+                  {hi52 && <ReferenceLine yAxisId="p" y={hi52} stroke={C.gold} strokeDasharray="2 5" strokeWidth={1}
+                    label={{ value: "52주 고점", position: "insideTopLeft", fill: C.gold, fontSize: 8.5 }} />}
+                  <Bar yAxisId="v" dataKey="v" name="거래량" fill="rgba(148,163,184,.22)" isAnimationActive={false} />
+                  {/* 구름: 아래 경계까지 투명 + 그 위 밴드만 색칠 (stackId 로 띠를 만듭니다) */}
+                  {opt.ichi && <Area yAxisId="p" type="monotone" dataKey="cloudLo" stackId="cl" stroke="none" fill="transparent" isAnimationActive={false} legendType="none" name="구름 아래" />}
+                  {opt.ichi && <Area yAxisId="p" type="monotone" dataKey="cloudBand" stackId="cl" stroke="none"
+                    fill={cloudTone} fillOpacity={0.13} isAnimationActive={false} name="구름 두께" />}
+                  {opt.ma && <Line yAxisId="p" type="monotone" dataKey="ma20" name="20일선" stroke={C.orange} strokeWidth={1.2} dot={false} connectNulls strokeDasharray="4 2" isAnimationActive={false} />}
+                  {opt.ma && <Line yAxisId="p" type="monotone" dataKey="ma200" name="200일선" stroke={C.violet} strokeWidth={1.2} dot={false} connectNulls strokeDasharray="3 3" isAnimationActive={false} />}
+                  <Line yAxisId="p" type="monotone" dataKey="c" name="종가" stroke="#FFFFFF" strokeWidth={2} dot={false} isAnimationActive={false} />
+                  {/* 트리플 슈퍼트렌드 — (10,1) 굵고 진하게 → (12,3) 가늘고 옅게.
+                      초록으로 보이는 선의 개수가 아래 '근거'의 ST n/3 과 같습니다. */}
+                  {opt.st && [0, 1, 2].flatMap(k => [
+                    <Line key={`u${k}`} yAxisId="p" type="monotone" dataKey={`st${k + 1}Up`} name={`ST${k + 1} 상승`}
+                      stroke={C.emerald} strokeWidth={2.1 - k * 0.45} strokeOpacity={1 - k * 0.22}
+                      dot={false} connectNulls={false} isAnimationActive={false} />,
+                    <Line key={`d${k}`} yAxisId="p" type="monotone" dataKey={`st${k + 1}Dn`} name={`ST${k + 1} 하락`}
+                      stroke={C.red} strokeWidth={2.1 - k * 0.45} strokeOpacity={1 - k * 0.22}
+                      dot={false} connectNulls={false} isAnimationActive={false} />,
+                  ])}
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* ② MACD */}
+          <div style={{ ...css.card, marginTop: 8, padding: "10px 8px 4px" }}>
+            <PanelLabel>MACD (12·26·9)
+              <LegendDot c={C.cyan}>MACD</LegendDot><LegendDot c={C.gold}>시그널</LegendDot>
+              <span style={{ fontSize: 9, color: C.muted }}>막대 = 히스토그램</span>
+            </PanelLabel>
+            <div style={{ height: 96 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={data} syncId="v4chart" margin={{ top: 2, right: 6, left: -14, bottom: 0 }}>
+                  <XAxis dataKey="d" tick={false} tickLine={false} height={1} />
+                  <YAxis tick={axis} width={54} tickFormatter={x => num(x, 1)} />
+                  <Tooltip {...tip} formatter={val => [num(val, 3), ""]} />
+                  <ReferenceLine y={0} stroke="rgba(255,255,255,.18)" />
+                  <Bar dataKey="hist" name="히스토그램" isAnimationActive={false}
+                    shape={(pr) => <rect x={pr.x} y={pr.y} width={Math.max(1, pr.width)} height={Math.abs(pr.height)}
+                      fill={pr.payload.hist >= 0 ? "rgba(48,209,88,.55)" : "rgba(255,69,58,.55)"} />} />
+                  <Line type="monotone" dataKey="macd" name="MACD" stroke={C.cyan} strokeWidth={1.4} dot={false} connectNulls isAnimationActive={false} />
+                  <Line type="monotone" dataKey="signal" name="시그널" stroke={C.gold} strokeWidth={1.4} dot={false} connectNulls isAnimationActive={false} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* ③ RSI */}
+          <div style={{ ...css.card, marginTop: 8, padding: "10px 8px 4px" }}>
+            <PanelLabel>RSI (14, Wilder)
+              <span style={{ fontSize: 9, color: C.muted }}>70 위 과열 · 30 아래 과매도</span>
+            </PanelLabel>
+            <div style={{ height: 96 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={data} syncId="v4chart" margin={{ top: 2, right: 6, left: -14, bottom: 0 }}>
+                  <XAxis dataKey="d" tick={axis} tickLine={false} interval="preserveStartEnd" minTickGap={38} />
+                  <YAxis domain={[0, 100]} ticks={[30, 50, 70]} tick={axis} width={54} />
+                  <Tooltip {...tip} formatter={val => [num(val, 1), "RSI"]} />
+                  <ReferenceLine y={70} stroke="rgba(255,69,58,.35)" strokeDasharray="3 3" />
+                  <ReferenceLine y={50} stroke="rgba(255,255,255,.10)" />
+                  <ReferenceLine y={30} stroke="rgba(6,182,212,.35)" strokeDasharray="3 3" />
+                  <Area type="monotone" dataKey="rsi" name="RSI" stroke={C.cyan} fill="rgba(6,182,212,.09)" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={false} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+          <div style={{ fontSize: 9.5, color: C.muted, margin: "6px 2px 0" }}>
+            최근 {data.length}거래일 · 세 패널은 같은 날짜에 붙어 있어 한 곳에 커서를 두면 나머지도 같이 움직입니다.
+            차트에 그린 값은 전부 파이프라인이 계산해 둔 것이라 아래 '근거' 숫자와 항상 같습니다.
+          </div>
+        </>)}
 
       {/* 근거 — 세 묶음 고정, 각 숫자 한 번만 */}
       <h2 style={css.h2}>📈 근거 <span style={css.lbl}>— 추세 · 동력 · 상대 (모든 종목 같은 순서)</span></h2>
@@ -728,6 +862,31 @@ function ChartTab({ stocks, sel, candles, loading, watch, toggleWatch, market, p
     </>
   );
 }
+
+/** 트리플 슈퍼트렌드 열 이름 — 파이프라인의 ST_SET (10,1)(11,2)(12,3) 과 같은 순서 */
+const ST_KEYS = ["st1", "st2", "st3"];
+const ST_DOM = ["st1Up", "st1Dn", "st2Up", "st2Dn", "st3Up", "st3Dn"];
+
+/** 축은 데이터에 딱 맞추고, 눈금만 보기 좋은 수로 찍습니다.
+ *  (범위까지 반올림하면 삼성전자처럼 자릿수가 큰 종목에서 축이 0 까지 늘어나
+ *   정작 봐야 할 가격 움직임이 위쪽에 눌려 붙습니다.) */
+function niceAxis(lo, hi, want = 5) {
+  const span = hi - lo;
+  if (!(span > 0)) return { dom: [lo, hi], ticks: undefined };
+  const raw = span / want, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(x => x >= raw) || 10 * mag;
+  const ticks = [];
+  for (let x = Math.ceil(lo / step) * step; x <= hi; x += step) ticks.push(+x.toFixed(6));
+  return { dom: [lo, hi], ticks: ticks.length >= 2 ? ticks : undefined };
+}
+
+const PanelLabel = ({ children }) => (
+  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 10.5, fontWeight: 700, color: C.dim, padding: "0 4px 6px" }}>{children}</div>
+);
+const LegendDot = ({ c, children }) => (
+  <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 9, color: C.muted, fontWeight: 400 }}>
+    <span style={{ width: 8, height: 2.5, background: c, borderRadius: 2, display: "inline-block" }} />{children}</span>
+);
 
 /* ══════════════ 6. 추적 ══════════════ */
 function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market }) {
