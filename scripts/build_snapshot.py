@@ -18,7 +18,7 @@ Alpha Terminal v4 — 지표 스냅샷 파이프라인
 출력 3분할:
   public/data/snapshot.json  종목별 최신 지표값 (캔들 제외, 가벼움)
   public/data/market.json    지수·섹터·시장판단
-  public/data/candles.json   차트용 일봉 (차트 열 때만 로드)
+  public/data/bars/<티커>.json  차트용 시계열 (누른 종목만 로드, 1개 약 16KB)
 """
 import json, os, sys, time, math, urllib.request
 from datetime import datetime, timezone, timedelta
@@ -27,7 +27,7 @@ VERSION   = "4.0.0"
 UA        = {"User-Agent": "Mozilla/5.0"}
 OUT_DIR   = "public/data"
 KST       = timezone(timedelta(hours=9))
-BARS_KEEP = 260          # 차트/200일선용 보관 봉수
+BARS_KEEP = 200          # 차트에 보관할 봉수 (약 10개월)
 MIN_BARS  = 130          # 이보다 적으면 지표 일부 생략
 
 # ── 섹터 ETF (감마 통합: 12종) ────────────────────────────────
@@ -149,10 +149,18 @@ def supertrend(cd, period, mult):
         elif trend == -1 and c > fub: trend =  1
     return trend
 
+ST_SET = ((10,1), (11,2), (12,3))   # 트리플 슈퍼트렌드 — 카운트와 차트가 같은 조합을 씁니다
+
 def st_count(cd):
     """★ 실제 0~3 카운트 (기존 App.jsx 는 0 아니면 3만 가능했음)"""
     if len(cd) < 20: return None
-    return sum(1 for p,m in ((10,1),(11,2),(12,3)) if supertrend(cd,p,m) == 1)
+    return sum(1 for p,m in ST_SET if supertrend(cd,p,m) == 1)
+
+# 차트 파일의 열 순서 — 프론트가 이 이름으로 읽습니다 (인덱스 하드코딩 방지)
+COLS = ["t","c","v","ma20","ma200","spanA","spanB",
+        "st1","st2","st3","stDir","rsi","macd","hist"]
+# st1/st2/st3 = 트리플 슈퍼트렌드 밴드 (아래 ST_SET 과 같은 조합).
+# stDir = 3비트 묶음 (1비트=st1 상승, 2비트=st2, 4비트=st3) → 켜진 비트 수가 곧 ST n/3.
 
 DISP = 26   # 선행스팬 변위
 
@@ -221,6 +229,100 @@ def healthy_ratio(cd, years=3):
 # ══════════════════════════════════════════════════════════════
 # 종목 1개 지표 계산
 # ══════════════════════════════════════════════════════════════
+def rsi_series(c, n=14):
+    """RSI 시계열 — 마지막 값은 rsi_wilder() 와 정확히 일치합니다"""
+    if len(c) < n+1: return [None]*len(c)
+    out=[None]*n
+    g=l=0.0
+    for i in range(1, n+1):
+        d=c[i]-c[i-1]; g+=max(d,0); l+=max(-d,0)
+    ag, al = g/n, l/n
+    out.append(None if (ag==0 and al==0) else (100.0 if al==0 else 100-100/(1+ag/al)))
+    for i in range(n+1, len(c)):
+        d=c[i]-c[i-1]
+        ag=(ag*(n-1)+max(d,0))/n; al=(al*(n-1)+max(-d,0))/n
+        out.append(None if (ag==0 and al==0) else (100.0 if al==0 else 100-100/(1+ag/al)))
+    return out
+
+def macd_series(c, f=12, s=26, sig=9):
+    """MACD 선·시그널·히스토그램 시계열 — 마지막 hist 는 macd_hist() 와 일치"""
+    n=len(c); ef, es = ema_series(c,f), ema_series(c,s)
+    if not ef or not es: return [None]*n, [None]*n, [None]*n
+    line=[(ef[i]-es[i]) if (ef[i] is not None and es[i] is not None) else None for i in range(n)]
+    idx=[i for i,v in enumerate(line) if v is not None]
+    sl=ema_series([line[i] for i in idx], sig)
+    macd=[None]*n; sigl=[None]*n; hist=[None]*n
+    for k,i in enumerate(idx):
+        macd[i]=line[i]
+        if k < len(sl) and sl[k] is not None:
+            sigl[i]=sl[k]; hist[i]=line[i]-sl[k]
+    return macd, sigl, hist
+
+def supertrend_series(cd, period, mult):
+    """슈퍼트렌드 밴드 시계열 + 방향. supertrend() 와 같은 루프라 마지막 방향이 일치합니다."""
+    n=len(cd); a=atr_series(cd, period)
+    if not a: return [None]*n, [None]*n
+    line=[None]*n; dirs=[None]*n
+    trend, fub, flb = 1, None, None
+    for i in range(n):
+        if i >= len(a) or a[i] is None: continue
+        hl2=(cd[i]["h"]+cd[i]["l"])/2
+        ub, lb = hl2+mult*a[i], hl2-mult*a[i]
+        pc = cd[i-1]["c"] if i>0 else cd[i]["c"]
+        fub = ub if (fub is None or ub < fub or pc > fub) else fub
+        flb = lb if (flb is None or lb > flb or pc < flb) else flb
+        c = cd[i]["c"]
+        if   trend ==  1 and c < flb: trend = -1
+        elif trend == -1 and c > fub: trend =  1
+        line[i] = flb if trend == 1 else fub
+        dirs[i] = trend
+    return line, dirs
+
+def ichimoku_series(cd):
+    """구름 시계열. ★ 선행스팬을 26봉 앞으로 민 값을 각 봉 자리에 넣습니다 —
+       그래야 화면의 구름과 ichimoku_pos() 의 위/안/아래 판정이 같은 것을 가리킵니다."""
+    n=len(cd); hi=[x["h"] for x in cd]; lo=[x["l"] for x in cd]
+    A=[None]*n; B=[None]*n
+    mid=lambda e,w: (max(hi[e-w:e])+min(lo[e-w:e]))/2
+    for i in range(n):
+        e = i - DISP + 1                 # 이 봉 자리의 구름 = 26봉 전 창
+        if e < 52: continue
+        t, k = mid(e,9), mid(e,26)
+        A[i] = (t+k)/2; B[i] = mid(e,52)
+    return A, B
+
+def build_series(cd, keep, nd):
+    """차트용 시계열 한 벌. 화면은 이 값을 '그리기만' 합니다 — 지표 계산은 여기가 유일합니다."""
+    c=[x["c"] for x in cd]
+    ma20, ma200 = sma_series(c,20), sma_series(c,200)
+    sA, sB = ichimoku_series(cd)
+    # 트리플 슈퍼트렌드 — st_count() 와 완전히 같은 조합이라,
+    # 차트에서 초록으로 보이는 선의 개수가 곧 "ST n/3" 입니다.
+    tri = [supertrend_series(cd, p, m) for p, m in ST_SET]
+    rsi = rsi_series(c)
+    macd, sigl, hist = macd_series(c)
+    def g(a, i):
+        if i >= len(a) or a[i] is None: return None
+        return round(a[i], nd)
+    rows=[]
+    for i in range(len(cd)-keep, len(cd)):
+        mask, any_dir = 0, False
+        for k,(_, dirs) in enumerate(tri):
+            d = dirs[i] if i < len(dirs) else None
+            if d is not None:
+                any_dir = True
+                if d == 1: mask |= (1 << k)
+        rows.append([
+            cd[i]["t"], round(cd[i]["c"], nd), int(cd[i]["v"] or 0),
+            g(ma20,i), g(ma200,i), g(sA,i), g(sB,i),
+            g(tri[0][0],i), g(tri[1][0],i), g(tri[2][0],i),
+            (mask if any_dir else None),
+            (None if i>=len(rsi) or rsi[i] is None else round(rsi[i],1)),
+            (None if i>=len(macd) or macd[i] is None else round(macd[i],3)),
+            (None if i>=len(hist) or hist[i] is None else round(hist[i],3)),
+        ])
+    return rows
+
 def build_stock(ticker, cd, meta, name, market, sector):
     if len(cd) < 30: return None
     # ★ 종목명 — stocks.json 의 label 이 티커와 같으면(미국 425종목이 전부 그랬음)
@@ -360,7 +462,7 @@ def main():
     market = build_market()
 
     print(f"\n📊 종목 지표 계산 ({len(universe)}종목)")
-    stocks, candles = {}, {}
+    stocks, series = {}, {}
 
     def try_one(tk, info, pause):
         """1종목 처리. 성공하면 True. 코스닥(.KQ) 대체까지 포함."""
@@ -377,7 +479,11 @@ def main():
         time.sleep(pause)
         if not d: return False
         stocks[tk] = d
-        candles[tk] = [[x["t"],x["o"],x["h"],x["l"],x["c"],x["v"]] for x in cd[-BARS_KEEP:]]
+        # ★ 차트용 시계열 — 종목당 파일 1개.
+        #   예전처럼 한 덩어리(candles.json)로 묶으면 차트 탭을 처음 열 때 9MB 를 받습니다.
+        #   종목별로 쪼개면 누른 종목 하나만 16KB 받으면 됩니다.
+        nd = 0 if d["c"] >= 2000 else 2       # 원화 종목은 소수점 불필요
+        series[tk] = build_series(cd, min(BARS_KEEP, len(cd)), nd)
         return True
 
     fails = []
@@ -407,10 +513,10 @@ def main():
         #   진짜 폭락 종목과 구분이 안 됩니다 → 아예 값을 주지 않습니다(None).
         vals=[]
         for tk,d in grp:
-            cds = candles.get(tk)
+            cds = series.get(tk)
             r63 = None
             if cds and len(cds) > 63:
-                a,b = cds[-1][4], cds[-64][4]
+                a,b = cds[-1][1], cds[-64][1]
                 r63 = (a/b-1)*100 if b else None
             if r63 is None: stocks[tk]["rs"] = None
             else: vals.append((tk, r63))
@@ -471,13 +577,24 @@ def main():
 
     _write(f"{OUT_DIR}/snapshot.json", {"meta":meta,"stocks":stocks})
     _write(f"{OUT_DIR}/market.json",   {"meta":meta, **market})
-    _write(f"{OUT_DIR}/candles.json",  {"meta":{"version":VERSION,"bars":BARS_KEEP},"candles":candles})
+    # 종목별 차트 파일
+    bars_dir = f"{OUT_DIR}/bars"
+    os.makedirs(bars_dir, exist_ok=True)
+    for old in os.listdir(bars_dir):                  # 유니버스에서 빠진 종목 파일 정리
+        if old.endswith(".json") and old[:-5] not in series:
+            try: os.remove(os.path.join(bars_dir, old))
+            except OSError: pass
+    for tk, rows in series.items():
+        _write(f"{bars_dir}/{tk}.json",
+               {"v":VERSION,"t":tk,"cols":COLS,"rows":rows})
+    bsz = sum(os.path.getsize(f"{bars_dir}/{t}.json") for t in series)
 
     print(f"\n{'='*64}")
     print(f"  ✅ 완료 {time.time()-t0:.0f}초 · 종목 {len(stocks)} · 실패 {len(fails)}")
-    for f in ("snapshot","market","candles"):
-        p=f"{OUT_DIR}/{f}.json"
-        print(f"     {f+'.json':16s} {os.path.getsize(p)/1024:>8,.0f} KB")
+    for f in ("snapshot","market"):
+        pth=f"{OUT_DIR}/{f}.json"
+        print(f"     {f+'.json':16s} {os.path.getsize(pth)/1024:>8,.0f} KB")
+    print(f"     bars/*.json      {bsz/1024:>8,.0f} KB  ({len(series)}개 · 1종목 평균 {bsz/len(series)/1024:.1f} KB)")
     if fails: print(f"  ⚠️ 실패: {', '.join(fails[:12])}{' …' if len(fails)>12 else ''}")
     print("="*64)
 
