@@ -6,22 +6,27 @@ name: Snapshot Build (v4)
 # ⚠️ 지금은 수동 실행 전용입니다 (schedule 없음).
 #    이유: 기존 daily/hourly 워크플로가 여전히 stocks.json 을 커밋하고 있어서,
 #          자동 스케줄을 켜면 같은 시각에 두 워크플로가 push 를 시도해 충돌합니다.
-#    새 프론트가 올라가 stocks.json 을 더 안 쓰게 되면 그때 아래 schedule 주석을 풀고
+#    새 프론트가 며칠 안정적으로 돌면 그때 아래 schedule 주석을 풀고
 #    기존 daily/hourly 를 끄면 됩니다.
+#    ※ 종목 목록과 한국 종목명은 아직 stocks.json 에서 가져옵니다 →
+#      지금 daily/hourly 를 끄면 유니버스가 멈춥니다. 끄지 마세요.
 #
-# 만드는 파일 (기존 파일은 건드리지 않음):
-#   public/data/snapshot.json   종목별 지표      ~231KB
-#   public/data/market.json     지수·섹터·판단    ~3KB
-#   public/data/candles.json    차트용 일봉      ~8MB
+# 만드는 파일:
+#   public/data/snapshot.json    종목별 지표      약 260KB  (첫 화면)
+#   public/data/market.json      지수·섹터·판단    약 3KB    (첫 화면)
+#   public/data/bars/<티커>.json  차트용 시계열    약 17KB   (누른 종목 하나만)
+#
+# 차트 파일을 종목별로 쪼갠 이유: 예전처럼 candles.json 한 덩어리로 두면
+# 차트 탭을 처음 열 때 9MB 를 받아야 했습니다. 이제 6KB 정도만 받습니다.
 #
 # 외부 라이브러리 불필요 (파이썬 표준 라이브러리만 사용) → pip install 없음
-# 소요 시간: 약 11분 (726종목)
+# 소요 시간: 약 13분 (726종목)
 # ─────────────────────────────────────────────────────────────
 
 on:
   workflow_dispatch:          # Actions 탭에서 "Run workflow" 버튼으로 수동 실행
 
-  # ── 프론트 전환 후 아래 주석을 풀어 자동화 (기존 daily/hourly 는 끄고) ──
+  # ── 프론트 전환이 안정되면 아래 주석을 풀어 자동화 (기존 daily/hourly 는 끄고) ──
   # schedule:
   #   - cron: '5 0 * * 1-5'     # KST 09:05  한국 개장
   #   - cron: '30 3 * * 1-5'    # KST 12:30  한국 점심
@@ -36,7 +41,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     permissions:
       contents: write
 
@@ -53,16 +58,20 @@ jobs:
       - name: Show result
         run: |
           echo "── 생성된 파일 ──"
-          ls -lh public/data/snapshot.json public/data/market.json public/data/candles.json
+          ls -lh public/data/snapshot.json public/data/market.json
+          echo "차트 파일 $(ls public/data/bars | wc -l)개 · $(du -sh public/data/bars | cut -f1)"
           echo ""
           echo "── 요약 ──"
-          python -c "import json;d=json.load(open('public/data/snapshot.json'));print('종목',d['meta']['counts']['stocks'],'· 실패',d['meta']['counts']['failed'],'· 생성',d['meta']['generatedKST'])"
+          python -c "import json;d=json.load(open('public/data/snapshot.json'));m=d['meta'];print('종목',m['counts']['stocks'],'· 실패',m['counts']['failed'],'· 생성',m['generatedKST']);print('실패목록:',', '.join(m.get('failed',[])) or '없음')"
 
       - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add public/data/snapshot.json public/data/market.json public/data/candles.json
+          # v3 시절의 통짜 캔들 파일은 더 이상 쓰지 않습니다 (있으면 정리)
+          git rm --cached --ignore-unmatch public/data/candles.json >/dev/null 2>&1 || true
+          rm -f public/data/candles.json
+          git add -A public/data/snapshot.json public/data/market.json public/data/bars
           git diff --staged --quiet || (
             git commit -m "📦 $(date -u +'%Y-%m-%d %H:%M') 스냅샷 빌드 (v4)"
             git pull --rebase origin main
