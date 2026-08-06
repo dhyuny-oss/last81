@@ -23,11 +23,12 @@ Alpha Terminal v4 — 지표 스냅샷 파이프라인
 import json, os, sys, time, math, urllib.request
 from datetime import datetime, timezone, timedelta
 
-VERSION   = "4.0.0"
+VERSION   = "5.0.0"
 UA        = {"User-Agent": "Mozilla/5.0"}
 OUT_DIR   = "public/data"
 KST       = timezone(timedelta(hours=9))
-BARS_KEEP = 200          # 차트에 보관할 봉수 (약 10개월)
+BARS_KEEP   = 200        # 차트에 보관할 봉수 (약 10개월)
+RS_LOOKBACK = 126        # RS 백분위 기준 기간 (6개월) — 검증으로 정한 값
 MIN_BARS  = 130          # 이보다 적으면 지표 일부 생략
 
 # ── 섹터 ETF (감마 통합: 12종) ────────────────────────────────
@@ -339,8 +340,11 @@ def build_stock(ticker, cd, meta, name, market, sector):
     hi252 = max(x["h"] for x in win)
     hist, prevh = macd_hist(c)
     turn20 = sma([c[i]*v[i] for i in range(len(c))][-20:], 20)
+    at = atr_series(cd, 14)
+    atrp = (at[-1]/px*100) if (len(at) and at[-1] is not None and px) else None
     d = {
         "t": ticker, "n": name, "m": market, "s": sector,
+        "atrp": _r(atrp, 2),                     # ★ 변동성 = ATR(14) ÷ 가격 %
         "c": round(px, 4),
         "d1": _r(chg(cd,1)), "d3": _r(chg(cd,3)), "d5": _r(chg(cd,5)), "d21": _r(chg(cd,21)),
         "rsi": _r(rsi_wilder(c)),
@@ -548,15 +552,18 @@ def main():
     for mkt in ("us","kr"):
         grp = [(tk,d) for tk,d in stocks.items() if d["m"]==mkt and d.get("d21") is not None]
         if len(grp) < 10: continue
-        # 63일 수익률 기준 (백테스트와 동일)
+        # ★ 126일(6개월) 수익률 기준.
+        #   검증: 21/42/63/126/252일 중 126일이 양쪽 시장 모두 최고였습니다
+        #   (미국 +5.16%★ / 한국 +4.92%★ · 63일은 +3.34/+2.92%).
+        #   배분탭도 6개월 모멘텀을 쓰므로 앱 전체가 같은 기간으로 통일됩니다.
         # ★ 이력이 짧은 종목을 -999 로 밀어 넣으면 "RS 0.0" 이 되어
         #   진짜 폭락 종목과 구분이 안 됩니다 → 아예 값을 주지 않습니다(None).
         vals=[]
         for tk,d in grp:
             cds = series.get(tk)
             r63 = None
-            if cds and len(cds) > 63:
-                a,b = cds[-1][1], cds[-64][1]
+            if cds and len(cds) > RS_LOOKBACK:
+                a,b = cds[-1][1], cds[-(RS_LOOKBACK+1)][1]
                 r63 = (a/b-1)*100 if b else None
             if r63 is None: stocks[tk]["rs"] = None
             else: vals.append((tk, r63))
@@ -607,6 +614,19 @@ def main():
         print(f"\n❌ 이번 {len(stocks)}종목 < 기존 {prev_n}종목의 {MIN_OK:.0%}. "
               f"이상 축소로 보고 쓰지 않고 종료합니다.")
         sys.exit(1)
+
+    # 변동성 백분위 — 시장 안에서 줄세우기 (미국 진입 신호로 사용)
+    for mkt in ("us","kr"):
+        grp = [(tk,d["atrp"]) for tk,d in stocks.items() if d["m"]==mkt and d.get("atrp") is not None]
+        if len(grp) < 10: continue
+        grp.sort(key=lambda x: x[1]); n=len(grp)
+        i = 0
+        while i < n:
+            j = i
+            while j+1 < n and grp[j+1][1] == grp[i][1]: j += 1
+            pctl = round(((i+j)/2)/(n-1)*100, 1)
+            for k in range(i, j+1): stocks[grp[k][0]]["atrr"] = pctl
+            i = j+1
 
     now = datetime.now(timezone.utc)
     meta = {"version":VERSION, "generatedAt":now.isoformat(),
