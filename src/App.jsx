@@ -17,7 +17,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-export const APP_VERSION = "v5.0.0";
+export const APP_VERSION = "v5.1.0";
 
 /* ══════════════ 디자인 토큰 ══════════════ */
 const C = {
@@ -102,16 +102,38 @@ function marketState(nowMs = Date.now()) {
     : (mins > usClose + 240 && mins < usOpen - 330) ? "장마감" : "개장 전";
   return { krRegular, krExt, usRegular, usPre, usAfter, weekend, anyOpen, next, dst, krLabel, usLabel };
 }
+/** 그 사이에 낀 평일 수 — 대략적인 '놓친 거래일'.
+ *  주말·시간외라고 경보를 끄면 안 되고, 반대로 토요일에 금요일 데이터를 보고
+ *  "하루 지났다"고 겁줘도 안 됩니다. 그래서 시간이 아니라 평일 수로 셉니다. */
+function weekdaysBetween(fromMs, toMs) {
+  if (!(toMs > fromMs)) return 0;
+  const day = 86400000;
+  // KST 기준 날짜로 자릅니다 (UTC+9)
+  const d0 = Math.floor((fromMs + 9 * 3600000) / day);
+  const d1 = Math.floor((toMs + 9 * 3600000) / day);
+  let n = 0;
+  for (let d = d0 + 1; d <= d1 && d - d0 <= 40; d++) {
+    const dow = (d + 4) % 7;                  // 1970-01-01(=0) 은 목요일
+    if (dow !== 0 && dow !== 6) n++;          // 일·토 제외
+  }
+  return n;
+}
 function freshness(updMs, nowMs = Date.now()) {
   const st = marketState(nowMs);
   if (!updMs) return { ...st, emoji: "⚪", label: "데이터 없음", color: C.muted, tone: "none" };
   const min = Math.floor((nowMs - updMs) / 60000);
+  const days = weekdaysBetween(updMs, nowMs);
   const txt = min < 60 ? `${min}분 전` : min < 1440 ? `${Math.floor(min / 60)}시간 전` : `${(min / 1440).toFixed(1)}일 전`;
-  if (st.weekend) return { ...st, min, emoji: "🔵", label: `주말 휴장 · ${txt}`, color: C.cyan, tone: "closed" };
-  if (!st.anyOpen) return { ...st, min, emoji: "⚪", label: `시간외 · ${txt}`, color: C.muted, tone: "closed" };
-  if (min < 60) return { ...st, min, emoji: "🟢", label: txt, color: C.emerald, tone: "fresh" };
-  if (min < 240) return { ...st, min, emoji: "🟡", label: txt, color: C.gold, tone: "lag" };
-  return { ...st, min, emoji: "🔴", label: `${txt} — 수집 지연`, color: C.red, tone: "bad" };
+  // ★ 오래 멈춘 것은 무조건 먼저 알립니다.
+  //   예전에는 주말·시간외면 여기까지 오기 전에 파란 '휴장'으로 빠져서,
+  //   9일 멈춘 데이터가 토요일엔 아무 일 없는 것처럼 보였습니다.
+  if (days >= 3) return { ...st, min, days, emoji: "🔴", label: `${txt} — 갱신 멈춤`, color: C.red, tone: "stale" };
+  if (days === 2) return { ...st, min, days, emoji: "🟠", label: `${txt} — 이틀째 갱신 없음`, color: C.orange, tone: "old" };
+  if (st.weekend) return { ...st, min, days, emoji: "🔵", label: `주말 휴장 · ${txt}`, color: C.cyan, tone: "closed" };
+  if (!st.anyOpen) return { ...st, min, days, emoji: "⚪", label: `시간외 · ${txt}`, color: C.muted, tone: "closed" };
+  if (min < 60) return { ...st, min, days, emoji: "🟢", label: txt, color: C.emerald, tone: "fresh" };
+  if (min < 240) return { ...st, min, days, emoji: "🟡", label: txt, color: C.gold, tone: "lag" };
+  return { ...st, min, days, emoji: "🔴", label: `${txt} — 수집 지연`, color: C.red, tone: "bad" };
 }
 
 /* ══════════════ 검증 결과 — 시장별 근거 등급 ══════════════
@@ -143,6 +165,14 @@ const EVIDENCE = {
  *  검증: 돌파를 요구하면 후보가 85% 줄고 목록이 하루 사이 100% 교체되는데,
  *        성과 차이는 없었습니다(+1.41% vs +1.20%, 표본은 12배 차이).
  *  이제 핵심은 가격구조 + RS 이고, 돌파는 '오늘 움직임' 참고 표시입니다. */
+/** 시장 판단을 '관망 전환'에 쓸 수 있는 시장인지.
+ *  파이프라인이 gate=true 로 표시한 시장(한국)만 게이트로 씁니다.
+ *  미국은 검증을 통과한 타이밍 지표가 없어(15개 후보 전부 2010년 이후 −)
+ *  판단을 화면에 보여주기만 하고 후보를 관망으로 바꾸지 않습니다. */
+function gateOf(market, m) {
+  const j = market?.judge?.[m];
+  return (j && j.gate) ? j.verdict : null;
+}
 function verdictFind(s, marketVerdict) {
   if (!s) return null;
   const trend = !!s.tmpl, rs = (s.rs ?? 0) >= 70;
@@ -376,9 +406,23 @@ export default function App() {
           <span title={`Alpha Terminal ${APP_VERSION}`} style={{ fontSize: 7.5, color: C.muted, opacity: .65, flexShrink: 0 }}>{APP_VERSION}</span>
         </div>
 
-        {fr.tone === "bad" && (
-          <div style={{ background: "rgba(255,69,58,.12)", border: `1px solid ${C.red}`, borderRadius: 6, padding: "6px 10px", marginTop: 6, fontSize: 9.5, color: C.dim }}>
-            <b style={{ color: C.red }}>장중인데 데이터가 {Math.floor(fr.min / 60)}시간 멈춰 있어요</b> — Actions 탭에서 Snapshot Build 실행을 확인하세요.
+        {/* 갱신 경보 — 요일·장 시간과 무관하게 '놓친 평일 수'로 판단합니다. */}
+        {(fr.tone === "stale" || fr.tone === "old" || fr.tone === "bad") && (
+          <div style={{ background: fr.tone === "old" ? "rgba(245,158,11,.12)" : "rgba(255,69,58,.12)",
+                        border: `1px solid ${fr.tone === "old" ? C.orange : C.red}`, borderRadius: 6,
+                        padding: "7px 10px", marginTop: 6, fontSize: 9.5, color: C.dim, lineHeight: 1.7 }}>
+            {fr.tone === "stale" ? (<>
+              <b style={{ color: C.red }}>데이터가 평일 {fr.days}일째 갱신되지 않았습니다 ({(fr.min / 1440).toFixed(1)}일 전 기준)</b>
+              <br />지금 보이는 RS · RSI · 폭 · 구간수익률은 전부 그때 값입니다. <b style={{ color: C.text }}>매매 판단에 쓰지 마세요.</b>
+              <br />깃허브 <b style={{ color: C.text }}>Actions</b> 탭 → <b style={{ color: C.text }}>Snapshot Build (v4)</b> 를 열어
+              ① 빨간 ✕(수집 실패) ② 노란 “Enable workflow” 버튼(예약 꺼짐) ③ 실행 기록 자체 없음 중 무엇인지 확인하고
+              <b style={{ color: C.text }}> Run workflow</b> 를 한 번 눌러 주세요.
+            </>) : fr.tone === "old" ? (<>
+              <b style={{ color: C.orange }}>이틀째 갱신이 없습니다</b> — 마지막 수집 {(fr.min / 1440).toFixed(1)}일 전.
+              공휴일이면 정상이지만, 아니라면 Actions 탭에서 Snapshot Build 실행을 확인해 주세요.
+            </>) : (<>
+              <b style={{ color: C.red }}>장중인데 데이터가 {Math.floor(fr.min / 60)}시간 멈춰 있어요</b> — Actions 탭에서 Snapshot Build 실행을 확인하세요.
+            </>)}
           </div>)}
 
         <div style={{ display: "flex", marginTop: 7, borderRadius: 6, overflow: "hidden", border: `1px solid ${C.border}`, overflowX: "auto" }}>
@@ -417,6 +461,44 @@ const Shell = ({ children }) => (
 );
 
 /* ══════════════ 1. 시장 ══════════════ */
+/** 시장 '폭' — 200일선 위 종목 비율 + 3년 안에서의 위치 + 3년 추이 (가벼운 SVG) */
+function BreadthBar({ b, c }) {
+  if (!b || b.v == null) return null;
+  const hist = b.hist || [];
+  const W = 210, H = 26;
+  let path = "";
+  if (hist.length > 4) {
+    const ys = hist.map(r => r[1]);
+    const lo = Math.min(...ys), hi = Math.max(...ys), sp = Math.max(hi - lo, 1);
+    path = hist.map((r, i) =>
+      `${i ? "L" : "M"}${(i / (hist.length - 1) * W).toFixed(1)},${(H - (r[1] - lo) / sp * H).toFixed(1)}`).join("");
+  }
+  return (
+    <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 9.5, color: C.muted }}>폭 (200일선 위 종목)</span>
+        <span style={{ fontSize: 15, fontWeight: 800, color: c }}>{b.v.toFixed(0)}%</span>
+        <span style={{ fontSize: 9.5, color: C.dim }}>
+          3년 중 {b.pct >= 50 ? `상위 ${Math.round(100 - b.pct)}%` : `하위 ${Math.round(b.pct)}%`}
+        </span>
+      </div>
+      {/* 백분위 게이지 — 왼쪽이 마름, 오른쪽이 넉넉함 */}
+      <div style={{ position: "relative", height: 6, borderRadius: 3, marginTop: 5,
+                    background: "linear-gradient(90deg,rgba(255,69,58,.35),rgba(245,158,11,.3),rgba(16,185,129,.35))" }}>
+        <div style={{ position: "absolute", left: `${Math.min(Math.max(b.pct, 0), 100)}%`, top: -2,
+                      width: 2, height: 10, background: C.text, transform: "translateX(-1px)", borderRadius: 1 }} />
+        <div style={{ position: "absolute", left: "40%", top: -1, width: 1, height: 8,
+                      background: "rgba(255,255,255,.45)" }} title="한국 기준선 40" />
+      </div>
+      {path && (
+        <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none"
+             style={{ width: "100%", height: 26, marginTop: 5, display: "block" }}>
+          <path d={path} fill="none" stroke={c} strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
+        </svg>)}
+      <div style={{ fontSize: 8.5, color: C.muted, marginTop: 2 }}>최근 3년 추이 · 세로선이 오늘 위치</div>
+    </div>);
+}
+
 function MarketTab({ market, setTab }) {
   const J = { safe: ["🟢 안전", C.emerald], warn: ["🟡 주의", C.gold], risk: ["🔴 위험", C.red] };
   const idxRows = Object.entries(market.indices || {});
@@ -432,21 +514,32 @@ function MarketTab({ market, setTab }) {
             const j = market.judge?.[m]; if (!j || !J[j.verdict]) return null;
             const [t, c] = J[j.verdict];
             return (
-              <div key={m} style={{ flex: 1, minWidth: 210, borderRadius: 11, padding: "12px 14px",
-                background: `${c}12`, border: `1px solid ${c}55`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 700 }}>{m === "us" ? "🇺🇸 미국" : "🇰🇷 한국"}</div>
-                  <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{j.why}</div>
+              <div key={m} style={{ flex: 1, minWidth: 232, borderRadius: 11, padding: "12px 14px",
+                background: `${c}12`, border: `1px solid ${c}55` }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700 }}>{m === "us" ? "🇺🇸 미국" : "🇰🇷 한국"}
+                    <span style={{ fontSize: 9, fontWeight: 600, marginLeft: 6, padding: "1px 6px", borderRadius: 5,
+                      background: j.gate ? "rgba(16,185,129,.16)" : "rgba(255,255,255,.05)",
+                      color: j.gate ? C.emerald : C.muted, border: `1px solid ${j.gate ? C.emerald + "44" : C.border}` }}>
+                      {j.gate ? "판단에 사용" : "참고용"}</span></div>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: c, whiteSpace: "nowrap" }}>{t}</div>
                 </div>
-                <div style={{ fontSize: 17, fontWeight: 800, color: c, whiteSpace: "nowrap" }}>{t}</div>
+                <div style={{ fontSize: 11, color: C.dim, marginTop: 4 }}>{j.why}</div>
+                <BreadthBar b={market.breadth?.[m]} c={c} />
               </div>);
           })}
         </div>
         <div style={{ fontSize: 10, color: C.muted, marginTop: 9, lineHeight: 1.75 }}>
-          200일선 위=안전 / 아래=위험 / 위지만 1일 −5%↑ 또는 1달 −15%↑면 주의. 미국=S&amp;P500 · 한국=KOSPI.<br />
-          <b style={{ color: C.cyan }}>🇰🇷 한국은 이 신호가 잘 듣습니다</b> — {EVIDENCE.ma200.kr.note}<br />
-          <b style={{ color: C.gold }}>🇺🇸 미국은 참고만</b> — {EVIDENCE.ma200.us.note}.
-          최근 2년엔 642일 중 55일(9%)만 켜졌고 그때가 오히려 반등 직전이었습니다.
+          <b style={{ color: C.text }}>‘폭’은 그 시장에서 200일선 위에 있는 종목의 비율</b>입니다.
+          지수 한 줄보다 “실제로 오르고 있는 종목이 몇 %인가”를 봅니다. 괄호는 최근 3년 안에서의 위치입니다.<br />
+          <b style={{ color: C.cyan }}>🇰🇷 한국 — 판단에 씁니다.</b> 폭 백분위가 하위 40% 아래면 위험으로 보고,
+          그때 발굴탭 후보가 <b style={{ color: C.gold }}>🟡 관망</b>으로 바뀝니다.
+          검증(3개월 보유): 전체 +5.85%p · 2010–18 +2.95%p · 2019–23 +4.72%p — 모든 구간에서 같은 방향입니다.
+          쓰던 지수 200일선은 2024–26 구간에서 −2.68%p로 뒤집혀 교체했습니다.<br />
+          <b style={{ color: C.gold }}>🇺🇸 미국 — 참고만 합니다.</b> 지수 200일선 · 골든크로스 · 고점 대비 낙폭 ·
+          폭 · 변동성 등 15개 후보를 전부 시험했지만 2010년 이후 모든 구간에서 (−)였습니다.
+          미국은 시장이 나빠지면 <b style={{ color: C.text }}>발굴 후보 수가 스스로 35개→14개로 줄어드는 것</b>이
+          실제 방어였습니다. 그래서 후보를 관망으로 바꾸지 않고, 위험 관리는 손절과 비중으로 합니다.
         </div>
       </div>
 
@@ -613,7 +706,7 @@ function FindTab({ list, openStock, watch, toggleWatch, market, seen }) {
   const pool = useMemo(() => {
     let r = list.filter(s => (s.tvr ?? 0) >= 40);
     if (mkt !== "all") r = r.filter(s => s.m === mkt);
-    return r.map(s => ({ s, v: verdictFind(s, market.judge[s.m]?.verdict) }));
+    return r.map(s => ({ s, v: verdictFind(s, gateOf(market, s.m)) }));
   }, [list, mkt, market]);
 
   const rows = useMemo(() => {
@@ -765,8 +858,9 @@ function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab
   const cache = useRef({});
   const [span, setSpan] = useState(126);                       // 기본 6개월
   const [opt, setOpt] = useState(() => {
-    try { return { ...{ ichi: true, st: true, ma: true }, ...JSON.parse(localStorage.getItem("v4.chart") || "{}") }; }
-    catch { return { ichi: true, st: true, ma: true }; }
+    const D = { ichi: true, st: true, ma: true, idx: true };
+    try { return { ...D, ...JSON.parse(localStorage.getItem("v4.chart") || "{}") }; }
+    catch { return D; }
   });
   useEffect(() => { localStorage.setItem("v4.chart", JSON.stringify(opt)); }, [opt]);
 
@@ -784,6 +878,16 @@ function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab
     return () => { dead = true; };
   }, [sel]);
 
+  /* 지수(KOSPI / S&P500) — 날짜로 맞춰 붙입니다. 파이프라인이 저장한 종가를 그대로 씁니다. */
+  const idxMap = useMemo(() => {
+    const rows = market?.idxbars?.[s?.m]?.rows;
+    if (!rows?.length) return null;
+    const m = new Map();
+    for (const [t, c] of rows) if (c != null) m.set(t, c);
+    return m;
+  }, [market, s?.m]);
+  const idxLabel = market?.idxbars?.[s?.m]?.label || (s?.m === "kr" ? "KOSPI" : "S&P500");
+
   /* 열 이름은 파일이 알려 줍니다 — 순서가 바뀌어도 화면이 깨지지 않도록 */
   const view = useMemo(() => {
     if (!bars?.rows?.length) return null;
@@ -795,6 +899,7 @@ function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab
       const sA = g("spanA"), sB = g("spanB");
       const o = {
         d: new Date(g("t") * 1000).toISOString().slice(5, 10),
+        _t: g("t"),
         c: g("c"), v: g("v"), ma20: g("ma20"), ma200: g("ma200"),
         cloudLo: (sA != null && sB != null) ? Math.min(sA, sB) : null,
         cloudBand: (sA != null && sB != null) ? Math.abs(sA - sB) : null,
@@ -815,6 +920,32 @@ function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab
       o.stUpCount = mask == null ? null : up;
       return o;
     });
+    // ★ 지수 겹쳐 그리기 — 화면 첫날을 종목과 같은 가격에서 출발시킵니다.
+    //   "이 종목을 안 사고 지수를 샀다면 지금 얼마" 가 되어, 두 선의 벌어진 폭이 곧 초과수익입니다.
+    //   (지수를 원래 눈금으로 그리면 축이 둘로 갈라져 어느 쪽이 이겼는지 눈으로 못 읽습니다.)
+    let idxFirst = null, stkFirst = null, idxPts = 0;
+    if (idxMap) {
+      for (const r of rows) {
+        const iv = idxMap.get(r._t);
+        if (iv != null && r.c != null) { idxFirst = iv; stkFirst = r.c; break; }
+      }
+      if (idxFirst) for (const r of rows) {
+        const iv = idxMap.get(r._t);
+        if (iv != null) { r.idx = +(stkFirst * iv / idxFirst).toFixed(4); idxPts++; }
+        else r.idx = null;
+      }
+    }
+    const idxRel = (idxFirst && rows.length) ? (() => {
+      // 기간 초과수익 — 근거 카드의 RS 와는 다른 값입니다(여기는 '이 화면 구간'만).
+      let lastC = null, lastI = null;
+      for (let i = rows.length - 1; i >= 0; i--) {
+        if (lastC == null && rows[i].c != null) lastC = rows[i].c;
+        if (lastI == null && rows[i].idx != null) lastI = rows[i].idx;
+        if (lastC != null && lastI != null) break;
+      }
+      return (lastC != null && lastI) ? (lastC / lastI - 1) * 100 : null;
+    })() : null;
+
     // 가격축 범위 — 구름을 stack 으로 깔면 0 이 축에 끌려 들어와 가격선이 납작해집니다.
     // 축 범위는 가까이 읽는 것(종가·20일선·구름·슈퍼트렌드)으로만 잡습니다.
     // 200일선까지 넣으면 크게 오른 종목(예: 삼성전자)에서 축이 0 근처까지 늘어나
@@ -825,16 +956,26 @@ function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab
       for (const k of ["c", "ma20", "cloudLo", ...ST_DOM]) if (r[k] != null) vals.push(r[k]);
       if (r.cloudLo != null && r.cloudBand != null) vals.push(r.cloudLo + r.cloudBand);
     }
-    if (!vals.length) return { rows, dom: ["auto", "auto"], ticks: undefined };
-    const lo = Math.min(...vals), hi = Math.max(...vals), pad = (hi - lo) * 0.06 || hi * 0.02;
-    return { rows, ...niceAxis(Math.max(0, lo - pad), hi + pad) };
-  }, [bars, span]);
+    if (!vals.length) return { rows, idxPts, idxRel, dom: ["auto", "auto"], ticks: undefined };
+    let lo = Math.min(...vals), hi = Math.max(...vals);
+    // 지수선도 축에 넣습니다 — 안 넣으면 크게 이긴/진 종목에서 지수선이 화면 밖으로 잘려
+    // 정작 보려던 '얼마나 이겼나'가 안 보입니다. 다만 종목 범위의 2배를 넘게는 늘리지 않습니다
+    // (지수가 극단적으로 벌어졌을 때 가격 움직임이 납작해지는 것을 막습니다).
+    if (idxPts > 1) {
+      const iv = rows.map(r => r.idx).filter(v => v != null);
+      const sp = (hi - lo) || hi * 0.05;
+      lo = Math.max(Math.min(lo, Math.min(...iv)), lo - sp);
+      hi = Math.min(Math.max(hi, Math.max(...iv)), hi + sp);
+    }
+    const pad = (hi - lo) * 0.06 || hi * 0.02;
+    return { rows, idxPts, idxRel, ...niceAxis(Math.max(0, lo - pad), hi + pad) };
+  }, [bars, span, idxMap]);
   const data = view?.rows || null;
 
   if (!sel) return <Empty>위 검색창에서 종목을 찾거나, 다른 탭에서 종목을 누르면 여기에 열립니다.</Empty>;
   if (!s) return <Empty>{sel} 는 스냅샷에 없습니다.</Empty>;
 
-  const v = verdictFind(s, market.judge[s.m]?.verdict);
+  const v = verdictFind(s, gateOf(market, s.m));
   const ma200v = s.ma200p != null ? s.c / (1 + s.ma200p / 100) : null;
   const hi52 = s.w52p != null ? s.c / (1 + s.w52p / 100) : null;
   const held = (pos || []).some(p => p.t === s.t);
@@ -896,7 +1037,7 @@ function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab
           {[[63, "3개월"], [126, "6개월"], [200, "전체"]].map(([n, l]) =>
             <Toggle key={n} on={span === n} onClick={() => setSpan(n)}>{l}</Toggle>)}
           <span style={{ width: 1, height: 16, background: C.border, margin: "0 3px" }} />
-          {[["st", "슈퍼트렌드"], ["ichi", "구름"], ["ma", "이평선"]].map(([k, l]) =>
+          {[["st", "슈퍼트렌드"], ["ichi", "구름"], ["ma", "이평선"], ["idx", idxLabel]].map(([k, l]) =>
             <Toggle key={k} on={opt[k]} onClick={() => setOpt(o => ({ ...o, [k]: !o[k] }))}>{l}</Toggle>)}
         </div>
       </div>
@@ -918,6 +1059,11 @@ function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab
               {opt.ichi && <LegendDot c={cloudTone}>구름</LegendDot>}
               {opt.ma && <LegendDot c={C.orange}>20일</LegendDot>}
               {opt.ma && <LegendDot c={C.violet}>200일</LegendDot>}
+              {opt.idx && view?.idxPts > 1 && <LegendDot c={C.cyan}>{idxLabel}</LegendDot>}
+              {opt.idx && view?.idxRel != null && (
+                <span style={{ fontSize: 9, fontWeight: 700, color: view.idxRel >= 0 ? C.emerald : C.red }}>
+                  지수 대비 {view.idxRel >= 0 ? "+" : ""}{view.idxRel.toFixed(1)}%
+                </span>)}
             </PanelLabel>
             <div style={{ height: 264 }}>
               <ResponsiveContainer width="100%" height="100%">
@@ -939,6 +1085,11 @@ function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab
                     fill={cloudTone} fillOpacity={0.13} isAnimationActive={false} name="구름 두께" />}
                   {opt.ma && <Line yAxisId="p" type="monotone" dataKey="ma20" name="20일선" stroke={C.orange} strokeWidth={1.2} dot={false} connectNulls strokeDasharray="4 2" isAnimationActive={false} />}
                   {opt.ma && <Line yAxisId="p" type="monotone" dataKey="ma200" name="200일선" stroke={C.violet} strokeWidth={1.2} dot={false} connectNulls strokeDasharray="3 3" isAnimationActive={false} />}
+                  {/* 지수 — 화면 첫날을 종목과 같은 가격에서 출발시킨 선.
+                      두 선이 벌어진 만큼이 그 기간의 초과수익입니다. */}
+                  {opt.idx && view?.idxPts > 1 && <Line yAxisId="p" type="monotone" dataKey="idx"
+                    name={`${idxLabel} (같은 출발점)`} stroke={C.cyan} strokeWidth={1.4} strokeOpacity={0.85}
+                    dot={false} connectNulls isAnimationActive={false} />}
                   <Line yAxisId="p" type="monotone" dataKey="c" name="종가" stroke="#FFFFFF" strokeWidth={2} dot={false} isAnimationActive={false} />
                   {/* 트리플 슈퍼트렌드 — (10,1) 굵고 진하게 → (12,3) 가늘고 옅게.
                       초록으로 보이는 선의 개수가 아래 '근거'의 ST n/3 과 같습니다. */}
@@ -1006,7 +1157,7 @@ function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab
       {/* 근거 — 세 묶음 고정, 각 숫자 한 번만 */}
       <h2 style={css.h2}>📈 근거 <span style={css.lbl}>— 추세 · 동력 · 상대 (모든 종목 같은 순서)</span></h2>
       <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>
-        {[["추세 (구조)", trend, `가격구조 ${s.tmpl ? "✓" : "✕"} · ST ${s.st ?? "—"}/3 · 구름 ${s.cloud === 1 ? "위" : s.cloud === 0 ? "안" : s.cloud === -1 ? "아래" : "—"} · 200일선 ${pct(s.ma200p, 1)}`],
+        {[["추세 (구조)", trend, `가격구조 ${s.tmpl ? "✓" : "✕"} · ST ${s.st ?? "—"}/3 · 200일선 ${pct(s.ma200p, 1)}`],
           ["동력 (모멘텀)", power, `RSI ${s.rsi?.toFixed(1) ?? "—"} · MACD ${macdTxt} · 거래량 ${s.vr5?.toFixed(2) ?? "—"}x`],
           ["상대 (시장 대비)", rel, `RS 백분위 ${s.rs?.toFixed(1) ?? "—"} · 52주 고점 대비 ${pct(s.w52p, 1)}`],
         ].map(([label, [t, c], detail]) => (
