@@ -50,6 +50,8 @@ INDICES = {
 }
 RISK = {"^VIX":"VIX", "^TNX":"US10Y", "^IRX":"US3M"}
 BENCH = {"us":"^GSPC", "kr":"^KS11"}
+# 한국 배분 대상 — 섹터를 고르지 않고 이것 하나를 그냥 들고 갑니다 (검증 결과)
+KR_ETF = ("069500.KS", "KODEX 200")
 
 # ══════════════════════════════════════════════════════════════
 # 데이터 수집
@@ -517,13 +519,30 @@ def build_market():
     holds = [s["tk"] for s in secs[:3] if (s["score"] or 0) > 0]
     defense = len(holds) < 3
 
+    # ── 한국 배분 — 로테이션이 아니라 '그냥 이것 하나' ──────────
+    #   검증: 한국 섹터 ETF 31개를 전부 담아도 연 +5.51% 로 KODEX 200(+10.22%)보다 낮았고,
+    #   워크포워드 검증에서 32개 설정 중 9개만 (+), 최대낙폭은 -62% 로 지수(-36%)의 1.7배였습니다.
+    #   그래서 고르는 기능을 만들지 않고, 살 대상 하나를 화면에 그대로 띄웁니다.
+    kretf = None
+    cd,_ = fetch_candles(KR_ETF[0]); time.sleep(0.25)
+    if len(cd) >= 260:
+        c=[x["c"] for x in cd]; ma200=sma(c,200)
+        mm = {k: chg(cd, n) for k, n in (("m3",63),("m6",126),("m9",189),("m12",252))}
+        kretf = {"tk": KR_ETF[0], "code": KR_ETF[0].split(".")[0], "label": KR_ETF[1],
+                 "c": _r(c[-1], 2), "d1": _r(chg(cd,1)), "d5": _r(chg(cd,5)), "d21": _r(chg(cd,21)),
+                 "m3": _r(mm["m3"]), "m6": _r(mm["m6"]), "m9": _r(mm["m9"]), "m12": _r(mm["m12"]),
+                 "ma200p": _r((c[-1]/ma200-1)*100) if ma200 else None}
+        print(f"  {KR_ETF[1]:8s} {c[-1]:>10,.0f}원  6개월 {_f(mm['m6'])}  200일선 {_f(kretf['ma200p'])}")
+    else:
+        print(f"  ⚠️ {KR_ETF[0]} 캔들 부족 — 한국 배분 카드는 생략됩니다")
+
     # ★ 원/달러 — 배분탭이 "얼마 넣어서 몇 주"를 원화로 말하려면 필요합니다
     fx = None
     fx_cd,_ = fetch_candles("USDKRW=X"); time.sleep(0.2)
     if fx_cd: fx = _r(fx_cd[-1]["c"], 2)
     print(f"  USD/KRW  {fx}")
 
-    alloc = build_alloc_state(holds, defense, secs)
+    alloc = build_alloc_state(holds, defense, secs, kretf)
     return {"indices":idx, "risk":risk, "judge":judge, "fx":{"usdkrw":fx}, "idxbars":idxbars,
             "sectors":secs, "allocation":alloc}
 
@@ -544,7 +563,7 @@ def _next_rebal(d):
         if m > d.month: return datetime(d.year, m, 1, tzinfo=timezone.utc)
     return datetime(d.year + 1, REBAL_MONTHS[0], 1, tzinfo=timezone.utc)
 
-def build_alloc_state(holds, defense, secs):
+def build_alloc_state(holds, defense, secs, kretf=None):
     now = datetime.now(timezone.utc)
     q, due = _q(now), now.month in REBAL_MONTHS
     try:
@@ -576,7 +595,8 @@ def build_alloc_state(holds, defense, secs):
         "dropped": [{"tk": t, "label": lab.get(t, t), "rank": rank.get(t)}
                     for t in locked if t not in holds],     # 밀려난 것
         "method": "3·6·9·12개월 수익률 평균 · 플러스인 것 중 상위 3개 · 동일가중 · 분기 리밸런스",
-        "kr": {"bench": "069500", "name": "KODEX 200",
+        "kr": {"bench": KR_ETF[0].split(".")[0], "name": KR_ETF[1], "etf": kretf,
+               "rebal": False,
                "note": "한국은 섹터 로테이션을 하지 않습니다. 섹터 ETF 31개를 전부 담아도 연 +5.51%로 "
                        "KODEX 200(+10.22%)보다 낮았고, 검증 구간에서 32개 설정 중 9개만 (+)였으며 "
                        "최대낙폭은 -62%로 지수(-36%)의 1.7배였습니다."}
