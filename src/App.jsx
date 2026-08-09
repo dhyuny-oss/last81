@@ -55,8 +55,12 @@ const money = (v, m = "us") => {
 };
 
 /* ══════════════ 세션·신선도 (앱 전체 공통) ══════════════ */
-const SLOTS_KST = [[9, 5], [12, 30], [16, 0], [20, 0], [22, 45], [23, 45], [2, 0], [6, 30]];
-const SAT_SLOT = [9, 0];   // 토 09:00 KST 주간 정리 (워크플로에 있는데 목록엔 빠져 있었음)
+// ★ 워크플로(daily.yml)의 cron 과 반드시 같아야 합니다.
+//   무료 한도(비공개 저장소 월 2,000분)에 맞춰 하루 8회 → 2회로 줄였습니다.
+//   16:00 = 한국 확정 종가 · 06:30 = 미국 확정 종가. 매매 결정은 이 두 시각 이후 값으로 합니다.
+//   장중 갱신본은 아직 안 끝난 봉이라 어차피 판단에 쓰면 안 되는 값이었습니다.
+const SLOTS_KST = [[16, 0], [6, 30]];
+const SAT_SLOT = [9, 0];   // 토 09:00 KST 주간 백업
 
 /** 미국이 서머타임(EDT)인지 — 하드코딩하면 겨울 반년 동안 세션 표시가 30분씩 틀립니다 */
 function usDST(nowMs) {
@@ -397,7 +401,7 @@ export default function App() {
             신호 🇰🇷{asOfBy.kr || "—"} · 🇺🇸{asOfBy.us || "—"}</span>
           <span style={css.chip(`${fr.color}15`, fr.color, `1px solid ${fr.color}40`)}>{fr.emoji} {fr.label}</span>
           <span style={css.chip("rgba(255,255,255,.04)", C.muted, `1px solid ${C.border}`)}>
-            다음 {fr.weekend ? "월 09:05" : fr.next ? `${String(fr.next.hh).padStart(2, "0")}:${String(fr.next.mm).padStart(2, "0")}` : "—"}</span>
+            다음 {fr.weekend ? "월 16:00" : fr.next ? `${String(fr.next.hh).padStart(2, "0")}:${String(fr.next.mm).padStart(2, "0")}` : "—"}</span>
 
           <div style={{ marginLeft: "auto", position: "relative", flexShrink: 0 }}>
             <input value={q} onChange={e => { setQ(e.target.value); setShowQ(true); }} onFocus={() => setShowQ(true)}
@@ -654,6 +658,11 @@ function AllocTab({ market, pos, setPos, setTab }) {
   const shares = (px) => (perUsd && px ? Math.floor(perUsd / px) : null);
   const held = (t) => (pos || []).some(p => p.t === t);
   const due = !!A.rebalDue;
+  // 한국은 미국과 지갑을 따로 씁니다 — 투입액도 따로 기억합니다
+  const krEtf = A.kr?.etf || null;
+  const [krCap, setKrCap] = useState(() => Number(localStorage.getItem("v52.krcap") || 0));
+  useEffect(() => localStorage.setItem("v52.krcap", String(krCap)), [krCap]);
+  const krShares = (krEtf?.c && krCap > 0) ? Math.floor(krCap / krEtf.c) : null;
   const drift = A.drift || [], dropped = A.dropped || [];
 
   return (
@@ -768,17 +777,67 @@ function AllocTab({ market, pos, setPos, setTab }) {
           </div>
         </>)}
 
-      {/* 한국 — 검증 결과가 '하지 말 것'이라 기능 대신 안내를 둡니다 */}
-      <div style={{ ...css.card, marginTop: 10, borderColor: "rgba(6,182,212,.3)", background: "rgba(6,182,212,.05)" }}>
-        <div style={{ fontSize: 12.5, fontWeight: 700, color: C.cyan }}>
-          🇰🇷 한국은 섹터를 고르지 않습니다 — <b style={{ color: C.text }}>{A.kr?.name || "KODEX 200"}</b> 을 그냥 들고 가세요
+      {/* 한국 — 고르는 기능은 만들지 않았지만, 살 대상 하나는 미국과 똑같이 보여줍니다.
+          현재가·배분금액·몇 주·등록까지 있어야 실제로 살 수 있습니다. */}
+      <h2 style={css.h2}>🇰🇷 한국 배분 <span style={css.lbl}>— 고르지 않습니다 · 하나를 그냥 들고 갑니다</span></h2>
+      {krEtf ? (
+        <div style={{ ...css.card, borderColor: "rgba(6,182,212,.35)", background: "rgba(6,182,212,.05)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 800 }}>{krEtf.label}
+                <span style={{ fontSize: 10.5, color: C.muted, fontWeight: 500, marginLeft: 6 }}>{krEtf.code}</span></div>
+              <div style={{ fontSize: 10.5, color: C.dim }}>코스피 200 · 분기 리밸런스 없음</div>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 15, fontWeight: 800, color: col(krEtf.m6), fontFamily: "ui-monospace,monospace" }}>{pct(krEtf.m6, 1)}</div>
+              <div style={{ fontSize: 9, color: C.muted }}>6개월 (참고용)</div>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 4, marginTop: 7, flexWrap: "wrap" }}>
+            {[["3M", krEtf.m3], ["6M", krEtf.m6], ["9M", krEtf.m9], ["12M", krEtf.m12], ["200일선", krEtf.ma200p]].map(([k, v]) => (
+              <span key={k} style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4,
+                background: "rgba(255,255,255,.04)", border: `1px solid ${C.border}`, color: col(v) }}>
+                {k} {pct(v, 0)}</span>))}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap", marginTop: 9,
+                        paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
+            <span style={{ fontSize: 11.5, color: C.dim }}>투입 자본 (원)</span>
+            <input type="number" value={krCap} onChange={e => setKrCap(Number(e.target.value) || 0)}
+              style={{ background: "rgba(255,255,255,.05)", border: `1px solid ${C.border}`, borderRadius: 6,
+                       padding: "5px 9px", color: C.text, fontSize: 11.5, width: 140 }} />
+            <span style={{ fontSize: 11, color: C.muted }}>
+              현재가 <b style={{ color: C.text }}>{price(krEtf.c, "kr")}</b>
+              {krShares != null && <> → <b style={{ color: C.text }}>{krShares}주</b>
+                <span style={{ opacity: .75 }}> ({money(krShares * krEtf.c, "kr")})</span></>}
+            </span>
+          </div>
+          <button onClick={() => {
+            if (!held(krEtf.code)) setPos(v => [...v, { id: Date.now(), t: krEtf.code, avg: krEtf.c, role: "etf",
+              date: new Date().toISOString().slice(0, 10) }]);
+            setTab("track");
+          }} style={{ width: "100%", marginTop: 9, background: held(krEtf.code) ? "rgba(255,255,255,.05)" : "rgba(6,182,212,.12)",
+            border: `1px solid ${held(krEtf.code) ? C.border : C.cyan + "55"}`, color: held(krEtf.code) ? C.dim : C.cyan,
+            borderRadius: 6, padding: "6px 0", fontSize: 10.5, fontWeight: 700, cursor: "pointer" }}>
+            {held(krEtf.code) ? "📁 추적탭에서 보기" : "＋ 추적탭에 등록"}</button>
+          <div style={{ fontSize: 10, color: C.muted, marginTop: 8, lineHeight: 1.75 }}>
+            {A.kr?.note}
+            <br />상장폐지된 ETF가 빠진 목록으로 잰 것이라 실제로는 이보다 나쁩니다(생존편향).
+            미국 12개 섹터는 1998년 이후 하나도 사라지지 않아 이 문제가 없습니다.
+            <br /><b style={{ color: C.dim }}>미국과 달리 갈아탈 것이 없으니 분기마다 볼 필요도 없습니다.</b>
+            국내 상장 ETF라 매매차익은 비과세(분배금만 15.4%)입니다.
+          </div>
         </div>
-        <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.75 }}>
-          {A.kr?.note || "한국 섹터 ETF는 검증을 통과하지 못했습니다."}
-          <br />상장폐지된 ETF가 빠진 목록으로 잰 것이라 실제로는 이보다 나쁩니다(생존편향).
-          미국 12개 섹터는 1998년 이후 하나도 사라지지 않아 이 문제가 없습니다.
+      ) : (
+        <div style={{ ...css.card, borderColor: "rgba(6,182,212,.3)", background: "rgba(6,182,212,.05)" }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: C.cyan }}>
+            🇰🇷 한국은 섹터를 고르지 않습니다 — <b style={{ color: C.text }}>{A.kr?.name || "KODEX 200"}</b> 을 그냥 들고 가세요
+          </div>
+          <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.75 }}>
+            {A.kr?.note || "한국 섹터 ETF는 검증을 통과하지 못했습니다."}
+            <br /><span style={{ color: C.gold }}>가격을 아직 못 받았습니다 — Snapshot Build 를 한 번 실행하면 여기에 현재가와 주 수가 나옵니다.</span>
+          </div>
         </div>
-      </div>
+      )}
 
       <h2 style={css.h2}>📋 전 섹터 순위 <span style={css.lbl}>— 점수 = 3·6·9·12개월 평균</span></h2>
       <div style={css.card}>
@@ -1363,9 +1422,16 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
   const perPos = stopPct > 0 ? riskWon / (stopPct / 100) : 0;
   // ★ 배분탭이 지시하는 섹터 ETF 는 snapshot.stocks 에 없습니다(시장 데이터 쪽에 있음).
   //   그대로 두면 "SMH 보유 등록" 이 '스냅샷에 없는 티커' 로 거부됩니다.
-  const etf = useMemo(() => Object.fromEntries((market?.sectors || []).map(x =>
-    ({ t: x.tk, n: `${x.label} ETF`, m: "us", c: x.c, d1: x.d1, d3: x.d3, d5: x.d5, d21: x.d21,
-       ma200p: x.ma200p, isEtf: true })).map(o => [o.t, o])), [market]);
+  const etf = useMemo(() => {
+    const us = (market?.sectors || []).map(x =>
+      ({ t: x.tk, n: `${x.label} ETF`, m: "us", c: x.c, d1: x.d1, d3: x.d3, d5: x.d5, d21: x.d21,
+         ma200p: x.ma200p, isEtf: true }));
+    // ★ 한국 배분(KODEX 200)도 넣어야 "추적탭에 등록" 이 '스냅샷에 없는 티커'로 거부되지 않습니다
+    const k = market?.allocation?.kr?.etf;
+    const kr = k ? [{ t: k.code, n: k.label, m: "kr", c: k.c, d1: k.d1, d5: k.d5, d21: k.d21,
+                      ma200p: k.ma200p, isEtf: true }] : [];
+    return Object.fromEntries([...us, ...kr].map(o => [o.t, o]));
+  }, [market]);
   const look = useCallback((t) => stocks[t] || etf[t] || null, [stocks, etf]);
   const [form, setForm] = useState(null);   // {t, avg, role} — 인라인 폼 (prompt/alert 은 모바일에서 최악)
   const rows = pos.filter(p => role === "all" || p.role === role);
