@@ -87,7 +87,11 @@ def pick_entry(stocks, judge):
         if (s.get("rsi") or 0) > 75:                     # 과열 제외
             continue
         s = dict(s)
-        s["_wait"] = (judge.get(s["m"], {}).get("verdict") == "risk")
+        # ★ 시장 판단이 '위험'이어도 관망으로 내리는 건 gate=True 인 시장(한국)뿐입니다.
+        #   미국은 검증을 통과한 타이밍 지표가 없어(15개 후보 전부 2010년 이후 −)
+        #   판단을 표시만 하고 후보를 바꾸지 않습니다. 앱의 gateOf() 와 같은 규칙입니다.
+        j = judge.get(s["m"], {})
+        s["_wait"] = bool(j.get("gate")) and j.get("verdict") == "risk"
         out.append(s)
     out.sort(key=lambda x: -(x.get("rs") or 0))
     return out
@@ -134,25 +138,43 @@ def build(snap, mkt, state, now):
     for k, flag, name in (("us", "🇺🇸", "미국"), ("kr", "🇰🇷", "한국")):
         j = judge.get(k)
         if j:
-            L.append(f"{flag} <b>{name} {VERDICT.get(j['verdict'], j['verdict'])}</b> "
+            tail = "" if j.get("gate") else " <i>(참고용)</i>"
+            L.append(f"{flag} <b>{name} {VERDICT.get(j['verdict'], j['verdict'])}</b>{tail} "
                      f"<i>— {j.get('why','')}</i>")
 
-    # ── 2. 이번 달 배분 ───────────────────────────────────
+    # ── 2. 배분 (분기 리밸런스) ───────────────────────────
+    # ★ 점수는 3·6·9·12개월 평균, 갈아타는 것은 1·4·7·10월에만.
+    #   그 사이엔 순위가 바뀌어도 "지금 바꾸지 마세요" 라고 말해 줘야
+    #   알림을 보고 매달 손대는 일이 없습니다.
+    L.append("")
     if alloc.get("defense"):
-        L.append("")
-        L.append(f"🛡 <b>배분: 방어</b> — 6개월 플러스 섹터가 {alloc.get('nPositive',0)}개뿐")
+        L.append(f"🛡 <b>배분: 방어</b> — 점수가 플러스인 섹터가 {alloc.get('nPositive',0)}개뿐 · 현금")
     elif alloc.get("holds"):
         picks = " · ".join(
-            f"{t}({sectors.get(t,{}).get('label','')} {pct(sectors.get(t,{}).get('m6'),0)})"
+            f"{t}({sectors.get(t,{}).get('label','')} {pct(sectors.get(t,{}).get('score'),0)})"
             for t in alloc["holds"])
-        L.append("")
         L.append(f"🧺 <b>배분</b> 3분할 — {picks}")
+    if alloc.get("rebalDue"):
+        L.append(f"   🔔 <b>지금이 리밸런스 시기입니다</b> ({alloc.get('quarter','')})")
+        for d in alloc.get("dropped", []): L.append(f"   − {d.get('label')} 빼기")
+        for d in alloc.get("drift", []):   L.append(f"   ＋ {d.get('label')} 넣기")
+    else:
+        drift = alloc.get("drift") or []
+        tail = (f" · 순위 바뀐 것 {len(drift)}개 있지만 <b>지금 바꾸지 마세요</b>" if drift else "")
+        L.append(f"   <i>다음 리밸런스 {alloc.get('nextRebal','—')}{tail}</i>")
 
     # ── 3. 진입후보 ───────────────────────────────────────
     L.append("")
     if entry:
-        nkr = sum(1 for s in entry if s["m"] == "kr")
-        head = f"🟢 <b>후보 {len(entry)}</b> <i>(🇰🇷{nkr} · 🇺🇸{len(entry)-nkr})</i>"
+        # ★ 앱과 같은 숫자를 씁니다. 시장 위험으로 관망이 된 것은 후보 수에서 빼고 따로 적습니다
+        #   (앱 발굴탭의 '후보만 (n)' 과 이 숫자가 다르면 어느 쪽을 믿어야 할지 알 수 없습니다).
+        go   = [s for s in entry if not s["_wait"]]
+        wait = [s for s in entry if s["_wait"]]
+        nkr  = sum(1 for s in go if s["m"] == "kr")
+        head = f"🟢 <b>후보 {len(go)}</b> <i>(🇰🇷{nkr} · 🇺🇸{len(go)-nkr})</i>"
+        if wait:
+            wkr = sum(1 for s in wait if s["m"] == "kr")
+            head += f" <i>· 관망 {len(wait)}</i>" + (f"<i>(🇰🇷{wkr})</i>" if wkr else "")
         if new_entry: head += f" (신규 {len(new_entry)})"
         L.append(head)
         for s in entry[:MAX_ROWS]:
@@ -181,7 +203,7 @@ def build(snap, mkt, state, now):
     # ── 5. 청산 규칙 한 줄 (매번 같은 말을 하도록) ────────
     L.append("")
     L.append("<i>🟢 후보 = 단기 · 손절 평단 −10% · 최소 3~6개월 보유 (손절 넓힌 만큼 종목당 금액은 줄이세요)</i>")
-    L.append("<i>🔵 장기 관찰 = 미국 전용 · 손절 없이 12~24개월</i>")
+    L.append("<i>🔵 장기 관찰 = 미국 전용 · 손절 없이 12~24개월\n🧺 배분 = 미국 섹터만 · 분기 리밸런스 (한국은 KODEX 200 그냥 보유)</i>")
 
     # ── 6. 데이터 상태 ────────────────────────────────────
     cnt = meta.get("counts", {})
