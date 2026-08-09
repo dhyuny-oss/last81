@@ -17,7 +17,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-export const APP_VERSION = "v5.1.0";
+export const APP_VERSION = "v5.2.0";
 
 /* ══════════════ 디자인 토큰 ══════════════ */
 const C = {
@@ -263,6 +263,8 @@ export default function App() {
   const [err, setErr] = useState(null);
   const [tab, setTab] = useState("market");
   const [sel, setSel] = useState(null);
+  const [sizerTick, setSizerTick] = useState(0);          // 포지션 설정이 바뀌면 올립니다
+  const bumpSizer = useCallback(() => setSizerTick(t => t + 1), []);
   const [q, setQ] = useState("");
   const [showQ, setShowQ] = useState(false);
 
@@ -336,6 +338,27 @@ export default function App() {
     return { kr: top(g.kr), us: top(g.us) };
   }, [list]);
 
+  // ★ 포지션 크기를 한 곳에서만 계산합니다.
+  //   전에는 추적탭 안에만 있어서, 발굴·차트에서 "이 종목 몇 주 사지?" 를 알려면
+  //   탭을 옮겨 금액을 보고 환율로 나누고 주가로 다시 나눠야 했습니다.
+  //   sizer 를 공유해 어느 화면에서든 같은 숫자가 나오게 합니다.
+  const sizer = useMemo(() => {
+    const g = (k, d) => { const v = Number(localStorage.getItem(k)); return Number.isFinite(v) && v > 0 ? v : d; };
+    const cap = g("v4.cap", 10000000), risk = g("v5.risk", 1), stop = g("v5.stop", 10);
+    const won = stop > 0 ? (cap * risk / 100) / (stop / 100) : 0;   // 한 종목에 넣을 금액(원)
+    const fx = market?.fx?.usdkrw || null;
+    return {
+      cap, risk, stop, won, fx,
+      // 그 종목을 몇 주 살 수 있나 — 미국은 환율로 환산합니다
+      shares: (px, m) => {
+        if (!px || !won) return null;
+        const amt = m === "us" ? (fx ? won / fx : null) : won;
+        if (amt == null) return null;
+        return Math.floor(amt / px);
+      },
+    };
+  }, [market, sizerTick]);
+
   /* ── 검색 ── */
   const results = useMemo(() => {
     const k = q.trim().toLowerCase(); if (!k) return [];
@@ -356,7 +379,7 @@ export default function App() {
     ["market", "🌐 시장"], ["alloc", "🧺 배분"], ["find", "🔍 발굴"],
     ["over", "🌊 과매도"], ["chart", "📊 차트"], ["track", `📁 추적 ${pos.length + watch.length || ""}`],
   ];
-  const shared = { stocks, list, openStock, watch, toggleWatch, market, setTab, setSel, pos, setPos, seen };
+  const shared = { stocks, list, openStock, watch, toggleWatch, market, setTab, setSel, pos, setPos, seen, sizer, bumpSizer };
 
   return (
     <Shell>
@@ -609,24 +632,67 @@ function MarketTab({ market, setTab }) {
 }
 
 /* ══════════════ 2. 배분 (감마 흡수) ══════════════ */
+/** 배분 — 분기 리밸런스 ETF 바구니 (미국 전용)
+ *  ★ 2026-08 검증으로 두 가지가 바뀌었습니다.
+ *    ① 점수: 6개월 하나 → 3·6·9·12개월 평균.
+ *       워크포워드에서 학습-검증 상관이 -0.08 이라 '최적 룩백'을 고를 수 없었습니다.
+ *       고르지 않고 넷을 합치면 지수 대비 +3.99%p (95% [+0.02,+7.34] — 유일하게 0 위).
+ *    ② 주기: 월 1회 → 분기 1회. 월은 비용 0.3%만 되어도 초과수익이 사라졌습니다.
+ *  화면의 역할도 그래서 바뀝니다 — '이번 달 뭘 살까'가 아니라
+ *  '지금 들고 있어야 할 것 + 다음에 손댈 날짜' 를 보여줍니다. */
 function AllocTab({ market, pos, setPos, setTab }) {
   const [cap, setCap] = useState(() => Number(localStorage.getItem("v4.cap") || 10000000));
   useEffect(() => localStorage.setItem("v4.cap", String(cap)), [cap]);
-  const holds = market.sectors.filter(s => market.allocation.holds.includes(s.tk));
+  const A = market.allocation || {};
+  const byTk = useMemo(() => Object.fromEntries((market.sectors || []).map(s => [s.tk, s])), [market.sectors]);
+  const lockList = (A.holds || []);
+  const holds = lockList.map(t => byTk[t]).filter(Boolean);
   const per = holds.length ? cap / holds.length : 0;          // 원화
   // ETF 는 달러 상품입니다 — 원화 투입액을 환율로 나눠야 몇 주인지 나옵니다.
   const fx = market.fx?.usdkrw || null;
   const perUsd = fx ? per / fx : null;
   const shares = (px) => (perUsd && px ? Math.floor(perUsd / px) : null);
   const held = (t) => (pos || []).some(p => p.t === t);
+  const due = !!A.rebalDue;
+  const drift = A.drift || [], dropped = A.dropped || [];
+
   return (
     <>
-      <h2 style={css.h2}>🧺 이번 달 보유 지시 <span style={css.lbl}>— 6개월 모멘텀 상위 3개 균등</span></h2>
-      {market.allocation.defense ? (
+      {/* 언제 손대는가 — 이 화면에서 제일 먼저 알아야 할 것 */}
+      <div style={{
+        ...css.card, marginTop: 8,
+        borderColor: due ? `${C.gold}77` : C.border,
+        background: due ? "rgba(245,158,11,.07)" : C.panel,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 15, fontWeight: 800, color: due ? C.gold : C.text }}>
+            {due ? "🔔 지금이 리밸런스 시기입니다" : "⏸ 지금은 손대지 않습니다"}
+          </span>
+          <span style={css.chip("rgba(255,255,255,.04)", C.dim, `1px solid ${C.border}`)}>
+            {A.quarter || "—"} 고정 {A.lockedAt ? `(${A.lockedAt})` : ""}
+          </span>
+          <span style={{ marginLeft: "auto", fontSize: 11, color: C.muted }}>
+            다음 <b style={{ color: C.text }}>{A.nextRebal || "—"}</b>
+            {A.daysToRebal != null && <> · D-{A.daysToRebal}</>}
+          </span>
+        </div>
+        <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.75 }}>
+          1·4·7·10월에만 갈아탑니다. 그 사이 순위가 바뀌어도 그대로 둡니다 —
+          검증에서 월 1회로 돌리면 연 교체가 5.3회로 늘어 비용 0.3%만 되어도 초과수익이 사라졌습니다
+          (분기는 2.0회, 비용 0.5%에서도 +3.2%p 남음). 해외주식 양도세 22%까지 생각하면 차이가 더 벌어집니다.
+        </div>
+      </div>
+
+      <h2 style={css.h2}>🧺 지금 들고 있어야 할 것
+        <span style={css.lbl}>— {A.method || "3·6·9·12개월 평균 · 상위 3개 균등"}</span></h2>
+
+      {A.defense ? (
         <div style={{ ...css.card, borderColor: `${C.gold}66`, background: "rgba(245,158,11,.06)" }}>
-          <div style={{ fontSize: 15, fontWeight: 800, color: C.gold }}>🛡 방어 국면 — 현금 또는 채권(IEF)</div>
+          <div style={{ fontSize: 15, fontWeight: 800, color: C.gold }}>🛡 방어 국면 — 현금</div>
           <div style={{ fontSize: 12, color: C.dim, marginTop: 5 }}>
-            6개월 모멘텀이 플러스인 섹터가 {market.allocation.nPositive}개뿐입니다. 상위 3개를 채울 수 없어 방어로 전환합니다.
+            점수가 플러스인 섹터가 {A.nPositive ?? 0}개뿐입니다. 상위 3개를 채울 수 없어 현금으로 둡니다.
+            <br /><span style={{ fontSize: 10.5, color: C.muted }}>
+              채권(IEF)으로 피하는 것도 시험했는데 차이가 +0.16%p 로 사실상 없었습니다 → 단순한 현금을 씁니다.</span>
           </div>
         </div>
       ) : (
@@ -638,15 +704,21 @@ function AllocTab({ market, pos, setPos, setTab }) {
                   <div><div style={{ fontSize: 15, fontWeight: 800 }}>{s.tk}</div>
                     <div style={{ fontSize: 10.5, color: C.dim }}>{s.label}</div></div>
                   <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: 15, fontWeight: 800, color: C.emerald, fontFamily: "ui-monospace,monospace" }}>{pct(s.m6, 1)}</div>
-                    <div style={{ fontSize: 9, color: C.muted }}>6개월</div></div>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: col(s.score), fontFamily: "ui-monospace,monospace" }}>{pct(s.score, 1)}</div>
+                    <div style={{ fontSize: 9, color: C.muted }}>점수 · {s.rank}위</div></div>
+                </div>
+                {/* 점수가 어디서 왔는지 — 한 기간에 운을 걸지 않았다는 걸 보이게 */}
+                <div style={{ display: "flex", gap: 4, marginTop: 7, flexWrap: "wrap" }}>
+                  {[["3M", s.m3], ["6M", s.m6], ["9M", s.m9], ["12M", s.m12]].map(([k, v]) => (
+                    <span key={k} style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4,
+                      background: "rgba(255,255,255,.04)", border: `1px solid ${C.border}`, color: col(v) }}>
+                      {k} {pct(v, 0)}</span>))}
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: C.dim, marginTop: 8, borderTop: `1px solid ${C.border}`, paddingTop: 7, flexWrap: "wrap", gap: 6 }}>
                   <span>현재가 <b style={{ color: C.text }}>${num(s.c)}</b></span>
                   <span>배분 <b style={{ color: C.text }}>{money(per, "kr")}</b>
                     {shares(s.c) != null && <span style={{ color: C.muted }}> ≈ {shares(s.c)}주</span>}</span>
                 </div>
-                {/* 탭 연계 — 배분 지시를 그대로 추적탭 포지션으로 */}
                 <button onClick={() => {
                   if (!held(s.tk)) setPos(v => [...v, { id: Date.now(), t: s.tk, avg: s.c, role: "etf",
                     date: new Date().toISOString().slice(0, 10) }]);
@@ -657,7 +729,29 @@ function AllocTab({ market, pos, setPos, setTab }) {
                   {held(s.tk) ? "📁 추적탭에서 보기" : "＋ 추적탭에 등록"}</button>
               </div>))}
           </div>
-          <div style={{ ...css.card, marginTop: 10 }}>
+
+          {/* 분기 사이에 순위가 밀린 것 — 보여주되 '지금 바꾸지 말라'고 명시 */}
+          {(drift.length > 0 || dropped.length > 0) && (
+            <div style={{ ...css.card, marginTop: 9, borderColor: due ? `${C.gold}55` : C.border }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: due ? C.gold : C.dim }}>
+                {due ? "이번 분기에 이렇게 바꿉니다" : `${A.quarter} 고정 이후 순위가 바뀌었습니다`}
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+                {dropped.map(d => (
+                  <span key={d.tk} style={css.chip("rgba(255,69,58,.1)", C.red, `1px solid ${C.red}44`)}>
+                    − {d.label} <span style={{ color: C.muted }}>{d.rank ?? "—"}위로</span></span>))}
+                {drift.map(d => (
+                  <span key={d.tk} style={css.chip("rgba(48,209,88,.1)", C.emerald, `1px solid ${C.emerald}44`)}>
+                    ＋ {d.label} <span style={{ color: C.muted }}>{d.rank ?? "—"}위</span></span>))}
+              </div>
+              <div style={{ fontSize: 10, color: C.muted, marginTop: 7 }}>
+                {due ? <>지금 갈아타면 됩니다. 위 카드는 이미 새 조합입니다.</>
+                     : <><b style={{ color: C.text }}>지금은 바꾸지 마세요.</b> {A.nextRebal} 에 한 번에 정리합니다.
+                         순위가 오르내리는 것을 매번 따라가면 교체 비용이 초과수익보다 커집니다.</>}
+              </div>
+            </div>)}
+
+          <div style={{ ...css.card, marginTop: 9 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
               <span style={{ fontSize: 11.5, color: C.dim }}>투입 자본 (원)</span>
               <input type="number" value={cap} onChange={e => setCap(Number(e.target.value) || 0)}
@@ -669,35 +763,57 @@ function AllocTab({ market, pos, setPos, setTab }) {
             </div>
             <div style={{ fontSize: 10, color: C.muted, marginTop: 8 }}>
               {fx ? <>환율 {num(fx, 1)}원/$ 기준 · </> : <>환율을 불러오지 못해 주 수는 생략했습니다 · </>}
-              월 1회 리밸런스. 미국 ETF는 해외주식 양도세 22%(연 250만원 초과분) — 잦은 교체는 세금이 불리합니다.
+              미국 ETF는 해외주식 양도세 22%(연 250만원 초과분)입니다.
             </div>
           </div>
         </>)}
 
-      <h2 style={css.h2}>📋 전 섹터 순위</h2>
+      {/* 한국 — 검증 결과가 '하지 말 것'이라 기능 대신 안내를 둡니다 */}
+      <div style={{ ...css.card, marginTop: 10, borderColor: "rgba(6,182,212,.3)", background: "rgba(6,182,212,.05)" }}>
+        <div style={{ fontSize: 12.5, fontWeight: 700, color: C.cyan }}>
+          🇰🇷 한국은 섹터를 고르지 않습니다 — <b style={{ color: C.text }}>{A.kr?.name || "KODEX 200"}</b> 을 그냥 들고 가세요
+        </div>
+        <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.75 }}>
+          {A.kr?.note || "한국 섹터 ETF는 검증을 통과하지 못했습니다."}
+          <br />상장폐지된 ETF가 빠진 목록으로 잰 것이라 실제로는 이보다 나쁩니다(생존편향).
+          미국 12개 섹터는 1998년 이후 하나도 사라지지 않아 이 문제가 없습니다.
+        </div>
+      </div>
+
+      <h2 style={css.h2}>📋 전 섹터 순위 <span style={css.lbl}>— 점수 = 3·6·9·12개월 평균</span></h2>
       <div style={css.card}>
         <Scroll>
           <table style={tbl}>
-            <thead><tr>{["#", "섹터", "6개월", "3개월", "1달누적", "200일선"].map((h, i) =>
+            <thead><tr>{["#", "섹터", "점수", "3M", "6M", "9M", "12M", "200일선"].map((h, i) =>
               <th key={h} style={{ ...th, textAlign: i <= 1 ? "left" : "right" }}>{h}</th>)}</tr></thead>
-            <tbody>{market.sectors.map(s => (
-              <tr key={s.tk} style={market.allocation.holds.includes(s.tk) ? { background: "rgba(48,209,88,.06)" } : undefined}>
+            <tbody>{(market.sectors || []).map(s => (
+              <tr key={s.tk} style={lockList.includes(s.tk) ? { background: "rgba(48,209,88,.06)" } : undefined}>
                 <td style={{ ...td, color: C.muted }}>{s.rank}</td>
-                <td style={td}><b>{s.label}</b> <span style={{ color: C.muted, fontSize: 9.5 }}>{s.tk}</span></td>
-                <td style={{ ...tdR, color: col(s.m6), fontWeight: 700 }}>{pct(s.m6, 1)}</td>
-                <td style={{ ...tdR, color: col(s.m3) }}>{pct(s.m3, 1)}</td>
-                <td style={{ ...tdR, color: col(s.d21) }}>{pct(s.d21)}</td>
+                <td style={td}><b>{s.label}</b> <span style={{ color: C.muted, fontSize: 9.5 }}>{s.tk}</span>
+                  {lockList.includes(s.tk) && <span style={{ color: C.emerald, fontSize: 9, marginLeft: 4 }}>보유</span>}</td>
+                <td style={{ ...tdR, color: col(s.score), fontWeight: 700 }}>{pct(s.score, 1)}</td>
+                <td style={{ ...tdR, color: col(s.m3) }}>{pct(s.m3, 0)}</td>
+                <td style={{ ...tdR, color: col(s.m6) }}>{pct(s.m6, 0)}</td>
+                <td style={{ ...tdR, color: col(s.m9) }}>{pct(s.m9, 0)}</td>
+                <td style={{ ...tdR, color: col(s.m12) }}>{pct(s.m12, 0)}</td>
                 <td style={{ ...tdR, color: col(s.ma200p) }}>{pct(s.ma200p, 1)}</td>
               </tr>))}</tbody>
           </table>
         </Scroll>
+        <Note>
+          <b>왜 네 기간을 평균하나</b> — 과거 성적으로 최적 룩백을 고를 수 있는지 시험했는데
+          학습 구간 순위와 검증 구간 순위의 상관이 <b>−0.08</b> 이었습니다. 1등이던 설정과 31등이던 설정의
+          검증 성적이 뒤집혔습니다. 그래서 고르지 않고 넷을 합칩니다.
+          이 방식이 지수 대비 <b>+3.99%p</b>(95% 구간 [+0.02, +7.34])로, 시험한 설정 중 구간이 0을 넘은 유일한 것이었습니다.
+          확실한 쪽은 수익보다 <b>최대낙폭 −52.2% → −36.8%</b> 입니다.
+        </Note>
       </div>
     </>
   );
 }
 
 /* ══════════════ 3. 발굴 ══════════════ */
-function FindTab({ list, openStock, watch, toggleWatch, market, seen }) {
+function FindTab({ list, openStock, watch, toggleWatch, market, seen, sizer }) {
   const [onlyGo, setOnlyGo] = useState(true);
   const [mkt, setMkt] = useState("all");
   const [needBrk, setNeedBrk] = useState(false);      // ★ 돌파는 이제 '선택'
@@ -772,7 +888,7 @@ function FindTab({ list, openStock, watch, toggleWatch, market, seen }) {
                 {(s.rsi ?? 0) > 75 && <Chip tone="w">RSI {s.rsi.toFixed(0)} 과열</Chip>}
                 {d != null && d >= 5 && <Chip tone="n">{d}일째 후보</Chip>}
               </>}
-              right={<><Range4 s={s} /><div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>거래대금 {money(s.tv, s.m)}</div></>} />
+              right={<><div style={{ fontSize: 12, fontWeight: 700, fontFamily: "ui-monospace,monospace" }}>{price(s.c, s.m)}{sizer?.shares(s.c, s.m) != null && <span style={{ fontSize: 9, fontWeight: 500, color: C.muted }}> · {sizer.shares(s.c, s.m)}주</span>}</div><Range4 s={s} /><div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>거래대금 {money(s.tv, s.m)}</div></>} />
           );
         })}
       </div>
@@ -787,7 +903,7 @@ function FindTab({ list, openStock, watch, toggleWatch, market, seen }) {
 }
 
 /* ══════════════ 4. 과매도 (베타 흡수) ══════════════ */
-function OversoldTab({ list, openStock, watch, toggleWatch }) {
+function OversoldTab({ list, openStock, watch, toggleWatch, sizer }) {
   const [deep, setDeep] = useState(true);
   // ★ 기본은 미국만. 한국은 검증에서 −7.24%로 유의하게 손해였습니다.
   const [showKr, setShowKr] = useState(false);
@@ -838,7 +954,7 @@ function OversoldTab({ list, openStock, watch, toggleWatch }) {
               {s.m === "kr" && <Chip tone="r">⚠ 한국 — 이 전략 검증 실패</Chip>}
               {(s.ma200p ?? 0) < -50 && <Chip tone="r">⚠ 200일선 −50%↓ · 구조 훼손 의심</Chip>}
             </>}
-            right={<><Range4 s={s} /><div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>거래대금 {money(s.tv, s.m)}</div></>} />
+            right={<><div style={{ fontSize: 12, fontWeight: 700, fontFamily: "ui-monospace,monospace" }}>{price(s.c, s.m)}{sizer?.shares(s.c, s.m) != null && <span style={{ fontSize: 9, fontWeight: 500, color: C.muted }}> · {sizer.shares(s.c, s.m)}주</span>}</div><Range4 s={s} /><div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>거래대금 {money(s.tv, s.m)}</div></>} />
         ))}
       </div>
       <Note>낙폭이 아무리 커도 <b>200일선을 −50% 넘게 밑도는 종목</b>은 회복이 아니라 구조 훼손일 때가 많습니다 — 그런 종목엔 ⚠ 를 붙여 두었습니다(현재 목록에 2종목).
@@ -850,7 +966,7 @@ function OversoldTab({ list, openStock, watch, toggleWatch }) {
 /* ══════════════ 5. 차트 ══════════════ */
 /** 차트에 그리는 값은 전부 /data/bars/<티커>.json 에 들어 있는 값입니다.
  *  이 컴포넌트는 지표를 하나도 계산하지 않습니다 — 그래서 차트와 위 판단이 어긋날 수 없습니다. */
-function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab }) {
+function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab, sizer }) {
   const s = sel ? stocks[sel] : null;
   const [bars, setBars] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -1029,6 +1145,18 @@ function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab
             borderRadius: 6, padding: "5px 11px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
             {held ? "📁 추적탭에서 보기" : `＋ ${price(s.c, s.m)} 에 보유 등록`}</button>
         </div>
+        {/* 사기 전에 '얼마나'를 여기서 바로 — 예전엔 추적탭까지 가야 알 수 있었습니다 */}
+        {!held && sizer?.shares(s.c, s.m) != null && (
+          <div style={{ marginTop: 7, paddingTop: 7, borderTop: `1px solid ${C.border}`,
+                        fontSize: 10.5, color: C.muted, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "baseline" }}>
+            <span>이 설정이면 <b style={{ color: C.text, fontSize: 12 }}>{sizer.shares(s.c, s.m)}주</b></span>
+            <span>· {money(sizer.won, "kr")}
+              {s.m === "us" && sizer.fx && <> (≈ ${num(sizer.won / sizer.fx, 0)})</>}</span>
+            <span>· 손절 −{sizer.stop}% 에서 {money(sizer.cap * sizer.risk / 100, "kr")} 손실</span>
+            <button onClick={() => setTab("track")} style={{ marginLeft: "auto", background: "none",
+              border: `1px solid ${C.border}`, color: C.dim, borderRadius: 5, padding: "2px 8px",
+              fontSize: 9.5, cursor: "pointer" }}>설정 바꾸기</button>
+          </div>)}
       </div>
 
       {/* 차트 옵션 */}
@@ -1218,7 +1346,7 @@ const LegendDot = ({ c, children }) => (
 );
 
 /* ══════════════ 6. 추적 ══════════════ */
-function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market }) {
+function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, bumpSizer }) {
   const [role, setRole] = useState("all");
   /* ★ 손절 폭과 '1회 위험'을 사용자가 정합니다.
      검증: 손절이 타이트할수록 성과가 일관되게 나빠졌습니다
@@ -1228,9 +1356,9 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market }
   const [stopPct, setStopPct] = useState(() => Number(localStorage.getItem("v5.stop") || 10));
   const [cap, setCap] = useState(() => Number(localStorage.getItem("v4.cap") || 10000000));
   const [riskPct, setRiskPct] = useState(() => Number(localStorage.getItem("v5.risk") || 1));
-  useEffect(() => { localStorage.setItem("v5.stop", String(stopPct)); }, [stopPct]);
-  useEffect(() => { localStorage.setItem("v5.risk", String(riskPct)); }, [riskPct]);
-  useEffect(() => { localStorage.setItem("v4.cap", String(cap)); }, [cap]);
+  useEffect(() => { localStorage.setItem("v5.stop", String(stopPct)); bumpSizer?.(); }, [stopPct]);
+  useEffect(() => { localStorage.setItem("v5.risk", String(riskPct)); bumpSizer?.(); }, [riskPct]);
+  useEffect(() => { localStorage.setItem("v4.cap", String(cap)); bumpSizer?.(); }, [cap]);
   const riskWon = cap * riskPct / 100;
   const perPos = stopPct > 0 ? riskWon / (stopPct / 100) : 0;
   // ★ 배분탭이 지시하는 섹터 ETF 는 snapshot.stocks 에 없습니다(시장 데이터 쪽에 있음).
@@ -1271,6 +1399,11 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market }
             <div style={{ fontSize: 9.5, color: C.muted }}>한 종목에 넣을 금액</div>
             <div style={{ fontSize: 19, fontWeight: 800, color: C.emerald, fontFamily: "ui-monospace,monospace" }}>
               {money(perPos, "kr")}</div>
+            {market?.fx?.usdkrw && (
+              <div style={{ fontSize: 9.5, color: C.muted, marginTop: 1 }}>
+                미국 종목이면 ≈ ${num(perPos / market.fx.usdkrw, 0)}
+                <span style={{ opacity: .7 }}> (환율 {num(market.fx.usdkrw, 1)})</span>
+              </div>)}
           </div>
           <div>
             <div style={{ fontSize: 9.5, color: C.muted }}>손절 시 잃는 돈</div>
