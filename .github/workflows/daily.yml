@@ -1,20 +1,45 @@
 name: Daily Data Update
+
+# ─────────────────────────────────────────────────────────────
+# ★ 이 파일 하나가 앱의 모든 데이터를 만듭니다 (무료 한도 안에서 돌도록 짰습니다)
+#
+#   문제였던 것: 예전엔 fetch_yahoo.py 만 돌아서 stocks.json 은 갱신됐지만
+#   앱이 실제로 읽는 snapshot.json / market.json / bars/ 는 아무도 안 만들었습니다.
+#   → build_snapshot.py 와 notify.py 를 같은 job 에 이어 붙였습니다.
+#
+#   순서: fetch_yahoo(유니버스·종목명) → build_snapshot(지표) → notify(텔레그램) → 커밋 1회
+#   한 job 안에서 순서대로 도니 두 워크플로가 동시에 push 하는 충돌이 없습니다.
+#
+# ★ 무료 한도(비공개 저장소 월 2,000분) 설계
+#   KST 16:00  한국 확정 종가 → 유니버스 갱신 + 스냅샷  (약 30분)
+#   KST 06:30  미국 확정 종가 → 스냅샷만              (약 18분)
+#   KST 토 09:00 주간 백업     → 유니버스 갱신 + 스냅샷  (약 30분)
+#   → 월 약 (30+18)×22 + 30×4 = 1,176분. 수동 실행 여유까지 남습니다.
+#
+#   유니버스(stocks.json)는 하루 한 번이면 충분합니다. 종목 목록과 이름은
+#   자주 바뀌지 않는데 수집에만 10분 넘게 쓰므로, 06:30 슬롯에서는 건너뜁니다.
+#
+# ★ 매매 결정은 이 두 시각 이후 값으로 하세요.
+#   장중 갱신본은 아직 안 끝난 봉이라 흔들립니다. 검증에서도 확인 주기는
+#   주 1회로 충분했고 요일 효과도 없었습니다.
+# ─────────────────────────────────────────────────────────────
+
 on:
   schedule:
-    # 한국 장마감 후 (월~금)
-    - cron: '0 7 * * 1-5'    # UTC 07:00 = KST 16:00
-    # 미국 장마감 후 (월~금 미국시간 = 화~토 KST 새벽)
-    # cron의 1-5는 UTC 요일 → UTC 금요일 21:30 = KST 토요일 06:30 (금요일 미국장 마감)
-    - cron: '30 21 * * 1-5'  # UTC 21:30 = KST 다음날 06:30
-    # 백업 — GitHub free tier가 cron 가끔 스킵해서 토요일 09:00에 한 번 더 시도
-    # 금요일 미국장 데이터가 누락된 경우를 위한 안전망 (주 1회 추가, 한도 영향 미미)
-    - cron: '0 0 * * 6'      # UTC 00:00 토 = KST 09:00 토 (주말 백업)
+    - cron: '0 7 * * 1-5'    # UTC 07:00 = KST 16:00       한국 확정 종가
+    - cron: '30 21 * * 1-5'  # UTC 21:30 = KST 다음날 06:30  미국 확정 종가
+    - cron: '0 0 * * 6'      # UTC 00:00 토 = KST 토 09:00   주간 백업
   workflow_dispatch:
+
+# 앞 실행이 아직 안 끝났으면 새로 시작하지 않습니다 (한도 낭비 방지)
+concurrency:
+  group: data-update
+  cancel-in-progress: false
 
 jobs:
   update-data:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     permissions:
       contents: write
     env:
@@ -22,8 +47,8 @@ jobs:
       KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
       KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
       KIS_ACCOUNT: ${{ secrets.KIS_ACCOUNT }}
-      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      # ★ TELEGRAM_* 를 여기 두지 않습니다 → fetch_yahoo.py 가 보내던
+      #   옛 리포트(폐지한 점수 체계·다른 RSI)가 자동으로 멈춥니다.
     steps:
       - uses: actions/checkout@v4
 
@@ -31,19 +56,51 @@ jobs:
         with:
           python-version: '3.11'
 
+      # ① 유니버스·종목명 — 16:00 과 토요일, 그리고 수동 실행에서만
       - name: Install dependencies
+        if: github.event.schedule != '30 21 * * 1-5'
         run: pip install yfinance requests
 
-      - name: Fetch market data
+      - name: Fetch universe (stocks.json)
+        if: github.event.schedule != '30 21 * * 1-5'
         run: python scripts/fetch_yahoo.py
 
+      # ② 앱이 읽는 지표 스냅샷 — 매번. 외부 라이브러리 없이 표준 라이브러리만 씁니다
+      #    종목의 80% 미만만 수집되면 일부러 실패하고 기존 데이터를 지킵니다
+      - name: Build snapshot
+        run: python scripts/build_snapshot.py
+
+      - name: Show result
+        run: |
+          ls -lh public/data/snapshot.json public/data/market.json
+          echo "차트 파일 $(ls public/data/bars | wc -l)개 · $(du -sh public/data/bars | cut -f1)"
+          python -c "import json;m=json.load(open('public/data/snapshot.json'))['meta'];print('종목',m['counts']['stocks'],'· 실패',m['counts']['failed'],'· 생성',m['generatedKST']);print('실패목록:',', '.join(m.get('failed',[])) or '없음')"
+          python -c "import json;d=json.load(open('public/data/market.json'));print('판단',{k:(v['verdict'],v['gate']) for k,v in d['judge'].items()});print('폭',{k:(v['v'],v['pct']) for k,v in d.get('breadth',{}).items()})"
+
+      # ③ 텔레그램 — 스냅샷이 성공했을 때만
+      - name: Telegram report
+        if: success()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          REPORT_MODE: full
+        run: python scripts/notify.py
+
+      # ④ 커밋 1회 — 스냅샷이 실패해도 stocks.json 은 살립니다
       - name: Commit and push
+        if: always()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add public/data/stocks.json public/data/alpha_hits.json
+          rm -f public/data/candles.json
+          git rm --cached --ignore-unmatch public/data/candles.json >/dev/null 2>&1 || true
+          # ★ git add 는 없는 파일을 지정하면 통째로 실패합니다
+          #   (notified.json 은 텔레그램 첫 발송 전엔 없습니다) → 있는 것만 담습니다
+          for f in stocks.json alpha_hits.json snapshot.json market.json notified.json bars; do
+            [ -e "public/data/$f" ] && git add -A "public/data/$f"
+          done
           git diff --staged --quiet || (
-            git commit -m "📊 $(date +%Y-%m-%d) 데이터 업데이트"
+            git commit -m "📊 $(date -u -d '+9 hours' +%Y-%m-%d_%H:%M) 데이터 + 스냅샷"
             git pull --rebase origin main
             git push
           )
