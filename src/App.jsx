@@ -258,6 +258,86 @@ function StockRow({ s, verdict, chips, right, onOpen, isWatch, onToggle }) {
   );
 }
 
+
+/** 🔄 지금 갱신 — 휴대폰에서 깃허브 Actions 를 눌러 돌리기 위한 버튼.
+ *  깃허브 토큰은 앱에 넣지 않습니다(배포된 JS 에 그대로 노출됨).
+ *  Vercel 서버 함수 /api/refresh 가 대신 부르고, 앱은 암호 한 줄만 들고 있습니다. */
+function RefreshBtn() {
+  const [key, setKey] = useState(() => localStorage.getItem("v52.rkey") || "");
+  const [ask, setAsk] = useState(false);
+  const [st, setSt] = useState(null);          // {running, live, runs}
+  const [msg, setMsg] = useState(null);        // {t, bad}
+  const [busy, setBusy] = useState(false);
+  const timer = useRef(null);
+
+  const poll = useCallback(async () => {
+    try {
+      const r = await fetch("/api/refresh?t=" + Date.now());
+      const j = await r.json();
+      if (j.ok) { setSt(j); return j; }
+      setMsg({ t: j.msg || "상태를 읽지 못했습니다", bad: true });
+    } catch { setMsg({ t: "서버에 연결하지 못했습니다 (/api/refresh 가 배포되었는지 확인)", bad: true }); }
+    return null;
+  }, []);
+
+  useEffect(() => { poll(); }, [poll]);
+  // 돌고 있으면 20초마다 확인하고, 끝나면 새 데이터를 받으러 새로고침합니다
+  useEffect(() => {
+    clearInterval(timer.current);
+    if (st?.running) {
+      timer.current = setInterval(async () => {
+        const j = await poll();
+        if (j && !j.running) { clearInterval(timer.current); setMsg({ t: "완료 — 새 데이터를 불러옵니다" }); setTimeout(() => location.reload(), 1500); }
+      }, 20000);
+    }
+    return () => clearInterval(timer.current);
+  }, [st?.running, poll]);
+
+  const run = async (k) => {
+    setBusy(true); setMsg(null);
+    try {
+      const r = await fetch("/api/refresh", { method: "POST", headers: { "x-key": k } });
+      const j = await r.json();
+      if (!j.ok) { setMsg({ t: j.msg || "실행하지 못했습니다", bad: true }); if (j.code === "BAD_KEY") setAsk(true); }
+      else { setMsg({ t: j.already ? "이미 돌고 있습니다" : "시작했습니다 · 약 25분" }); localStorage.setItem("v52.rkey", k); setKey(k); setAsk(false); poll(); }
+    } catch { setMsg({ t: "서버에 연결하지 못했습니다", bad: true }); }
+    setBusy(false);
+  };
+
+  const running = !!st?.running;
+  const mins = st?.live?.started ? Math.max(0, Math.floor((Date.now() - new Date(st.live.started).getTime()) / 60000)) : null;
+  const last = st?.runs?.find(x => x.status === "completed");
+
+  return (
+    <>
+      <button
+        onClick={() => { if (running) return; key ? run(key) : setAsk(v => !v); }}
+        disabled={busy || running}
+        title={last ? `마지막 실행 ${last.conclusion === "success" ? "성공" : last.conclusion} · ${new Date(last.started).toLocaleString("ko-KR")}` : "데이터 갱신"}
+        style={{
+          ...css.chip(running ? "rgba(245,158,11,.14)" : "rgba(56,189,248,.12)",
+                      running ? C.gold : "#38BDF8",
+                      `1px solid ${running ? C.gold + "55" : "rgba(56,189,248,.4)"}`),
+          cursor: running ? "default" : "pointer", fontWeight: 700,
+          opacity: busy ? .6 : 1, minHeight: 26,
+        }}>
+        {running ? `⏳ 갱신 중 ${mins != null ? `${mins}분` : ""}` : busy ? "…" : "🔄 지금 갱신"}
+      </button>
+
+      {ask && (
+        <span style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
+          <input type="password" placeholder="암호" autoFocus defaultValue={key}
+            onKeyDown={e => { if (e.key === "Enter") run(e.currentTarget.value.trim()); }}
+            style={{ background: "rgba(255,255,255,.05)", border: `1px solid ${C.border}`, borderRadius: 6,
+                     padding: "4px 8px", color: C.text, fontSize: 10.5, width: 96 }} />
+          <span style={{ fontSize: 9, color: C.muted }}>Vercel 의 REFRESH_KEY</span>
+        </span>)}
+
+      {msg && <span style={{ fontSize: 9.5, color: msg.bad ? C.red : C.emerald, maxWidth: 240 }}>{msg.t}</span>}
+    </>
+  );
+}
+
 /* ══════════════════════════════════════════════════════════
    메인
    ══════════════════════════════════════════════════════════ */
@@ -402,6 +482,7 @@ export default function App() {
           <span style={css.chip(`${fr.color}15`, fr.color, `1px solid ${fr.color}40`)}>{fr.emoji} {fr.label}</span>
           <span style={css.chip("rgba(255,255,255,.04)", C.muted, `1px solid ${C.border}`)}>
             다음 {fr.weekend ? "월 16:00" : fr.next ? `${String(fr.next.hh).padStart(2, "0")}:${String(fr.next.mm).padStart(2, "0")}` : "—"}</span>
+          <RefreshBtn />
 
           <div style={{ marginLeft: "auto", position: "relative", flexShrink: 0 }}>
             <input value={q} onChange={e => { setQ(e.target.value); setShowQ(true); }} onFocus={() => setShowQ(true)}
@@ -444,6 +525,10 @@ export default function App() {
               <br />깃허브 <b style={{ color: C.text }}>Actions</b> 탭 → <b style={{ color: C.text }}>Snapshot Build (v4)</b> 를 열어
               ① 빨간 ✕(수집 실패) ② 노란 “Enable workflow” 버튼(예약 꺼짐) ③ 실행 기록 자체 없음 중 무엇인지 확인하고
               <b style={{ color: C.text }}> Run workflow</b> 를 한 번 눌러 주세요.
+              <div style={{ marginTop: 7, display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap" }}>
+                <span style={{ color: C.text, fontWeight: 700 }}>휴대폰이면 여기서 바로 →</span>
+                <RefreshBtn />
+              </div>
             </>) : fr.tone === "old" ? (<>
               <b style={{ color: C.orange }}>이틀째 갱신이 없습니다</b> — 마지막 수집 {(fr.min / 1440).toFixed(1)}일 전.
               공휴일이면 정상이지만, 아니라면 Actions 탭에서 Snapshot Build 실행을 확인해 주세요.
