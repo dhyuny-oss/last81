@@ -221,14 +221,41 @@ const Empty = ({ children }) => (
   <div style={{ padding: "22px 12px", textAlign: "center", color: C.muted, fontSize: 11.5 }}>{children}</div>
 );
 
-const Range4Head = () => (
-  <div style={{ display: "flex", justifyContent: "flex-end", padding: "0 4px 5px",
-                fontSize: 9, color: C.muted, fontFamily: "ui-monospace,monospace", letterSpacing: .2 }}>
-    1일 · 3일 · 5일 · 1달 (누적)
+/* 구간 수익률 4칸 — 머리글과 값이 같은 격자를 써야 세로로 맞습니다.
+   전에는 머리글이 "1일 · 3일 · 5일 · 1달" 한 덩어리 글자였고 값은 따로 흘러서,
+   숫자 자릿수가 다르면(-2.52% vs +16.83%) 어느 게 어느 기간인지 알 수 없었습니다.
+   또 머리글이 목록 맨 위에 한 번뿐이라 조금만 내려도 사라졌습니다 → 스크롤해도 붙어 있게 합니다. */
+// 머리글과 값이 픽셀까지 맞으려면 폭이 고정이어야 합니다 (4칸 × 46 + 간격 3 × 6 = 202)
+const R4_W = 202;
+const R4_COL = "repeat(4, 46px)";
+
+const Range4Head = ({ top = 0 }) => (
+  <div style={{
+    position: "sticky", top, zIndex: 20,
+    background: "#0f172a", borderBottom: `1px solid ${C.border}`,
+    padding: "5px 4px 4px", marginBottom: 1,
+    display: "flex", justifyContent: "flex-end",
+  }}>
+    <div style={{ width: R4_W, display: "grid", gridTemplateColumns: R4_COL, gap: 6, justifyItems: "end",
+                  fontSize: 9, color: C.muted, fontFamily: "ui-monospace,monospace", letterSpacing: .2 }}>
+      <span>1일</span><span>3일</span><span>5일</span><span>1달</span>
+      <span style={{ gridColumn: "1 / -1", fontSize: 8, opacity: .8, marginTop: 1 }}>3·5·1달은 누적</span>
+    </div>
   </div>
 );
 
 const Range4 = ({ s }) => (
+  <span style={{ display: "grid", width: R4_W, gridTemplateColumns: R4_COL, gap: 6, justifyItems: "end",
+                 fontFamily: "ui-monospace,monospace", fontSize: 10.5, whiteSpace: "nowrap" }}>
+    <span style={{ color: col(s.d1) }}>{pct(s.d1)}</span>
+    <span style={{ color: col(s.d3) }}>{pct(s.d3)}</span>
+    <span style={{ color: col(s.d5) }}>{pct(s.d5)}</span>
+    <span style={{ color: col(s.d21) }}>{pct(s.d21)}</span>
+  </span>
+);
+
+/* 차트탭 '근거' 줄처럼 한 줄로 흘려 쓸 때 (격자 아님) */
+const Range4Inline = ({ s }) => (
   <span style={{ fontFamily: "ui-monospace,monospace", fontSize: 10.5, whiteSpace: "nowrap" }}>
     <span style={{ color: col(s.d1) }}>{pct(s.d1)}</span><span style={{ color: C.muted }}> · </span>
     <span style={{ color: col(s.d3) }}>{pct(s.d3)}</span><span style={{ color: C.muted }}> · </span>
@@ -253,7 +280,8 @@ function StockRow({ s, verdict, chips, right, onOpen, isWatch, onToggle }) {
         <div style={{ fontSize: 9, color: C.muted }}>{s.t} · {s.m === "kr" ? "🇰🇷" : "🇺🇸"}</div>
       </div>
       <div style={{ flex: 1, minWidth: 130, display: "flex", gap: 3, flexWrap: "wrap" }}>{chips}</div>
-      <div style={{ textAlign: "right", flexShrink: 0, minWidth: 128 }}>{right}</div>
+      <div style={{ textAlign: "right", flexShrink: 0, width: R4_W, marginLeft: "auto" }}>{right}</div>  {/* marginLeft:auto — 좁은 화면에서 줄이 접힐 때 값 블록이 왼쪽에 붙어
+      머리글과 어긋나던 것을 막습니다 */}
     </div>
   );
 }
@@ -270,13 +298,23 @@ function RefreshBtn() {
   const [busy, setBusy] = useState(false);
   const timer = useRef(null);
 
+  // ★ 응답이 JSON 이 아니면(=주소가 없어 404 HTML 이 오면) 상태코드를 그대로 보여줍니다.
+  //   전에는 그 경우도 "서버에 연결하지 못했습니다"로 뭉뚱그려져서
+  //   '파일이 아직 없다'와 '설정이 빠졌다'를 구분할 수 없었습니다.
   const poll = useCallback(async () => {
     try {
       const r = await fetch("/api/refresh?t=" + Date.now());
-      const j = await r.json();
-      if (j.ok) { setSt(j); return j; }
+      const txt = await r.text();
+      let j = null;
+      try { j = JSON.parse(txt); } catch {
+        setMsg({ t: r.status === 404
+          ? "/api/refresh 가 없습니다 — api 폴더에 refresh.js 를 올렸는지 확인하세요"
+          : `서버가 ${r.status} 를 돌려줬습니다`, bad: true });
+        return null;
+      }
+      if (j.ok) { setSt(j); setMsg(m => (m && m.bad) ? null : m); return j; }
       setMsg({ t: j.msg || "상태를 읽지 못했습니다", bad: true });
-    } catch { setMsg({ t: "서버에 연결하지 못했습니다 (/api/refresh 가 배포되었는지 확인)", bad: true }); }
+    } catch { setMsg({ t: "서버에 연결하지 못했습니다 (네트워크)", bad: true }); }
     return null;
   }, []);
 
@@ -297,7 +335,11 @@ function RefreshBtn() {
     setBusy(true); setMsg(null);
     try {
       const r = await fetch("/api/refresh", { method: "POST", headers: { "x-key": k } });
-      const j = await r.json();
+      const txt = await r.text();
+      let j; try { j = JSON.parse(txt); } catch {
+        setMsg({ t: r.status === 404 ? "/api/refresh 가 없습니다" : `서버가 ${r.status} 를 돌려줬습니다`, bad: true });
+        setBusy(false); return;
+      }
       if (!j.ok) { setMsg({ t: j.msg || "실행하지 못했습니다", bad: true }); if (j.code === "BAD_KEY") setAsk(true); }
       else { setMsg({ t: j.already ? "이미 돌고 있습니다" : "시작했습니다 · 약 25분" }); localStorage.setItem("v52.rkey", k); setKey(k); setAsk(false); poll(); }
     } catch { setMsg({ t: "서버에 연결하지 못했습니다", bad: true }); }
@@ -307,11 +349,12 @@ function RefreshBtn() {
   const running = !!st?.running;
   const mins = st?.live?.started ? Math.max(0, Math.floor((Date.now() - new Date(st.live.started).getTime()) / 60000)) : null;
   const last = st?.runs?.find(x => x.status === "completed");
+  const cool = st?.cooldownMin || 0;      // 열린 모드에서 방금 돌렸을 때 남은 대기 시간
 
   return (
     <>
       <button
-        onClick={() => { if (running) return; key ? run(key) : setAsk(v => !v); }}
+        onClick={() => { if (running) return; (st && st.needKey === false) ? run("") : (key ? run(key) : setAsk(v => !v)); }}
         disabled={busy || running}
         title={last ? `마지막 실행 ${last.conclusion === "success" ? "성공" : last.conclusion} · ${new Date(last.started).toLocaleString("ko-KR")}` : "데이터 갱신"}
         style={{
@@ -321,7 +364,7 @@ function RefreshBtn() {
           cursor: running ? "default" : "pointer", fontWeight: 700,
           opacity: busy ? .6 : 1, minHeight: 26,
         }}>
-        {running ? `⏳ 갱신 중 ${mins != null ? `${mins}분` : ""}` : busy ? "…" : "🔄 지금 갱신"}
+        {running ? `⏳ 갱신 중 ${mins != null ? `${mins}분` : ""}` : busy ? "…" : cool ? `🔄 ${cool}분 뒤 가능` : "🔄 지금 갱신"}
       </button>
 
       {ask && (
@@ -349,6 +392,16 @@ export default function App() {
   const [sel, setSel] = useState(null);
   const [sizerTick, setSizerTick] = useState(0);          // 포지션 설정이 바뀌면 올립니다
   const bumpSizer = useCallback(() => setSizerTick(t => t + 1), []);
+  // ★ 목록 머리글을 화면에 붙여 두려면 헤더가 차지한 높이를 알아야 합니다.
+  //   갱신 경고 배너가 나타났다 사라지면 높이가 바뀌므로 실측합니다.
+  const hdrRef = useRef(null);
+  const [hdrH, setHdrH] = useState(96);
+  useEffect(() => {
+    const el = hdrRef.current; if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setHdrH(el.offsetHeight || 96));
+    ro.observe(el); setHdrH(el.offsetHeight || 96);
+    return () => ro.disconnect();
+  });
   const [q, setQ] = useState("");
   const [showQ, setShowQ] = useState(false);
 
@@ -463,12 +516,12 @@ export default function App() {
     ["market", "🌐 시장"], ["alloc", "🧺 배분"], ["find", "🔍 발굴"],
     ["over", "🌊 과매도"], ["chart", "📊 차트"], ["track", `📁 추적 ${pos.length + watch.length || ""}`],
   ];
-  const shared = { stocks, list, openStock, watch, toggleWatch, market, setTab, setSel, pos, setPos, seen, sizer, bumpSizer };
+  const shared = { stocks, list, openStock, watch, toggleWatch, market, setTab, setSel, pos, setPos, seen, sizer, bumpSizer, hdrH };
 
   return (
     <Shell>
       {/* ═══ 헤더 ═══ */}
-      <div style={{ position: "sticky", top: 0, zIndex: 50, background: "#0d1526", borderBottom: `1px solid ${C.border}`, padding: "8px 12px" }}>
+      <div ref={hdrRef} style={{ position: "sticky", top: 0, zIndex: 50, background: "#0d1526", borderBottom: `1px solid ${C.border}`, padding: "8px 12px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
           <div style={{ width: 26, height: 26, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center",
                         fontWeight: 700, fontSize: 13, background: "rgba(59,130,246,.12)", color: "#60A5FA", border: "1px solid rgba(59,130,246,.25)", flexShrink: 0 }}>α</div>
@@ -957,7 +1010,7 @@ function AllocTab({ market, pos, setPos, setTab }) {
 }
 
 /* ══════════════ 3. 발굴 ══════════════ */
-function FindTab({ list, openStock, watch, toggleWatch, market, seen, sizer }) {
+function FindTab({ list, openStock, watch, toggleWatch, market, seen, sizer, hdrH }) {
   const [onlyGo, setOnlyGo] = useState(true);
   const [mkt, setMkt] = useState("all");
   const [needBrk, setNeedBrk] = useState(false);      // ★ 돌파는 이제 '선택'
@@ -1018,7 +1071,7 @@ function FindTab({ list, openStock, watch, toggleWatch, market, seen, sizer }) {
       </div>
 
       <div style={css.card}>
-        <Range4Head />
+        <Range4Head top={hdrH} />
         {rows.length === 0 ? <Empty>조건에 맞는 종목이 없습니다.</Empty> : rows.map(({ s, v }) => {
           const d = seen.days(s.t);
           return (
@@ -1047,7 +1100,7 @@ function FindTab({ list, openStock, watch, toggleWatch, market, seen, sizer }) {
 }
 
 /* ══════════════ 4. 과매도 (베타 흡수) ══════════════ */
-function OversoldTab({ list, openStock, watch, toggleWatch, sizer }) {
+function OversoldTab({ list, openStock, watch, toggleWatch, sizer, hdrH }) {
   const [deep, setDeep] = useState(true);
   // ★ 기본은 미국만. 한국은 검증에서 −7.24%로 유의하게 손해였습니다.
   const [showKr, setShowKr] = useState(false);
@@ -1085,7 +1138,7 @@ function OversoldTab({ list, openStock, watch, toggleWatch, sizer }) {
         </div>
       </div>
       <div style={css.card}>
-        <Range4Head />
+        <Range4Head top={hdrH} />
         {rows.length === 0 ? <Empty>조건에 맞는 종목이 없습니다.</Empty> : rows.map(({ s, v }) => (
           <StockRow key={s.t} s={s} verdict={v} isWatch={watch.includes(s.t)} onToggle={toggleWatch} onOpen={openStock}
             chips={<>
@@ -1332,6 +1385,11 @@ function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab
               {opt.ma && <LegendDot c={C.orange}>20일</LegendDot>}
               {opt.ma && <LegendDot c={C.violet}>200일</LegendDot>}
               {opt.idx && view?.idxPts > 1 && <LegendDot c={C.cyan}>{idxLabel}</LegendDot>}
+              {opt.idx && !(view?.idxPts > 1) && (
+                <span style={{ fontSize: 9, color: C.gold }}>
+                  {idxMap ? `${idxLabel} 날짜가 안 맞아 겹치지 못했습니다`
+                          : `${idxLabel} 겹치기는 데이터를 한 번 갱신하면 나타납니다`}
+                </span>)}
               {opt.idx && view?.idxRel != null && (
                 <span style={{ fontSize: 9, fontWeight: 700, color: view.idxRel >= 0 ? C.emerald : C.red }}>
                   지수 대비 {view.idxRel >= 0 ? "+" : ""}{view.idxRel.toFixed(1)}%
@@ -1440,7 +1498,7 @@ function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab
           </div>))}
       </div>
       <div style={{ ...css.card, marginTop: 9 }}>
-        <div style={{ fontSize: 10.5, color: C.dim }}>구간 <Range4 s={s} /> <span style={{ color: C.muted }}>(1일 · 3일누적 · 5일누적 · 1달누적)</span></div>
+        <div style={{ fontSize: 10.5, color: C.dim }}>구간 <Range4Inline s={s} /> <span style={{ color: C.muted }}>(1일 · 3일누적 · 5일누적 · 1달누적)</span></div>
         <div style={{ fontSize: 10, color: C.muted, marginTop: 6 }}>
           거래대금 {money(s.tv, s.m)} <span title="같은 시장 안에서의 순위. 100 에 가까울수록 많이 거래됩니다">(백분위 {s.tvr?.toFixed(0) ?? "—"} / 100)</span>
           {s.hlt != null && <> · {s.hltY ?? 3}년 건강도 {(s.hlt * 100).toFixed(0)}%</>}
@@ -1490,7 +1548,7 @@ const LegendDot = ({ c, children }) => (
 );
 
 /* ══════════════ 6. 추적 ══════════════ */
-function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, bumpSizer }) {
+function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, bumpSizer, hdrH }) {
   const [role, setRole] = useState("all");
   /* ★ 손절 폭과 '1회 위험'을 사용자가 정합니다.
      검증: 손절이 타이트할수록 성과가 일관되게 나빠졌습니다
@@ -1638,7 +1696,7 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
 
       <h2 style={css.h2}>👁 관심 종목 <span style={css.lbl}>— 어느 탭에서든 ★ 를 누르면 여기에 모입니다</span></h2>
       <div style={css.card}>
-        {watch.length > 0 && <Range4Head />}
+        {watch.length > 0 && <Range4Head top={hdrH} />}
         {watch.length === 0 ? <Empty>★ 를 눌러 관심 종목을 등록해 보세요.</Empty> :
           watch.map(t => { const s = look(t); if (!s) return null;
             return <StockRow key={t} s={s} isWatch onToggle={toggleWatch} onOpen={openStock}
