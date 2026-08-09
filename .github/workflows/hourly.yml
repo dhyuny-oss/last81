@@ -1,21 +1,42 @@
 name: Hourly Stock Update
 
+# ─────────────────────────────────────────────────────────────
+# ★ 자동 실행을 껐습니다 (무료 한도 절약)
+#
+#   예전엔 하루 6번 돌면서 fetch_yahoo.py 만 실행했습니다. 그런데
+#   ① 앱이 읽는 스냅샷은 만들지 않아서 화면에 아무 영향이 없었고
+#   ② 장중 갱신본은 아직 안 끝난 봉이라 매매 판단에 쓰면 안 되는 값이었습니다.
+#   검증에서도 확인 주기는 주 1회로 충분했고 요일 효과도 없었습니다.
+#
+#   → 이제 데이터는 daily.yml 이 하루 2회(한국·미국 확정 종가) 만듭니다.
+#     이 파일은 "지금 당장 최신값이 필요하다" 싶을 때 손으로 누르는 용도로 남깁니다.
+#     Actions 탭 → Hourly Stock Update → Run workflow
+#
+#   다시 자동으로 돌리고 싶으면 아래 schedule 주석을 풀면 됩니다.
+#   다만 1회에 약 30분이라, 6개를 다 켜면 월 4,000분이 넘어
+#   비공개 저장소 무료 한도(월 2,000분)를 초과합니다.
+#   켠다면 22:45(미국 개장) 하나 정도만 권합니다 → 월 약 660분 추가.
+# ─────────────────────────────────────────────────────────────
+
 on:
-  schedule:
-    # ── 한국 장 (야후 실측: 정규 KST 09:00~15:00 · 시간외 ~18:00) ──
-    - cron: '5 0 * * 1-5'     # KST 09:05  한국 개장 직후
-    - cron: '30 3 * * 1-5'    # KST 12:30  한국 점심
-    # ── 미국 장 (여름 정규 KST 22:30~05:00 / 겨울 23:30~06:00) ──
-    - cron: '0 11 * * 1-5'    # KST 20:00  미국 프리마켓 (저녁 확인)
-    - cron: '45 13 * * 1-5'   # KST 22:45  미국 개장 직후 (여름 EDT)
-    - cron: '45 14 * * 1-5'   # KST 23:45  미국 개장 직후 (겨울 EST)
-    - cron: '0 17 * * 1-5'    # KST 02:00  미국 장중
   workflow_dispatch:
+
+  # schedule:
+  #   - cron: '5 0 * * 1-5'     # KST 09:05  한국 개장 직후
+  #   - cron: '30 3 * * 1-5'    # KST 12:30  한국 점심
+  #   - cron: '0 11 * * 1-5'    # KST 20:00  미국 프리마켓
+  #   - cron: '45 13 * * 1-5'   # KST 22:45  미국 개장 직후 (여름 EDT)
+  #   - cron: '45 14 * * 1-5'   # KST 23:45  미국 개장 직후 (겨울 EST)
+  #   - cron: '0 17 * * 1-5'    # KST 02:00  미국 장중
+
+concurrency:
+  group: data-update            # daily.yml 과 같은 그룹 — 동시에 돌지 않습니다
+  cancel-in-progress: false
 
 jobs:
   update-hourly:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     permissions:
       contents: write
     env:
@@ -23,24 +44,48 @@ jobs:
       KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
       KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
       KIS_ACCOUNT: ${{ secrets.KIS_ACCOUNT }}
-      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      # ★ TELEGRAM_* 는 여기 두지 않습니다 → 옛 리포트가 멈춥니다
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - name: Install dependencies
         run: pip install yfinance requests
+
       - name: Run hourly update
         run: python scripts/fetch_yahoo.py
+
+      - name: Build snapshot
+        run: python scripts/build_snapshot.py
+
+      - name: Show result
+        run: |
+          python -c "import json;m=json.load(open('public/data/snapshot.json'))['meta'];print('종목',m['counts']['stocks'],'· 실패',m['counts']['failed'],'· 생성',m['generatedKST'])"
+          python -c "import json;d=json.load(open('public/data/market.json'));print('판단',{k:(v['verdict'],v['gate']) for k,v in d['judge'].items()});print('폭',{k:(v['v'],v['pct']) for k,v in d.get('breadth',{}).items()})"
+
+      - name: Telegram report
+        if: success()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          REPORT_MODE: brief
+        run: python scripts/notify.py
+
       - name: Commit and push
+        if: always()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add public/data/
+          rm -f public/data/candles.json
+          git rm --cached --ignore-unmatch public/data/candles.json >/dev/null 2>&1 || true
+          for f in stocks.json alpha_hits.json snapshot.json market.json notified.json bars; do
+            [ -e "public/data/$f" ] && git add -A "public/data/$f"
+          done
           git diff --staged --quiet || (
-            git commit -m "🕐 $(date +%Y-%m-%d_%H:%M) 시간별 갱신"
+            git commit -m "🕐 $(date -u -d '+9 hours' +%Y-%m-%d_%H:%M) 수동 갱신 + 스냅샷"
             git pull --rebase origin main
             git push
           )
