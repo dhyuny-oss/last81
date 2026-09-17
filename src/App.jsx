@@ -17,7 +17,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-export const APP_VERSION = "v6.0.0";
+export const APP_VERSION = "v6.1.0";
 
 /* ══════════════ 디자인 토큰 ══════════════ */
 const C = {
@@ -150,11 +150,11 @@ function freshness(updMs, nowMs = Date.now()) {
   if (days >= 3) return { ...st, min, days, emoji: "🔴", label: `${txt} — 갱신 멈춤`, color: C.red, tone: "stale" };
   if (days === 2) return { ...st, min, days, emoji: "🟠", label: `${txt} — 이틀째 갱신 없음`, color: C.orange, tone: "old" };
   // ★ 수집은 하루 2번(16:00·06:30)뿐이라 '몇 시간 전'으로 판단하면 장중마다 빨간 경보가 뜹니다.
-  //   마지막 예약 시각 이후 값이 들어왔는지로 판단합니다. 깃허브 예약은 몇 시간씩 늦기도 해서 6시간은 기다립니다.
+  //   마지막 예약 시각 이후 값이 들어왔는지로 판단합니다. 깃허브 예약은 실제로 6시간 가까이 늦은 적이 있어 8시간은 기다립니다.
   const slot = lastSlotMs(nowMs);
   const slotMiss = slot && updMs < slot - 10 * 60000;
   const waitMin = slot ? Math.floor((nowMs - slot) / 60000) : 0;
-  if (slotMiss && waitMin >= 360) return { ...st, min, days, emoji: "🔴", label: `${txt} — 예약 수집 누락`, color: C.red, tone: "bad" };
+  if (slotMiss && waitMin >= 480) return { ...st, min, days, emoji: "🔴", label: `${txt} — 예약 수집 누락`, color: C.red, tone: "bad" };
   if (slotMiss) return { ...st, min, days, emoji: "🟡", label: `${txt} · 수집 대기`, color: C.gold, tone: "lag" };
   if (st.weekend) return { ...st, min, days, emoji: "🔵", label: `주말 · ${txt}`, color: C.cyan, tone: "closed" };
   return { ...st, min, days, emoji: "🟢", label: txt, color: C.emerald, tone: "fresh" };
@@ -215,7 +215,7 @@ function verdictOversold(s) {
   if (!s) return null;
   const deep = (s.w52p ?? 0) <= -40, mid = (s.w52p ?? 0) <= -25;
   const healthy = (s.hlt ?? 0) >= 0.6;
-  if (deep && healthy) return { k: "watch", t: "🔵 장기 관찰후보", c: C.cyan, why: "깊은 낙폭 + 장기 추세 건강" };
+  if (deep && healthy) return { k: "watch", t: "🔵 관찰후보", c: C.cyan, why: "깊은 낙폭 + 장기 추세 건강" };
   if (mid && healthy) return { k: "soft", t: "🔷 관찰", c: "#3B82F6", why: "낙폭 진행 중" };
   return { k: "no", t: "⚪ 제외", c: C.muted, why: healthy ? "낙폭 부족" : "장기 추세 훼손" };
 }
@@ -231,7 +231,7 @@ const MONO = "ui-monospace,SFMono-Regular,Menlo,monospace";
 const NAV_H = 60;
 
 const Verdict = ({ v }) => v ? (
-  <span style={{ fontSize: FS.xs, fontWeight: 700, color: v.c, whiteSpace: "nowrap" }}>{v.t}</span>
+  <span style={{ fontWeight: 700, color: v.c }}>{v.t}</span>
 ) : null;
 
 const Chip = ({ children, tone = "n" }) => {
@@ -242,8 +242,8 @@ const Chip = ({ children, tone = "n" }) => {
 
 const Star = ({ on, onClick }) => (
   <button onClick={(e) => { e.stopPropagation(); onClick(); }} aria-label={on ? "관심 해제" : "관심 등록"}
-    style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, width: 30, height: 34,
-             color: on ? C.gold : C.muted, lineHeight: 1, flexShrink: 0, padding: 0 }}>{on ? "★" : "☆"}</button>
+    style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, width: 34, height: 38, margin: "-4px -6px 0 0",
+             color: on ? C.gold : "rgba(156,163,175,.7)", lineHeight: 1, flexShrink: 0, padding: 0 }}>{on ? "★" : "☆"}</button>
 );
 
 const Empty = ({ children }) => (
@@ -262,35 +262,38 @@ const Sec = ({ children, right }) => (
 );
 
 /** 구간 수익률 — 칸마다 이름을 붙여 머리글이 따로 필요 없습니다 */
+const pctFit = (v) => (v == null ? "—" : pct(v, Math.abs(v) >= 100 ? 0 : 1));
 const Cells = ({ s, keys = [["1일", "d1"], ["3일", "d3"], ["5일", "d5"], ["1달", "d21"]] }) => (
-  <div style={{ display: "grid", gridTemplateColumns: `repeat(${keys.length}, minmax(0,1fr))`, gap: 4 }}>
+  <div style={{ display: "grid", gridTemplateColumns: `repeat(${keys.length}, minmax(0,1fr))`, columnGap: 6 }}>
     {keys.map(([l, k]) => (
-      <div key={k} style={{ background: "rgba(255,255,255,.03)", borderRadius: 6, padding: "4px 6px" }}>
-        <div style={{ fontSize: 10.5, color: C.muted }}>{l}</div>
-        <div style={{ fontSize: FS.sm, fontFamily: MONO, color: col(s[k]), fontWeight: 600 }}>{pct(s[k], 1)}</div>
+      <div key={k} style={{ minWidth: 0, overflow: "hidden" }}>
+        <div style={{ fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>{l}</div>
+        <div style={{ fontSize: FS.sm, fontFamily: MONO, color: col(s[k]), fontWeight: 600, whiteSpace: "nowrap",
+                      letterSpacing: -0.3 }}>{pctFit(s[k])}</div>
       </div>))}
   </div>
 );
 
 /* ══════════════ 종목 행 (모든 탭 공통) ══════════════ */
+const ONE = { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
 function StockRow({ s, verdict, chips, sub, onOpen, isWatch, onToggle, cells = true }) {
   return (
-    <div onClick={() => onOpen(s.t)} style={{ padding: "10px 2px", borderBottom: `1px solid ${C.border}`, cursor: "pointer" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <Star on={isWatch} onClick={() => onToggle(s.t)} />
+    <div onClick={() => onOpen(s.t)} style={{ padding: "11px 0 10px", borderBottom: `1px solid ${C.border}`, cursor: "pointer" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.n || s.t}</div>
-          <div style={{ fontSize: FS.xs, color: C.muted, display: "flex", gap: 6, alignItems: "center" }}>
-            <span>{s.m === "kr" ? "🇰🇷" : "🇺🇸"} {s.t}</span>{verdict && <Verdict v={verdict} />}
+          <div style={{ fontSize: 15, fontWeight: 700, color: C.text, ...ONE }}>{s.n || s.t}</div>
+          <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 1, ...ONE }}>
+            {s.m === "kr" ? "🇰🇷" : "🇺🇸"} {s.t}{verdict && <> · <Verdict v={verdict} /></>}
           </div>
         </div>
-        <div style={{ textAlign: "right", flexShrink: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, fontFamily: MONO }}>{price(s.c, s.m)}</div>
-          {sub && <div style={{ fontSize: FS.xs, color: C.muted }}>{sub}</div>}
+        <div style={{ textAlign: "right", flexShrink: 0, maxWidth: "46%" }}>
+          <div style={{ fontSize: 15, fontWeight: 700, fontFamily: MONO, ...ONE }}>{price(s.c, s.m)}</div>
+          {sub && <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 1, ...ONE }}>{sub}</div>}
         </div>
+        <Star on={isWatch} onClick={() => onToggle(s.t)} />
       </div>
-      {chips && <div style={{ display: "flex", gap: 4, flexWrap: "wrap", margin: "6px 0 0 36px" }}>{chips}</div>}
-      {cells && <div style={{ margin: "7px 0 0 36px" }}><Cells s={s} /></div>}
+      {chips && <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 7 }}>{chips}</div>}
+      {cells && <div style={{ marginTop: 8 }}><Cells s={s} /></div>}
     </div>
   );
 }
@@ -514,7 +517,7 @@ export default function App() {
                           fontWeight: 800, fontSize: 15, background: "rgba(59,130,246,.14)", color: "#60A5FA", flexShrink: 0 }}>α</div>
             <button onClick={() => setStatusOpen(v => !v)} aria-expanded={statusOpen}
               style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, background: "none", border: "none",
-                       color: C.text, cursor: "pointer", padding: "4px 0", textAlign: "left" }}>
+                       color: C.text, cursor: "pointer", padding: "0", minHeight: 40, textAlign: "left" }}>
               <span style={{ fontSize: FS.xs, color: fr.krRegular ? C.emerald : C.muted, whiteSpace: "nowrap" }}>🇰🇷 {fr.krLabel}</span>
               <span style={{ fontSize: FS.xs, color: fr.usRegular ? C.emerald : C.muted, whiteSpace: "nowrap" }}>🇺🇸 {fr.usLabel}</span>
               <span style={{ fontSize: FS.xs, color: fr.color, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fr.emoji} {fr.label}</span>
@@ -607,7 +610,7 @@ const KV = ({ k, v }) => (
 );
 
 const Shell = ({ children }) => (
-  <div style={{ background: C.bg, color: C.text, minHeight: "100vh",
+  <div style={{ background: C.bg, color: C.text, minHeight: "100vh", colorScheme: "dark", overflowX: "hidden",
                 fontFamily: '-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard","Segoe UI",sans-serif',
                 lineHeight: 1.45, WebkitTextSizeAdjust: "100%" }}>
     <div style={{ maxWidth: 640, margin: "0 auto" }}>{children}</div>
@@ -711,7 +714,7 @@ function MarketTab({ market, setTab }) {
           </Card>); })}
       </div>
 
-      <Sec right={<button onClick={() => setTab("alloc")} style={linkBtn}>배분탭 ›</button>}>섹터 순위</Sec>
+      <Sec right={<button onClick={() => setTab("alloc")} style={linkBtn}>● 보유 · 배분탭 ›</button>}>섹터 순위</Sec>
       <Card style={{ padding: "4px 12px" }}>
         <div style={{ display: "grid", gridTemplateColumns: "22px minmax(0,1fr) 56px 56px", gap: 6, fontSize: 10.5, color: C.muted, padding: "6px 0 2px" }}>
           <span>#</span><span>섹터</span><span style={{ textAlign: "right" }}>1일</span><span style={{ textAlign: "right" }}>점수</span>
@@ -723,8 +726,8 @@ function MarketTab({ market, setTab }) {
                                      padding: "8px 0", borderTop: `1px solid ${C.border}` }}>
               <span style={{ fontSize: FS.sm, color: C.muted }}>{s.rank}</span>
               <span style={{ minWidth: 0, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {hold && <span style={{ color: C.emerald }} aria-label="보유">● </span>}
                 <b>{s.label}</b> <span style={{ fontSize: FS.xs, color: C.muted }}>{s.tk}</span>
-                {hold && <span style={{ color: C.emerald, fontSize: FS.xs, fontWeight: 700 }}> ● 보유</span>}
               </span>
               <span style={{ textAlign: "right", fontFamily: MONO, fontSize: FS.sm, color: col(s.d1) }}>{pct(s.d1, 1)}</span>
               <span style={{ textAlign: "right", fontFamily: MONO, fontSize: FS.sm, fontWeight: 700, color: col(s.score) }}>{pct(s.score, 0)}</span>
@@ -918,35 +921,36 @@ function FindTab({ list, openStock, watch, toggleWatch, market, seen, sizer }) {
 
   return (
     <>
-      <FilterBar>
-        <Seg value={mkt} onChange={setMkt} items={[["all", "전체"], ["kr", "🇰🇷"], ["us", "🇺🇸"]]} />
-        <Toggle on={onlyGo} onClick={() => setOnlyGo(v => !v)}>후보만 {nGo}</Toggle>
-        <Toggle on={needBrk} onClick={() => setNeedBrk(v => !v)}>돌파 {nBrk}</Toggle>
-      </FilterBar>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "2px 2px 0" }}>
-        <SortSelect value={sortBy} onChange={setSortBy}
-          items={[["rs", "RS 높은 순"], ["vol", "변동성 높은 순"], ["days", "오래 머문 순"], ["tv", "거래대금 순"]]} />
-        <span style={{ fontSize: FS.xs, color: C.muted, marginLeft: "auto" }}>{rows.length}개</span>
+      <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
+        <Seg full value={mkt} onChange={setMkt} items={[["all", "전체"], ["kr", "🇰🇷 한국"], ["us", "🇺🇸 미국"]]} />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr minmax(0,1.2fr)", gap: 6 }}>
+          <Toggle full on={onlyGo} onClick={() => setOnlyGo(v => !v)}>후보만 {nGo}</Toggle>
+          <Toggle full on={needBrk} onClick={() => setNeedBrk(v => !v)}>돌파 {nBrk}</Toggle>
+          <SortSelect value={sortBy} onChange={setSortBy}
+            items={[["rs", "RS순"], ["vol", "변동성순"], ["days", "머문 순"], ["tv", "거래대금순"]]} />
+        </div>
       </div>
+        <Info label="기준 · 근거" right={`${rows.length}개`}>
+          <b>후보</b> = 가격구조(이평 정배열·52주 저점 +30%↑·고점 −25% 이내) + RS 70↑ + RSI 75 이하, 거래대금 하위 40% 제외.<br />
+          <b style={{ color: C.emerald }}>🇰🇷 검증됨</b> {EVIDENCE.find.kr.note}<br />
+          <b style={{ color: C.gold }}>🇺🇸 근거 약함</b> {EVIDENCE.find.us.note} — 미국은 변동성 상위가 더 강한 신호(+4.10%).<br />
+          돌파는 필수 아님 — 후보를 85% 줄이는데 성과 차이가 없었습니다. <b>N일째</b> = 이 기기에서 목록에 본 날 수.
+        </Info>
       {krRisk && mkt !== "us" && (
-        <div style={{ fontSize: FS.sm, color: C.gold, margin: "8px 2px 0" }}>🇰🇷 시장 위험 — 한국 후보는 관망으로 표시됩니다</div>)}
-      <Info label="기준 · 근거">
-        <b>후보</b> = 가격구조(이평 정배열·52주 저점 +30%↑·고점 −25% 이내) + RS 70↑ + RSI 75 이하, 거래대금 하위 40% 제외.<br />
-        <b style={{ color: C.emerald }}>🇰🇷 검증됨</b> {EVIDENCE.find.kr.note}<br />
-        <b style={{ color: C.gold }}>🇺🇸 근거 약함</b> {EVIDENCE.find.us.note} — 미국은 ⚡변동성 상위가 더 강한 신호(+4.10%).<br />
-        돌파는 필수 아님 — 후보를 85% 줄이는데 성과 차이가 없었습니다. <b>N일째</b> = 이 기기에서 목록에 본 날 수.
-      </Info>
+        <div style={{ fontSize: FS.sm, color: C.gold, background: "rgba(245,158,11,.08)", borderRadius: 8, padding: "7px 10px", margin: "4px 0 6px" }}>
+          🇰🇷 시장 위험 — 한국 후보는 관망으로 표시됩니다</div>)}
 
-      <Card style={{ marginTop: 8, padding: "0 10px" }}>
+      <div style={{ borderTop: `1px solid ${C.border}`, marginTop: 4 }}>
         {rows.length === 0 ? <Empty>조건에 맞는 종목이 없습니다</Empty> : rows.map(({ s, v }) => {
           const d = seen.days(s.t);
           const sh = sizer?.shares(s.c, s.m);
           return (
             <StockRow key={s.t} s={s} verdict={v} isWatch={watch.includes(s.t)} onToggle={toggleWatch} onOpen={openStock}
-              sub={`${money(s.tv, s.m)}${sh > 0 ? ` · ${sh}주` : ""}`}
+              sub={sh > 0 ? `${sh}주 가능` : money(s.tv, s.m)}
               chips={<>
                 <Chip tone={(s.rs ?? 0) >= 70 ? "g" : "n"}>RS {s.rs != null ? Math.floor(s.rs) : "—"}</Chip>
-                {s.atrr != null && <Chip tone={s.m === "us" && s.atrr >= 80 ? "g" : "n"}>⚡{Math.floor(s.atrr)}</Chip>}
+                {s.atrr != null && <Chip tone={s.m === "us" && s.atrr >= 80 ? "g" : "n"}>변동성 {Math.floor(s.atrr)}</Chip>}
+                <Chip tone="n">거래 {money(s.tv, s.m)}</Chip>
                 {!s.tmpl && <Chip tone="n">구조 ✕</Chip>}
                 {(s.brk || s.stFlip) && <Chip tone="c">{s.brk ? "재돌파" : "ST전환"}</Chip>}
                 {(s.rsi ?? 0) > 75 && <Chip tone="w">RSI {s.rsi.toFixed(0)}</Chip>}
@@ -954,7 +958,7 @@ function FindTab({ list, openStock, watch, toggleWatch, market, seen, sizer }) {
               </>} />
           );
         })}
-      </Card>
+      </div>
     </>
   );
 }
@@ -973,27 +977,29 @@ function OversoldTab({ list, openStock, watch, toggleWatch, sizer }) {
        .sort((a, b) => (a.s.w52p ?? 0) - (b.s.w52p ?? 0)).slice(0, 60), [all, showKr]);
   return (
     <>
-      <div style={{ fontSize: FS.sm, color: C.dim, margin: "10px 2px 0" }}>
-        🇺🇸 원래 좋은 종목이 크게 빠진 것 · <b style={{ color: C.gold }}>손절 없이 12~24개월</b>
+      <div style={{ fontSize: FS.sm, color: C.dim, marginTop: 10 }}>
+        🇺🇸 좋은 종목이 고점 대비 크게 빠진 것 · <b style={{ color: C.gold }}>손절 없이 12~24개월 보유</b>
       </div>
-      <FilterBar>
-        <Seg value={deep ? "deep" : "wide"} onChange={v => setDeep(v === "deep")} items={[["deep", "−40%↓"], ["wide", "−25%↓"]]} />
-        <Toggle on={showKr} onClick={() => setShowKr(v => !v)}>🇰🇷 {nKr} (검증 실패)</Toggle>
-        <span style={{ fontSize: FS.xs, color: C.muted, marginLeft: "auto", flexShrink: 0 }}>{rows.length}개</span>
-      </FilterBar>
-      <Info label="기준 · 근거">
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.3fr) minmax(0,1fr)", gap: 6, marginTop: 8 }}>
+        <Seg full value={deep ? "deep" : "wide"} onChange={v => setDeep(v === "deep")} items={[["deep", "−40%"], ["wide", "−25%"]]} />
+        <Toggle full on={showKr} onClick={() => setShowKr(v => !v)}>🇰🇷 포함 {nKr}</Toggle>
+      </div>
+      <Info label="기준 · 근거" right={`${rows.length}개`}>
         3년 중 60%↑ 기간 200일선 위였던 종목이 고점 대비 크게 빠진 것을 낙폭 큰 순으로 보여줍니다.<br />
         <b style={{ color: C.emerald }}>🇺🇸 검증됨</b> {EVIDENCE.oversold.us.note} (생존편향 미보정 — 실제는 더 낮음)<br />
         <b style={{ color: C.red }}>🇰🇷 제외</b> {EVIDENCE.oversold.kr.note}<br />
         200일선을 −50% 넘게 밑돌면 구조 훼손일 때가 많아 ⚠ 를 붙입니다.
       </Info>
-      <Card style={{ marginTop: 8, padding: "0 10px" }}>
+      {showKr && <div style={{ fontSize: FS.sm, color: C.red, background: "rgba(255,69,58,.08)", borderRadius: 8, padding: "7px 10px", margin: "4px 0 6px" }}>
+        🇰🇷 한국은 이 전략이 검증에서 손해였습니다 — 참고만 하세요</div>}
+      <div style={{ borderTop: `1px solid ${C.border}`, marginTop: 4 }}>
         {rows.length === 0 ? <Empty>조건에 맞는 종목이 없습니다</Empty> : rows.map(({ s, v }) => {
           const sh = sizer?.shares(s.c, s.m);
           return (
             <StockRow key={s.t} s={s} verdict={v} isWatch={watch.includes(s.t)} onToggle={toggleWatch} onOpen={openStock}
-              sub={`고점 ${pct(s.w52p, 0)}${sh > 0 ? ` · ${sh}주` : ""}`}
+              sub={sh > 0 ? `${sh}주 가능` : null}
               chips={<>
+                <Chip tone="r">고점 {pct(s.w52p, 0)}</Chip>
                 <Chip tone={(s.hlt ?? 0) >= 0.7 ? "g" : "c"}>건강 {((s.hlt ?? 0) * 100).toFixed(0)}%{s.hltY && s.hltY < 3 ? ` (${s.hltY}년)` : ""}</Chip>
                 <Chip tone={(s.rsi ?? 50) < 30 ? "c" : "n"}>RSI {s.rsi?.toFixed(0) ?? "—"}</Chip>
                 <Chip tone={(s.ma200p ?? 0) > 0 ? "g" : "n"}>200일 {pct(s.ma200p, 0)}</Chip>
@@ -1001,7 +1007,7 @@ function OversoldTab({ list, openStock, watch, toggleWatch, sizer }) {
                 {(s.ma200p ?? 0) < -50 && <Chip tone="r">⚠ 구조 훼손</Chip>}
               </>} />);
         })}
-      </Card>
+      </div>
     </>
   );
 }
@@ -1011,19 +1017,20 @@ const FilterBar = ({ children }) => (
   <div style={{ display: "flex", gap: 6, alignItems: "center", overflowX: "auto", WebkitOverflowScrolling: "touch",
                 padding: "10px 2px 6px", scrollbarWidth: "none" }}>{children}</div>
 );
-const Seg = ({ value, onChange, items }) => (
-  <div style={{ display: "flex", background: "rgba(255,255,255,.05)", borderRadius: 9, padding: 2, flexShrink: 0 }}>
+const Seg = ({ value, onChange, items, full }) => (
+  <div style={{ display: "flex", background: "rgba(255,255,255,.05)", borderRadius: 9, padding: 2, flexShrink: 0, minWidth: 0 }}>
     {items.map(([k, l]) => (
-      <button key={k} onClick={() => onChange(k)} style={{
-        border: "none", cursor: "pointer", borderRadius: 7, padding: "0 12px", minHeight: 32, fontSize: FS.sm, fontWeight: 700,
+      <button key={k} onClick={() => onChange(k)} aria-pressed={value === k} style={{
+        flex: full ? 1 : "none", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis",
+        border: "none", cursor: "pointer", borderRadius: 7, padding: "0 10px", minHeight: 34, fontSize: FS.sm, fontWeight: 700,
         background: value === k ? "rgba(245,158,11,.18)" : "transparent", color: value === k ? C.gold : C.muted, whiteSpace: "nowrap",
       }}>{l}</button>))}
   </div>
 );
 const SortSelect = ({ value, onChange, items }) => (
   <select value={value} onChange={e => onChange(e.target.value)}
-    style={{ background: "rgba(255,255,255,.05)", color: C.text, border: `1px solid ${C.border}`, borderRadius: 8,
-             padding: "0 10px", minHeight: 34, fontSize: FS.sm }}>
+    style={{ background: "#161B2E", color: C.text, border: `1px solid ${C.border}`, borderRadius: 9, colorScheme: "dark",
+             padding: "0 8px", minHeight: 38, fontSize: FS.sm, fontWeight: 700, minWidth: 0, width: "100%" }}>
     {items.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
   </select>
 );
@@ -1519,26 +1526,30 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
 }
 
 /* ══════════════ 잡 UI ══════════════ */
-const linkBtn = { background: "none", border: "none", color: C.cyan, cursor: "pointer", fontSize: FS.sm, padding: "6px 0", fontWeight: 600 };
+const linkBtn = { background: "none", border: "none", color: C.cyan, cursor: "pointer", fontSize: FS.sm, padding: "0 2px", minHeight: 36, fontWeight: 600 };
 const inp = (w) => ({ background: "rgba(255,255,255,.05)", border: `1px solid ${C.border}`, borderRadius: 8,
                       padding: "0 11px", minHeight: 38, color: C.text, fontSize: 16, width: w, outline: "none", boxSizing: "border-box" });
 const btn = (c) => ({ background: `${c}1f`, border: `1px solid ${c}55`, color: c, borderRadius: 9, minHeight: 38,
                       padding: "0 12px", fontSize: FS.sm, fontWeight: 700, cursor: "pointer" });
-const Toggle = ({ on, onClick, children }) => (
+const Toggle = ({ on, onClick, children, full }) => (
   <button onClick={onClick} aria-pressed={on} style={{
-    fontSize: FS.sm, fontWeight: 700, padding: "0 12px", minHeight: 34, borderRadius: 9, cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap",
+    width: full ? "100%" : undefined, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis",
+    fontSize: FS.sm, fontWeight: 700, padding: "0 10px", minHeight: 38, borderRadius: 9, cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap",
     background: on ? "rgba(245,158,11,.16)" : "rgba(255,255,255,.05)",
     color: on ? C.gold : C.muted, border: `1px solid ${on ? C.gold + "55" : "transparent"}`,
   }}>{children}</button>);
 /** 긴 설명은 기본으로 접어 둡니다 */
-const Info = ({ label = "근거", children }) => {
+const Info = ({ label = "근거", children, right }) => {
   const [open, setOpen] = useState(false);
   return (
-    <div style={{ marginTop: 6 }}>
-      <button onClick={() => setOpen(v => !v)} aria-expanded={open}
-        style={{ background: "none", border: "none", padding: "6px 2px", cursor: "pointer", fontSize: FS.xs, color: C.muted }}>
-        {open ? "▾" : "▸"} {label}
-      </button>
+    <div style={{ marginTop: right ? 2 : 6 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <button onClick={() => setOpen(v => !v)} aria-expanded={open}
+          style={{ background: "none", border: "none", padding: "0 2px", minHeight: 36, cursor: "pointer", fontSize: FS.sm, color: C.muted }}>
+          {open ? "▾" : "▸"} {label}
+        </button>
+        {right && <span style={{ fontSize: FS.xs, color: C.muted, marginLeft: "auto" }}>{right}</span>}
+      </div>
       {open && <div style={{ fontSize: FS.sm, color: C.dim, lineHeight: 1.65, padding: "2px 2px 4px" }}>{children}</div>}
     </div>);
 };
