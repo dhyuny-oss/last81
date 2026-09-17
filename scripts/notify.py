@@ -113,8 +113,8 @@ def build(snap, mkt, state, now):
     stocks = snap.get("stocks", {})
     judge  = mkt.get("judge", {})
     meta   = snap.get("meta", {})
-    alloc  = mkt.get("allocation", {})
-    sectors = {s["tk"]: s for s in mkt.get("sectors", [])}
+    dc     = mkt.get("dc") or {}
+    etfs   = snap.get("etfs", {})
 
     entry = pick_entry(stocks, judge)
     over  = pick_oversold(stocks)
@@ -142,26 +142,26 @@ def build(snap, mkt, state, now):
             L.append(f"{flag} <b>{name} {VERDICT.get(j['verdict'], j['verdict'])}</b>{tail} "
                      f"<i>— {j.get('why','')}</i>")
 
-    # ── 2. 배분 (분기 리밸런스) ───────────────────────────
-    # ★ 점수는 3·6·9·12개월 평균, 갈아타는 것은 1·4·7·10월에만.
-    #   그 사이엔 순위가 바뀌어도 "지금 바꾸지 마세요" 라고 말해 줘야
-    #   알림을 보고 매달 손대는 일이 없습니다.
-    L.append("")
-    if alloc.get("defense"):
-        L.append(f"🛡 <b>배분: 방어</b> — 점수가 플러스인 섹터가 {alloc.get('nPositive',0)}개뿐 · 현금")
-    elif alloc.get("holds"):
-        picks = " · ".join(
-            f"{t}({sectors.get(t,{}).get('label','')} {pct(sectors.get(t,{}).get('score'),0)})"
-            for t in alloc["holds"])
-        L.append(f"🧺 <b>배분</b> 3분할 — {picks}")
-    if alloc.get("rebalDue"):
-        L.append(f"   🔔 <b>지금이 리밸런스 시기입니다</b> ({alloc.get('quarter','')})")
-        for d in alloc.get("dropped", []): L.append(f"   − {d.get('label')} 빼기")
-        for d in alloc.get("drift", []):   L.append(f"   ＋ {d.get('label')} 넣기")
-    else:
-        drift = alloc.get("drift") or []
-        tail = (f" · 순위 바뀐 것 {len(drift)}개 있지만 <b>지금 바꾸지 마세요</b>" if drift else "")
-        L.append(f"   <i>다음 리밸런스 {alloc.get('nextRebal','—')}{tail}</i>")
+    # ── 2. DC(퇴직연금) — 미국 S&P500 35% + 코스피200 35% + 안전자산 30% ──
+    #   각 몫은 느린 슈퍼트렌드(12,3) 초록일 때만 보유. 색이 바뀐 날은 🔔 로 따로 알립니다.
+    if dc.get("core"):
+        L.append("")
+        L.append("🏦 <b>DC 규칙</b> <i>(느린ST 초록=보유 · 빨강=안전자산)</i>")
+        for c in dc["core"]:
+            d = etfs.get(c.get("sig")) or {}
+            st = c.get("state")
+            buy = c.get("buy") or {}
+            prev = (state.get(f"dc:{c['key']}") or {}).get("state")
+            flip = (not first_run) and prev and prev != st and st in ("hold", "wait")
+            mark = "🟢 보유" if st == "hold" else "🟡 대기" if st == "wait" else "⚪ 확인불가"
+            days = d.get("slowDays")
+            L.append(f"   {mark} <b>{c.get('label')}</b> {int(c.get('w',0)*100)}% → {buy.get('name','')} "
+                     f"({buy.get('code','')}){f' · {days}거래일째' if days is not None else ''}")
+            if flip:
+                L.append("   🔔 <b>" + ("초록 전환 — 매수 시작" if st == "hold" else "빨강 전환 — 보유분 매도 → 안전자산") + "</b>")
+            state[f"dc:{c['key']}"] = {"ts": now.timestamp(), "state": st}
+        ab = mkt.get("allocation", {})
+        L.append(f"   <i>안전자산 30%는 적격TDF·채권혼합형·예금 · 다음 비중 점검 {ab.get('nextRebal','분기 첫 거래일')}</i>")
 
     # ── 3. 진입후보 ───────────────────────────────────────
     L.append("")
@@ -183,7 +183,8 @@ def build(snap, mkt, state, now):
             trig = " · 재돌파" if s.get("brk") else (" · ST전환" if s.get("stFlip") else "")
             volc = f" · ⚡변동성 {int(s['atrr'])}" if s.get("atrr") is not None else ""
             wait = " ⚠️시장위험→관망" if s.get("_wait") else ""
-            L.append(f"{mark}{flag} <b>{s['n']}</b> {price(s['c'], s['m'])} {pct(s.get('d1'))}")
+            sig = " 🟢매수신호" if s.get("sig") == "buy" else (" 🔴추세이탈" if s.get("sig") == "exit" else "")
+            L.append(f"{mark}{flag} <b>{s['n']}</b> {price(s['c'], s['m'])} {pct(s.get('d1'))}{sig}")
             L.append(f"   RS {int(s.get('rs') or 0)}{volc}{trig} · RSI {s.get('rsi',0):.0f}"
                      f" · 대금 {money(s.get('tv'), s['m'])}{wait}")
         if len(entry) > MAX_ROWS:
@@ -202,8 +203,8 @@ def build(snap, mkt, state, now):
 
     # ── 5. 청산 규칙 한 줄 (매번 같은 말을 하도록) ────────
     L.append("")
-    L.append("<i>🟢 후보 = 단기 · 손절 평단 −10% · 최소 3~6개월 보유 (손절 넓힌 만큼 종목당 금액은 줄이세요)</i>")
-    L.append("<i>🔵 장기 관찰 = 미국 전용 · 손절 없이 12~24개월\n🧺 배분 = 미국 섹터만 · 분기 리밸런스 (한국은 KODEX 200 그냥 보유)</i>")
+    L.append("<i>🟢 매수신호 = 슈퍼트렌드 3개 초록 + 구름 위 + RS 70↑ · 매도 = 느린 슈퍼트렌드(12,3) 빨강</i>")
+    L.append("<i>🔵 장기 관찰 = 미국 전용 · 손절 없이 12~24개월\n🏦 DC = 국내 상장 ETF로 매수 · 판단은 미국 원본 신호</i>")
 
     # ── 6. 데이터 상태 ────────────────────────────────────
     cnt = meta.get("counts", {})
