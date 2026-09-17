@@ -17,7 +17,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-export const APP_VERSION = "v5.2.0";
+export const APP_VERSION = "v5.3.0";
 
 /* ══════════════ 디자인 토큰 ══════════════ */
 const C = {
@@ -122,6 +122,22 @@ function weekdaysBetween(fromMs, toMs) {
   }
   return n;
 }
+/** 가장 최근에 '돌았어야 할' 예약 수집 시각 (daily.yml cron 과 같은 규칙) */
+function lastSlotMs(nowMs) {
+  const H = 3600000, day = 86400000;
+  const kstMid = Math.floor((nowMs + 9 * H) / day) * day - 9 * H;   // 오늘 KST 00:00 (UTC ms)
+  let best = 0;
+  for (let k = 0; k <= 3; k++) {
+    const base = kstMid - k * day;
+    const dow = new Date(base + 9 * H).getUTCDay();
+    const cand = [];
+    if (dow >= 1 && dow <= 5) cand.push(16 * 60);
+    if (dow >= 2 && dow <= 6) cand.push(6 * 60 + 30);
+    if (dow === 6) cand.push(9 * 60);
+    for (const m of cand) { const t = base + m * 60000; if (t <= nowMs && t > best) best = t; }
+  }
+  return best;
+}
 function freshness(updMs, nowMs = Date.now()) {
   const st = marketState(nowMs);
   if (!updMs) return { ...st, emoji: "⚪", label: "데이터 없음", color: C.muted, tone: "none" };
@@ -133,11 +149,15 @@ function freshness(updMs, nowMs = Date.now()) {
   //   9일 멈춘 데이터가 토요일엔 아무 일 없는 것처럼 보였습니다.
   if (days >= 3) return { ...st, min, days, emoji: "🔴", label: `${txt} — 갱신 멈춤`, color: C.red, tone: "stale" };
   if (days === 2) return { ...st, min, days, emoji: "🟠", label: `${txt} — 이틀째 갱신 없음`, color: C.orange, tone: "old" };
-  if (st.weekend) return { ...st, min, days, emoji: "🔵", label: `주말 휴장 · ${txt}`, color: C.cyan, tone: "closed" };
-  if (!st.anyOpen) return { ...st, min, days, emoji: "⚪", label: `시간외 · ${txt}`, color: C.muted, tone: "closed" };
-  if (min < 60) return { ...st, min, days, emoji: "🟢", label: txt, color: C.emerald, tone: "fresh" };
-  if (min < 240) return { ...st, min, days, emoji: "🟡", label: txt, color: C.gold, tone: "lag" };
-  return { ...st, min, days, emoji: "🔴", label: `${txt} — 수집 지연`, color: C.red, tone: "bad" };
+  // ★ 수집은 하루 2번(16:00·06:30)뿐이라 '몇 시간 전'으로 판단하면 장중마다 빨간 경보가 뜹니다.
+  //   마지막 예약 시각 이후 값이 들어왔는지로 판단합니다. 깃허브 예약은 몇 시간씩 늦기도 해서 6시간은 기다립니다.
+  const slot = lastSlotMs(nowMs);
+  const slotMiss = slot && updMs < slot - 10 * 60000;
+  const waitMin = slot ? Math.floor((nowMs - slot) / 60000) : 0;
+  if (slotMiss && waitMin >= 360) return { ...st, min, days, emoji: "🔴", label: `${txt} — 예약 수집 누락`, color: C.red, tone: "bad" };
+  if (slotMiss) return { ...st, min, days, emoji: "🟡", label: `${txt} · 수집 대기`, color: C.gold, tone: "lag" };
+  if (st.weekend) return { ...st, min, days, emoji: "🔵", label: `주말 · ${txt}`, color: C.cyan, tone: "closed" };
+  return { ...st, min, days, emoji: "🟢", label: txt, color: C.emerald, tone: "fresh" };
 }
 
 /* ══════════════ 검증 결과 — 시장별 근거 등급 ══════════════
@@ -462,18 +482,28 @@ export default function App() {
   const openStock = useCallback((t) => { setSel(t); setTab("chart"); setShowQ(false); }, []);
   const toggleWatch = useCallback((t) => setWatch(w => w.includes(t) ? w.filter(x => x !== t) : [...w, t]), []);
 
-  const stocks = snap?.stocks || {};
-  const list = useMemo(() => Object.values(stocks), [stocks]);
+  const rawStocks = snap?.stocks || {};
+  const rawList = useMemo(() => Object.values(rawStocks), [rawStocks]);
   const updMs = snap?.meta?.generatedAt ? new Date(snap.meta.generatedAt).getTime() : null;
   const fr = freshness(updMs);
   // ★ list[0].asOf 하나만 쓰면 헤더는 07-27, 미국 종목 카드는 07-24 가 되어
   //   같은 화면에 기준일이 두 개 나옵니다. 시장별로 각각 최신일을 씁니다.
   const asOfBy = useMemo(() => {
     const g = { kr: [], us: [] };
-    for (const s of list) if (s.asOf) g[s.m === "kr" ? "kr" : "us"].push(s.asOf);
+    for (const s of rawList) if (s.asOf) g[s.m === "kr" ? "kr" : "us"].push(s.asOf);
     const top = (a) => a.length ? a.sort().slice(-Math.max(1, Math.floor(a.length * 0.1)))[0] : null;
     return { kr: top(g.kr), us: top(g.us) };
-  }, [list]);
+  }, [rawList]);
+  // ★ 시장 기준일보다 7일 넘게 멈춘 종목(거래정지·합병·상장폐지)은 모든 탭에서 뺍니다
+  const { stocks, list, nStale } = useMemo(() => {
+    const ok = (s) => {
+      const ref = asOfBy[s.m === "kr" ? "kr" : "us"];
+      if (!ref || !s.asOf) return true;
+      return (new Date(ref) - new Date(s.asOf)) / 86400000 <= 7;
+    };
+    const l = rawList.filter(ok);
+    return { stocks: Object.fromEntries(l.map(s => [s.t, s])), list: l, nStale: rawList.length - l.length };
+  }, [rawList, asOfBy]);
 
   // ★ 포지션 크기를 한 곳에서만 계산합니다.
   //   전에는 추적탭 안에만 있어서, 발굴·차트에서 "이 종목 몇 주 사지?" 를 알려면
@@ -506,8 +536,7 @@ export default function App() {
     <div style={{ color: C.red, fontWeight: 800, fontSize: 14 }}>데이터를 불러오지 못했습니다</div>
     <div style={{ fontSize: 11.5, color: C.dim, marginTop: 6 }}>{err}</div>
     <div style={{ fontSize: 11, color: C.muted, marginTop: 8 }}>
-      Actions 탭에서 <b style={{ color: C.dim }}>Snapshot Build (v4)</b> 를 한 번 실행해 주세요.
-      <code style={{ color: C.gold }}> public/data/snapshot.json</code> 이 생겨야 합니다.
+      Actions → <b style={{ color: C.dim }}>Daily Data Update</b> 를 실행하세요.
     </div></div></Shell>;
 
   if (!snap || !market) return <Shell><div style={{ textAlign: "center", color: C.muted, marginTop: 60, fontSize: 12 }}>불러오는 중…</div></Shell>;
@@ -547,10 +576,8 @@ export default function App() {
                             border: `1px solid ${C.border}`, borderRadius: 7, zIndex: 200, padding: "9px 11px",
                             boxShadow: "0 8px 32px rgba(0,0,0,.8)" }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: C.gold }}>“{q.trim()}” 는 목록에 없습니다</div>
-                <div style={{ fontSize: 10, color: C.dim, marginTop: 5, lineHeight: 1.65 }}>
-                  깃허브에서 <code style={{ color: C.cyan }}>scripts/tickers_extra.txt</code> 를 열어
-                  한 줄 추가하고 <b style={{ color: C.text }}>Snapshot Build</b> 를 돌리면 다음부터 나옵니다.
-                  <br />한국은 숫자 6자리, 미국은 영문 티커입니다.
+                <div style={{ fontSize: 10, color: C.dim, marginTop: 5 }}>
+                  <code style={{ color: C.cyan }}>scripts/tickers_extra.txt</code> 에 추가하세요
                 </div>
               </div>)}
             {showQ && results.length > 0 && (
@@ -573,20 +600,15 @@ export default function App() {
                         border: `1px solid ${fr.tone === "old" ? C.orange : C.red}`, borderRadius: 6,
                         padding: "7px 10px", marginTop: 6, fontSize: 9.5, color: C.dim, lineHeight: 1.7 }}>
             {fr.tone === "stale" ? (<>
-              <b style={{ color: C.red }}>데이터가 평일 {fr.days}일째 갱신되지 않았습니다 ({(fr.min / 1440).toFixed(1)}일 전 기준)</b>
-              <br />지금 보이는 RS · RSI · 폭 · 구간수익률은 전부 그때 값입니다. <b style={{ color: C.text }}>매매 판단에 쓰지 마세요.</b>
-              <br />깃허브 <b style={{ color: C.text }}>Actions</b> 탭 → <b style={{ color: C.text }}>Snapshot Build (v4)</b> 를 열어
-              ① 빨간 ✕(수집 실패) ② 노란 “Enable workflow” 버튼(예약 꺼짐) ③ 실행 기록 자체 없음 중 무엇인지 확인하고
-              <b style={{ color: C.text }}> Run workflow</b> 를 한 번 눌러 주세요.
-              <div style={{ marginTop: 7, display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap" }}>
-                <span style={{ color: C.text, fontWeight: 700 }}>휴대폰이면 여기서 바로 →</span>
+              <b style={{ color: C.red }}>평일 {fr.days}일째 갱신 없음 — 매매 판단에 쓰지 마세요</b>
+              <div style={{ marginTop: 6, display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap" }}>
                 <RefreshBtn />
+                <span style={{ color: C.muted }}>안 되면 Actions → Daily Data Update 확인</span>
               </div>
             </>) : fr.tone === "old" ? (<>
-              <b style={{ color: C.orange }}>이틀째 갱신이 없습니다</b> — 마지막 수집 {(fr.min / 1440).toFixed(1)}일 전.
-              공휴일이면 정상이지만, 아니라면 Actions 탭에서 Snapshot Build 실행을 확인해 주세요.
+              <b style={{ color: C.orange }}>이틀째 갱신 없음</b> — 공휴일이 아니면 Actions → Daily Data Update 확인
             </>) : (<>
-              <b style={{ color: C.red }}>장중인데 데이터가 {Math.floor(fr.min / 60)}시간 멈춰 있어요</b> — Actions 탭에서 Snapshot Build 실행을 확인하세요.
+              <b style={{ color: C.red }}>예약 수집이 반영되지 않았습니다</b> — Actions → Daily Data Update 확인
             </>)}
           </div>)}
 
@@ -609,10 +631,11 @@ export default function App() {
       </div>
 
       <div style={{ padding: "10px 12px 24px", fontSize: 9.5, color: C.muted, textAlign: "center", borderTop: `1px solid ${C.border}` }}>
-        지표는 파이프라인이 한 번 계산한 값을 표시만 합니다 · 생성 {snap.meta.generatedKST} · 종목 {snap.meta.counts.stocks}
+        생성 {snap.meta.generatedKST} · 종목 {list.length}
         {snap.meta.pool?.extra?.length > 0 && <> (직접 추가 {snap.meta.pool.extra.length})</>}
-        {snap.meta.counts.failed > 0 && <> · 못 받은 종목 {snap.meta.counts.failed}</>}
-        <br />투자자문이 아니며 과거 성과가 미래를 보장하지 않습니다
+        {snap.meta.counts.failed > 0 && <> · 수집 실패 {snap.meta.counts.failed}</>}
+        {nStale > 0 && <> · 가격 멈춤 제외 {nStale}</>}
+        <br />투자자문 아님
       </div>
     </Shell>
   );
@@ -660,7 +683,6 @@ function BreadthBar({ b, c }) {
              style={{ width: "100%", height: 26, marginTop: 5, display: "block" }}>
           <path d={path} fill="none" stroke={c} strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
         </svg>)}
-      <div style={{ fontSize: 8.5, color: C.muted, marginTop: 2 }}>최근 3년 추이 · 세로선이 오늘 위치</div>
     </div>);
 }
 
@@ -672,7 +694,7 @@ function MarketTab({ market, setTab }) {
   const sectors = market.sectors || [];
   return (
     <>
-      <h2 style={css.h2}>📊 시장 판단 <span style={css.lbl}>— 판단만, 숫자는 아래</span></h2>
+      <h2 style={css.h2}>📊 시장 판단</h2>
       <div style={css.card}>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           {["us", "kr"].map(m => {
@@ -694,7 +716,7 @@ function MarketTab({ market, setTab }) {
               </div>);
           })}
         </div>
-        <div style={{ fontSize: 10, color: C.muted, marginTop: 9, lineHeight: 1.75 }}>
+        <Info label="판단 기준">
           <b style={{ color: C.text }}>‘폭’은 그 시장에서 200일선 위에 있는 종목의 비율</b>입니다.
           지수 한 줄보다 “실제로 오르고 있는 종목이 몇 %인가”를 봅니다. 괄호는 최근 3년 안에서의 위치입니다.<br />
           <b style={{ color: C.cyan }}>🇰🇷 한국 — 판단에 씁니다.</b> 폭 백분위가 하위 40% 아래면 위험으로 보고,
@@ -705,13 +727,12 @@ function MarketTab({ market, setTab }) {
           폭 · 변동성 등 15개 후보를 전부 시험했지만 2010년 이후 모든 구간에서 (−)였습니다.
           미국은 시장이 나빠지면 <b style={{ color: C.text }}>발굴 후보 수가 스스로 35개→14개로 줄어드는 것</b>이
           실제 방어였습니다. 그래서 후보를 관망으로 바꾸지 않고, 위험 관리는 손절과 비중으로 합니다.
-        </div>
+        </Info>
       </div>
 
-      <h2 style={css.h2}>🌐 지수 <span style={css.lbl}>— 근거 숫자는 여기 한 곳에만</span></h2>
+      <h2 style={css.h2}>🌐 지수</h2>
       <div style={css.card}>
         <Scroll>
-          <div style={{ fontSize: 9, color: C.muted, marginBottom: 3 }}>3일·5일·1달은 그 기간 누적 등락입니다 (소수 1자리)</div>
           <table style={tbl}>
             <thead><tr>{["지수 · 200일선", "종가", "1일", "3일", "5일", "1달"].map((h, i) =>
               <th key={h} style={{ ...th, textAlign: i === 0 ? "left" : "right" }}>{h}</th>)}</tr></thead>
@@ -744,11 +765,11 @@ function MarketTab({ market, setTab }) {
         </div>
       </div>
 
-      <h2 style={css.h2}>🔄 섹터 <span style={css.lbl}>— 6개월 모멘텀 순위 · 상위 3개가 배분탭 보유 대상</span></h2>
+      <h2 style={css.h2}>🔄 섹터 <span style={css.lbl}>점수 순 · ● 보유</span></h2>
       <div style={css.card}>
         <Scroll>
           <table style={tbl}>
-            <thead><tr>{["섹터", "1일", "3일", "5일", "1달", "6개월"].map((h, i) =>
+            <thead><tr>{["섹터", "1일", "3일", "5일", "1달", "점수"].map((h, i) =>
               <th key={h} style={{ ...th, textAlign: i === 0 ? "left" : "right" }}>{h}</th>)}</tr></thead>
             <tbody>{sectors.map(s => {
               const hold = holds.includes(s.tk);
@@ -759,14 +780,13 @@ function MarketTab({ market, setTab }) {
                   <div style={{ fontSize: 8.5, color: C.muted }}>{s.tk} · 200일선 <span style={{ color: col(s.ma200p) }}>{pct(s.ma200p, 0)}</span></div>
                 </td>
                 {["d1", "d3", "d5", "d21"].map(f => <td key={f} style={{ ...tdR, color: col(s[f]) }}>{pct(s[f], 1)}</td>)}
-                <td style={{ ...tdR, color: col(s.m6), fontWeight: 700 }}>{pct(s.m6, 0)}</td>
+                <td style={{ ...tdR, color: col(s.score), fontWeight: 700 }}>{pct(s.score, 0)}</td>
               </tr>);
             })}</tbody>
           </table>
         </Scroll>
-        <div style={{ fontSize: 10, color: C.muted, marginTop: 8 }}>
-          섹터 1일은 캔들에서 직접 계산합니다 — 이전 버전은 이 자리에 1개월 값이 들어가 있었습니다.
-          <button onClick={() => setTab("alloc")} style={linkBtn}> 배분탭에서 보유 지시 보기 →</button>
+        <div style={{ marginTop: 8 }}>
+          <button onClick={() => setTab("alloc")} style={linkBtn}>배분탭 보기</button>
         </div>
       </div>
     </>
@@ -823,23 +843,19 @@ function AllocTab({ market, pos, setPos, setTab }) {
             {A.daysToRebal != null && <> · D-{A.daysToRebal}</>}
           </span>
         </div>
-        <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.75 }}>
-          1·4·7·10월에만 갈아탑니다. 그 사이 순위가 바뀌어도 그대로 둡니다 —
-          검증에서 월 1회로 돌리면 연 교체가 5.3회로 늘어 비용 0.3%만 되어도 초과수익이 사라졌습니다
+        <Info label="왜 분기마다만?">
+          1·4·7·10월에만 갈아탑니다. 월 1회로 돌리면 연 교체가 5.3회로 늘어 비용 0.3%만 되어도 초과수익이 사라졌습니다
           (분기는 2.0회, 비용 0.5%에서도 +3.2%p 남음). 해외주식 양도세 22%까지 생각하면 차이가 더 벌어집니다.
-        </div>
+        </Info>
       </div>
 
-      <h2 style={css.h2}>🧺 지금 들고 있어야 할 것
-        <span style={css.lbl}>— {A.method || "3·6·9·12개월 평균 · 상위 3개 균등"}</span></h2>
+      <h2 style={css.h2}>🧺 🇺🇸 보유할 ETF</h2>
 
       {A.defense ? (
         <div style={{ ...css.card, borderColor: `${C.gold}66`, background: "rgba(245,158,11,.06)" }}>
           <div style={{ fontSize: 15, fontWeight: 800, color: C.gold }}>🛡 방어 국면 — 현금</div>
           <div style={{ fontSize: 12, color: C.dim, marginTop: 5 }}>
-            점수가 플러스인 섹터가 {A.nPositive ?? 0}개뿐입니다. 상위 3개를 채울 수 없어 현금으로 둡니다.
-            <br /><span style={{ fontSize: 10.5, color: C.muted }}>
-              채권(IEF)으로 피하는 것도 시험했는데 차이가 +0.16%p 로 사실상 없었습니다 → 단순한 현금을 씁니다.</span>
+            점수 플러스 섹터 {A.nPositive ?? 0}개 — 3개 미만이면 현금
           </div>
         </div>
       ) : (
@@ -892,9 +908,7 @@ function AllocTab({ market, pos, setPos, setTab }) {
                     ＋ {d.label} <span style={{ color: C.muted }}>{d.rank ?? "—"}위</span></span>))}
               </div>
               <div style={{ fontSize: 10, color: C.muted, marginTop: 7 }}>
-                {due ? <>지금 갈아타면 됩니다. 위 카드는 이미 새 조합입니다.</>
-                     : <><b style={{ color: C.text }}>지금은 바꾸지 마세요.</b> {A.nextRebal} 에 한 번에 정리합니다.
-                         순위가 오르내리는 것을 매번 따라가면 교체 비용이 초과수익보다 커집니다.</>}
+                {due ? "지금 갈아타면 됩니다" : <><b style={{ color: C.text }}>지금은 바꾸지 않음</b> · {A.nextRebal} 에 정리</>}
               </div>
             </div>)}
 
@@ -909,26 +923,25 @@ function AllocTab({ market, pos, setPos, setTab }) {
               </span>
             </div>
             <div style={{ fontSize: 10, color: C.muted, marginTop: 8 }}>
-              {fx ? <>환율 {num(fx, 1)}원/$ 기준 · </> : <>환율을 불러오지 못해 주 수는 생략했습니다 · </>}
-              미국 ETF는 해외주식 양도세 22%(연 250만원 초과분)입니다.
+              {fx ? `환율 ${num(fx, 1)}원/$` : "환율 없음 · 주 수 생략"}
             </div>
           </div>
         </>)}
 
       {/* 한국 — 고르는 기능은 만들지 않았지만, 살 대상 하나는 미국과 똑같이 보여줍니다.
           현재가·배분금액·몇 주·등록까지 있어야 실제로 살 수 있습니다. */}
-      <h2 style={css.h2}>🇰🇷 한국 배분 <span style={css.lbl}>— 고르지 않습니다 · 하나를 그냥 들고 갑니다</span></h2>
+      <h2 style={css.h2}>🇰🇷 보유할 ETF</h2>
       {krEtf ? (
         <div style={{ ...css.card, borderColor: "rgba(6,182,212,.35)", background: "rgba(6,182,212,.05)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
             <div>
               <div style={{ fontSize: 15, fontWeight: 800 }}>{krEtf.label}
                 <span style={{ fontSize: 10.5, color: C.muted, fontWeight: 500, marginLeft: 6 }}>{krEtf.code}</span></div>
-              <div style={{ fontSize: 10.5, color: C.dim }}>코스피 200 · 분기 리밸런스 없음</div>
+              <div style={{ fontSize: 10.5, color: C.dim }}>교체 없이 계속 보유</div>
             </div>
             <div style={{ textAlign: "right" }}>
               <div style={{ fontSize: 15, fontWeight: 800, color: col(krEtf.m6), fontFamily: "ui-monospace,monospace" }}>{pct(krEtf.m6, 1)}</div>
-              <div style={{ fontSize: 9, color: C.muted }}>6개월 (참고용)</div>
+              <div style={{ fontSize: 9, color: C.muted }}>6개월</div>
             </div>
           </div>
           <div style={{ display: "flex", gap: 4, marginTop: 7, flexWrap: "wrap" }}>
@@ -957,27 +970,21 @@ function AllocTab({ market, pos, setPos, setTab }) {
             border: `1px solid ${held(krEtf.code) ? C.border : C.cyan + "55"}`, color: held(krEtf.code) ? C.dim : C.cyan,
             borderRadius: 6, padding: "6px 0", fontSize: 10.5, fontWeight: 700, cursor: "pointer" }}>
             {held(krEtf.code) ? "📁 추적탭에서 보기" : "＋ 추적탭에 등록"}</button>
-          <div style={{ fontSize: 10, color: C.muted, marginTop: 8, lineHeight: 1.75 }}>
+          <Info label="왜 섹터를 안 고르나">
             {A.kr?.note}
             <br />상장폐지된 ETF가 빠진 목록으로 잰 것이라 실제로는 이보다 나쁩니다(생존편향).
-            미국 12개 섹터는 1998년 이후 하나도 사라지지 않아 이 문제가 없습니다.
-            <br /><b style={{ color: C.dim }}>미국과 달리 갈아탈 것이 없으니 분기마다 볼 필요도 없습니다.</b>
             국내 상장 ETF라 매매차익은 비과세(분배금만 15.4%)입니다.
-          </div>
+          </Info>
         </div>
       ) : (
         <div style={{ ...css.card, borderColor: "rgba(6,182,212,.3)", background: "rgba(6,182,212,.05)" }}>
           <div style={{ fontSize: 12.5, fontWeight: 700, color: C.cyan }}>
-            🇰🇷 한국은 섹터를 고르지 않습니다 — <b style={{ color: C.text }}>{A.kr?.name || "KODEX 200"}</b> 을 그냥 들고 가세요
-          </div>
-          <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.75 }}>
-            {A.kr?.note || "한국 섹터 ETF는 검증을 통과하지 못했습니다."}
-            <br /><span style={{ color: C.gold }}>가격을 아직 못 받았습니다 — Snapshot Build 를 한 번 실행하면 여기에 현재가와 주 수가 나옵니다.</span>
+            {A.kr?.name || "KODEX 200"} <span style={{ color: C.gold, fontWeight: 500, fontSize: 10.5 }}>· 가격 수집 전</span>
           </div>
         </div>
       )}
 
-      <h2 style={css.h2}>📋 전 섹터 순위 <span style={css.lbl}>— 점수 = 3·6·9·12개월 평균</span></h2>
+      <h2 style={css.h2}>📋 전 섹터 순위 <span style={css.lbl}>점수 = 3·6·9·12개월 평균</span></h2>
       <div style={css.card}>
         <Scroll>
           <table style={tbl}>
@@ -997,13 +1004,13 @@ function AllocTab({ market, pos, setPos, setTab }) {
               </tr>))}</tbody>
           </table>
         </Scroll>
-        <Note>
-          <b>왜 네 기간을 평균하나</b> — 과거 성적으로 최적 룩백을 고를 수 있는지 시험했는데
+        <Info label="왜 네 기간 평균?">
+          과거 성적으로 최적 룩백을 고를 수 있는지 시험했는데
           학습 구간 순위와 검증 구간 순위의 상관이 <b>−0.08</b> 이었습니다. 1등이던 설정과 31등이던 설정의
           검증 성적이 뒤집혔습니다. 그래서 고르지 않고 넷을 합칩니다.
           이 방식이 지수 대비 <b>+3.99%p</b>(95% 구간 [+0.02, +7.34])로, 시험한 설정 중 구간이 0을 넘은 유일한 것이었습니다.
           확실한 쪽은 수익보다 <b>최대낙폭 −52.2% → −36.8%</b> 입니다.
-        </Note>
+        </Info>
       </div>
     </>
   );
@@ -1036,18 +1043,7 @@ function FindTab({ list, openStock, watch, toggleWatch, market, seen, sizer, hdr
 
   return (
     <>
-      <h2 style={css.h2}>🔍 발굴 <span style={css.lbl}>— 가격구조 + RS(6개월) 상위</span></h2>
-
-      {/* 시장별 근거 — 같은 규칙이 두 시장에 다르게 통합니다 */}
-      <div style={{ ...css.card, marginBottom: 8, background: "rgba(6,182,212,.04)", borderColor: "rgba(6,182,212,.25)" }}>
-        <div style={{ fontSize: 11.5, color: C.dim, lineHeight: 1.8 }}>
-          <b style={{ color: C.emerald }}>🇰🇷 한국 — 검증됨</b> {EVIDENCE.find.kr.note}<br />
-          <b style={{ color: C.gold }}>🇺🇸 미국 — 최근 근거 약함</b> {EVIDENCE.find.us.note}<br />
-          <span style={{ color: C.muted, fontSize: 10.5 }}>
-            미국 종목은 대신 <b style={{ color: C.dim }}>변동성 상위</b>가 최근 가장 강한 신호였습니다 (+4.10% 유의). 아래 ⚡ 칩을 참고하세요.
-          </span>
-        </div>
-      </div>
+      <h2 style={css.h2}>🔍 발굴 <span style={css.lbl}>가격구조 + RS 상위</span></h2>
 
       <div style={{ ...css.card, marginBottom: 8 }}>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
@@ -1063,11 +1059,14 @@ function FindTab({ list, openStock, watch, toggleWatch, market, seen, sizer, hdr
           {[["rs", "RS 높은 순"], ["vol", "⚡변동성 높은 순"], ["days", "오래 머문 순"], ["tv", "거래대금 순"]].map(([k, l]) =>
             <Toggle key={k} on={sortBy === k} onClick={() => setSortBy(k)}>{l}</Toggle>)}
         </div>
-        <div style={{ fontSize: 9.5, color: C.muted, marginTop: 7 }}>
-          거래대금 하위 40% 제외 · 최대 60개 ·
-          <b style={{ color: C.dim }}> 돌파는 필수 조건에서 뺐습니다</b> — 후보를 85% 줄이는데 성과 차이가 없었고,
-          하루짜리 사건이라 목록이 매일 뒤집혔습니다.
-        </div>
+        <Info label="기준 · 근거">
+          <b style={{ color: C.emerald }}>🇰🇷 검증됨</b> {EVIDENCE.find.kr.note}<br />
+          <b style={{ color: C.gold }}>🇺🇸 최근 근거 약함</b> {EVIDENCE.find.us.note} — 미국은 ⚡변동성 상위가 더 강한 신호(+4.10%)<br />
+          <b>가격구조</b> = 200/150/50일선 정배열 + 52주 저점 +30%↑ + 고점 −25% 이내 ·
+          <b> RS</b> = 같은 시장 6개월 수익률 백분위 · <b>⚡변동성</b> = ATR÷가격 백분위 ·
+          <b> N일째</b> = 내가 이 화면에서 목록에 본 날 수<br />
+          거래대금 하위 40% 제외 · 최대 60개 · 돌파는 필수 아님(후보 85% 감소, 성과 차이 없음)
+        </Info>
       </div>
 
       <div style={css.card}>
@@ -1083,18 +1082,12 @@ function FindTab({ list, openStock, watch, toggleWatch, market, seen, sizer, hdr
                   <Chip tone={s.m === "us" && s.atrr >= 80 ? "g" : "n"}>⚡변동성 {Math.floor(s.atrr)}</Chip>)}
                 {(s.brk || s.stFlip) && <Chip tone="c">{s.brk ? "재돌파" : "ST전환"}</Chip>}
                 {(s.rsi ?? 0) > 75 && <Chip tone="w">RSI {s.rsi.toFixed(0)} 과열</Chip>}
-                {d != null && d >= 5 && <Chip tone="n">{d}일째 후보</Chip>}
+                {d != null && d >= 5 && <Chip tone="n">{d}일째</Chip>}
               </>}
               right={<><div style={{ fontSize: 12, fontWeight: 700, fontFamily: "ui-monospace,monospace" }}>{price(s.c, s.m)}{sizer?.shares(s.c, s.m) != null && <span style={{ fontSize: 9, fontWeight: 500, color: C.muted }}> · {sizer.shares(s.c, s.m)}주</span>}</div><Range4 s={s} /><div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>거래대금 {money(s.tv, s.m)}</div></>} />
           );
         })}
       </div>
-      <Note>
-        <b>가격구조</b> = 200/150/50일선 정배열 + 52주 저점 +30%↑ + 고점 −25% 이내 (7개 조건) ·
-        <b> RS</b> = 같은 시장 안에서 6개월 수익률 백분위 (검증: 21/42/63/126일 중 126일이 양쪽 시장 모두 최고) ·
-        <b> ⚡변동성</b> = ATR÷가격 백분위 (미국에서만 신호로 유효) ·
-        <b> N일째 후보</b> = 이 화면을 열었을 때 그 종목이 목록에 있던 날 수 — 내가 지켜본 기간입니다.
-      </Note>
     </>
   );
 }
@@ -1114,28 +1107,20 @@ function OversoldTab({ list, openStock, watch, toggleWatch, sizer, hdrH }) {
        .sort((a, b) => (a.s.w52p ?? 0) - (b.s.w52p ?? 0)).slice(0, 60), [all, showKr]);
   return (
     <>
-      <h2 style={css.h2}>🌊 과매도 <span style={css.lbl}>— 🇺🇸 미국 전용 · 장기 관찰</span></h2>
-      <div style={{ ...css.card, marginBottom: 8, background: "rgba(255,69,58,.06)", borderColor: "rgba(255,69,58,.3)" }}>
-        <div style={{ fontSize: 12, color: C.dim, lineHeight: 1.75 }}>
-          <b style={{ color: C.rd || C.red }}>🇰🇷 한국 종목은 기본으로 뺐습니다.</b> {EVIDENCE.oversold.kr.note}<br />
-          <b style={{ color: C.emerald }}>🇺🇸 미국은 검증됨</b> — {EVIDENCE.oversold.us.note}
-          <span style={{ color: C.muted }}> (단 생존편향 미보정이라 실제는 이보다 낮습니다)</span>
-        </div>
-      </div>
-      <div style={{ ...css.card, marginBottom: 8, background: "rgba(6,182,212,.05)", borderColor: "rgba(6,182,212,.3)" }}>
-        <div style={{ fontSize: 12, color: C.dim }}>
-          <b style={{ color: C.text }}>원래 좋은 종목이 크게 빠진 것</b>을 찾습니다 — 낙폭은 기회를, 장기 건강도는 "망가진 종목이 아니라는 증거"를 담당합니다.
-          <br /><b style={{ color: C.gold }}>청산 규칙이 발굴탭과 다릅니다</b> — 손절 없이 <b style={{ color: C.text }}>12~24개월 보유</b>. 단기 매매용이 아닙니다.
-        </div>
-      </div>
+      <h2 style={css.h2}>🌊 과매도 <span style={css.lbl}>🇺🇸 전용 · 손절 없이 12~24개월</span></h2>
       <div style={{ ...css.card, marginBottom: 8 }}>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
           <Toggle on={deep} onClick={() => setDeep(true)}>깊은 낙폭 (−40%↓)</Toggle>
           <Toggle on={!deep} onClick={() => setDeep(false)}>넓게 보기 (−25%↓)</Toggle>
           <span style={{ width: 1, height: 15, background: C.border, margin: "0 2px" }} />
-          <Toggle on={showKr} onClick={() => setShowKr(v => !v)}>🇰🇷 한국 {nKr}개 보기 (검증 실패)</Toggle>
-          <span style={{ fontSize: 10, color: C.muted, marginLeft: "auto" }}>낙폭 큰 순 · 3년 건강도 60%↑</span>
+          <Toggle on={showKr} onClick={() => setShowKr(v => !v)}>🇰🇷 {nKr}개 (검증 실패)</Toggle>
         </div>
+        <Info label="기준 · 근거">
+          원래 좋은 종목(3년 중 60%↑ 기간 200일선 위)이 크게 빠진 것을 낙폭 큰 순으로 보여줍니다.<br />
+          <b style={{ color: C.emerald }}>🇺🇸 검증됨</b> {EVIDENCE.oversold.us.note} (생존편향 미보정 — 실제는 더 낮음)<br />
+          <b style={{ color: C.red }}>🇰🇷 제외</b> {EVIDENCE.oversold.kr.note}<br />
+          200일선을 −50% 넘게 밑돌면 구조 훼손일 때가 많아 ⚠ 를 붙입니다.
+        </Info>
       </div>
       <div style={css.card}>
         <Range4Head top={hdrH} />
@@ -1148,14 +1133,12 @@ function OversoldTab({ list, openStock, watch, toggleWatch, sizer, hdrH }) {
               <Chip tone={(s.ma200p ?? 0) > 0 ? "g" : "n"}>200일선 {pct(s.ma200p, 0)}</Chip>
               {/* 200일선을 -50% 넘게 밑돌면 '눌림'이 아니라 구조가 깨진 경우가 많습니다.
                   백테스트 규칙(-40% + 건강도 60%)은 그대로 두고, 사실만 표시합니다. */}
-              {s.m === "kr" && <Chip tone="r">⚠ 한국 — 이 전략 검증 실패</Chip>}
-              {(s.ma200p ?? 0) < -50 && <Chip tone="r">⚠ 200일선 −50%↓ · 구조 훼손 의심</Chip>}
+              {s.m === "kr" && <Chip tone="r">⚠ 한국</Chip>}
+              {(s.ma200p ?? 0) < -50 && <Chip tone="r">⚠ 구조 훼손 의심</Chip>}
             </>}
             right={<><div style={{ fontSize: 12, fontWeight: 700, fontFamily: "ui-monospace,monospace" }}>{price(s.c, s.m)}{sizer?.shares(s.c, s.m) != null && <span style={{ fontSize: 9, fontWeight: 500, color: C.muted }}> · {sizer.shares(s.c, s.m)}주</span>}</div><Range4 s={s} /><div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>거래대금 {money(s.tv, s.m)}</div></>} />
         ))}
       </div>
-      <Note>낙폭이 아무리 커도 <b>200일선을 −50% 넘게 밑도는 종목</b>은 회복이 아니라 구조 훼손일 때가 많습니다 — 그런 종목엔 ⚠ 를 붙여 두었습니다(현재 목록에 2종목).
-        3년 건강도 = 과거 3년 중 200일선 위에 있던 비율. 검증: 낙폭 −40%↓ + 건강도 60%↑ 조합이 12개월 보유 시 시장 대비 중앙값 +10.1%(승률 60%). <b>단 생존편향 미보정이라 실제는 이보다 낮습니다.</b></Note>
     </>
   );
 }
@@ -1284,6 +1267,12 @@ function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab
     return { rows, idxPts, idxRel, ...niceAxis(Math.max(0, lo - pad), hi + pad) };
   }, [bars, span, idxMap]);
   const data = view?.rows || null;
+  // 축 폭 — 7자리 원화 눈금이 잘리지 않게. ★ 훅이라 아래 조기 return 보다 먼저 있어야 합니다.
+  const axisW = useMemo(() => {
+    const t = view?.ticks?.length ? view.ticks : [100];
+    const px = (str) => [...String(str)].reduce((a, ch) => a + (/[가-힣]/.test(ch) ? 8.6 : 4.9), 0);
+    return Math.max(34, Math.min(62, Math.ceil(Math.max(...t.map(x => px(shortNum(x)))) + 12)));
+  }, [view]);
 
   if (!sel) return <Empty>위 검색창에서 종목을 찾거나, 다른 탭에서 종목을 누르면 여기에 열립니다.</Empty>;
   if (!s) return <Empty>{sel} 는 스냅샷에 없습니다.</Empty>;
@@ -1308,13 +1297,6 @@ function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab
   };
   const cloudTone = data?.length ? (data[data.length - 1].cloudUp ? C.emerald : C.red) : C.emerald;
   const stNow = data?.length ? data[data.length - 1].stUpCount : null;
-  // 축 폭 — 삼성전자·SK하이닉스는 눈금이 7자리라 고정 54px 로는 "​,000,000" 처럼 잘렸습니다.
-  // 한글 단위(만·억·조)는 숫자보다 두 배 가까이 넓어서 글자 수로만 재면 잘립니다.
-  const axisW = useMemo(() => {
-    const t = view?.ticks?.length ? view.ticks : [100];
-    const px = (str) => [...String(str)].reduce((a, ch) => a + (/[가-힣]/.test(ch) ? 8.6 : 4.9), 0);
-    return Math.max(34, Math.min(62, Math.ceil(Math.max(...t.map(x => px(shortNum(x)))) + 12)));
-  }, [view]);
 
   return (
     <>
@@ -1346,10 +1328,10 @@ function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab
         {!held && sizer?.shares(s.c, s.m) != null && (
           <div style={{ marginTop: 7, paddingTop: 7, borderTop: `1px solid ${C.border}`,
                         fontSize: 10.5, color: C.muted, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "baseline" }}>
-            <span>이 설정이면 <b style={{ color: C.text, fontSize: 12 }}>{sizer.shares(s.c, s.m)}주</b></span>
+            <span>매수 <b style={{ color: C.text, fontSize: 12 }}>{sizer.shares(s.c, s.m)}주</b></span>
             <span>· {money(sizer.won, "kr")}
               {s.m === "us" && sizer.fx && <> (≈ ${num(sizer.won / sizer.fx, 0)})</>}</span>
-            <span>· 손절 −{sizer.stop}% 에서 {money(sizer.cap * sizer.risk / 100, "kr")} 손실</span>
+            <span>· −{sizer.stop}% 손절 시 −{money(sizer.cap * sizer.risk / 100, "kr")}</span>
             <button onClick={() => setTab("track")} style={{ marginLeft: "auto", background: "none",
               border: `1px solid ${C.border}`, color: C.dim, borderRadius: 5, padding: "2px 8px",
               fontSize: 9.5, cursor: "pointer" }}>설정 바꾸기</button>
@@ -1370,7 +1352,7 @@ function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab
       {busy ? <div style={{ ...css.card, marginTop: 9 }}><Empty>차트 불러오는 중… ({sel})</Empty></div>
         : berr ? <div style={{ ...css.card, marginTop: 9 }}><Empty>
             차트 파일을 찾지 못했습니다 ({berr}).<br />
-            <span style={{ fontSize: 10.5 }}>Actions 탭에서 <b style={{ color: C.dim }}>Snapshot Build (v4)</b> 를 한 번 실행하면 <code style={{ color: C.gold }}>public/data/bars/</code> 가 생깁니다.</span>
+            <span style={{ fontSize: 10.5 }}>Actions → Daily Data Update 실행</span>
           </Empty></div>
         : !data ? <div style={{ ...css.card, marginTop: 9 }}><Empty>이 종목의 차트 데이터가 없습니다.</Empty></div>
         : (<>
@@ -1387,8 +1369,7 @@ function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab
               {opt.idx && view?.idxPts > 1 && <LegendDot c={C.cyan}>{idxLabel}</LegendDot>}
               {opt.idx && !(view?.idxPts > 1) && (
                 <span style={{ fontSize: 9, color: C.gold }}>
-                  {idxMap ? `${idxLabel} 날짜가 안 맞아 겹치지 못했습니다`
-                          : `${idxLabel} 겹치기는 데이터를 한 번 갱신하면 나타납니다`}
+                  {idxMap ? `${idxLabel} 날짜 불일치` : `${idxLabel} 데이터 없음`}
                 </span>)}
               {opt.idx && view?.idxRel != null && (
                 <span style={{ fontSize: 9, fontWeight: 700, color: view.idxRel >= 0 ? C.emerald : C.red }}>
@@ -1478,14 +1459,10 @@ function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab
               </ResponsiveContainer>
             </div>
           </div>
-          <div style={{ fontSize: 9.5, color: C.muted, margin: "6px 2px 0" }}>
-            최근 {data.length}거래일 · 세 패널은 같은 날짜에 붙어 있어 한 곳에 커서를 두면 나머지도 같이 움직입니다.
-            차트에 그린 값은 전부 파이프라인이 계산해 둔 것이라 아래 '근거' 숫자와 항상 같습니다.
-          </div>
         </>)}
 
       {/* 근거 — 세 묶음 고정, 각 숫자 한 번만 */}
-      <h2 style={css.h2}>📈 근거 <span style={css.lbl}>— 추세 · 동력 · 상대 (모든 종목 같은 순서)</span></h2>
+      <h2 style={css.h2}>📈 근거</h2>
       <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>
         {[["추세 (구조)", trend, `가격구조 ${s.tmpl ? "✓" : "✕"} · ST ${s.st ?? "—"}/3 · 200일선 ${pct(s.ma200p, 1)}`],
           ["동력 (모멘텀)", power, `RSI ${s.rsi?.toFixed(1) ?? "—"} · MACD ${macdTxt} · 거래량 ${s.vr5?.toFixed(2) ?? "—"}x`],
@@ -1498,14 +1475,12 @@ function ChartTab({ stocks, sel, watch, toggleWatch, market, pos, setPos, setTab
           </div>))}
       </div>
       <div style={{ ...css.card, marginTop: 9 }}>
-        <div style={{ fontSize: 10.5, color: C.dim }}>구간 <Range4Inline s={s} /> <span style={{ color: C.muted }}>(1일 · 3일누적 · 5일누적 · 1달누적)</span></div>
+        <div style={{ fontSize: 10.5, color: C.dim }}>1일·3일·5일·1달 <Range4Inline s={s} /></div>
         <div style={{ fontSize: 10, color: C.muted, marginTop: 6 }}>
-          거래대금 {money(s.tv, s.m)} <span title="같은 시장 안에서의 순위. 100 에 가까울수록 많이 거래됩니다">(백분위 {s.tvr?.toFixed(0) ?? "—"} / 100)</span>
+          거래대금 {money(s.tv, s.m)} (상위 {s.tvr != null ? Math.max(1, Math.round(100 - s.tvr)) : "—"}%)
           {s.hlt != null && <> · {s.hltY ?? 3}년 건강도 {(s.hlt * 100).toFixed(0)}%</>}
-          {" · 지표 계산 "}{s.bars}봉
         </div>
       </div>
-      <Note>모든 지표는 파이프라인이 계산한 값을 그대로 표시합니다. 이 화면에서 다시 계산하지 않으므로 알림·다른 탭과 항상 같은 값입니다.</Note>
     </>
   );
 }
@@ -1592,7 +1567,7 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
   };
   return (
     <>
-      <h2 style={css.h2}>🧮 포지션 크기 <span style={css.lbl}>— 손절을 넓혔으면 금액은 줄여야 합니다</span></h2>
+      <h2 style={css.h2}>🧮 포지션 크기</h2>
       <div style={{ ...css.card, marginBottom: 8 }}>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           <span style={{ fontSize: 11, color: C.dim }}>총 자본</span>
@@ -1625,15 +1600,14 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
               {perPos > 0 ? Math.floor(cap / perPos) : 0}종목</div>
           </div>
         </div>
-        <div style={{ fontSize: 10, color: C.muted, marginTop: 8, lineHeight: 1.7 }}>
-          손절을 −5%에서 −10%로 넓히면 <b style={{ color: C.dim }}>종목당 금액은 절반</b>이 됩니다 — 그래야 한 번에 잃는 돈이 같습니다.<br />
-          검증: 손절이 타이트할수록 성과가 일관되게 <b style={{ color: C.dim }}>나빠졌습니다</b>
-          (미국 손절없음 +2.19% → −12% +1.19% → −8% +1.05% → −5% +0.89%). 정상적인 눌림에 걸려 이길 종목을 미리 털리기 때문입니다.
-          <br />다만 <b style={{ color: C.dim }}>손절 없이 버티는 건 실전에서 불가능</b>합니다 — 한 종목 −60%를 견뎌야 성립하는 숫자입니다.
-        </div>
+        <Info label="계산 방식">
+          종목당 금액 = 자본 × 1회 위험 ÷ 손절 폭. 손절을 넓히면 금액이 줄어 한 번에 잃는 돈은 같습니다.<br />
+          검증: 손절이 타이트할수록 성과가 나빠졌습니다
+          (미국 손절없음 +2.19% → −12% +1.19% → −8% +1.05% → −5% +0.89%). 다만 손절 없이 버티는 건 실전에서 불가능합니다.
+        </Info>
       </div>
 
-      <h2 style={css.h2}>💼 보유 <span style={css.lbl}>— 역할별로 청산 규칙이 다릅니다</span></h2>
+      <h2 style={css.h2}>💼 보유</h2>
       <div style={{ ...css.card, marginBottom: 8 }}>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
           {[["all", "전체"], ["etf", "🧺 ETF"], ["swing", "🔍 단기"], ["long", "🌊 장기"]].map(([k, l]) =>
@@ -1685,19 +1659,17 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
                   <div style={{ height: "100%", width: `${Math.max(0, Math.min(100, (s.c - stop) / (p.avg - stop) * 100))}%`,
                                 background: `linear-gradient(90deg,${C.red},${C.emerald})`, borderRadius: 4 }} />
                 </div>
-                <div style={{ fontSize: 9, color: C.muted, marginTop: 3 }}>왼쪽 끝 = 손절선, 오른쪽 끝 = 평단</div></>)}
-              {p.role === "swing" && <div style={{ fontSize: 10, color: C.muted, marginTop: 7 }}>
-                단기 — 검증상 <b style={{ color: C.dim }}>최소 3~6개월</b>은 들고 가야 합니다 (21일 보유는 성과가 없었습니다)</div>}
-              {p.role === "long" && <div style={{ fontSize: 10, color: C.muted, marginTop: 7 }}>장기 관찰 — 손절 없이 12~24개월 보유 기준</div>}
-              {p.role === "etf" && <div style={{ fontSize: 10, color: C.muted, marginTop: 7 }}>
-                ETF 배분 — 손절이 아니라 <b style={{ color: C.dim }}>월 1회 리밸런스</b>로 교체합니다. 배분탭 상위 3개에서 빠지면 매도.</div>}
+</>)}
+              <div style={{ fontSize: 10, color: C.muted, marginTop: 7 }}>
+                {p.role === "swing" ? "최소 3~6개월 보유" : p.role === "long" ? "손절 없이 12~24개월" : "분기 리밸런스 때 보유 목록에서 빠지면 매도"}
+              </div>
             </div>);
         })}
 
-      <h2 style={css.h2}>👁 관심 종목 <span style={css.lbl}>— 어느 탭에서든 ★ 를 누르면 여기에 모입니다</span></h2>
+      <h2 style={css.h2}>👁 관심 종목</h2>
       <div style={css.card}>
         {watch.length > 0 && <Range4Head top={hdrH} />}
-        {watch.length === 0 ? <Empty>★ 를 눌러 관심 종목을 등록해 보세요.</Empty> :
+        {watch.length === 0 ? <Empty>종목 옆 ☆ 를 누르면 여기에 모입니다</Empty> :
           watch.map(t => { const s = look(t); if (!s) return null;
             return <StockRow key={t} s={s} isWatch onToggle={toggleWatch} onOpen={openStock}
               chips={<>
@@ -1746,4 +1718,16 @@ const Toggle = ({ on, onClick, children }) => (
     background: on ? "rgba(245,158,11,.14)" : "rgba(255,255,255,.04)",
     color: on ? C.gold : C.muted, border: `1px solid ${on ? C.gold + "55" : C.border}`,
   }}>{children}</button>);
+/** 긴 설명은 기본으로 접어 둡니다 — 필요할 때만 펼쳐 봅니다 */
+const Info = ({ label = "근거", children }) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginTop: 8 }}>
+      <button onClick={() => setOpen(v => !v)} aria-expanded={open}
+        style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 10, color: C.muted }}>
+        {open ? "▾" : "▸"} {label}
+      </button>
+      {open && <div style={{ fontSize: 10, color: C.muted, marginTop: 5, lineHeight: 1.7 }}>{children}</div>}
+    </div>);
+};
 const Note = ({ children }) => <div style={{ fontSize: 10, color: C.muted, marginTop: 9, padding: "0 2px" }}>▸ {children}</div>;
