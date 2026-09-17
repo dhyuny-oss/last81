@@ -23,7 +23,7 @@ Alpha Terminal v4 — 지표 스냅샷 파이프라인
 import json, os, sys, time, math, urllib.request
 from datetime import datetime, timezone, timedelta
 
-VERSION   = "5.2.0"
+VERSION   = "6.2.0"
 UA        = {"User-Agent": "Mozilla/5.0"}
 OUT_DIR   = "public/data"
 KST       = timezone(timedelta(hours=9))
@@ -376,6 +376,24 @@ def build_stock(ticker, cd, meta, name, market, sector):
     }
     # ★ ST 0→3 전환 = 진입 트리거 (기존 App.jsx 는 이 계산이 불가능했음)
     d["stFlip"] = bool(d["st"] == 3 and d["stPrev"] is not None and d["stPrev"] < 3)
+
+    # ★ 추세 매매 신호 재료 (2026-09 검증)
+    #   매도 기준 = 느린 슈퍼트렌드(12,3) 빨강. "셋 중 하나라도 빨강"으로 팔면 평균 7일 보유에
+    #   비용 빼면 남는 게 없었고, 느린 선 기준은 약 30일 보유·손익비 1.4~1.7 이었습니다.
+    #   RSI↑·MACD↑ 는 넣어도 빼도 결과가 같아 '참고'로만 저장합니다.
+    _, sl_dir = supertrend_series(cd, *ST_SET[2])
+    slow = sl_dir[-1] if sl_dir else None
+    days = 0
+    if slow is not None:
+        for v in reversed(sl_dir):
+            if v == slow: days += 1
+            else: break
+    rs_ser = rsi_series(c)
+    d["stSlow"]   = None if slow is None else (1 if slow == 1 else 0)
+    d["slowDays"] = days                       # 느린 선이 지금 색으로 바뀐 뒤 경과 봉수
+    d["rsiUp"]    = bool(len(rs_ser) > 4 and rs_ser[-1] is not None and rs_ser[-4] is not None
+                         and rs_ser[-1] > rs_ser[-4])
+    d["macdUp"]   = bool(hist is not None and prevh is not None and hist > prevh)
     return d
 
 def _r(x, nd=2):
@@ -454,6 +472,8 @@ def build_breadth(hist):
     return out
 
 
+SEC_CD = {}   # build_market 이 받은 섹터·KODEX200 캔들 (DC 계산에 재사용)
+
 def build_market():
     idx = {}
     idxbars = {}          # ★ 차트에 겹쳐 그릴 지수 종가 (시장별 1벌)
@@ -500,7 +520,8 @@ def build_market():
     #                샤프 0.50→0.73 · 최대낙폭 -52.2%→-36.8%
     secs=[]
     for tk,label in SECTOR_ETFS.items():
-        cd,_ = fetch_candles(tk); time.sleep(0.25)
+        cd,_m = fetch_candles(tk); time.sleep(0.25)
+        SEC_CD[tk] = (cd, _m)
         if len(cd) < 260:                      # 12개월 룩백을 쓰려면 252봉 필요
             print(f"  ⚠️ {tk} 캔들 부족 {len(cd)}"); continue
         c=[x["c"] for x in cd]; ma200=sma(c,200)
@@ -542,6 +563,7 @@ def build_market():
     if fx_cd: fx = _r(fx_cd[-1]["c"], 2)
     print(f"  USD/KRW  {fx}")
 
+    SEC_CD["069500"] = (cd, {}) if len(cd) >= 260 else SEC_CD.get("069500")
     alloc = build_alloc_state(holds, defense, secs, kretf)
     return {"indices":idx, "risk":risk, "judge":judge, "fx":{"usdkrw":fx}, "idxbars":idxbars,
             "sectors":secs, "allocation":alloc}
@@ -601,6 +623,120 @@ def build_alloc_state(holds, defense, secs, kretf=None):
                        "KODEX 200(+10.22%)보다 낮았고, 검증 구간에서 32개 설정 중 9개만 (+)였으며 "
                        "최대낙폭은 -62%로 지수(-36%)의 1.7배였습니다."}
     }
+
+# ══════════════════════════════════════════════════════════════
+# DC(퇴직연금) — 국내 상장 ETF 로 사고, 판단은 미국 원본 ETF 신호로
+# ══════════════════════════════════════════════════════════════
+# 퇴직연금 계좌는 국내 상장 ETF 만 살 수 있고(위험자산 70% 한도, 레버리지·인버스 불가),
+# 합성(스왑) ETF 는 증권사에 따라 막힐 수 있습니다 → synth=True 로 표시합니다.
+# 코드는 야후에서 상품명을 직접 조회해 확인했습니다(2026-09-17).
+# 판단은 미국 원본으로 합니다 — 국내 상품은 2020~2023년 상장이라 이력이 짧고,
+#   원화 환산 신호(샤프 0.64)보다 원본 신호(0.69)가 검증에서 조금 나았습니다.
+DC_US = [   # (미국 원본, 국내 코드, 국내 상품, 라벨, 합성)
+    ("SPY",  "360750", "TIGER 미국S&P500",            "S&P500",     False),
+    ("QQQ",  "133690", "TIGER 미국나스닥100",          "나스닥100",   False),
+    ("XLK",  "463680", "KODEX 미국S&P500 테크놀로지",   "기술",       False),
+    ("SMH",  "381180", "TIGER 미국필라델피아반도체나스닥", "반도체",     False),
+    ("XLF",  "453650", "KODEX 미국S&P500 금융",         "금융",       False),
+    ("XLV",  "453640", "KODEX 미국S&P500 헬스케어",      "헬스케어",    False),
+    ("XLY",  "453660", "KODEX 미국S&P500 경기소비재",    "소비재",      False),
+    ("XLP",  "453630", "KODEX 미국S&P500 필수소비재",    "필수소비",    False),
+    ("XLU",  "463640", "KODEX 미국S&P500 유틸리티",      "유틸리티",    False),
+    ("XLC",  "463690", "KODEX 미국S&P500 커뮤니케이션",   "커뮤니케이션", False),
+    ("XLE",  "218420", "KODEX 미국S&P500에너지(합성)",   "에너지",      True),
+    ("XLI",  "200030", "KODEX 미국S&P500산업재(합성)",   "산업재",      True),
+    ("XLB",  None,     None,                          "소재",       False),
+    ("XLRE", None,     None,                          "부동산",      False),
+]
+DC_KR = ("069500", "KODEX 200")
+KR_SECT = [
+    ("091160", "KODEX 반도체"), ("139260", "TIGER 200 IT"), ("305720", "KODEX 2차전지산업"),
+    ("091170", "KODEX 은행"), ("102970", "KODEX 증권"), ("140700", "KODEX 보험"),
+    ("091180", "KODEX 자동차"), ("139230", "TIGER 200 중공업"), ("117700", "KODEX 건설"),
+    ("117460", "KODEX 에너지화학"), ("117680", "KODEX 철강"), ("143860", "TIGER 헬스케어"),
+    ("244580", "KODEX 바이오"), ("157490", "TIGER 소프트웨어"), ("140710", "KODEX 운송"),
+    ("266410", "KODEX 필수소비재"), ("266390", "KODEX 경기소비재"),
+]
+DC_WEIGHTS = {"us": 0.35, "kr": 0.35, "safe": 0.30}
+
+def _mom(cd):
+    m = {k: chg(cd, n) for k, n in (("m3",63),("m6",126),("m9",189),("m12",252))}
+    vals = [v for v in m.values() if v is not None]
+    return m, (sum(vals)/len(vals) if len(vals) == 4 else None)
+
+def _vehicle(code, name, synth):
+    """국내 상품 — 가격만 (매수 수량 계산용)"""
+    if not code: return None
+    cd, meta = fetch_candles(code + ".KS", tries=2, min_bars=20); time.sleep(0.2)
+    if len(cd) < 2: return {"code": code, "name": name, "synth": synth, "c": None}
+    return {"code": code, "name": name, "synth": synth, "c": _r(cd[-1]["c"], 0),
+            "d1": _r(chg(cd, 1)), "d21": _r(chg(cd, 21)),
+            "asOf": datetime.fromtimestamp(cd[-1]["t"], timezone.utc).strftime("%Y-%m-%d")}
+
+def _state(d):
+    """DC 규칙 상태 — 느린 ST 초록이면 보유, 빨강이면 그 몫은 안전자산"""
+    if d is None or d.get("stSlow") is None: return "unknown"
+    return "hold" if d["stSlow"] == 1 else "wait"
+
+def build_dc(secs, series):
+    """반환: (etfs, dc) — etfs 는 차트·추적에서 종목처럼 쓰는 지표 묶음"""
+    etfs, rank = {}, {s["tk"]: s for s in secs}
+    us_rows = []
+    for us, code, name, label, synth in DC_US:
+        if us in SEC_CD and SEC_CD[us]:
+            cd, meta = SEC_CD[us]
+        else:
+            cd, meta = fetch_candles(us); time.sleep(0.25)
+        if len(cd) < 260:
+            print(f"  ⚠️ DC {us} 캔들 부족 {len(cd)}"); continue
+        d = build_stock(us, cd, meta, f"{label} ({us})", "us", label)
+        m, sc = _mom(cd)
+        d.update({k: _r(v) for k, v in m.items()}); d["score"] = _r(sc)
+        d["etf"] = True
+        d["veh"] = _vehicle(code, name, synth)
+        etfs[us] = d
+        series[us] = build_series(cd, min(BARS_KEEP, len(cd)), 2)
+        us_rows.append(us)
+        v = d["veh"]
+        print(f"  {label:8s} {us:5s} → {code or '국내 없음':7s} 점수 {_f(sc)}  "
+              f"느린ST {'초록' if d['stSlow']==1 else '빨강'}  ST {d['st']}/3"
+              + (f"  국내가 {v['c']:,}" if v and v.get('c') else ""))
+    # 한국 코어 + 업종
+    kr_rows = []
+    for code, name in [DC_KR] + KR_SECT:
+        if code in SEC_CD and SEC_CD[code]:
+            cd, meta = SEC_CD[code]
+        else:
+            cd, meta = fetch_candles(code + ".KS"); time.sleep(0.2)
+        if len(cd) < 260:
+            print(f"  ⚠️ DC {code} 캔들 부족 {len(cd)}"); continue
+        d = build_stock(code, cd, meta, name, "kr", "업종")
+        m, sc = _mom(cd)
+        d.update({k: _r(v) for k, v in m.items()}); d["score"] = _r(sc)
+        d["etf"] = True
+        etfs[code] = d
+        series[code] = build_series(cd, min(BARS_KEEP, len(cd)), 0 if d["c"] >= 2000 else 2)
+        if code != DC_KR[0]: kr_rows.append(code)
+    us_core = ["SPY", "QQQ"]
+    us_sect = sorted([t for t in us_rows if t not in us_core],
+                     key=lambda t: -(etfs[t]["score"] if etfs[t]["score"] is not None else -9999))
+    kr_sect = sorted(kr_rows, key=lambda t: -(etfs[t]["score"] if etfs[t]["score"] is not None else -9999))
+    spy, k200 = etfs.get("SPY"), etfs.get(DC_KR[0])
+    dc = {
+        "weights": DC_WEIGHTS,
+        "core": [
+            {"key": "us", "sig": "SPY", "buy": (spy or {}).get("veh"), "state": _state(spy),
+             "label": "미국 S&P500", "w": DC_WEIGHTS["us"]},
+            {"key": "kr", "sig": DC_KR[0], "buy": {"code": DC_KR[0], "name": DC_KR[1], "synth": False,
+                                                 "c": (k200 or {}).get("c")},
+             "state": _state(k200), "label": "한국 코스피200", "w": DC_WEIGHTS["kr"]},
+        ],
+        "usCore": us_core, "usSect": us_sect, "krSect": kr_sect,
+        "rule": "미국 S&P500 35% + 코스피200 35% + 안전자산 30%. 각 몫은 느린 슈퍼트렌드(12,3)가 초록일 때만 보유, 빨강이면 안전자산.",
+        "evidence": {"cagr": 7.0, "mdd": -10.3, "sharpe": 1.03, "bh_cagr": 8.5, "bh_mdd": -22.5, "bh_sharpe": 0.80,
+                     "period": "2007–2026 원화 · 비용 0.1% · 안전자산 연 3% 가정"},
+    }
+    return etfs, dc
 
 # ══════════════════════════════════════════════════════════════
 EXTRA_FILE = "scripts/tickers_extra.txt"
@@ -794,6 +930,14 @@ def main():
               f"이상 축소로 보고 쓰지 않고 종료합니다.")
         sys.exit(1)
 
+    # ★ 종목 매매 신호 (2026-09 검증 E규칙)
+    #   buy  = ST 3개 초록 + 구름 위 + RS 70 이상 (주도주만 새로 삽니다)
+    #   exit = 느린 ST(12,3) 빨강 (들고 있으면 팝니다)
+    #   keep = 그 사이 (들고 있으면 유지, 새로 사지는 않음)
+    for d in stocks.values():
+        buy = d.get("st") == 3 and d.get("cloud") == 1 and (d.get("rs") or 0) >= 70
+        d["sig"] = "buy" if buy else ("exit" if d.get("stSlow") == 0 else "keep")
+
     # 변동성 백분위 — 시장 안에서 줄세우기 (미국 진입 신호로 사용)
     for mkt in ("us","kr"):
         grp = [(tk,d["atrp"]) for tk,d in stocks.items() if d["m"]==mkt and d.get("atrp") is not None]
@@ -820,6 +964,10 @@ def main():
         print(f"  판단 {mkt}: {j['verdict']} — {j['why']}"
               f"{'' if j['gate'] else '  (참고용, 게이트 없음)'}")
 
+    print("\n🏦 DC(퇴직연금) ETF 신호")
+    etfs, dc = build_dc(market["sectors"], series)
+    market["dc"] = dc
+
     now = datetime.now(timezone.utc)
     meta = {"version":VERSION, "generatedAt":now.isoformat(),
             "generatedKST":now.astimezone(KST).strftime("%Y-%m-%d %H:%M"),
@@ -828,7 +976,8 @@ def main():
             "counts":{"stocks":len(stocks),"failed":len(fails),
                       "sectors":len(market["sectors"]),"indices":len(market["indices"])}}
 
-    _write(f"{OUT_DIR}/snapshot.json", {"meta":meta,"stocks":stocks})
+    meta["counts"]["etfs"] = len(etfs)
+    _write(f"{OUT_DIR}/snapshot.json", {"meta":meta,"stocks":stocks,"etfs":etfs})
     _write(f"{OUT_DIR}/market.json",   {"meta":meta, **market})
     # 종목별 차트 파일
     bars_dir = f"{OUT_DIR}/bars"
