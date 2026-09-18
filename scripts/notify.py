@@ -114,6 +114,7 @@ def build(snap, mkt, state, now):
     judge  = mkt.get("judge", {})
     meta   = snap.get("meta", {})
     dc     = mkt.get("dc") or {}
+    health = (snap.get("meta") or {}).get("health") or {}
     etfs   = snap.get("etfs", {})
 
     entry = pick_entry(stocks, judge)
@@ -141,6 +142,17 @@ def build(snap, mkt, state, now):
             tail = "" if j.get("gate") else " <i>(참고용)</i>"
             L.append(f"{flag} <b>{name} {VERDICT.get(j['verdict'], j['verdict'])}</b>{tail} "
                      f"<i>— {j.get('why','')}</i>")
+
+    # ── 1.5 데이터 검사 결과 — 제외된 종목을 조용히 넘기지 않습니다 ──
+    if health:
+        dr = health.get("dropped") or {}
+        line = f"🩺 데이터 {health.get('kept','?')}종목 정상"
+        if health.get("exchange"):
+            line += f" (코스피 {health['exchange'].get('KS',0)}·코스닥 {health['exchange'].get('KQ',0)})"
+        if dr: line += " · 제외 " + ", ".join(f"{k} {v}" for k, v in dr.items())
+        if health.get("failed"): line += f" · 수집실패 {health['failed']}"
+        L.append("")
+        L.append(f"<i>{line}</i>")
 
     # ── 2. DC(퇴직연금) — 미국 S&P500 35% + 코스피200 35% + 안전자산 30% ──
     #   각 몫은 느린 슈퍼트렌드(12,3) 초록일 때만 보유. 색이 바뀐 날은 🔔 로 따로 알립니다.
