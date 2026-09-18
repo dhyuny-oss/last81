@@ -17,7 +17,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-export const APP_VERSION = "v6.9.0";
+export const APP_VERSION = "v7.1.0";
 
 /* ══════════════ 디자인 토큰 ══════════════ */
 const C = {
@@ -422,6 +422,15 @@ export default function App() {
   const [q, setQ] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
+  // 내 원칙 — 하루 한 번, 앱을 처음 열 때 먼저 확인합니다
+  const today0 = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+  const [rulesOpen, setRulesOpen] = useState(() => {
+    try { return localStorage.getItem("v7.rules.ack") !== today0; } catch { return true; }
+  });
+  const closeRules = useCallback(() => {
+    try { localStorage.setItem("v7.rules.ack", today0); } catch {}
+    setRulesOpen(false);
+  }, [today0]);
   const [, setNow] = useState(0);
   useEffect(() => { const id = setInterval(() => setNow(n => n + 1), 60000); return () => clearInterval(id); }, []);
   useEffect(() => { try { sessionStorage.setItem("v6.tab", tab); } catch {} window.scrollTo(0, 0); }, [tab]);
@@ -546,6 +555,7 @@ export default function App() {
 
   return (
     <Shell>
+      {rulesOpen && snap && <RulesPopup onClose={closeRules} sizer={sizer} />}
       {/* ═══ 상단 바 — 한 줄 ═══ */}
       <div style={{ position: "sticky", top: 0, zIndex: 50, background: "rgba(10,14,26,.94)", backdropFilter: "blur(8px)",
                     WebkitBackdropFilter: "blur(8px)", borderBottom: `1px solid ${C.border}` }}>
@@ -627,7 +637,7 @@ export default function App() {
       </div>
 
       <main style={{ padding: `4px 12px ${NAV_H + 24}px` }}>
-        {tab === "market" && <MarketTab {...shared} />}
+        {tab === "market" && <MarketTab {...shared} onShowRules={() => setRulesOpen(true)} />}
         {tab === "alloc" && <DcTab {...shared} />}
         {tab === "find" && <FindTab {...shared} />}
         {tab === "over" && <OversoldTab {...shared} />}
@@ -675,6 +685,122 @@ const Shell = ({ children }) => (
   </div>
 );
 
+
+/* ══════════════ 거래 시간표 + 내 원칙 ══════════════
+   거래시간 출처: KRX 정규 09:00~15:30(종가단일가 15:20~), KRX 애프터마켓 16:00~20:00(2026-09-14 신설·ETF 제외),
+   NXT 프리 08:00~08:50 · 메인 09:00:30~15:20 · 애프터 15:40~20:00 (지정가만).
+   미국은 서머타임 여부로 1시간 이동합니다.                                    */
+const hhmm = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+function sessions(nowMs) {
+  const dst = usDST(nowMs);
+  const u = (m) => (m + (dst ? 0 : 60)) % 1440;      // 겨울시간이면 1시간 뒤로
+  return {
+    kr: [
+      ["NXT 프리마켓", 8 * 60, 8 * 60 + 50, "지정가만"],
+      ["KRX 정규장", 9 * 60, 15 * 60 + 30, "15:20~ 종가 단일가"],
+      ["NXT 애프터", 15 * 60 + 40, 20 * 60, "지정가만"],
+      ["KRX 애프터", 16 * 60, 20 * 60, "ETF 제외"],
+    ],
+    us: [
+      ["프리마켓", u(17 * 60), u(22 * 60 + 30), ""],
+      ["정규장", u(22 * 60 + 30), u(5 * 60), "핵심"],
+      ["애프터", u(5 * 60), u(9 * 60), ""],
+    ],
+    dst,
+  };
+}
+const inSpan = (mins, a, b) => (a <= b ? mins >= a && mins < b : mins >= a || mins < b);
+
+function HoursCard({ nowMs }) {
+  const kst = new Date(nowMs + 9 * 3600000);
+  const dow = kst.getUTCDay(), mins = kst.getUTCHours() * 60 + kst.getUTCMinutes();
+  const wd = dow >= 1 && dow <= 5;
+  const S = sessions(nowMs);
+  const Row = ({ list, flag, label }) => (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ fontSize: FS.sm, fontWeight: 700, marginBottom: 4 }}>{flag} {label}</div>
+      {list.map(([n, a, b, note]) => {
+        const on = wd && inSpan(mins, a, b);
+        return (
+          <div key={n} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 6, alignItems: "center",
+                                padding: "5px 7px", borderRadius: 7, marginBottom: 3,
+                                background: on ? "rgba(48,209,88,.12)" : "rgba(255,255,255,.03)" }}>
+            <span style={{ fontSize: FS.xs, color: on ? C.emerald : C.dim, ...ONE }}>
+              {on && "● "}{n}{note ? <span style={{ color: C.muted }}> · {note}</span> : null}
+            </span>
+            <span style={{ fontSize: FS.xs, fontFamily: MONO, color: on ? C.emerald : C.muted }}>{hhmm(a)}~{hhmm(b)}</span>
+          </div>);
+      })}
+    </div>
+  );
+  return (
+    <Card style={{ marginTop: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: FS.md, fontWeight: 800 }}>거래 시간 (KST)</span>
+        <span style={{ marginLeft: "auto", fontSize: FS.xs, color: C.muted }}>지금 {hhmm(mins)}{wd ? "" : " · 휴장일"}</span>
+      </div>
+      <Row list={S.kr} flag="🇰🇷" label="한국" />
+      <Row list={S.us} flag="🇺🇸" label={`미국 (${S.dst ? "서머타임" : "겨울시간"})`} />
+      <div style={{ marginTop: 9, padding: "8px 10px", borderRadius: 8, background: "rgba(6,182,212,.07)", fontSize: FS.xs, color: C.dim, lineHeight: 1.7 }}>
+        <b style={{ color: C.text }}>내 매매 시각</b><br />
+        아침 <b>07:30</b> 확인 → 그날 밤 <b>{hhmm(S.dst ? 22 * 60 + 30 : 23 * 60 + 30)}</b> 미국 개장 주문<br />
+        밤 <b>21:30</b> 확인 → 다음 거래일 <b>09:30 이후</b> 한국 주문 (9시 반 전에 사지 않기)<br />
+        매도 신호는 미루지 말고 당일 처리 · 데이터 갱신 16:17 / 06:23
+      </div>
+    </Card>
+  );
+}
+
+/* 내 원칙 — 하루 한 번 앱을 열 때 먼저 뜹니다 */
+/** 원칙 목록 — 4번은 앱에 구현된 매수·매도 규칙과 추적탭 설정값을 그대로 읽어 씁니다 */
+const myRules = (sz) => [
+  ["국내주식 비중을 키우지 않는다", "검증에서도 한국은 시장 판정이 '위험'일 때가 많고 변동이 큽니다"],
+  ["국내주식은 09:30 전에 사지 않는다", "시가 급변을 피합니다 (예약주문 시가 체결 금지)"],
+  ["분할매수 100 → 400 → 300 → 200만원, 한 종목 최대 2,000만원", "한 번에 넣지 않는다"],
+  [`매수는 ⭐눌림·🟢매수신호일 때만 · 매도는 느린 ST 빨강 · 손절 −${sz?.stop ?? 10}%`,
+   `종목당 ${sz ? money(sz.won, "kr") : "—"} (자본 ${sz ? money(sz.cap, "kr") : "—"} × 1회 위험 ${sz?.risk ?? 1}% ÷ 손절 ${sz?.stop ?? 10}%) · 동시 최대 ${sz && sz.won > 0 ? Math.floor(sz.cap / sz.won) : "—"}종목`],
+  ["이벤트 매매 금지 · 몰빵 금지", "뉴스·테마로 사지 않는다"],
+];
+function RulesPopup({ onClose, sizer }) {
+  const MY_RULES = myRules(sizer);
+  const [ack, setAck] = useState([]);
+  const all = ack.length === MY_RULES.length;
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,.72)",
+                  display: "flex", alignItems: "flex-end", justifyContent: "center" }}
+         onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background: C.panel, borderTop: `2px solid ${C.gold}`, borderRadius: "16px 16px 0 0",
+                    width: "100%", maxWidth: 640, maxHeight: "88vh", overflowY: "auto", padding: "16px 14px 20px" }}>
+        <div style={{ fontSize: 17, fontWeight: 800, color: C.gold }}>오늘의 원칙</div>
+        <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 3 }}>다섯 개를 눌러 확인해야 닫힙니다</div>
+        {MY_RULES.map(([t, why], i) => {
+          const on = ack.includes(i);
+          return (
+            <button key={i} onClick={() => setAck(a => on ? a.filter(x => x !== i) : [...a, i])}
+              style={{ display: "block", width: "100%", textAlign: "left", cursor: "pointer", marginTop: 8,
+                       background: on ? "rgba(48,209,88,.10)" : "rgba(255,255,255,.04)",
+                       border: `1px solid ${on ? C.emerald + "66" : C.border}`, borderRadius: 10, padding: "11px 12px" }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                <span style={{ fontSize: 15, color: on ? C.emerald : C.muted }}>{on ? "✓" : "○"}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{i + 1}. {t}</div>
+                  <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 2 }}>{why}</div>
+                </div>
+              </div>
+            </button>);
+        })}
+        <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 10, lineHeight: 1.7 }}>
+          4번 숫자는 추적탭 설정을 그대로 씁니다 — 손절 폭을 바꾸면 종목당 금액도 같이 바뀝니다.
+          검증: 손절이 좁을수록 성과가 낮았습니다(손절 없음 +2.19% · −12% +1.19% · −5% +0.89%).
+          손절을 −3%로 줄이려면 추적탭에서 바꾸세요. 그만큼 종목당 금액이 커지니 종목 수를 함께 줄이셔야 합니다.
+        </div>
+        <button onClick={onClose} disabled={!all}
+          style={{ ...btn(all ? C.emerald : C.dim), width: "100%", marginTop: 12, opacity: all ? 1 : .5, minHeight: 44 }}>
+          {all ? "확인했습니다 · 시작" : `${ack.length}/5 확인`}</button>
+      </div>
+    </div>);
+}
+
 /* ══════════════ 1. 시장 ══════════════ */
 function BreadthBar({ b, c }) {
   if (!b || b.v == null) return null;
@@ -709,13 +835,17 @@ function BreadthBar({ b, c }) {
     </div>);
 }
 
-function MarketTab({ market, setTab }) {
+function MarketTab({ market, setTab, onShowRules }) {
   const J = { safe: ["🟢 안전", C.emerald], warn: ["🟡 주의", C.gold], risk: ["🔴 위험", C.red] };
   const idxRows = Object.entries(market.indices || {});
   const risk = market.risk || {};
   const sectors = market.sectors || [];
   return (
     <>
+      <HoursCard nowMs={Date.now()} />
+      <div style={{ marginTop: 6 }}>
+        <button onClick={onShowRules} style={{ ...btn(C.gold), width: "100%" }}>📌 오늘의 원칙 다시 보기</button>
+      </div>
       <Sec>오늘 매매해도 되나</Sec>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 8 }}>
         {["kr", "us"].map(m => {
