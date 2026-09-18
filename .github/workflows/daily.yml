@@ -26,9 +26,12 @@ name: Daily Data Update
 
 on:
   schedule:
-    - cron: '0 7 * * 1-5'    # UTC 07:00 = KST 16:00       한국 확정 종가
-    - cron: '30 21 * * 1-5'  # UTC 21:30 = KST 다음날 06:30  미국 확정 종가
-    - cron: '0 0 * * 6'      # UTC 00:00 토 = KST 토 09:00   주간 백업
+    # ★ 정각(0분) 예약은 전 세계 작업이 몰려 대기가 깁니다.
+    #   실측(2026-08~09): 정각 예약 평균 5.7시간 지연 vs 30분 예약 평균 2.0시간.
+    #   → 어긋난 분(17·23·13)으로 옮깁니다. 작업 자체는 45분 안에 끝납니다.
+    - cron: '17 7 * * 1-5'   # UTC 07:17 = KST 16:17        한국 확정 종가
+    - cron: '23 21 * * 1-5'  # UTC 21:23 = KST 다음날 06:23  미국 확정 종가
+    - cron: '13 0 * * 6'     # UTC 00:13 토 = KST 토 09:13   주간 백업
   workflow_dispatch:
 
 # 앞 실행이 아직 안 끝났으면 새로 시작하지 않습니다 (한도 낭비 방지)
@@ -39,7 +42,7 @@ concurrency:
 jobs:
   update-data:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60     # 코스닥 거래소 확인(.KS→.KQ 재조회)으로 2~4분 늘어납니다
     permissions:
       contents: write
     env:
@@ -58,11 +61,11 @@ jobs:
 
       # ① 유니버스·종목명 — 16:00 과 토요일, 그리고 수동 실행에서만
       - name: Install dependencies
-        if: github.event.schedule != '30 21 * * 1-5'
+        if: github.event.schedule != '23 21 * * 1-5'
         run: pip install yfinance requests
 
       - name: Fetch universe (stocks.json)
-        if: github.event.schedule != '30 21 * * 1-5'
+        if: github.event.schedule != '23 21 * * 1-5'
         run: python scripts/fetch_yahoo.py
 
       # ② 앱이 읽는 지표 스냅샷 — 매번. 외부 라이브러리 없이 표준 라이브러리만 씁니다
