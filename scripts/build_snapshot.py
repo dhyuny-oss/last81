@@ -23,7 +23,7 @@ Alpha Terminal v4 — 지표 스냅샷 파이프라인
 import json, os, sys, time, math, urllib.request
 from datetime import datetime, timezone, timedelta
 
-VERSION   = "6.3.0"
+VERSION   = "6.4.0"
 UA        = {"User-Agent": "Mozilla/5.0"}
 OUT_DIR   = "public/data"
 KST       = timezone(timedelta(hours=9))
@@ -420,6 +420,14 @@ def build_stock(ticker, cd, meta, name, market, sector):
     d["rsiUp"]    = bool(len(rs_ser) > 4 and rs_ser[-1] is not None and rs_ser[-4] is not None
                          and rs_ser[-1] > rs_ser[-4])
     d["macdUp"]   = bool(hist is not None and prevh is not None and hist > prevh)
+
+    # ★ 눌림 신호 재료 — 2026-09 검증에서 가장 강했던 진입(한국 연 +21.8%, 같은 종목 보유 대비 +8.2%p)
+    #   조건: 50일선>200일선 · 종가>200일선 · 느린ST 초록 · RSI(14)가 45 아래에서 위로 올라온 날
+    ma50v, ma200v = sma(c, 50), sma(c, 200)
+    r_now = rs_ser[-1] if rs_ser else None
+    r_prev = rs_ser[-2] if len(rs_ser) > 1 else None
+    d["rsi45"] = bool(r_now is not None and r_prev is not None and r_prev < 45 <= r_now)
+    d["upTrend"] = bool(ma50v and ma200v and ma50v > ma200v and c[-1] > ma200v)
     return d
 
 def _r(x, nd=2):
@@ -873,7 +881,7 @@ def main():
         # ④ 하루 ±35% 초과는 분할·오류 의심 → 경고만 남깁니다 (실제 급등락도 있으므로)
         if d.get("d1") is not None and abs(d["d1"]) > JUMP_WARN * 100:
             warns.append({"t": tk, "n": info["name"], "w": f"1일 {d['d1']:+.1f}%"})
-        d["ex"] = info["y"][-3:] if info["market"] == "kr" else "US"
+        d["ex"] = info["y"][-3:] if info["market"] == "kr" else (meta.get("exchangeName") or "US")
         stocks[tk] = d
         # ★ 차트용 시계열 — 종목당 파일 1개.
         #   예전처럼 한 덩어리(candles.json)로 묶으면 차트 탭을 처음 열 때 9MB 를 받습니다.
@@ -1025,7 +1033,10 @@ def main():
     #   exit = 느린 ST(12,3) 빨강 (들고 있으면 팝니다)
     #   keep = 그 사이 (들고 있으면 유지, 새로 사지는 않음)
     for d in stocks.values():
-        buy = d.get("st") == 3 and d.get("cloud") == 1 and (d.get("rs") or 0) >= 70
+        rs_ok = (d.get("rs") or 0) >= 70
+        buy = d.get("st") == 3 and d.get("cloud") == 1 and rs_ok
+        # 눌림 진입 — 추세 안에서 쉬었다 다시 오르기 시작한 날 (검증 ①)
+        d["pull"] = bool(d.get("upTrend") and rs_ok and d.get("stSlow") == 1 and d.get("rsi45"))
         d["sig"] = "buy" if buy else ("exit" if d.get("stSlow") == 0 else "keep")
 
     # 변동성 백분위 — 시장 안에서 줄세우기 (미국 진입 신호로 사용)
