@@ -17,7 +17,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-export const APP_VERSION = "v6.2.0";
+export const APP_VERSION = "v6.3.0";
 
 /* ══════════════ 디자인 토큰 ══════════════ */
 const C = {
@@ -263,7 +263,7 @@ const Sec = ({ children, right }) => (
 
 /** 구간 수익률 — 칸마다 이름을 붙여 머리글이 따로 필요 없습니다 */
 const pctFit = (v) => (v == null ? "—" : pct(v, Math.abs(v) >= 100 ? 0 : 1));
-const Cells = ({ s, keys = [["1일", "d1"], ["3일", "d3"], ["5일", "d5"], ["1달", "d21"]] }) => (
+const Cells = ({ s, keys = [["3일", "d3"], ["5일", "d5"], ["1달", "d21"]] }) => (
   <div style={{ display: "grid", gridTemplateColumns: `repeat(${keys.length}, minmax(0,1fr))`, columnGap: 6 }}>
     {keys.map(([l, k]) => (
       <div key={k} style={{ minWidth: 0, overflow: "hidden" }}>
@@ -701,15 +701,13 @@ function MarketTab({ market, setTab }) {
       <Sec>지수</Sec>
       <Card style={{ padding: "4px 12px" }}>
         {idxRows.map(([k, v], i) => (
-          <div key={k} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto 60px 60px", gap: 8, alignItems: "center",
-                                padding: "9px 0", borderTop: i ? `1px solid ${C.border}` : "none" }}>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 700 }}>{v.label}</div>
-              <div style={{ fontSize: FS.xs, color: col(v.ma200p) }}>200일선 {pct(v.ma200p, 1)}</div>
+          <div key={k} style={{ padding: "10px 0", borderTop: i ? `1px solid ${C.border}` : "none" }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+              <span style={{ fontSize: 14, fontWeight: 700, flex: 1, minWidth: 0, ...ONE }}>{v.label}
+                <span style={{ fontSize: FS.xs, color: col(v.ma200p), fontWeight: 500 }}> 200일선 {pct(v.ma200p, 1)}</span></span>
+              <span style={{ fontSize: 14, fontFamily: MONO, fontWeight: 700 }}>{num(v.c, 0)}</span>
             </div>
-            <div style={{ fontSize: 14, fontFamily: MONO, fontWeight: 600 }}>{num(v.c, 0)}</div>
-            <MiniPct label="1일" v={v.d1} />
-            <MiniPct label="1달" v={v.d21} />
+            <div style={{ marginTop: 6 }}><Cells s={v} /></div>
           </div>))}
       </Card>
 
@@ -731,7 +729,7 @@ function MarketTab({ market, setTab }) {
       <Sec right={<button onClick={() => setTab("alloc")} style={linkBtn}>국내 ETF로 보기 · DC탭 ›</button>}>미국 섹터 순위</Sec>
       <Card style={{ padding: "4px 12px" }}>
         <div style={{ display: "grid", gridTemplateColumns: "22px minmax(0,1fr) 56px 56px", gap: 6, fontSize: 10.5, color: C.muted, padding: "6px 0 2px" }}>
-          <span>#</span><span>섹터</span><span style={{ textAlign: "right" }}>1일</span><span style={{ textAlign: "right" }}>점수</span>
+          <span>#</span><span>섹터</span><span style={{ textAlign: "right" }}>1달</span><span style={{ textAlign: "right" }}>점수</span>
         </div>
         {sectors.map(s => {
           return (
@@ -741,7 +739,7 @@ function MarketTab({ market, setTab }) {
               <span style={{ minWidth: 0, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 <b>{s.label}</b> <span style={{ fontSize: FS.xs, color: C.muted }}>{s.tk}</span>
               </span>
-              <span style={{ textAlign: "right", fontFamily: MONO, fontSize: FS.sm, color: col(s.d1) }}>{pct(s.d1, 1)}</span>
+              <span style={{ textAlign: "right", fontFamily: MONO, fontSize: FS.sm, color: col(s.d21) }}>{pct(s.d21, 0)}</span>
               <span style={{ textAlign: "right", fontFamily: MONO, fontSize: FS.sm, fontWeight: 700, color: col(s.score) }}>{pct(s.score, 0)}</span>
             </div>);
         })}
@@ -1237,6 +1235,8 @@ function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, setPos, 
     return { rows, idxPts, idxRel, ...niceAxis(Math.max(0, lo - pad), hi + pad) };
   }, [bars, span, idxMap]);
   const data = view?.rows || null;
+  const [hov, setHov] = useState(null);       // 손가락으로 짚은 봉 (없으면 마지막 봉)
+  useEffect(() => { setHov(null); }, [sel, span]);
   // 축 폭 — 7자리 원화 눈금이 잘리지 않게. ★ 훅이라 아래 조기 return 보다 먼저 있어야 합니다.
   const axisW = useMemo(() => {
     const t = view?.ticks?.length ? view.ticks : [100];
@@ -1263,10 +1263,25 @@ function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, setPos, 
   const macdTxt = (s.macdH != null && s.c)
     ? `${s.macdH >= 0 ? "+" : ""}${(s.macdH / s.c * 100).toFixed(2)}%` : "—";
   const axis = { fontSize: 10, fill: C.muted };
-  const tip = {
-    contentStyle: { background: "#0f172a", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12 },
-    labelStyle: { color: C.dim }, itemStyle: { padding: 0 },
+  // ★ 툴팁 상자는 휴대폰에서 차트를 통째로 가립니다 → 십자선만 남기고 값은 차트 밖에 적습니다
+  const tip = { cursor: { stroke: "rgba(255,255,255,.45)", strokeWidth: 1 }, content: () => null, isAnimationActive: false };
+  const pick = (st) => { const i = st?.activeTooltipIndex; if (i != null) setHov(i); };
+  // ★ onMouseLeave 로 지우면 안 됩니다 — 탭 직후 브라우저가 흉내 내는 마우스 이벤트가 선택을 지워버립니다.
+  //   해제는 판독줄의 '최근으로' 버튼으로 합니다.
+  const touch = { onMouseMove: pick };
+  // ★ 손가락 터치는 recharts 가 위치를 넘겨주지 않습니다 → 좌표로 직접 몇 번째 봉인지 계산합니다
+  const onTouch = (e) => {
+    const t = e.touches?.[0] || e.changedTouches?.[0];
+    if (!t || !data?.length) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    const L = axisW + 4, Rt = 8, w = r.width - L - Rt;
+    if (w <= 0) return;
+    const i = Math.round(((t.clientX - r.left - L) / w) * (data.length - 1));
+    setHov(Math.max(0, Math.min(data.length - 1, i)));
   };
+  const touchBox = (h) => ({ onTouchStart: onTouch, onTouchMove: onTouch, style: { height: h, touchAction: "pan-y" } });
+  const Cross = () => hov != null && data?.[hov]
+    ? <ReferenceLine x={data[hov].d} stroke="rgba(255,255,255,.55)" strokeWidth={1} /> : null;
   const cloudTone = data?.length ? (data[data.length - 1].cloudUp ? C.emerald : C.red) : C.emerald;
   const stNow = data?.length ? data[data.length - 1].stUpCount : null;
   const sh = sizer?.shares(regPx, regM);
@@ -1365,6 +1380,7 @@ function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, setPos, 
         : !data ? <Card><Empty>차트 데이터가 없습니다</Empty></Card>
         : (<>
           <Card style={{ padding: "10px 4px 4px" }}>
+            <Readout row={data[Math.min(hov ?? data.length - 1, data.length - 1)]} live={hov == null} m={s.m} idxLabel={idxLabel} onClear={() => setHov(null)} />
             <PanelLabel>
               {opt.st && stNow != null && <span style={{ color: stNow === 3 ? C.emerald : stNow === 0 ? C.red : C.gold, fontWeight: 700 }}>ST {stNow}/3</span>}
               {opt.ma && <LegendDot c={C.orange}>20일</LegendDot>}
@@ -1374,17 +1390,16 @@ function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, setPos, 
                 <span style={{ fontWeight: 700, color: view.idxRel >= 0 ? C.emerald : C.red }}>
                   지수 대비 {view.idxRel >= 0 ? "+" : ""}{view.idxRel.toFixed(1)}%</span>)}
             </PanelLabel>
-            <div style={{ height: 250 }}>
+            <div {...touchBox(250)}>
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={data} syncId="v4chart" margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                <ComposedChart data={data} syncId="v4chart" {...touch} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                   <CartesianGrid stroke="rgba(255,255,255,.045)" vertical={false} />
                   <XAxis dataKey="d" tick={axis} tickLine={false} interval="preserveStartEnd" minTickGap={40} />
                   <YAxis yAxisId="p" domain={view.dom} ticks={view.ticks} allowDataOverflow tick={axis}
                     width={axisW} tickFormatter={shortNum} />
                   <YAxis yAxisId="v" orientation="right" domain={[0, (m) => m * 4]} hide />
-                  <Tooltip {...tip} filterNull
-                    formatter={(val, name) => name === "거래량" ? [num(val, 0), name] : [pf(val), name]}
-                    itemSorter={(it) => (it.name === "종가" ? -1 : 0)} />
+                  <Tooltip {...tip} />
+                  {hov != null && data[hov] && <ReferenceLine yAxisId="p" x={data[hov].d} stroke="rgba(255,255,255,.55)" strokeWidth={1} />}
                   {hi52 && <ReferenceLine yAxisId="p" y={hi52} stroke={C.gold} strokeDasharray="2 5" strokeWidth={1}
                     label={{ value: "52주 고점", position: "insideTopLeft", fill: C.gold, fontSize: 10 }} />}
                   <Bar yAxisId="v" dataKey="v" name="거래량" fill="rgba(148,163,184,.22)" isAnimationActive={false} />
@@ -1412,12 +1427,13 @@ function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, setPos, 
 
           <Card style={{ marginTop: 6, padding: "8px 4px 2px" }}>
             <PanelLabel>MACD <LegendDot c={C.cyan}>선</LegendDot><LegendDot c={C.gold}>시그널</LegendDot></PanelLabel>
-            <div style={{ height: 88 }}>
+            <div {...touchBox(88)}>
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={data} syncId="v4chart" margin={{ top: 2, right: 4, left: 0, bottom: 0 }}>
+                <ComposedChart data={data} syncId="v4chart" {...touch} margin={{ top: 2, right: 4, left: 0, bottom: 0 }}>
                   <XAxis dataKey="d" tick={false} tickLine={false} height={1} />
+                  <Cross />
                   <YAxis tick={axis} width={axisW} tickFormatter={shortNum} />
-                  <Tooltip {...tip} formatter={val => [num(val, 3), ""]} />
+                  <Tooltip {...tip} />
                   <ReferenceLine y={0} stroke="rgba(255,255,255,.18)" />
                   <Bar dataKey="hist" name="히스토그램" isAnimationActive={false}
                     shape={(pr) => <rect x={pr.x} y={pr.y} width={Math.max(1, pr.width)} height={Math.abs(pr.height)}
@@ -1431,12 +1447,13 @@ function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, setPos, 
 
           <Card style={{ marginTop: 6, padding: "8px 4px 2px" }}>
             <PanelLabel>RSI <span style={{ color: C.muted, fontWeight: 400 }}>70 과열 · 30 과매도</span></PanelLabel>
-            <div style={{ height: 88 }}>
+            <div {...touchBox(88)}>
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={data} syncId="v4chart" margin={{ top: 2, right: 4, left: 0, bottom: 0 }}>
+                <ComposedChart data={data} syncId="v4chart" {...touch} margin={{ top: 2, right: 4, left: 0, bottom: 0 }}>
                   <XAxis dataKey="d" tick={axis} tickLine={false} interval="preserveStartEnd" minTickGap={40} />
+                  <Cross />
                   <YAxis domain={[0, 100]} ticks={[30, 70]} tick={axis} width={axisW} />
-                  <Tooltip {...tip} formatter={val => [num(val, 1), "RSI"]} />
+                  <Tooltip {...tip} />
                   <ReferenceLine y={70} stroke="rgba(255,69,58,.35)" strokeDasharray="3 3" />
                   <ReferenceLine y={30} stroke="rgba(6,182,212,.35)" strokeDasharray="3 3" />
                   <Area type="monotone" dataKey="rsi" name="RSI" stroke={C.cyan} fill="rgba(6,182,212,.09)" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={false} />
@@ -1671,5 +1688,35 @@ const Info = ({ label = "근거", children, right }) => {
         {right && <span style={{ fontSize: FS.xs, color: C.muted, marginLeft: "auto" }}>{right}</span>}
       </div>
       {open && <div style={{ fontSize: FS.sm, color: C.dim, lineHeight: 1.65, padding: "2px 2px 4px" }}>{children}</div>}
+    </div>);
+};
+
+/** 차트 판독줄 — 손가락으로 짚은 봉의 값을 차트 '밖'에 적습니다.
+    떠다니는 툴팁 상자는 휴대폰 화면을 통째로 가려서 쓰지 않습니다. */
+const Readout = ({ row, live, m, idxLabel, onClear }) => {
+  if (!row) return null;
+  const P = (v) => (v == null ? "—" : price(v, m));
+  const cells = [
+    ["20일선", P(row.ma20)], ["200일선", P(row.ma200)],
+    ["구름", row.cloudUp == null ? "—" : (row.c >= (row.cloudLo ?? 0) + (row.cloudBand ?? 0) ? "위" : row.c >= (row.cloudLo ?? 0) ? "안" : "아래")],
+    ["RSI", row.rsi == null ? "—" : row.rsi.toFixed(0)],
+    ["MACD", row.hist == null ? "—" : (row.hist >= 0 ? "＋" : "−")],
+    [idxLabel, P(row.idx)],
+  ];
+  return (
+    <div style={{ padding: "0 8px 8px" }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: FS.sm, color: live ? C.muted : C.gold, fontWeight: 700 }}>{row.d}{live ? " (최근)" : ""}</span>
+        <span style={{ fontSize: FS.lg, fontWeight: 800, fontFamily: MONO }}>{P(row.c)}</span>
+        <span style={{ fontSize: FS.xs, color: C.muted, marginLeft: "auto" }}>거래량 {row.v != null ? shortNum(row.v) : "—"}</span>
+        {!live && onClear && <button onClick={onClear} style={{ ...linkBtn, fontSize: FS.xs, minHeight: 28 }}>최근으로</button>}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: "4px 8px", marginTop: 6 }}>
+        {cells.map(([k, v]) => (
+          <div key={k} style={{ minWidth: 0, display: "flex", gap: 4, alignItems: "baseline" }}>
+            <span style={{ fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>{k}</span>
+            <span style={{ fontSize: FS.xs, fontFamily: MONO, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{v}</span>
+          </div>))}
+      </div>
     </div>);
 };
