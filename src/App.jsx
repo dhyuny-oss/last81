@@ -17,7 +17,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-export const APP_VERSION = "v6.4.0";
+export const APP_VERSION = "v6.5.0";
 
 /* ══════════════ 디자인 토큰 ══════════════ */
 const C = {
@@ -246,6 +246,14 @@ const Star = ({ on, onClick }) => (
              color: on ? C.gold : "rgba(156,163,175,.7)", lineHeight: 1, flexShrink: 0, padding: 0 }}>{on ? "★" : "☆"}</button>
 );
 
+/** 목록 위에 붙어 스크롤해도 보이는 정렬 안내 */
+const SortBar = ({ text, n }) => (
+  <div style={{ position: "sticky", top: 50, zIndex: 20, background: "rgba(10,14,26,.95)", backdropFilter: "blur(6px)",
+                borderBottom: `1px solid ${C.border}`, padding: "7px 0 6px", display: "flex", gap: 8, alignItems: "center" }}>
+    <span style={{ fontSize: FS.sm, color: C.gold, fontWeight: 700, ...ONE }}>▼ {text}</span>
+    <span style={{ fontSize: FS.xs, color: C.muted, marginLeft: "auto", flexShrink: 0 }}>{n}개</span>
+  </div>
+);
 const Empty = ({ children }) => (
   <div style={{ padding: "28px 12px", textAlign: "center", color: C.muted, fontSize: FS.sm }}>{children}</div>
 );
@@ -287,23 +295,32 @@ const SigChip = ({ s }) => s?.sig === "buy" ? <Chip tone="g">🟢 매수신호</
 
 /* ══════════════ 종목 행 (모든 탭 공통) ══════════════ */
 const ONE = { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
-function StockRow({ s, verdict, chips, sub, onOpen, isWatch, onToggle, cells = true }) {
+function StockRow({ s, rank, rel, chips, sub, onOpen, isWatch, onToggle, cells = true }) {
+  const rs = s.rs;
   return (
     <div onClick={() => onOpen(s.t)} style={{ padding: "11px 0 10px", borderBottom: `1px solid ${C.border}`, cursor: "pointer" }}>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+        {rank != null && <span style={{ fontSize: FS.sm, color: C.muted, fontFamily: MONO, width: 18, flexShrink: 0, textAlign: "right", paddingTop: 2 }}>{rank}</span>}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: C.text, ...ONE }}>{s.n || s.t}</div>
-          <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 1, ...ONE }}>
-            {s.m === "kr" ? "🇰🇷" : "🇺🇸"} {s.t}{verdict && <> · <Verdict v={verdict} /></>}
+          {/* 티커를 앞세웁니다 — 주문할 때 쓰는 값이라 가장 크게 */}
+          <div style={{ ...ONE }}>
+            <b style={{ fontSize: 16, fontFamily: MONO, letterSpacing: 0.2 }}>{s.t}</b>
+            <span style={{ fontSize: FS.xs, color: C.muted }}> {s.m === "kr" ? "🇰🇷" : "🇺🇸"}</span>
           </div>
+          <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 1, ...ONE }}>{s.n || ""}</div>
         </div>
-        <div style={{ textAlign: "right", flexShrink: 0, maxWidth: "46%" }}>
+        <div style={{ textAlign: "right", flexShrink: 0, maxWidth: "42%" }}>
           <div style={{ fontSize: 15, fontWeight: 700, fontFamily: MONO, ...ONE }}>{price(s.c, s.m)}</div>
           {sub && <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 1, ...ONE }}>{sub}</div>}
         </div>
         <Star on={isWatch} onClick={() => onToggle(s.t)} />
       </div>
-      {chips && <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 7 }}>{chips}</div>}
+      {/* RS 와 시장대비는 항상 같은 자리에 (스크롤해도 행마다 보입니다) */}
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center", marginTop: 7 }}>
+        <Chip tone={(rs ?? 0) >= 80 ? "g" : (rs ?? 0) >= 70 ? "c" : "n"}>RS {rs != null ? Math.floor(rs) : "—"}</Chip>
+        {rel != null && <Chip tone={rel >= 0 ? "g" : "r"}>시장대비 {rel >= 0 ? "+" : ""}{rel.toFixed(1)}%p</Chip>}
+        {chips}
+      </div>
       {cells && <div style={{ marginTop: 8 }}><Cells s={s} /></div>}
     </div>
   );
@@ -632,7 +649,8 @@ const KV = ({ k, v }) => (
 );
 
 const Shell = ({ children }) => (
-  <div style={{ background: C.bg, color: C.text, minHeight: "100vh", colorScheme: "dark", overflowX: "hidden",
+  // overflowX:hidden 은 sticky(정렬줄·상단바)를 망가뜨려 쓰지 않습니다 — 가로 넘침은 각 행에서 막습니다
+  <div style={{ background: C.bg, color: C.text, minHeight: "100vh", colorScheme: "dark",
                 fontFamily: '-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard","Segoe UI",sans-serif',
                 lineHeight: 1.45, WebkitTextSizeAdjust: "100%" }}>
     <div style={{ maxWidth: 640, margin: "0 auto" }}>{children}</div>
@@ -984,6 +1002,12 @@ function DcTab({ etfs, market, pos, setPos, openStock }) {
 }
 
 /* ══════════════ 3. 발굴 ══════════════ */
+const SORT_LABEL = { rs: "RS 높은 순", sig: "매수신호 먼저", vol: "변동성 높은 순", days: "오래 머문 순", tv: "거래대금 큰 순" };
+/** 시장 대비 = 그 종목 1달 수익 − 같은 시장 지수 1달 수익 */
+const relOf = (s, market) => {
+  const i = market?.indices?.[s.m === "kr" ? "^KS11" : "^GSPC"];
+  return (s.d21 == null || i?.d21 == null) ? null : s.d21 - i.d21;
+};
 function FindTab({ list, openStock, watch, toggleWatch, market, seen, sizer }) {
   const [onlyGo, setOnlyGo] = useState(true);
   const [mkt, setMkt] = useState("all");
@@ -1028,6 +1052,7 @@ function FindTab({ list, openStock, watch, toggleWatch, market, seen, sizer }) {
         </div>
       </div>
         <Info label="기준 · 근거" right={`${rows.length}개${needBrk ? " · 돌파만" : ""}`}>
+          <b>RS</b> = 같은 시장 안 6개월 상대강도 백분위(100이 최고) · <b>시장대비</b> = 1달 수익 − 같은 시장 지수 1달 수익 · 번호 = 위 정렬 기준 순위<br />
           <b>🟢 매수신호</b> = 슈퍼트렌드 3개 초록 + 구름 위 + RS 70↑. <b>🔴 추세이탈</b> = 느린 슈퍼트렌드(12,3) 빨강 → 들고 있으면 매도.
           검증(2008–26): 이 매수·매도 규칙은 평균 약 30일 보유, 거래당 +2.7%(미국)·+3.6%(한국), 승률 약 40% — 작은 손실이 잦고 큰 수익이 가끔 옵니다.
           RSI↑·MACD↑는 넣어도 결과가 같아 참고로만 봅니다.<br />
@@ -1041,16 +1066,16 @@ function FindTab({ list, openStock, watch, toggleWatch, market, seen, sizer }) {
         <div style={{ fontSize: FS.sm, color: C.gold, background: "rgba(245,158,11,.08)", borderRadius: 8, padding: "7px 10px", margin: "4px 0 6px" }}>
           🇰🇷 시장 위험 — 한국 후보는 관망으로 표시됩니다</div>)}
 
-      <div style={{ borderTop: `1px solid ${C.border}`, marginTop: 4 }}>
-        {rows.length === 0 ? <Empty>조건에 맞는 종목이 없습니다</Empty> : rows.map(({ s, v }) => {
+      <SortBar text={SORT_LABEL[sortBy]} n={rows.length} />
+      <div>
+        {rows.length === 0 ? <Empty>조건에 맞는 종목이 없습니다</Empty> : rows.map(({ s, v }, i) => {
           const d = seen.days(s.t);
           const sh = sizer?.shares(s.c, s.m);
           return (
-            <StockRow key={s.t} s={s} verdict={v} isWatch={watch.includes(s.t)} onToggle={toggleWatch} onOpen={openStock}
+            <StockRow key={s.t} s={s} rank={i + 1} rel={relOf(s, market)} isWatch={watch.includes(s.t)} onToggle={toggleWatch} onOpen={openStock}
               sub={sh > 0 ? `${sh}주 가능` : money(s.tv, s.m)}
               chips={<>
                 <SigChip s={s} />
-                <Chip tone={(s.rs ?? 0) >= 70 ? "g" : "n"}>RS {s.rs != null ? Math.floor(s.rs) : "—"}</Chip>
                 {s.atrr != null && <Chip tone={s.m === "us" && s.atrr >= 80 ? "g" : "n"}>변동성 {Math.floor(s.atrr)}</Chip>}
                 <Chip tone="n">거래 {money(s.tv, s.m)}</Chip>
                 {!s.tmpl && <Chip tone="n">구조 ✕</Chip>}
@@ -1066,7 +1091,7 @@ function FindTab({ list, openStock, watch, toggleWatch, market, seen, sizer }) {
 }
 
 /* ══════════════ 4. 과매도 ══════════════ */
-function OversoldTab({ list, openStock, watch, toggleWatch, sizer }) {
+function OversoldTab({ list, openStock, watch, toggleWatch, sizer, market }) {
   const [deep, setDeep] = useState(true);
   const [showKr, setShowKr] = useState(false);
   const all = useMemo(() =>
@@ -1088,18 +1113,20 @@ function OversoldTab({ list, openStock, watch, toggleWatch, sizer }) {
         <Toggle full on={showKr} onClick={() => setShowKr(v => !v)}>🇰🇷 포함 {nKr}</Toggle>
       </div>
       <Info label="기준 · 근거" right={`${rows.length}개`}>
-        3년 중 60%↑ 기간 200일선 위였던 종목이 고점 대비 크게 빠진 것을 낙폭 큰 순으로 보여줍니다.<br />
+        3년 중 60%↑ 기간 200일선 위였던 종목이 고점 대비 크게 빠진 것을 낙폭 큰 순으로 보여줍니다.
+        번호는 낙폭 순위, <b>RS</b>는 6개월 상대강도(100이 최고), <b>시장대비</b>는 1달 수익에서 지수 1달 수익을 뺀 값입니다.<br />
         <b style={{ color: C.emerald }}>🇺🇸 검증됨</b> {EVIDENCE.oversold.us.note} (생존편향 미보정 — 실제는 더 낮음)<br />
         <b style={{ color: C.red }}>🇰🇷 제외</b> {EVIDENCE.oversold.kr.note}<br />
         200일선을 −50% 넘게 밑돌면 구조 훼손일 때가 많아 ⚠ 를 붙입니다.
       </Info>
       {showKr && <div style={{ fontSize: FS.sm, color: C.red, background: "rgba(255,69,58,.08)", borderRadius: 8, padding: "7px 10px", margin: "4px 0 6px" }}>
         🇰🇷 한국은 이 전략이 검증에서 손해였습니다 — 참고만 하세요</div>}
-      <div style={{ borderTop: `1px solid ${C.border}`, marginTop: 4 }}>
-        {rows.length === 0 ? <Empty>조건에 맞는 종목이 없습니다</Empty> : rows.map(({ s, v }) => {
+      <SortBar text="낙폭 큰 순" n={rows.length} />
+      <div>
+        {rows.length === 0 ? <Empty>조건에 맞는 종목이 없습니다</Empty> : rows.map(({ s, v }, i) => {
           const sh = sizer?.shares(s.c, s.m);
           return (
-            <StockRow key={s.t} s={s} verdict={v} isWatch={watch.includes(s.t)} onToggle={toggleWatch} onOpen={openStock}
+            <StockRow key={s.t} s={s} rank={i + 1} rel={relOf(s, market)} isWatch={watch.includes(s.t)} onToggle={toggleWatch} onOpen={openStock}
               sub={sh > 0 ? `${sh}주 가능` : null}
               chips={<>
                 <Chip tone="r">고점 {pct(s.w52p, 0)}</Chip>
@@ -1678,10 +1705,10 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
       <Card style={{ padding: "0 10px" }}>
         {watch.length === 0 ? <Empty>종목 옆 ☆ 를 누르면 여기에 모입니다</Empty> :
           watch.map(t => { const s = look(t); if (!s) return null;
-            return <StockRow key={t} s={s} isWatch onToggle={toggleWatch} onOpen={openStock}
+            return <StockRow key={t} s={s} isWatch onToggle={toggleWatch} onOpen={openStock} rel={relOf(s, market)}
               chips={<>
+                <SigChip s={s} />
                 <Chip tone={s.tmpl ? "g" : "n"}>구조 {s.tmpl ? "✓" : "✕"}</Chip>
-                <Chip tone={(s.rs ?? 0) >= 70 ? "g" : "n"}>RS {s.rs != null ? Math.floor(s.rs) : "—"}</Chip>
                 <Chip tone={(s.w52p ?? 0) <= -40 ? "c" : "n"}>고점 {pct(s.w52p, 0)}</Chip>
               </>} />; })}
       </Card>
