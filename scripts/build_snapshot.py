@@ -23,7 +23,7 @@ Alpha Terminal v4 — 지표 스냅샷 파이프라인
 import json, os, sys, time, math, urllib.request
 from datetime import datetime, timezone, timedelta
 
-VERSION   = "6.2.0"
+VERSION   = "6.3.0"
 UA        = {"User-Agent": "Mozilla/5.0"}
 OUT_DIR   = "public/data"
 KST       = timezone(timedelta(hours=9))
@@ -82,6 +82,32 @@ def fetch_candles(ticker, tries=3, min_bars=200):
             if a == tries-1: return [], {}
             time.sleep(1.2*(a+1))
     return [], {}
+
+# ══════════════════════════════════════════════════════════════
+# 데이터 검사 규칙 (2026-09 — 코스닥 77종목이 조용히 틀렸던 사고 이후)
+# ══════════════════════════════════════════════════════════════
+# 상위 유니버스 파일의 이름이 뒤바뀐 종목 — 가격으로 확인해 바로잡습니다
+NAME_FIX = {"192820": "코스맥스", "044820": "코스맥스비티아이"}
+MIN_BARS   = 260     # 200일선·RS 를 계산할 수 있는 최소 봉수. 미달이면 아예 싣지 않습니다.
+STALE_DAYS = 7       # 시장 기준일보다 이만큼 밀리면 거래정지·상장폐지로 보고 제외
+JUMP_WARN  = 0.35    # 하루 ±35% 초과는 분할·오류 의심 → 경고만 (실제 급등락도 있으므로)
+MIN_KEEP   = 0.95    # 시장별로 지난번의 95% 미만만 남으면 '쓰지 않고 종료'
+
+def fetch_kr(tk, pause=0.15):
+    """한국 종목의 거래소를 확정합니다.
+       ★ 코스닥 종목에 .KS 를 붙이면 야후가 200 OK 로 '이름 없는 유령 시세'를 돌려줍니다.
+         가격이 실제와 최대 14% 다르고 봉도 45개뿐인데, 예전 코드는 이것을 그대로 썼습니다.
+         meta.exchangeName 으로만 확실히 갈립니다 — KSC=코스피, KOE=코스닥."""
+    cd, meta = fetch_candles(tk + ".KS")
+    ex = (meta.get("exchangeName") or "").upper()
+    if ex == "KSC":                      # 코스피 확정
+        return cd, meta, tk + ".KS"
+    time.sleep(pause)
+    cd2, meta2 = fetch_candles(tk + ".KQ")
+    ex2 = (meta2.get("exchangeName") or "").upper()
+    if ex2 == "KOE" and meta2.get("longName"):   # 코스닥 확정 (이름 없으면 유령)
+        return cd2, meta2, tk + ".KQ"
+    return [], meta2 or meta, tk          # 어느 쪽도 확정 못하면 버립니다
 
 # ══════════════════════════════════════════════════════════════
 # 지표 (수정판 — 이 파일이 유일한 계산 위치)
@@ -783,7 +809,7 @@ def main():
         # ★ 기존 sector 는 전부 "US"/"Korean" — 섹터가 아니라 시장 이름이라 버립니다
         sec = s.get("sector") or ""
         if sec in ("US", "Korean", "KR", "us", "kr"): sec = ""
-        universe[tk] = {"name": s.get("label") or tk, "market": mkt,
+        universe[tk] = {"name": NAME_FIX.get(tk) or s.get("label") or tk, "market": mkt,
                         "sector": sec,
                         "y": tk + (".KS" if mkt=="kr" and not tk.endswith(".KS") else "")}
     base_n = len(universe)
@@ -817,20 +843,37 @@ def main():
             e[1] += 1
             if c[i] > m: e[0] += 1
 
+    drops = {}      # 제외 사유별 기록 — 조용히 사라지지 않게 남깁니다
+    warns = []
+    def drop(reason, tk, name, detail=""):
+        drops.setdefault(reason, []).append({"t": tk, "n": name, "d": detail})
+
     def try_one(tk, info, pause):
-        """1종목 처리. 성공하면 True. 코스닥(.KQ) 대체까지 포함."""
-        cd, meta = fetch_candles(info["y"])
-        if len(cd) < 30 and info["market"] == "kr" and info["y"].endswith(".KS"):
-            # ★ 코스닥 종목은 .KS 가 아니라 .KQ — 43종목이 이 때문에 실패했음
-            time.sleep(pause)
-            cd, meta = fetch_candles(info["y"][:-3] + ".KQ")
-            if len(cd) >= 30: info["y"] = info["y"][:-3] + ".KQ"
+        """1종목 처리. 검사를 통과한 것만 싣습니다 (종목 수보다 정확도 우선)."""
+        if info["market"] == "kr":
+            cd, meta, sym = fetch_kr(tk, pause)
+            if sym.endswith((".KS", ".KQ")): info["y"] = sym
+        else:
+            cd, meta = fetch_candles(info["y"])
         if len(cd) < 30:
-            time.sleep(pause); return False
+            time.sleep(pause); return False               # 수집 실패 → 재시도 대상
+        # ① 상품명 확인 — 이름 없는 응답은 유령 시세입니다
+        if info["market"] == "kr" and not meta.get("longName"):
+            drop("유령 시세(이름 없음)", tk, info["name"], info["y"]); time.sleep(pause); return True
+        # ② 봉 수 확인 — 200일선·RS 를 못 만드는 종목은 반쪽 지표로 싣지 않습니다
+        if len(cd) < MIN_BARS:
+            drop("이력 부족", tk, info["name"], f"{len(cd)}봉"); time.sleep(pause); return True
+        # ③ 최근 거래 확인
+        if all((b.get("v") or 0) == 0 for b in cd[-5:]):
+            drop("거래 없음", tk, info["name"]); time.sleep(pause); return True
         cd = cd[-max(BARS_KEEP, 1000):]                # 3년(756일) 건강도 + 200일선 = 956봉 필요
         d = build_stock(tk, cd, meta, info["name"], info["market"], info["sector"])
         time.sleep(pause)
         if not d: return False
+        # ④ 하루 ±35% 초과는 분할·오류 의심 → 경고만 남깁니다 (실제 급등락도 있으므로)
+        if d.get("d1") is not None and abs(d["d1"]) > JUMP_WARN * 100:
+            warns.append({"t": tk, "n": info["name"], "w": f"1일 {d['d1']:+.1f}%"})
+        d["ex"] = info["y"][-3:] if info["market"] == "kr" else "US"
         stocks[tk] = d
         # ★ 차트용 시계열 — 종목당 파일 1개.
         #   예전처럼 한 덩어리(candles.json)로 묶으면 차트 탭을 처음 열 때 9MB 를 받습니다.
@@ -916,15 +959,62 @@ def main():
     # ★ 안전장치 — 야후가 통째로 막힌 날 좋은 데이터를 빈 데이터로 덮어쓰지 않도록.
     #   기존 파일보다 종목 수가 20% 넘게 줄면 아무것도 쓰지 않고 실패 처리합니다.
     # ══════════════════════════════════════════════════════════
+    # ⑤ 시세 정지 제외 — 시장 기준일보다 STALE_DAYS 넘게 밀린 종목 (상장폐지·거래정지)
+    from datetime import date as _date
+    ref = {}
+    for mkt in ("kr", "us"):
+        ds = sorted(d["asOf"] for d in stocks.values() if d["m"] == mkt and d.get("asOf"))
+        if ds: ref[mkt] = ds[-1]
+    for tk in [t for t, d in stocks.items() if d.get("asOf") and ref.get(d["m"])]:
+        d = stocks[tk]
+        gap = (_date.fromisoformat(ref[d["m"]]) - _date.fromisoformat(d["asOf"])).days
+        if gap > STALE_DAYS:
+            drop("시세 정지", tk, d.get("n") or tk, f"{d['asOf']} ({gap}일 전)")
+            stocks.pop(tk, None); series.pop(tk, None)
+
+    # ⑥ 시장별 안전장치 — 나쁜 데이터로 덮어쓰느니 지난 데이터를 그대로 두는 편이 낫습니다
+    prev_by_mkt, prev_n = {}, 0
+    try:
+        _p = json.load(open(f"{OUT_DIR}/snapshot.json", encoding="utf-8"))["stocks"]
+        prev_n = len(_p)
+        for v in _p.values(): prev_by_mkt[v["m"]] = prev_by_mkt.get(v["m"], 0) + 1
+    except Exception: pass
+    now_by_mkt = {}
+    for v in stocks.values(): now_by_mkt[v["m"]] = now_by_mkt.get(v["m"], 0) + 1
+    for mkt, pn in prev_by_mkt.items():
+        nn = now_by_mkt.get(mkt, 0)
+        if pn >= 30 and nn < pn * MIN_KEEP:
+            print(f"\n❌ {mkt} 시장 {nn}종목 < 지난번 {pn}종목의 {MIN_KEEP:.0%}. "
+                  f"수집이 망가진 것으로 보고 파일을 쓰지 않고 종료합니다.")
+            sys.exit(1)
+
+    # ⑦ 검사 결과 보고 — 제외된 종목이 화면에서 소리 없이 사라지지 않게 남깁니다
+    health = {
+        "generatedAt": datetime.now(timezone.utc).isoformat(),
+        "universe": len(universe), "kept": len(stocks),
+        "byMarket": {m: {"kept": now_by_mkt.get(m, 0), "prev": prev_by_mkt.get(m, 0)} for m in ("kr", "us")},
+        "dropped": {r: len(v) for r, v in drops.items()},
+        "droppedList": {r: v[:40] for r, v in drops.items()},
+        "failed": len(fails), "failedList": fails[:40],
+        "warn": warns[:40],
+        "exchange": {"KS": sum(1 for d in stocks.values() if d.get("ex") == ".KS"),
+                     "KQ": sum(1 for d in stocks.values() if d.get("ex") == ".KQ")},
+        "rules": {"minBars": MIN_BARS, "staleDays": STALE_DAYS, "minKeep": MIN_KEEP},
+    }
+    print("\n🩺 데이터 검사")
+    print(f"  유니버스 {len(universe)} → 사용 {len(stocks)} "
+          f"(한국 {now_by_mkt.get('kr',0)} · 미국 {now_by_mkt.get('us',0)})")
+    for r, v in sorted(drops.items(), key=lambda x: -len(x[1])):
+        print(f"  제외 {r}: {len(v)}종목 — {', '.join(x['n'] for x in v[:6])}{' …' if len(v) > 6 else ''}")
+    if warns: print(f"  ⚠️ 급변 경고 {len(warns)}종목: {', '.join(w['n']+'('+w['w']+')' for w in warns[:6])}")
+    print(f"  거래소 확정: 코스피 {health['exchange']['KS']} · 코스닥 {health['exchange']['KQ']}")
+    _write(f"{OUT_DIR}/data_health.json", health)
+
     MIN_OK = 0.8
     if len(stocks) < MIN_OK * len(universe):
         print(f"\n❌ 성공 {len(stocks)}/{len(universe)} — 유니버스의 {MIN_OK:.0%} 미만입니다. "
               f"기존 파일을 지키기 위해 쓰지 않고 종료합니다.")
         sys.exit(1)
-    prev_n = 0
-    try:
-        prev_n = len(json.load(open(f"{OUT_DIR}/snapshot.json", encoding="utf-8"))["stocks"])
-    except Exception: pass
     if prev_n and len(stocks) < prev_n * MIN_OK:
         print(f"\n❌ 이번 {len(stocks)}종목 < 기존 {prev_n}종목의 {MIN_OK:.0%}. "
               f"이상 축소로 보고 쓰지 않고 종료합니다.")
@@ -977,6 +1067,9 @@ def main():
                       "sectors":len(market["sectors"]),"indices":len(market["indices"])}}
 
     meta["counts"]["etfs"] = len(etfs)
+    meta["health"] = {"kept": health["kept"], "universe": health["universe"],
+                      "dropped": health["dropped"], "failed": health["failed"],
+                      "byMarket": health["byMarket"], "exchange": health["exchange"]}
     _write(f"{OUT_DIR}/snapshot.json", {"meta":meta,"stocks":stocks,"etfs":etfs})
     _write(f"{OUT_DIR}/market.json",   {"meta":meta, **market})
     # 종목별 차트 파일
