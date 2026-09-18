@@ -17,7 +17,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-export const APP_VERSION = "v6.5.0";
+export const APP_VERSION = "v6.7.0";
 
 /* ══════════════ 디자인 토큰 ══════════════ */
 const C = {
@@ -315,8 +315,9 @@ function StockRow({ s, rank, rel, chips, sub, onOpen, isWatch, onToggle, cells =
         </div>
         <Star on={isWatch} onClick={() => onToggle(s.t)} />
       </div>
-      {/* RS 와 시장대비는 항상 같은 자리에 (스크롤해도 행마다 보입니다) */}
+      {/* 칩 순서는 모든 탭에서 같습니다: 신호 → RS → 시장대비 → 탭별 지표 */}
       <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center", marginTop: 7 }}>
+        <SigChip s={s} />
         <Chip tone={(rs ?? 0) >= 80 ? "g" : (rs ?? 0) >= 70 ? "c" : "n"}>RS {rs != null ? Math.floor(rs) : "—"}</Chip>
         {rel != null && <Chip tone={rel >= 0 ? "g" : "r"}>시장대비 {rel >= 0 ? "+" : ""}{rel.toFixed(1)}%p</Chip>}
         {chips}
@@ -592,9 +593,21 @@ export default function App() {
               <KV k="다음 수집" v={fr.weekend ? "월 16:00" : fr.next ? `${String(fr.next.hh).padStart(2, "0")}:${String(fr.next.mm).padStart(2, "0")}` : "—"} />
             </div>
             <RefreshBtn />
-            <div style={{ fontSize: FS.xs, color: C.muted }}>
-              종목 {list.length}{snap.meta.counts.failed > 0 && ` · 수집 실패 ${snap.meta.counts.failed}`}
-              {nStale > 0 && ` · 가격 멈춤 제외 ${nStale}`} · {APP_VERSION} · 투자자문 아님
+            {/* 데이터 검사 결과 — 제외된 종목이 소리 없이 사라지지 않게 */}
+            <div style={{ fontSize: FS.xs, color: C.muted, lineHeight: 1.6 }}>
+              {(() => {
+                const h = snap.meta.health;
+                if (!h) return <>종목 {list.length}{snap.meta.counts.failed > 0 && ` · 수집 실패 ${snap.meta.counts.failed}`}</>;
+                const dr = Object.entries(h.dropped || {});
+                return (<>
+                  <span style={{ color: C.emerald }}>🩺 {h.kept}종목 검사 통과</span>
+                  {h.byMarket && <> (🇰🇷 {h.byMarket.kr?.kept ?? 0} · 🇺🇸 {h.byMarket.us?.kept ?? 0})</>}
+                  {h.exchange && <> · 코스피 {h.exchange.KS} / 코스닥 {h.exchange.KQ}</>}
+                  {dr.length > 0 && <><br />제외 {dr.map(([k, v]) => `${k} ${v}`).join(" · ")}</>}
+                  {h.failed > 0 && <> · 수집 실패 {h.failed}</>}
+                </>);
+              })()}
+              <br />{APP_VERSION} · 투자자문 아님
             </div>
           </div>)}
 
@@ -1075,12 +1088,11 @@ function FindTab({ list, openStock, watch, toggleWatch, market, seen, sizer }) {
             <StockRow key={s.t} s={s} rank={i + 1} rel={relOf(s, market)} isWatch={watch.includes(s.t)} onToggle={toggleWatch} onOpen={openStock}
               sub={sh > 0 ? `${sh}주 가능` : money(s.tv, s.m)}
               chips={<>
-                <SigChip s={s} />
                 {s.atrr != null && <Chip tone={s.m === "us" && s.atrr >= 80 ? "g" : "n"}>변동성 {Math.floor(s.atrr)}</Chip>}
                 <Chip tone="n">거래 {money(s.tv, s.m)}</Chip>
-                {!s.tmpl && <Chip tone="n">구조 ✕</Chip>}
                 {(s.brk || s.stFlip) && <Chip tone="c">{s.brk ? "재돌파" : "ST전환"}</Chip>}
-                {(s.rsi ?? 0) > 75 && <Chip tone="w">RSI {s.rsi.toFixed(0)}</Chip>}
+                {!s.tmpl && <Chip tone="w">구조 ✕</Chip>}
+                {(s.rsi ?? 0) > 75 && <Chip tone="w">과열 RSI {s.rsi.toFixed(0)}</Chip>}
                 {d != null && d >= 5 && <Chip tone="n">{d}일째</Chip>}
               </>} />
           );
@@ -1131,8 +1143,6 @@ function OversoldTab({ list, openStock, watch, toggleWatch, sizer, market }) {
               chips={<>
                 <Chip tone="r">고점 {pct(s.w52p, 0)}</Chip>
                 <Chip tone={(s.hlt ?? 0) >= 0.7 ? "g" : "c"}>건강 {((s.hlt ?? 0) * 100).toFixed(0)}%{s.hltY && s.hltY < 3 ? ` (${s.hltY}년)` : ""}</Chip>
-                <Chip tone={(s.rsi ?? 50) < 30 ? "c" : "n"}>RSI {s.rsi?.toFixed(0) ?? "—"}</Chip>
-                <Chip tone={(s.ma200p ?? 0) > 0 ? "g" : "n"}>200일 {pct(s.ma200p, 0)}</Chip>
                 {s.m === "kr" && <Chip tone="r">⚠ 한국</Chip>}
                 {(s.ma200p ?? 0) < -50 && <Chip tone="r">⚠ 구조 훼손</Chip>}
               </>} />);
@@ -1425,7 +1435,9 @@ function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, setPos, 
 
       {/* 차트 옵션 — 한 줄, 넘치면 밀어서 */}
       <FilterBar>
+        <span style={{ fontSize: FS.xs, color: C.muted, flexShrink: 0 }}>기간</span>
         <Seg value={span} onChange={setSpan} items={[[63, "3M"], [126, "6M"], [200, "전체"]]} />
+        <span style={{ fontSize: FS.xs, color: C.muted, flexShrink: 0, marginLeft: 4 }}>표시</span>
         {[["st", "ST"], ["ichi", "구름"], ["ma", "이평"], ["idx", idxLabel]].map(([k, l]) =>
           <Toggle key={k} on={opt[k]} onClick={() => setOpt(o => ({ ...o, [k]: !o[k] }))}>{l}</Toggle>)}
       </FilterBar>
