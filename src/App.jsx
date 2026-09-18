@@ -17,7 +17,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-export const APP_VERSION = "v6.8.0";
+export const APP_VERSION = "v6.9.0";
 
 /* ══════════════ 디자인 토큰 ══════════════ */
 const C = {
@@ -59,8 +59,10 @@ const money = (v, m = "us") => {
 //   무료 한도(비공개 저장소 월 2,000분)에 맞춰 하루 8회 → 2회로 줄였습니다.
 //   16:00 = 한국 확정 종가 · 06:30 = 미국 확정 종가. 매매 결정은 이 두 시각 이후 값으로 합니다.
 //   장중 갱신본은 아직 안 끝난 봉이라 어차피 판단에 쓰면 안 되는 값이었습니다.
-const SLOTS_KST = [[16, 0], [6, 30]];
-const SAT_SLOT = [9, 0];   // 토 09:00 KST 주간 백업
+// daily.yml 의 cron 과 같아야 합니다 — 어긋나면 '수집 대기' 경보가 헛돕니다.
+// 정각 예약은 깃허브 대기열이 길어(실측 평균 5.7시간) 어긋난 분으로 옮겼습니다.
+const SLOTS_KST = [[16, 17], [6, 23]];
+const SAT_SLOT = [9, 13];   // 토 09:13 KST 주간 백업
 
 /** 미국이 서머타임(EDT)인지 — 하드코딩하면 겨울 반년 동안 세션 표시가 30분씩 틀립니다 */
 function usDST(nowMs) {
@@ -88,7 +90,7 @@ function marketState(nowMs = Date.now()) {
   const weekend = dow === 0 || (dow === 6 && mins > 570) || (dow === 1 && mins < 450);
   const anyOpen = krRegular || usRegular;
   let next = null;
-  const slots = dow === 6 ? [[6, 30], SAT_SLOT] : SLOTS_KST;
+  const slots = dow === 6 ? [SLOTS_KST[1], SAT_SLOT] : SLOTS_KST;
   if (!weekend) {
     let best = Infinity;
     for (const [h, m] of slots) {
@@ -131,9 +133,9 @@ function lastSlotMs(nowMs) {
     const base = kstMid - k * day;
     const dow = new Date(base + 9 * H).getUTCDay();
     const cand = [];
-    if (dow >= 1 && dow <= 5) cand.push(16 * 60);
-    if (dow >= 2 && dow <= 6) cand.push(6 * 60 + 30);
-    if (dow === 6) cand.push(9 * 60);
+    if (dow >= 1 && dow <= 5) cand.push(16 * 60 + 17);
+    if (dow >= 2 && dow <= 6) cand.push(6 * 60 + 23);
+    if (dow === 6) cand.push(9 * 60 + 13);
     for (const m of cand) { const t = base + m * 60000; if (t <= nowMs && t > best) best = t; }
   }
   return best;
@@ -593,7 +595,7 @@ export default function App() {
               <KV k="신호 기준일 🇰🇷" v={asOfBy.kr || "—"} />
               <KV k="신호 기준일 🇺🇸" v={asOfBy.us || "—"} />
               <KV k="데이터 생성" v={snap.meta.generatedKST} />
-              <KV k="다음 수집" v={fr.weekend ? "월 16:00" : fr.next ? `${String(fr.next.hh).padStart(2, "0")}:${String(fr.next.mm).padStart(2, "0")}` : "—"} />
+              <KV k="다음 수집" v={fr.weekend ? "월 16:17" : fr.next ? `${String(fr.next.hh).padStart(2, "0")}:${String(fr.next.mm).padStart(2, "0")}` : "—"} />
             </div>
             <RefreshBtn />
             {/* 데이터 검사 결과 — 제외된 종목이 소리 없이 사라지지 않게 */}
