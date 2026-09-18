@@ -17,7 +17,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-export const APP_VERSION = "v6.3.0";
+export const APP_VERSION = "v6.4.0";
 
 /* ══════════════ 디자인 토큰 ══════════════ */
 const C = {
@@ -273,6 +273,13 @@ const Cells = ({ s, keys = [["3일", "d3"], ["5일", "d5"], ["1달", "d21"]] }) 
       </div>))}
   </div>
 );
+
+/** 근거 강도 — 검증 결과를 앱 전체에서 같은 말로 표시합니다 */
+const GRADE = { strong: ["●●●", "근거 강함", C.emerald], mid: ["●●○", "근거 보통", C.gold], weak: ["●○○", "참고용", C.muted] };
+const Grade = ({ k }) => {
+  const g = GRADE[k]; if (!g) return null;
+  return <span style={{ fontSize: FS.xs, color: g[2], fontWeight: 700, whiteSpace: "nowrap" }}>{g[0]} {g[1]}</span>;
+};
 
 /** 매매 신호 칩 — 파이프라인 sig: buy(새로 삼) / exit(들고 있으면 팜) / keep */
 const SigChip = ({ s }) => s?.sig === "buy" ? <Chip tone="g">🟢 매수신호</Chip>
@@ -698,16 +705,19 @@ function MarketTab({ market, setTab }) {
         <b style={{ color: C.gold }}>🇺🇸 참고만</b> — 시험한 15개 타이밍 지표가 2010년 이후 전부 (−). 위험 관리는 손절과 비중으로 합니다.
       </Info>
 
-      <Sec>지수</Sec>
-      <Card style={{ padding: "4px 12px" }}>
-        {idxRows.map(([k, v], i) => (
-          <div key={k} style={{ padding: "10px 0", borderTop: i ? `1px solid ${C.border}` : "none" }}>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-              <span style={{ fontSize: 14, fontWeight: 700, flex: 1, minWidth: 0, ...ONE }}>{v.label}
-                <span style={{ fontSize: FS.xs, color: col(v.ma200p), fontWeight: 500 }}> 200일선 {pct(v.ma200p, 1)}</span></span>
-              <span style={{ fontSize: 14, fontFamily: MONO, fontWeight: 700 }}>{num(v.c, 0)}</span>
-            </div>
-            <div style={{ marginTop: 6 }}><Cells s={v} /></div>
+      <Sec right="누적 등락">지수</Sec>
+      <Card style={{ padding: "2px 12px 6px" }}>
+        <Head cols={["지수", "종가", "3일", "5일", "1달"]} grid={IDX_GRID} />
+        {idxRows.map(([k, v]) => (
+          <div key={k} style={{ display: "grid", gridTemplateColumns: IDX_GRID, gap: 6, alignItems: "center",
+                                padding: "9px 0", borderTop: `1px solid ${C.border}` }}>
+            <span style={{ minWidth: 0, ...ONE }}>
+              <b style={FIT_NAME}>{v.label}</b>
+              <span style={{ fontSize: FS.xs, color: col(v.ma200p), display: "block", ...ONE }}>200일 {pct(v.ma200p, 0)}</span>
+            </span>
+            <span style={{ ...FIT, fontWeight: 700, textAlign: "right" }}>{num(v.c, 0)}</span>
+            {["d3", "d5", "d21"].map(x =>
+              <span key={x} style={{ ...FIT, textAlign: "right", color: col(v[x]) }}>{pctFit(v[x])}</span>)}
           </div>))}
       </Card>
 
@@ -726,28 +736,41 @@ function MarketTab({ market, setTab }) {
           </Card>); })}
       </div>
 
-      <Sec right={<button onClick={() => setTab("alloc")} style={linkBtn}>국내 ETF로 보기 · DC탭 ›</button>}>미국 섹터 순위</Sec>
-      <Card style={{ padding: "4px 12px" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "22px minmax(0,1fr) 56px 56px", gap: 6, fontSize: 10.5, color: C.muted, padding: "6px 0 2px" }}>
-          <span>#</span><span>섹터</span><span style={{ textAlign: "right" }}>1달</span><span style={{ textAlign: "right" }}>점수</span>
+      <Sec right={<Grade k="weak" />}>미국 섹터 순위</Sec>
+      <Card style={{ padding: "2px 12px 6px" }}>
+        <Head cols={["#", "섹터", "3일", "5일", "1달", "점수"]} grid={SEC_GRID} />
+        {sectors.map(s => (
+          <div key={s.tk} style={{ display: "grid", gridTemplateColumns: SEC_GRID, gap: 5, alignItems: "center",
+                                   padding: "9px 0", borderTop: `1px solid ${C.border}` }}>
+            <span style={{ fontSize: FS.sm, color: C.muted }}>{s.rank}</span>
+            <span style={{ minWidth: 0, ...ONE }}>
+              <b style={FIT_NAME}>{s.label}</b> <span style={{ fontSize: 10, color: C.muted }}>{s.tk}</span>
+            </span>
+            {["d3", "d5", "d21"].map(x =>
+              <span key={x} style={{ ...FIT, textAlign: "right", color: col(s[x]) }}>{pctFit(s[x])}</span>)}
+            <span style={{ ...FIT, textAlign: "right", fontWeight: 700, color: col(s.score) }}>{pctFit(s.score)}</span>
+          </div>))}
+        <div style={{ fontSize: FS.xs, color: C.muted, padding: "7px 0 2px" }}>
+          점수 = 3·6·9·12개월 평균 · 섹터를 갈아타는 방식은 지수 보유와 차이가 없었습니다
+          <button onClick={() => setTab("alloc")} style={{ ...linkBtn, fontSize: FS.sm, minHeight: 36, display: "block" }}>국내 ETF로 보기 ›</button>
         </div>
-        {sectors.map(s => {
-          return (
-            <div key={s.tk} style={{ display: "grid", gridTemplateColumns: "22px minmax(0,1fr) 56px 56px", gap: 6, alignItems: "center",
-                                     padding: "8px 0", borderTop: `1px solid ${C.border}` }}>
-              <span style={{ fontSize: FS.sm, color: C.muted }}>{s.rank}</span>
-              <span style={{ minWidth: 0, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                <b>{s.label}</b> <span style={{ fontSize: FS.xs, color: C.muted }}>{s.tk}</span>
-              </span>
-              <span style={{ textAlign: "right", fontFamily: MONO, fontSize: FS.sm, color: col(s.d21) }}>{pct(s.d21, 0)}</span>
-              <span style={{ textAlign: "right", fontFamily: MONO, fontSize: FS.sm, fontWeight: 700, color: col(s.score) }}>{pct(s.score, 0)}</span>
-            </div>);
-        })}
       </Card>
     </>
   );
 }
 
+// 칸 폭은 고정 픽셀 대신 비율로 — 글자를 키운 좁은 화면에서도 이름 칸이 뭉개지지 않게
+const IDX_GRID = "minmax(0,1.5fr) minmax(0,1.1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)";
+const SEC_GRID = "16px minmax(0,1.7fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1.1fr)";
+/** 표 머리글 — 칸 이름을 행마다 반복하지 않고 한 번만 적습니다 */
+// 좁은 화면에서 숫자가 잘리지 않도록 글자 크기를 화면 폭에 맞춰 줄입니다
+const FIT = { fontSize: "clamp(10.5px, 3.1vw, 12px)", fontFamily: MONO, whiteSpace: "nowrap", letterSpacing: -0.4 };
+const FIT_NAME = { fontSize: "clamp(11px, 3.6vw, 14px)", fontWeight: 700 };
+const Head = ({ cols, grid }) => (
+  <div style={{ display: "grid", gridTemplateColumns: grid, gap: 5, fontSize: "clamp(10px, 2.8vw, 10.5px)", color: C.muted, padding: "7px 0 3px" }}>
+    {cols.map((c, i) => <span key={c} style={{ textAlign: i >= 2 ? "right" : "left", ...ONE }}>{c}</span>)}
+  </div>
+);
 const MiniPct = ({ label, v }) => (
   <div style={{ textAlign: "right" }}>
     <div style={{ fontSize: 10.5, color: C.muted }}>{label}</div>
@@ -811,7 +834,8 @@ function DcTab({ etfs, market, pos, setPos, openStock }) {
 
   return (
     <>
-      <Sec right={`다음 비중 점검 ${market.allocation?.nextRebal || "분기 첫 거래일"}`}>오늘 규칙</Sec>
+      <Sec right={<Grade k="strong" />}>오늘 규칙</Sec>
+      <div style={{ fontSize: FS.xs, color: C.muted, margin: "-4px 2px 6px" }}>다음 비중 점검 {market.allocation?.nextRebal || "분기 첫 거래일"}</div>
       {cores.map(c => {
         const hold = c.state === "hold";
         return (
@@ -889,7 +913,7 @@ function DcTab({ etfs, market, pos, setPos, openStock }) {
         </Info>
       </Card>
 
-      <Sec right="점수 = 3·6·9·12개월 평균">🇺🇸 미국 섹터 → 국내 ETF</Sec>
+      <Sec right={<Grade k="weak" />}>🇺🇸 미국 섹터 → 국내 ETF</Sec>
       <Card style={{ padding: "0 12px" }}>
         {[...(dc.usCore || []), ...(dc.usSect || [])].map((t, i) => {
           const d = etfs[t]; if (!d) return null;
@@ -922,7 +946,7 @@ function DcTab({ etfs, market, pos, setPos, openStock }) {
         </Info>
       </Card>
 
-      <Sec right={<Chip tone="w">검증 실패 · 참고</Chip>}>🇰🇷 한국 업종 ETF</Sec>
+      <Sec right={<Grade k="weak" />}>🇰🇷 한국 업종 ETF</Sec>
       <Card style={{ padding: "0 12px" }}>
         {(dc.krSect || []).map((t, i) => {
           const d = etfs[t]; if (!d) return null;
@@ -993,6 +1017,9 @@ function FindTab({ list, openStock, watch, toggleWatch, market, seen, sizer }) {
     <>
       <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
         <Seg full value={mkt} onChange={setMkt} items={[["all", "전체"], ["kr", "🇰🇷 한국"], ["us", "🇺🇸 미국"]]} />
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: FS.xs, color: C.muted }}>
+          🇰🇷 <Grade k="strong" /><span style={{ color: C.border }}>|</span>🇺🇸 <Grade k="weak" />
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(98px, 1fr))", gap: 6 }}>
           <Toggle full on={onlyGo} onClick={() => setOnlyGo(v => !v)}>후보만 {nGo}</Toggle>
           <Toggle full on={onlyBuy} onClick={() => setOnlyBuy(v => !v)}>매수신호 {nBuy}</Toggle>
@@ -1052,8 +1079,9 @@ function OversoldTab({ list, openStock, watch, toggleWatch, sizer }) {
        .sort((a, b) => (a.s.w52p ?? 0) - (b.s.w52p ?? 0)).slice(0, 60), [all, showKr]);
   return (
     <>
-      <div style={{ fontSize: FS.sm, color: C.dim, marginTop: 10 }}>
-        🇺🇸 좋은 종목이 고점 대비 크게 빠진 것 · <b style={{ color: C.gold }}>손절 없이 12~24개월 보유</b>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+        <span style={{ fontSize: FS.sm, color: C.dim }}>🇺🇸 고점 대비 크게 빠진 우량주 · <b style={{ color: C.gold }}>손절 없이 12~24개월</b></span>
+        <span style={{ marginLeft: "auto" }}><Grade k="mid" /></span>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.3fr) minmax(0,1fr)", gap: 6, marginTop: 8 }}>
         <Seg full value={deep ? "deep" : "wide"} onChange={v => setDeep(v === "deep")} items={[["deep", "−40%"], ["wide", "−25%"]]} />
