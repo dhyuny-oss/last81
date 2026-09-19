@@ -790,9 +790,22 @@ def load_extra(universe):
     # 로 시작하는 줄과 빈 줄은 무시합니다.
     이미 stocks.json 에 있는 종목은 건너뜁니다(중복 추가 안 됨).
     """
-    if not os.path.exists(EXTRA_FILE):
-        return []
     added = []
+    # 앱에서 "종목풀에 추가"를 누르면 watchlist.json 의 extras 로 들어옵니다 (파일 수정 없이 즉시)
+    try:
+        wl = json.load(open(f"{OUT_DIR}/watchlist.json", encoding="utf-8"))
+        for tk in (wl.get("extras") or []):
+            tk = str(tk).strip().upper()
+            if not tk or tk in universe: continue
+            mkt = "kr" if (tk.isdigit() and len(tk) == 6) else "us"
+            universe[tk] = {"name": tk, "market": mkt, "sector": "",
+                            "y": tk + ".KS" if mkt == "kr" else tk}
+            added.append(tk)
+        if added: print(f"  ➕ 앱에서 추가한 종목 {len(added)}개: {', '.join(added)}")
+    except Exception:
+        pass
+    if not os.path.exists(EXTRA_FILE):
+        return added
     for raw in open(EXTRA_FILE, encoding="utf-8"):
         line = raw.split("#")[0].strip()
         if not line: continue
