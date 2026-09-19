@@ -115,6 +115,11 @@ def build(snap, mkt, state, now):
     meta   = snap.get("meta", {})
     dc     = mkt.get("dc") or {}
     health = (snap.get("meta") or {}).get("health") or {}
+    # 앱에서 '알림 연결'을 누르면 저장되는 내 보유·관심 목록
+    try:
+        wl = json.load(open(f"{DATA}/watchlist.json", encoding="utf-8"))
+    except Exception:
+        wl = {}
     etfs   = snap.get("etfs", {})
 
     entry = pick_entry(stocks, judge)
@@ -142,6 +147,52 @@ def build(snap, mkt, state, now):
             tail = "" if j.get("gate") else " <i>(참고용)</i>"
             L.append(f"{flag} <b>{name} {VERDICT.get(j['verdict'], j['verdict'])}</b>{tail} "
                      f"<i>— {j.get('why','')}</i>")
+
+    # ── 1.4 내 보유·관심 — 이것만 따로 먼저 알립니다 (남의 종목보다 내 종목이 먼저) ──
+    mine, etfs_all = [], snap.get("etfs", {})
+    look = lambda t: stocks.get(t) or etfs_all.get(t)
+    for p in (wl.get("positions") or []):
+        d = look(p.get("t"))
+        if not d: continue
+        pl = ((d.get("c") or 0) / p["avg"] - 1) * 100 if p.get("avg") else None
+        out = p.get("role") != "long" and d.get("stSlow") == 0
+        mine.append((out, f"   {'🔴 매도' if out else '🟢 유지'} <b>{d.get('n') or p['t']}</b> "
+                          f"{price(d.get('c'), d.get('m'))}"
+                          + (f" {pct(pl)}" if pl is not None else "")
+                          + (f" · 트레일링선 {price(d.get('stLine'), d.get('m'))}" if d.get("stLine") else "")))
+    buys = []
+    for t in (wl.get("watch") or []):
+        d = look(t)
+        if not d: continue
+        if d.get("pull") or d.get("sig") == "buy":
+            buys.append(f"   {'⭐ 눌림' if d.get('pull') else '🟢 매수'} <b>{d.get('n') or t}</b> "
+                        f"{price(d.get('c'), d.get('m'))} · RS {int(d.get('rs') or 0)}")
+    if mine or buys:
+        L.append("")
+        L.append("📁 <b>내 종목</b>")
+        for _, line in sorted(mine, key=lambda x: not x[0]): L.append(line)
+        if buys:
+            L.append("   <i>관심 목록 신호</i>")
+            L += buys
+    elif wl.get("updatedAt"):
+        L.append("")
+        L.append("📁 <b>내 종목</b> — 신호 없음")
+
+    # ── 1.45 주간 종목풀 점검 — 바뀐 날에만 알립니다 ──
+    try:
+        uni = json.load(open(f"{DATA}/universe_log.json", encoding="utf-8"))
+    except Exception:
+        uni = None
+    if uni and (uni.get("added") or uni.get("removed")):
+        same_day = str(uni.get("date", ""))[:10] == now.astimezone(KST).strftime("%Y-%m-%d")
+        if same_day:
+            L.append("")
+            L.append(f"📦 <b>주간 종목풀 점검</b> {uni.get('prevTotal')} → {uni.get('total')}종목")
+            add = uni.get("added") or []; rem = uni.get("removed") or []
+            if add:
+                L.append("   ➕ " + ", ".join(f"{x['n']}" for x in add[:6]) + (f" 외 {len(add)-6}" if len(add) > 6 else ""))
+            if rem:
+                L.append("   ➖ " + ", ".join(f"{x['n']}" for x in rem[:6]) + (f" 외 {len(rem)-6}" if len(rem) > 6 else ""))
 
     # ── 1.5 데이터 검사 결과 — 제외된 종목을 조용히 넘기지 않습니다 ──
     if health:
