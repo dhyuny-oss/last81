@@ -17,7 +17,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-export const APP_VERSION = "v7.5.0";
+export const APP_VERSION = "v7.6.0";
 
 /* ══════════════ 디자인 토큰 ══════════════ */
 const C = {
@@ -415,6 +415,10 @@ export default function App() {
 
   /* ── 내 기록 (이 기기 브라우저에만 저장) ── */
   const [watch, setWatch] = useState(() => { try { return JSON.parse(localStorage.getItem("v4.watch") || "[]"); } catch { return []; } });
+  const [extras, setExtras] = useState(() => { try { return JSON.parse(localStorage.getItem("v7.extras") || "[]"); } catch { return []; } });
+  const [trades, setTrades] = useState(() => { try { return JSON.parse(localStorage.getItem("v7.trades") || "[]"); } catch { return []; } });
+  useEffect(() => { localStorage.setItem("v7.extras", JSON.stringify(extras)); }, [extras]);
+  useEffect(() => { localStorage.setItem("v7.trades", JSON.stringify(trades)); }, [trades]);
   const [pos, setPos] = useState(() => { try { return JSON.parse(localStorage.getItem("v4.pos") || "[]"); } catch { return []; } });
   useEffect(() => { localStorage.setItem("v4.watch", JSON.stringify(watch)); }, [watch]);
   useEffect(() => { localStorage.setItem("v4.pos", JSON.stringify(pos)); }, [pos]);
@@ -527,7 +531,8 @@ export default function App() {
 
   if (!snap || !market) return <Shell><div style={{ textAlign: "center", color: C.muted, marginTop: 80, fontSize: FS.md }}>불러오는 중…</div></Shell>;
 
-  const shared = { stocks, list, etfs, items, openStock, watch, toggleWatch, market, setTab, setSel, pos, setPos, seen, sizer, bumpSizer };
+  const shared = { stocks, list, etfs, items, openStock, watch, toggleWatch, market, setTab, setSel, pos, setPos,
+                   seen, sizer, bumpSizer, extras, setExtras, trades, setTrades };
   const nTrack = pos.length + watch.length;
   const warn = fr.tone === "stale" || fr.tone === "old" || fr.tone === "bad";
 
@@ -565,8 +570,9 @@ export default function App() {
         {searchOpen && q.trim() && (
           <div style={{ maxHeight: "60vh", overflowY: "auto", borderTop: `1px solid ${C.border}` }}>
             {results.length === 0 ? (
-              <div style={{ padding: "14px 16px", fontSize: FS.sm, color: C.dim }}>
-                “{q.trim()}” 없음 · <code style={{ color: C.cyan }}>scripts/tickers_extra.txt</code> 에 추가하세요
+              <div style={{ padding: "12px 16px", fontSize: FS.sm, color: C.dim }}>
+                “{q.trim()}” 는 종목풀에 없습니다
+                <AddTicker code={q.trim().toUpperCase()} extras={extras} setExtras={setExtras} pos={pos} watch={watch} trades={trades} />
               </div>
             ) : results.map(r => (
               <div key={r.t} onClick={() => openStock(r.t)}
@@ -1748,7 +1754,7 @@ const LegendDot = ({ c, children }) => (
 );
 
 /* ══════════════ 6. 추적 ══════════════ */
-function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, bumpSizer }) {
+function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, bumpSizer, extras, trades, setTrades }) {
   const [role, setRole] = useState("all");
   const [stopPct, setStopPct] = useState(() => Number(localStorage.getItem("v5.stop") || 10));
   const [cap, setCap] = useState(() => Number(localStorage.getItem("v4.cap") || 10000000));
@@ -1764,6 +1770,21 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
   const [form, setForm] = useState(null);
   const rows = pos.filter(p => role === "all" || p.role === role);
   const RB = { etf: ["ETF", "w"], swing: ["단기", "g"], long: ["장기", "c"] };
+  /** 매도 기록 — 판 가격을 남겨야 나중에 내 실제 승률을 볼 수 있습니다 */
+  const closePos = (p, s) => {
+    const cur = s?.c ?? p.avg;
+    const raw = prompt(`${s?.n || p.t} 매도가를 입력하세요 (취소하면 기록 없이 삭제)`, String(cur));
+    if (raw !== null) {
+      const sell = Number(String(raw).replace(/[^\d.]/g, ""));
+      if (sell > 0) {
+        const days = Math.max(1, Math.round((Date.now() - new Date(p.date + "T00:00:00").getTime()) / 86400000));
+        setTrades(v => [...v, { t: p.t, n: s?.n || p.t, m: s?.m || "kr", role: p.role,
+                                buy: p.avg, sell, in: p.date, out: new Date().toISOString().slice(0, 10),
+                                days, pl: (sell / p.avg - 1) * 100 }].slice(-300));
+      }
+    }
+    setPos(v => v.filter(x => x.id !== p.id));
+  };
   const submit = () => {
     const key = (form.t || "").trim().toUpperCase();
     const found = look(key);
@@ -1858,8 +1879,8 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
                   <div style={{ fontSize: 17, fontWeight: 800, color: col(pl), fontFamily: MONO }}>{pct(pl)}</div>
                   <div style={{ fontSize: FS.xs, color: C.muted }}>{price(s.c, s.m)}</div>
                 </div>
-                <button onClick={() => { if (confirm(`${s.n} 기록을 지울까요?`)) setPos(v => v.filter(x => x.id !== p.id)); }}
-                  aria-label="삭제" style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: 18, width: 32, height: 34 }}>×</button>
+                <button onClick={() => closePos(p, s)} aria-label="매도 기록"
+                  style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: 18, width: 32, height: 34 }}>×</button>
               </div>
               {p.role !== "long" && (
                 <div style={{ marginTop: 8, padding: "7px 9px", borderRadius: 8, fontSize: FS.sm, fontWeight: 700,
@@ -1906,7 +1927,8 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
             </Card>);
         })}
 
-      <SyncBtn pos={pos} watch={watch} />
+      <TradeLog trades={trades} setTrades={setTrades} />
+      <SyncBtn pos={pos} watch={watch} extras={extras} trades={trades} />
       <Sec>관심 {watch.length}</Sec>
       <Card style={{ padding: "0 10px" }}>
         {watch.length === 0 ? <Empty>종목 옆 ☆ 를 누르면 여기에 모입니다</Empty> :
@@ -1949,7 +1971,7 @@ function FinRefreshBtn() {
 }
 
 /** 알림 연결 — 이 기기의 보유·관심을 서버에 올려 텔레그램 알림이 내 종목을 보게 합니다 */
-function SyncBtn({ pos, watch }) {
+function SyncBtn({ pos, watch, extras = [], trades = [] }) {
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState(false);
   const [at, setAt] = useState(() => localStorage.getItem("v7.sync.at") || null);
@@ -1959,7 +1981,7 @@ function SyncBtn({ pos, watch }) {
       const r = await fetch("/api/watchlist", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-key": localStorage.getItem("v52.rkey") || "" },
-        body: JSON.stringify({ bulk: true, positions: pos, watch }),
+        body: JSON.stringify({ bulk: true, positions: pos, watch, extras, trades: trades.slice(-100) }),
       });
       const j = await r.json().catch(() => ({}));
       if (j.ok) {
@@ -1976,13 +1998,108 @@ function SyncBtn({ pos, watch }) {
         보유·관심을 알림에 연결하면 <b style={{ color: C.text }}>내 종목의 매도·매수 신호</b>가 텔레그램 맨 위에 옵니다.
       </div>
       <button onClick={run} disabled={busy} style={{ ...btn(C.cyan), width: "100%", marginTop: 8 }}>
-        {busy ? "보내는 중…" : `🔔 알림 연결 (보유 ${pos.length} · 관심 ${watch.length})`}</button>
+        {busy ? "보내는 중…" : `🔔 알림 연결 (보유 ${pos.length} · 관심 ${watch.length}${extras.length ? ` · 추가 ${extras.length}` : ""})`}</button>
       {msg && <div style={{ fontSize: FS.xs, color: msg.bad ? C.red : C.emerald, marginTop: 5 }}>{msg.t}</div>}
       <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 4 }}>
         {at ? `마지막 연결 ${at} · 목록이 바뀌면 다시 눌러 주세요` : "기록을 바꿀 때마다 눌러 주세요"}
       </div>
     </Card>
   );
+}
+
+
+/** 종목풀에 없는 종목을 급히 넣기 — 파일을 고치지 않고 앱에서 바로 */
+function AddTicker({ code, extras, setExtras, pos, watch, trades }) {
+  const [st, setSt] = useState(extras.includes(code) ? "done" : "idle");
+  const ok = /^[A-Z]{1,5}$|^\d{6}$/.test(code);
+  const add = async () => {
+    setSt("busy");
+    const next = [...new Set([...extras, code])];
+    setExtras(next);
+    try {
+      const r = await fetch("/api/watchlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-key": localStorage.getItem("v52.rkey") || "" },
+        body: JSON.stringify({ bulk: true, positions: pos, watch, extras: next, trades: trades.slice(-100) }),
+      });
+      setSt((await r.json().catch(() => ({}))).ok ? "done" : "local");
+    } catch { setSt("local"); }
+  };
+  if (!ok) return <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 4 }}>
+    미국은 영문 티커, 한국은 숫자 6자리로 검색하세요</div>;
+  return (
+    <div style={{ marginTop: 8 }}>
+      {st === "done" ? (
+        <div style={{ fontSize: FS.xs, color: C.emerald }}>
+          ✓ <b>{code}</b> 등록됨 — 상단 <b>🔄 지금 갱신</b>을 누르면 이번 수집부터 들어옵니다 (약 30분)
+        </div>
+      ) : st === "local" ? (
+        <div style={{ fontSize: FS.xs, color: C.gold }}>
+          이 기기에만 저장됐습니다 — 추적탭의 🔔 알림 연결을 누르면 서버에도 올라갑니다
+        </div>
+      ) : (
+        <button onClick={add} disabled={st === "busy"} style={{ ...btn(C.cyan), width: "100%" }}>
+          {st === "busy" ? "등록 중…" : `＋ ${code} 종목풀에 추가`}</button>
+      )}
+    </div>);
+}
+
+/** 매매 기록 — 백테스트 숫자는 생존편향이 섞여 있습니다. 내 계좌 기록이 진짜 검증입니다 */
+function TradeLog({ trades, setTrades }) {
+  const [open, setOpen] = useState(false);
+  if (!trades.length) return (
+    <Card style={{ marginTop: 10 }}>
+      <div style={{ fontSize: FS.sm, color: C.dim }}>매매 기록이 없습니다</div>
+      <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 4 }}>
+        보유 종목의 ✕ 를 누르면 매도가를 물어봅니다. 그 기록이 쌓이면 내 실제 승률을 검증값과 비교할 수 있습니다.
+      </div>
+    </Card>);
+  const n = trades.length;
+  const win = trades.filter(t => t.pl > 0).length;
+  const avg = trades.reduce((a, t) => a + t.pl, 0) / n;
+  const med = [...trades].sort((a, b) => a.pl - b.pl)[Math.floor(n / 2)].pl;
+  const days = Math.round(trades.reduce((a, t) => a + (t.days || 0), 0) / n);
+  const gains = trades.filter(t => t.pl > 0).reduce((a, t) => a + t.pl, 0);
+  const loss = -trades.filter(t => t.pl < 0).reduce((a, t) => a + t.pl, 0);
+  const pf = loss > 0 ? gains / loss : null;
+  const Cell = ({ k, v, c }) => (
+    <div><div style={{ fontSize: 10.5, color: C.muted }}>{k}</div>
+      <div style={{ fontSize: FS.md, fontWeight: 800, fontFamily: MONO, color: c || C.text }}>{v}</div></div>);
+  return (
+    <Card style={{ marginTop: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: FS.md, fontWeight: 800 }}>내 매매 기록</span>
+        <span style={{ marginLeft: "auto", fontSize: FS.xs, color: C.muted }}>{n}건</span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 6, marginTop: 8 }}>
+        <Cell k="승률" v={`${(win / n * 100).toFixed(0)}%`} c={win / n >= 0.3 ? C.emerald : C.red} />
+        <Cell k="평균" v={pct(avg, 1)} c={col(avg)} />
+        <Cell k="중앙" v={pct(med, 1)} c={col(med)} />
+        <Cell k="보유" v={`${days}일`} />
+      </div>
+      <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 7, lineHeight: 1.7 }}>
+        검증값(2008–26): 승률 31% · 거래당 +3.0% · 중앙 −3.6% · 보유 15일{pf != null && ` · 내 손익비 ${pf.toFixed(2)} (검증 1.6)`}
+        <br />작은 손실이 잦고 큰 수익이 가끔 오는 구조라, 승률이 낮은 것 자체는 문제가 아닙니다.
+      </div>
+      <button onClick={() => setOpen(v => !v)} style={{ ...btn(C.dim), width: "100%", marginTop: 8 }}>
+        {open ? "닫기" : `기록 ${n}건 보기`}</button>
+      {open && (
+        <div style={{ marginTop: 6 }}>
+          {[...trades].reverse().slice(0, 30).map((t, i) => (
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto auto", gap: 6, alignItems: "center",
+                                  padding: "7px 0", borderTop: `1px solid ${C.border}` }}>
+              <span style={{ minWidth: 0, ...ONE }}>
+                <b style={{ fontSize: FS.sm }}>{t.n}</b>
+                <span style={{ fontSize: 10.5, color: C.muted }}> {t.in}~{t.out} · {t.days}일</span>
+              </span>
+              <span style={{ fontSize: FS.xs, color: C.muted, fontFamily: MONO }}>
+                {price(t.buy, t.m)}→{price(t.sell, t.m)}</span>
+              <span style={{ fontSize: FS.sm, fontWeight: 700, fontFamily: MONO, color: col(t.pl) }}>{pct(t.pl, 1)}</span>
+            </div>))}
+          <button onClick={() => { if (confirm("매매 기록을 모두 지울까요? 되돌릴 수 없습니다")) setTrades([]); }}
+            style={{ ...linkBtn, color: C.red, fontSize: FS.xs, marginTop: 6 }}>기록 전체 삭제</button>
+        </div>)}
+    </Card>);
 }
 
 /* ══════════════ 잡 UI ══════════════ */
