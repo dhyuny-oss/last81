@@ -75,6 +75,18 @@ def pct(v, d=1):
 # ══════════════════════════════════════════════════════════════
 # 선정 — 앱의 verdictFind / verdictOversold 와 같은 규칙
 # ══════════════════════════════════════════════════════════════
+# ★ 행동 단어 — 앱과 똑같이 파이프라인 action 을 읽습니다 (여기서 다시 판정하지 않습니다)
+ACT = {"buy": "🟢 매수!", "sell": "🔴 매도!", "watch": "관망", "hold": "보유"}
+WHY = {"pull": "눌림", "strong": "강세", "trend": "추세"}
+def act_of(d, held=False):
+    a = d.get("action") or "watch"
+    if a == "sell": return "sell"
+    return "hold" if held else a
+def act_txt(d, held=False):
+    a = act_of(d, held)
+    why = WHY.get(d.get("why")) if a == "buy" else ("트레일링선 아래" if a == "sell" else None)
+    return ACT[a] + (f" ({why})" if why else "")
+
 def pick_entry(stocks, judge=None):
     """앱 발굴탭의 '신호' 필터와 같은 목록: ⭐눌림 또는 🟢매수신호, 거래대금 하위 40% 제외.
        예전의 '후보/관망(시장 위험이면 관망)' 개념은 없앴습니다 — 검증에서 종목 매매에 시장
@@ -83,21 +95,18 @@ def pick_entry(stocks, judge=None):
     for s in stocks.values():
         if (s.get("tvr") or 0) < 40:
             continue
-        if not (s.get("pull") or s.get("sig") == "buy"):
+        if s.get("action") != "buy":
             continue
         out.append(dict(s))
-    # 눌림 먼저, 그다음 RS 높은 순 — 앱의 '신호순' 과 같은 순서
-    out.sort(key=lambda x: (0 if x.get("pull") else 1, -(x.get("rs") or 0)))
+    # 앱 '신호순' 과 같은 순서: 눌림·강세 → 추세, 그 안에서 RS 높은 순
+    out.sort(key=lambda x: (0 if x.get("why") in ("pull", "strong") else 1, -(x.get("rs") or 0)))
     return out
 
 
 def pick_oversold(stocks):
     """★ 미국 종목만. 한국은 검증에서 −7.24%(유의하게 손해)라 제외합니다."""
-    out = [s for s in stocks.values()
-           if s.get("m") == "us"
-           and (s.get("tvr") or 0) >= 40
-           and (s.get("w52p") is not None and s["w52p"] <= -40)
-           and (s.get("hlt") or 0) >= 0.6]
+    # 앱 급락 탭의 '관찰' 과 같은 판정 (파이프라인 dip=watch): −25%↓ · 3년 건강 60%↑ · 흑자 · 20일선 회복
+    out = [s for s in stocks.values() if s.get("m") == "us" and (s.get("tvr") or 0) >= 40 and s.get("dip") == "watch"]
     out.sort(key=lambda x: x.get("w52p") or 0)
     return out
 
@@ -145,22 +154,29 @@ def build(snap, mkt, state, now):
     # ── 1.4 내 보유·관심 — 이것만 따로 먼저 알립니다 (남의 종목보다 내 종목이 먼저) ──
     mine, etfs_all = [], snap.get("etfs", {})
     look = lambda t: stocks.get(t) or etfs_all.get(t)
+    def tr_of(p):
+        tr = p.get("tr") if isinstance(p.get("tr"), list) and p.get("tr") else [{"px": p.get("avg"), "amt": p.get("amt") or 0}]
+        return [t for t in tr if t.get("px")]
     for p in (wl.get("positions") or []):
         d = look(p.get("t"))
         if not d: continue
-        pl = ((d.get("c") or 0) / p["avg"] - 1) * 100 if p.get("avg") else None
-        out = p.get("role") != "long" and d.get("stSlow") == 0
-        mine.append((out, f"   {'🔴 매도' if out else '🟢 유지'} <b>{d.get('n') or p['t']}</b> "
-                          f"{price(d.get('c'), d.get('m'))}"
-                          + (f" {pct(pl)}" if pl is not None else "")
-                          + (f" · 트레일링선 {price(d.get('stLine'), d.get('m'))}" if d.get("stLine") else "")))
+        tr = tr_of(p); amt = sum(t.get("amt") or 0 for t in tr); sh = sum((t.get("amt") or 0) / t["px"] for t in tr)
+        avg = (amt / sh) if sh else (tr[0]["px"] if tr else None)
+        pl = ((d.get("c") or 0) / avg - 1) * 100 if avg else None
+        out = p.get("role") != "long" and act_of(d, True) == "sell"
+        line = (f"   {ACT['sell'] if out else ACT['hold']} <b>{d.get('n') or p['t']}</b> {price(d.get('c'), d.get('m'))}"
+                + (f" {pct(pl)}" if pl is not None else "")
+                + (f" · 트레일링선 {price(d.get('stLine'), d.get('m'))}" if d.get("stLine") else ""))
+        # 2회차 조건: 1회차뿐이고 1회차 매수가 +3% 넘게 마감 · 느린ST 초록
+        if p.get("role") == "swing" and len(tr) == 1 and d.get("c") and d.get("stSlow") == 1 and d["c"] >= tr[0]["px"] * 1.03:
+            line += f"\n      ✅ <b>2회차 조건 도달</b> (1회차 +3% = {price(tr[0]['px'] * 1.03, d.get('m'))} 넘음) — 나머지 절반"
+        mine.append((out, line))
     buys = []
     for t in (wl.get("watch") or []):
         d = look(t)
         if not d: continue
-        if d.get("pull") or d.get("sig") == "buy":
-            buys.append(f"   {'⭐ 눌림' if d.get('pull') else '🟢 매수'} <b>{d.get('n') or t}</b> "
-                        f"{price(d.get('c'), d.get('m'))} · RS {int(d.get('rs') or 0)}")
+        if d.get("action") == "buy":
+            buys.append(f"   {act_txt(d)} <b>{d.get('n') or t}</b> {price(d.get('c'), d.get('m'))} · RS {int(d.get('rs') or 0)}")
     if mine or buys:
         L.append("")
         L.append("📁 <b>내 종목</b>")
@@ -223,38 +239,38 @@ def build(snap, mkt, state, now):
     # ── 3. 신호 (앱 발굴탭과 같은 목록·같은 순서) ─────────────
     L.append("")
     if entry:
-        npull = sum(1 for s in entry if s.get("pull"))
         nkr = sum(1 for s in entry if s["m"] == "kr")
-        head = f"🔍 <b>신호 {len(entry)}</b> <i>(⭐눌림 {npull} · 🟢매수 {len(entry)-npull} · 🇰🇷{nkr} 🇺🇸{len(entry)-nkr})</i>"
+        kinds = {}
+        for s in entry: kinds[WHY.get(s.get("why"), "기타")] = kinds.get(WHY.get(s.get("why"), "기타"), 0) + 1
+        head = f"🔍 <b>매수! {len(entry)}</b> <i>({' · '.join(f'{k} {v}' for k, v in kinds.items())} · 🇰🇷{nkr} 🇺🇸{len(entry)-nkr})</i>"
         if new_entry: head += f" (신규 {len(new_entry)})"
         L.append(head)
         for s in entry[:MAX_ROWS]:
             mark = "🆕 " if is_new("entry", s["t"]) else ""
             flag = "🇰🇷" if s["m"] == "kr" else "🇺🇸"
-            kind = "⭐눌림" if s.get("pull") else "🟢매수"
-            trig = " · 재돌파" if s.get("brk") else (" · ST전환" if s.get("stFlip") else "")
-            L.append(f"{mark}{flag} <b>{s['n']}</b> {price(s['c'], s['m'])} {pct(s.get('d1'))} {kind}")
-            L.append(f"   RS {int(s.get('rs') or 0)}{trig} · 트레일링선 {price(s.get('stLine'), s['m'])}"
-                     f" · 대금 {money(s.get('tv'), s['m'])}")
+            f = s.get("fin") or {}
+            fin = (f" · 매출 {f['rev']:+.0f}%" if f.get("rev") is not None else "") + (" · 적자" if f.get("prof") is False else "")
+            gap = f" · 선까지 {(s['c'] / s['stLine'] - 1) * 100:.0f}%" if s.get("stLine") and s.get("c") else ""
+            L.append(f"{mark}{flag} <b>{s['n']}</b> {price(s['c'], s['m'])} {pct(s.get('d1'))} {act_txt(s)}")
+            L.append(f"   RS {int(s.get('rs') or 0)}{gap} · 대금 {money(s.get('tv'), s['m'])}{fin}")
         if len(entry) > MAX_ROWS:
             L.append(f"   … 외 {len(entry)-MAX_ROWS}종목")
-        L.append("<i>⭐눌림 = 추세 안에서 RSI 45 회복 (검증 1위) · 🟢매수 = ST 3개 초록+구름 위+RS 70↑ · 매도 = 트레일링선 아래 마감</i>")
+        L.append("<i>눌림 🇰🇷 = 추세 안 RSI 45 회복 · 강세 🇺🇸 = 추세 안 RSI 60↑ · 추세 = ST 3개 초록+구름 위 · 매도! = 트레일링선 아래 마감</i>")
     else:
-        L.append("🔍 <b>신호 없음</b> — 오늘은 살 것이 없습니다")
+        L.append("🔍 <b>매수! 없음</b> — 오늘은 살 것이 없습니다")
 
     # ── 4. 장기 관찰 (과매도) ─────────────────────────────
     if new_over:
         L.append("")
-        L.append(f"🔵 <b>장기 관찰 신규 {len(new_over)}</b> <i>(전체 {len(over)} · 🇺🇸 전용)</i>")
+        L.append(f"🔵 <b>급락 관찰 신규 {len(new_over)}</b> <i>(전체 {len(over)} · 🇺🇸 · 참고용 · 소액 장기만)</i>")
         for s in new_over[:5]:
-            warn = " ⚠️구조훼손 의심" if (s.get("ma200p") or 0) < -50 else ""
-            L.append(f"🆕 <b>{s['n']}</b> 고점대비 {pct(s.get('w52p'),0)} · "
-                     f"{yrs(s.get('hltY'))}년건강 {int((s.get('hlt') or 0)*100)}% · RSI {s.get('rsi',0):.0f}{warn}")
+            L.append(f"🆕 관찰 <b>{s['n']}</b> 고점대비 {pct(s.get('w52p'),0)} · "
+                     f"{yrs(s.get('hltY'))}년건강 {int((s.get('hlt') or 0)*100)}% · 20일선 회복")
 
     # ── 5. 청산 규칙 한 줄 (매번 같은 말을 하도록) ────────
     L.append("")
-    L.append("<i>🟢 매수신호 = 슈퍼트렌드 3개 초록 + 구름 위 + RS 70↑ · 매도 = 느린 슈퍼트렌드(12,3) 빨강</i>")
-    L.append("<i>🔵 장기 관찰 = 미국 전용 · 손절 없이 12~24개월\n🏦 DC = 국내 상장 ETF로 매수 · 판단은 미국 원본 신호</i>")
+    L.append("<i>매수 = 한도의 절반 → 1회차 +3% 확인 후 나머지 절반 · 매도! = 트레일링선(느린 ST) 아래 마감 · 그 외 손절·타임컷 없음</i>")
+    L.append("<i>🔵 급락 관찰 = 참고용 · 손절 없이 12~24개월 · 소액\n🏦 DC = 국내 상장 ETF로 매수 · 판단은 미국 원본 신호</i>")
 
     # ── 6. 데이터 상태 ────────────────────────────────────
     cnt = meta.get("counts", {})
@@ -293,6 +309,58 @@ def send(text):
         return False
 
 
+def build_weekly(snap, mkt, now):
+    """토요일 주간 리포트 — 점검 탭 5단계를 읽기만 해도 채울 수 있게"""
+    stocks = snap.get("stocks", {}); meta = snap.get("meta", {})
+    live = mkt.get("live") or {}
+    L = [f"📅 <b>주간 점검</b> {now.strftime('%m/%d')} (토)"]
+    # 1 종목풀
+    try: uni = json.load(open(f"{DATA}/universe_log.json", encoding="utf-8"))
+    except Exception: uni = None
+    if uni:
+        L.append(f"1️⃣ 종목풀 {uni.get('prevTotal')} → {uni.get('total')} · ➕{len(uni.get('added') or [])} ➖{len(uni.get('removed') or [])}")
+        if uni.get("added"):   L.append("   ➕ " + ", ".join(x["n"] for x in uni["added"][:6]))
+        if uni.get("removed"): L.append("   ➖ " + ", ".join(x["n"] for x in uni["removed"][:6]))
+    # 2 내 종목
+    try: wl = json.load(open(f"{DATA}/watchlist.json", encoding="utf-8"))
+    except Exception: wl = {}
+    ps = wl.get("positions") or []
+    sells = [p for p in ps if p.get("role") != "long" and (stocks.get(p["t"]) or {}).get("action") == "sell"]
+    near = []
+    for p in ps:
+        d = stocks.get(p["t"]) or {}
+        if d.get("stLine") and d.get("c") and d.get("stSlow") == 1 and (d["c"] / d["stLine"] - 1) * 100 < 5: near.append(d.get("n") or p["t"])
+    L.append(f"2️⃣ 내 종목 {len(ps)} · 매도! {len(sells)} · 트레일링선 여유 5% 미만 {len(near)}" + (f" ({', '.join(near[:4])})" if near else ""))
+    # 3 실전 성적
+    summ = live.get("summary") or {}
+    if summ:
+        parts = []
+        for k, v in summ.items():
+            if k.endswith(":all"): continue
+            kind, m = k.split(":"); parts.append(f"{ {'pull':'눌림','strong':'강세','buy':'추세'}.get(kind, kind)}{'🇰🇷' if m=='kr' else '🇺🇸'} {v['n']}건 승률{v['win']:.0f}% 지수대비{v['excess']:+.1f}%p" if v.get("excess") is not None else f"{kind}{m} {v['n']}건 승률{v['win']:.0f}%")
+        L.append("3️⃣ 실전 성적(20일): " + " · ".join(parts))
+    else:
+        L.append(f"3️⃣ 실전 성적: 기록 {live.get('n', 0)}건 · 20거래일 뒤부터 집계 (대기 {live.get('pending', 0)})")
+    dr = live.get("drift")
+    if dr and dr.get("flag"): L.append("   🚨 <b>규칙 재검토</b>: " + " · ".join(dr["reasons"]))
+    # 4 이번 주 신호 수
+    try: log = json.load(open(f"{DATA}/signals_log.json", encoding="utf-8"))
+    except Exception: log = []
+    wk = (now - timedelta(days=7)).strftime("%Y-%m-%d")
+    week = [x for x in log if x.get("d", "") >= wk]
+    L.append(f"4️⃣ 이번 주 신호 {len(week)}건 (🇰🇷 {sum(1 for x in week if x['m']=='kr')} · 🇺🇸 {sum(1 for x in week if x['m']!='kr')})")
+    # 5 DC
+    dc = mkt.get("dc") or {}
+    dual = dc.get("dual") or {}
+    if dual.get("cands"):
+        L.append("5️⃣ DC 듀얼 모멘텀: " + " · ".join(f"{c['label']} {c['score']:+.1f}%{' ●' if c['sig'] in (dual.get('hold') or []) else ''}" for c in dual["cands"]))
+    for c in (dc.get("core") or []):
+        L.append(f"   느린ST 규칙 {c.get('label')}: {'보유' if c.get('state')=='hold' else '대기'}")
+    h = meta.get("health") or {}
+    L.append(f"<i>🩺 {h.get('kept','?')}종목 · {meta.get('generatedKST','')} · 전략 결정은 앱 점검 탭 5번에 한 줄</i>")
+    L.append(f'<a href="{APP_URL}">점검 탭 열기 →</a>')
+    return "\n".join(L)
+
 def main():
     snap = load(f"{DATA}/snapshot.json")
     mkt  = load(f"{DATA}/market.json")
@@ -301,6 +369,10 @@ def main():
         return
     state = load(STATE, {}) or {}
     now = datetime.now(KST)
+
+    if os.environ.get("WEEKLY") == "1":          # 토요일 전체 스캔 뒤 주간 리포트 (daily.yml 이 넣어 줍니다)
+        text = build_weekly(snap, mkt, now)
+        print(text); send(text)
 
     text, n_new = build(snap, mkt, state, now)
     if text is None:
