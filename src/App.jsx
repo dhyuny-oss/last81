@@ -17,7 +17,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-export const APP_VERSION = "v8.0.0";
+export const APP_VERSION = "v8.1.0";
 
 /* ══════════════ 디자인 토큰 ══════════════ */
 const C = {
@@ -653,8 +653,10 @@ export default function App() {
                 const dr = Object.entries(h.dropped || {});
                 return (<>
                   <span style={{ color: C.emerald }}>🩺 {h.kept}종목 검사 통과</span>
+                  {h.mode === "focus" && <span style={{ color: C.gold }}> · 감시 모드 (전체 {h.fullUniverse} 중 신호 가능 종목만 · 토요일 전체 스캔)</span>}
                   {h.byMarket && <> (🇰🇷 {h.byMarket.kr?.kept ?? 0} · 🇺🇸 {h.byMarket.us?.kept ?? 0})</>}
                   {h.exchange && <> · 코스피 {h.exchange.KS} / 코스닥 {h.exchange.KQ}</>}
+                  {market?.breadthAsOf && h.mode === "focus" && <> · 폭은 {market.breadthAsOf.slice(5)} 전체 스캔 기준</>}
                   {dr.length > 0 && <><br />제외 {dr.map(([k, v]) => `${k} ${v}`).join(" · ")}</>}
                   {h.failed > 0 && <> · 수집 실패 {h.failed}</>}
                 </>);
