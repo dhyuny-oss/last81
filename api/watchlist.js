@@ -42,11 +42,38 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(200).end();
 
+  // ★ 쓰기는 암호가 있어야 합니다. 이 주소는 공개돼 있어서, 막지 않으면
+  //   누구나 내 보유·관심 목록을 덮어쓸 수 있습니다. 읽기(GET)는 그대로 열어 둡니다.
+  const KEY = process.env.REFRESH_KEY || "";
+  if (req.method !== "GET" && KEY && (req.headers["x-key"] || "") !== KEY) {
+    return res.status(401).json({ ok: false, error: "암호가 필요합니다 (x-key)" });
+  }
+
   try {
     // GET - 관심종목 목록 조회
     if (req.method === "GET") {
       const { content } = await getFile();
       return res.status(200).json(content);
+    }
+
+    // POST (bulk) - 앱의 보유/관심을 통째로 저장 → 텔레그램 알림이 이 목록을 봅니다
+    if (req.method === "POST" && req.body && req.body.bulk) {
+      const { positions = [], watch = [] } = req.body;
+      if (!Array.isArray(positions) || !Array.isArray(watch))
+        return res.status(400).json({ error: "positions/watch 배열 필요" });
+      if (positions.length > 100 || watch.length > 200)
+        return res.status(400).json({ error: "목록이 너무 깁니다" });
+      const { content, sha } = await getFile();
+      content.positions = positions.map(p => ({
+        t: String(p.t || "").slice(0, 12), avg: Number(p.avg) || 0,
+        role: ["swing", "long", "etf"].includes(p.role) ? p.role : "swing",
+        date: String(p.date || "").slice(0, 10),
+      })).filter(p => p.t);
+      content.watch = watch.map(t => String(t).slice(0, 12)).filter(Boolean);
+      content.updatedAt = new Date().toISOString();
+      const ok = await saveFile(content, sha);
+      return res.status(ok ? 200 : 500).json({
+        ok, message: ok ? `보유 ${content.positions.length} · 관심 ${content.watch.length} 저장됨` : "저장 실패" });
     }
 
     // POST - 관심종목 추가
