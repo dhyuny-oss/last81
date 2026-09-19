@@ -74,6 +74,8 @@ jobs:
       # ② 앱이 읽는 지표 스냅샷 — 매번. 외부 라이브러리 없이 표준 라이브러리만 씁니다
       #    종목의 80% 미만만 수집되면 일부러 실패하고 기존 데이터를 지킵니다
       - name: Build snapshot
+        env:
+          FOCUS: ${{ (github.event_name == 'schedule' && github.event.schedule != '13 0 * * 6') && '1' || '0' }}
         run: python scripts/build_snapshot.py
 
       - name: Show result
@@ -103,7 +105,7 @@ jobs:
           # ★ git add 는 없는 파일을 지정하면 통째로 실패합니다
           #   (notified.json 은 텔레그램 첫 발송 전엔 없습니다) → 있는 것만 담습니다
           # ★ alloc_state.json 을 빼먹으면 배분탭 '분기 고정'이 매번 초기화됩니다
-          for f in stocks.json alpha_hits.json snapshot.json market.json notified.json alloc_state.json data_health.json universe_log.json bars; do
+          for f in stocks.json alpha_hits.json snapshot.json market.json notified.json alloc_state.json data_health.json universe_log.json signals_log.json bars; do
             [ -e "public/data/$f" ] && git add -A "public/data/$f"
           done
           git diff --staged --quiet || (
