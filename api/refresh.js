@@ -25,6 +25,12 @@
 
 const REPO = process.env.GH_REPO || "dhyuny-oss/last81";
 const WF = process.env.GH_WORKFLOW || "daily.yml";
+// 앱에서 고를 수 있는 워크플로 — 허용 목록에 있는 것만 실행합니다
+const WF_ALLOW = { data: WF, financials: "quarterly-us.yml" };
+const pickWF = (req) => {
+  const k = (req.query?.wf || req.body?.wf || "data");
+  return WF_ALLOW[k] || WF;
+};
 const API = "https://api.github.com";
 
 const gh = (path, init = {}) =>
@@ -54,12 +60,12 @@ export default async function handler(req, res) {
   /* ── 상태 조회 — 누구나 볼 수 있게 둡니다(실행은 못 함) ── */
   if (req.method === "GET") {
     try {
-      const r = await gh(`/repos/${REPO}/actions/workflows/${WF}/runs?per_page=30`);
+      const r = await gh(`/repos/${REPO}/actions/workflows/${pickWF(req)}/runs?per_page=30`);
       if (!r.ok) {
         const t = await r.text();
         return res.status(502).json({ ok: false, code: "GH_" + r.status,
           msg: r.status === 404
-            ? `워크플로 ${WF} 를 찾지 못했습니다. .github/workflows/${WF} 가 있는지 확인해 주세요.`
+            ? `워크플로 ${pickWF(req)} 를 찾지 못했습니다. .github/workflows/${pickWF(req)} 가 있는지 확인해 주세요.`
             : `깃허브가 ${r.status} 를 돌려줬습니다. 토큰 권한(Actions 읽기/쓰기)을 확인해 주세요.`,
           detail: t.slice(0, 300) });
       }
@@ -72,7 +78,7 @@ export default async function handler(req, res) {
       const manual = runs.filter(x => x.event === "workflow_dispatch");
       const lastManual = manual[0] || null;
       const sinceMin = lastManual ? Math.floor((Date.now() - new Date(lastManual.started).getTime()) / 60000) : null;
-      return res.status(200).json({ ok: true, repo: REPO, workflow: WF, running: !!live, live, runs,
+      return res.status(200).json({ ok: true, repo: REPO, workflow: pickWF(req), running: !!live, live, runs,
         needKey: !OPEN, open: OPEN,
         cooldownMin: (OPEN && sinceMin != null && sinceMin < MIN_GAP_MIN) ? MIN_GAP_MIN - sinceMin : 0 });
     } catch (e) {
@@ -90,7 +96,7 @@ export default async function handler(req, res) {
     }
     try {
       // 이미 돌고 있으면 또 시작하지 않습니다 (무료 한도 낭비 방지)
-      const cur = await gh(`/repos/${REPO}/actions/workflows/${WF}/runs?per_page=30`);
+      const cur = await gh(`/repos/${REPO}/actions/workflows/${pickWF(req)}/runs?per_page=30`);
       if (cur.ok) {
         const j = await cur.json();
         const all = j.workflow_runs || [];
@@ -116,14 +122,14 @@ export default async function handler(req, res) {
           }
         }
       }
-      const r = await gh(`/repos/${REPO}/actions/workflows/${WF}/dispatches`, {
+      const r = await gh(`/repos/${REPO}/actions/workflows/${pickWF(req)}/dispatches`, {
         method: "POST", body: JSON.stringify({ ref: "main" }),
       });
       if (r.status !== 204) {
         const t = await r.text();
         return res.status(502).json({ ok: false, code: "GH_" + r.status,
           msg: r.status === 403 ? "토큰에 Actions 쓰기 권한이 없습니다."
-             : r.status === 404 ? `워크플로 ${WF} 를 못 찾았거나 토큰이 이 저장소에 접근할 수 없습니다.`
+             : r.status === 404 ? `워크플로 ${pickWF(req)} 를 못 찾았거나 토큰이 이 저장소에 접근할 수 없습니다.`
              : `깃허브가 ${r.status} 를 돌려줬습니다.`,
           detail: t.slice(0, 300) });
       }
