@@ -8,12 +8,14 @@
 ★ 신호를 새로 계산하지 않습니다. 앱이 정해 둔 stLine(트레일링 손절선)과
   내가 정한 퍼센트만 현재가와 비교합니다. 규칙을 흔들지 않기 위해서입니다.
 
+확인하는 것 두 가지뿐입니다 (앱·텔레그램과 같은 규칙):
+  1) 매도!  — 현재가가 트레일링선(느린 ST) 아래 → "종가까지 보고, 아래로 마감하면 매도"
+  2) 2회차  — 1회차만 들고 있고 현재가가 1회차 매수가 +3% 이상 → "나머지 절반"
+  −3% 손절·고점 −5%·타임컷은 검증에서 성과를 깎아 보지 않습니다.
+
 환경변수
   TG_TOKEN / TG_CHAT   텔레그램 (없으면 화면 출력만)
   BASE                 데이터 주소 (기본 https://last81.vercel.app)
-  ADD_PCT  +3          추가매수 알림 기준
-  HOLD_PCT +5          대기 알림 기준
-  CUT_PCT  -3          손절 알림 기준
   STATE                중복 방지 파일 (기본 watch_state.json)
 """
 import json, os, sys, urllib.request
@@ -22,9 +24,6 @@ from datetime import datetime, timezone, timedelta
 KST   = timezone(timedelta(hours=9))
 BASE  = os.environ.get("BASE", "https://last81.vercel.app")
 STATE = os.environ.get("STATE", "watch_state.json")
-ADD   = float(os.environ.get("ADD_PCT", 3))
-HOLD  = float(os.environ.get("HOLD_PCT", 5))
-CUT   = float(os.environ.get("CUT_PCT", -3))
 UA    = {"User-Agent": "Mozilla/5.0"}
 
 def get(url, timeout=20):
@@ -106,14 +105,12 @@ def main():
         name, cur = d.get("n") or p["t"], f"{px:,.2f}" if d.get("m") != "kr" else f"{px:,.0f}"
         hits = []
         line = d.get("stLine")
-        if line and d.get("stSlow") == 1 and px < line:
-            hits.append(("line", f"🔻 <b>{name}</b> 트레일링선 이탈 — 현재 {cur} / 선 {line:,.0f}\n"
-                                 f"   종가가 선 아래로 마감하면 매도"))
-        if p.get("avg"):
-            pl = (px / p["avg"] - 1) * 100
-            if pl <= CUT:   hits.append(("cut",  f"🔴 <b>{name}</b> {pl:+.1f}% — 손절 기준({CUT}%) 도달"))
-            elif pl >= HOLD: hits.append(("hold", f"🟡 <b>{name}</b> {pl:+.1f}% — 대기 구간({HOLD}%↑)"))
-            elif pl >= ADD:  hits.append(("add",  f"🟢 <b>{name}</b> {pl:+.1f}% — 추가매수 기준({ADD}%) 도달"))
+        if line and px < line:
+            hits.append(("sell", f"🔴 <b>매도! 후보</b> {name} — 현재 {cur} < 트레일링선 {line:,.0f}\n"
+                                 f"   종가가 선 아래로 마감하면 매도 (앱·텔레그램 저녁 판정과 같은 기준)"))
+        tr = p.get("tr") if isinstance(p.get("tr"), list) and p.get("tr") else ([{"px": p.get("avg")}] if p.get("avg") else [])
+        if p.get("role") == "swing" and len(tr) == 1 and tr[0].get("px") and d.get("stSlow") == 1 and px >= tr[0]["px"] * 1.03:
+            hits.append(("t2", f"🟢 <b>2회차 조건</b> {name} — 현재 {cur} ≥ 1회차 +3% ({tr[0]['px'] * 1.03:,.0f}) · 나머지 절반"))
         for kind, text in hits:
             key = f"{p['t']}:{kind}"
             if state.get(key) == today: continue     # 하루 한 번만
@@ -122,7 +119,7 @@ def main():
 
     if msgs:
         send(f"⏱ <b>장중 감시</b> {now:%m/%d %H:%M} KST\n\n" + "\n\n".join(msgs)
-             + "\n\n<i>신호를 새로 계산하지 않고 앱이 정한 선과 내 퍼센트만 비교합니다</i>")
+             + "\n\n<i>신호를 새로 계산하지 않고 앱이 정한 트레일링선과 2회차 조건만 봅니다</i>")
         print(f"{len(msgs)}건 알림")
     else:
         print(f"{now:%m-%d %H:%M} 해당 없음 (보유 {len(wl.get('positions') or [])})")
