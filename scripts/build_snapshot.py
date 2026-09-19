@@ -23,7 +23,7 @@ Alpha Terminal v4 — 지표 스냅샷 파이프라인
 import json, os, sys, time, math, urllib.request
 from datetime import datetime, timezone, timedelta
 
-VERSION   = "6.7.0"
+VERSION   = "7.0.0"
 UA        = {"User-Agent": "Mozilla/5.0"}
 OUT_DIR   = "public/data"
 KST       = timezone(timedelta(hours=9))
@@ -40,6 +40,12 @@ BREADTH_DAYS = 756       # 폭 백분위 기준 기간 (3년)
 BREADTH_GATE = 40        # 한국: 폭 백분위가 이 아래면 위험
 
 # ── 섹터 ETF (감마 통합: 12종) ────────────────────────────────
+# GICS 업종명(위키피디아) → 섹터 ETF. 종목의 업종이 섹터 순위 몇 위인지 연결하는 표입니다.
+GICS_TO_ETF = {
+    "Information Technology": "XLK", "Financials": "XLF", "Energy": "XLE", "Health Care": "XLV",
+    "Consumer Discretionary": "XLY", "Consumer Staples": "XLP", "Industrials": "XLI", "Utilities": "XLU",
+    "Materials": "XLB", "Communication Services": "XLC", "Real Estate": "XLRE",
+}
 SECTOR_ETFS = {
     "XLK":"기술","XLF":"금융","XLE":"에너지","XLV":"헬스케어","XLY":"소비재",
     "XLP":"필수소비","XLI":"산업재","XLU":"유틸리티","XLB":"소재","XLC":"커뮤니케이션",
@@ -416,6 +422,8 @@ def build_stock(ticker, cd, meta, name, market, sector):
             else: break
     rs_ser = rsi_series(c)
     d["stSlow"]   = None if slow is None else (1 if slow == 1 else 0)
+    _ma20 = sma(c, 20)
+    d["ma20p"]    = _r((px / _ma20 - 1) * 100) if _ma20 else None      # 급락 탭 '반등 확인' 용
     # ★ 트레일링 손절선 — 느린 슈퍼트렌드의 실제 선 값. 화면에 "여기 깨지면 매도"를 숫자로 보여주기 위해
     d["stLine"]   = _r(sl_line[-1], 0 if d["c"] >= 2000 else 2) if sl_line and sl_line[-1] is not None else None
     d["slowDays"] = days                       # 느린 선이 지금 색으로 바뀐 뒤 경과 봉수
@@ -509,6 +517,7 @@ def build_breadth(hist):
 
 
 SEC_CD = {}   # build_market 이 받은 섹터·KODEX200 캔들 (DC 계산에 재사용)
+DC_CD  = {}   # DC 후보 ETF 원본 캔들 (듀얼 모멘텀 12개월 점수용)
 
 def build_market():
     idx = {}
@@ -695,6 +704,29 @@ KR_SECT = [
 ]
 DC_WEIGHTS = {"us": 0.35, "kr": 0.35, "safe": 0.30}
 
+def fin_flags(stocks):
+    """미국 재무 참고 배지 — stocks.json 의 financials(연간 2개년)에서. 검증 불가라 조건이 아니라 '참고'입니다."""
+    try:
+        fin = json.load(open(f"{OUT_DIR}/stocks.json", encoding="utf-8")).get("financials") or {}
+    except Exception:
+        fin = {}
+    n = 0
+    for tk, d in stocks.items():
+        f = fin.get(tk)
+        if not isinstance(f, dict): continue
+        inc = f.get("income") or {}
+        la, pr = inc.get("latest") or {}, inc.get("prior") or {}
+        rev, rev0 = la.get("revenue"), pr.get("revenue")
+        ni, op = la.get("netIncome"), la.get("operatingIncome")
+        d["fin"] = {
+            "rev": _r((rev / rev0 - 1) * 100, 1) if rev and rev0 else None,     # 매출 전년比 %
+            "opm": _r(op / rev * 100, 1) if op is not None and rev else None,   # 영업이익률 %
+            "prof": (ni is not None and ni > 0),                                 # 흑자 여부
+            "fy": la.get("endDate"),
+        }
+        n += 1
+    print(f"  📑 재무 배지: {n}종목 (미국, 참고용)")
+
 def _mom(cd):
     m = {k: chg(cd, n) for k, n in (("m3",63),("m6",126),("m9",189),("m12",252))}
     vals = [v for v in m.values() if v is not None]
@@ -714,6 +746,12 @@ def _state(d):
     if d is None or d.get("stSlow") is None: return "unknown"
     return "hold" if d["stSlow"] == 1 else "wait"
 
+def market_fx():
+    try:
+        return json.load(open(f"{OUT_DIR}/market.json", encoding="utf-8")).get("fx", {}).get("usdkrw")
+    except Exception:
+        return None
+
 def build_dc(secs, series):
     """반환: (etfs, dc) — etfs 는 차트·추적에서 종목처럼 쓰는 지표 묶음"""
     etfs, rank = {}, {s["tk"]: s for s in secs}
@@ -725,6 +763,7 @@ def build_dc(secs, series):
             cd, meta = fetch_candles(us); time.sleep(0.25)
         if len(cd) < 260:
             print(f"  ⚠️ DC {us} 캔들 부족 {len(cd)}"); continue
+        DC_CD[us] = cd
         d = build_stock(us, cd, meta, f"{label} ({us})", "us", label)
         m, sc = _mom(cd)
         d.update({k: _r(v) for k, v in m.items()}); d["score"] = _r(sc)
@@ -746,6 +785,7 @@ def build_dc(secs, series):
             cd, meta = fetch_candles(code + ".KS"); time.sleep(0.2)
         if len(cd) < 260:
             print(f"  ⚠️ DC {code} 캔들 부족 {len(cd)}"); continue
+        DC_CD[code] = cd
         d = build_stock(code, cd, meta, name, "kr", "업종")
         m, sc = _mom(cd)
         d.update({k: _r(v) for k, v in m.items()}); d["score"] = _r(sc)
@@ -758,7 +798,35 @@ def build_dc(secs, series):
                      key=lambda t: -(etfs[t]["score"] if etfs[t]["score"] is not None else -9999))
     kr_sect = sorted(kr_rows, key=lambda t: -(etfs[t]["score"] if etfs[t]["score"] is not None else -9999))
     spy, k200 = etfs.get("SPY"), etfs.get(DC_KR[0])
+    # ★ 듀얼 모멘텀 균형형 (검증: DC 70/30 기준 연 +12.5%·MDD −20%·샤프 0.92 vs 현행 +7.2%·−10%·1.04)
+    #   후보 3개(나스닥100·S&P500·코스피200)의 3·6·12개월 평균 수익률 상위 2개를 반반. 매월 1거래일 교체.
+    #   ※ 느린ST 필터와 섞으면 성과가 크게 떨어져(19.7→9.5%) 섞지 않습니다 — 현행 규칙과 '택일'.
+    fx = market_fx()
+    def krw_score(d):      # 3·6·12개월 평균 수익률 (원본 캔들 기준)
+        cd = DC_CD.get(d["t"]) if d else None
+        if not cd or len(cd) < 253: return None
+        c = [x["c"] for x in cd]
+        vals = [c[-1] / c[-1-n] - 1 for n in (63, 126, 252)]
+        return _r(sum(vals) / 3 * 100, 2)
+    cands = []
+    for key, d, veh in (("QQQ", etfs.get("QQQ"), (etfs.get("QQQ") or {}).get("veh")),
+                        ("SPY", spy, (spy or {}).get("veh")),
+                        (DC_KR[0], k200, {"code": DC_KR[0], "name": DC_KR[1]})):
+        sc = krw_score(d)
+        if sc is None: continue
+        # 미국 ETF 는 달러 수익 + 환율 변화 근사 (fx 시계열이 없으면 달러 수익 그대로)
+        cands.append({"sig": key, "label": {"QQQ": "나스닥100", "SPY": "S&P500"}.get(key, "코스피200"),
+                      "score": sc, "buy": veh, "slow": (d or {}).get("stSlow")})
+    cands.sort(key=lambda x: -x["score"])
+    top2 = [c["sig"] for c in cands[:2] if c["score"] > 0]
+    smh = etfs.get("SMH")
+    dual = {"cands": cands, "hold": top2, "asOf": (spy or {}).get("asOf"),
+            "rule": "매월 1거래일: 나스닥100·S&P500·코스피200 중 3·6·12개월 평균 상위 2개를 반반. 점수가 마이너스면 그 몫은 안전자산.",
+            "evidence": {"cagr": 12.5, "mdd": -20, "sharpe": 0.92, "period": "2010–26 원화·DC 70/30"}}
+    semi = {"sig": "SMH", "buy": (smh or {}).get("veh"), "state": _state(smh), "share": 0.10,
+            "rule": "위험자산 70% 중 10%를 반도체 ETF 고정 칸으로. 느린ST 초록일 때만 보유, 빨강이면 안전자산. 재량 베팅 대신 칸으로 묶습니다."} if smh else None
     dc = {
+        "dual": dual, "semi": semi,
         "weights": DC_WEIGHTS,
         "core": [
             {"key": "us", "sig": "SPY", "buy": (spy or {}).get("veh"), "state": _state(spy),
@@ -790,10 +858,13 @@ def update_signal_log(stocks, series, idx_series):
     have = {(x["t"], x["k"]) for x in log if (today[:10] and x["d"] >= _shift_days(today, -20))}
     added = 0
     for t, d in stocks.items():
-        for k in ("pull", "buy"):
-            fired = d.get("pull") if k == "pull" else (d.get("sig") == "buy")
+        for k in ("pull", "buy", "strong"):
+            fired = d.get("pull") if k == "pull" else (d.get("strong") if k == "strong" else d.get("trend3"))
             if fired and (t, k) not in have and d.get("asOf") and d.get("c"):
-                log.append({"d": d["asOf"], "t": t, "n": d.get("n"), "m": d["m"], "k": k, "p": d["c"]})
+                f = d.get("fin") or {}
+                log.append({"d": d["asOf"], "t": t, "n": d.get("n"), "m": d["m"], "k": k, "p": d["c"],
+                            "fin": {"rev": f.get("rev"), "prof": f.get("prof")} if f else None,   # 6개월 뒤 재무 유무별 성적 비교용
+                            "sec": d.get("sec")})
                 added += 1
     cutoff = _shift_days(today, -LOG_KEEP_DAYS) if today else ""
     log = [x for x in log if x["d"] >= cutoff]
@@ -820,7 +891,7 @@ def update_signal_log(stocks, series, idx_series):
     _write(LOG_FILE, log)
     # 요약 — 20거래일이 지난 신호만 성적으로 칩니다
     summ = {}
-    for k in ("pull", "buy"):
+    for k in ("pull", "buy", "strong"):
         for m in ("kr", "us", "all"):
             L = [x for x in log if x["k"] == k and (m == "all" or x["m"] == m) and x.get("r", {}).get("20") is not None]
             if len(L) < 3: continue
@@ -829,8 +900,21 @@ def update_signal_log(stocks, series, idx_series):
                                 "excess": _r(sum(ex) / len(ex), 2) if ex else None, "med": _r(sorted(r20)[len(r20) // 2], 2)}
     pending = sum(1 for x in log if x.get("r", {}).get("20") is None)
     done = sum(1 for x in log if x.get("r", {}).get("20") is not None)
+    # ★ 드리프트 경보 — 최근 30건 승률 20% 미만, 또는 20일 지수대비가 최근 8주 연속 마이너스면 "규칙 재검토"
+    recent = [x for x in log if x.get("r", {}).get("20") is not None][-30:]
+    drift = None
+    if len(recent) >= 30:
+        win = sum(1 for x in recent if x["r"]["20"] > 0) / len(recent) * 100
+        ex = [x["r"].get("x20") for x in recent if x["r"].get("x20") is not None]
+        exm = sum(ex) / len(ex) if ex else None
+        reasons = []
+        if win < 20: reasons.append(f"최근 30건 승률 {win:.0f}% (기준 20%)")
+        if exm is not None and exm < -3: reasons.append(f"최근 30건 지수대비 {exm:+.1f}%p")
+        drift = {"flag": bool(reasons), "win": _r(win, 0), "excess": _r(exm, 2) if exm is not None else None, "reasons": reasons}
+        if reasons: print("  🚨 드리프트 경보:", " · ".join(reasons))
     print(f"  📒 실전 장부: 기록 {len(log)}건 (+{added}) · 20일 성적 확정 {done} · 대기 {pending}")
-    return {"summary": summ, "n": len(log), "pending": pending, "since": min((x["d"] for x in log), default=None)}
+    return {"summary": summ, "n": len(log), "pending": pending, "since": min((x["d"] for x in log), default=None),
+            "drift": drift, "kinds": ["pull", "buy", "strong"]}
 
 def _shift_days(iso, n):
     try:
@@ -1140,22 +1224,47 @@ def main():
               f"이상 축소로 보고 쓰지 않고 종료합니다.")
         sys.exit(1)
 
-    # ★ 종목 매매 신호 (2026-09 검증 E규칙)
-    #   buy  = ST 3개 초록 + 구름 위 + RS 70 이상 (주도주만 새로 삽니다)
-    #   exit = 느린 ST(12,3) 빨강 (들고 있으면 팝니다)
-    #   keep = 그 사이 (들고 있으면 유지, 새로 사지는 않음)
-    # 화면·알림 어디서도 쓰지 않는 중간 계산값은 저장하지 않습니다 (스냅샷 용량)
-    DROP = ("atrp", "macdX", "stPrev", "vr", "vr5", "rsi45", "upTrend")
+    # ══════════════════════════════════════════════════════════
+    # ★ 행동 판정 — 여기서 한 번만 정합니다. 앱 4개 화면·텔레그램·장중 감시는 이 값을 읽기만 합니다.
+    #   action: buy(매수!) / watch(관망) / sell(매도!)   ※ hold(보유)는 '들고 있는지'를 아는 앱 쪽에서 붙입니다
+    #   why   : pull(눌림·한국) / strong(강세·미국) / trend(추세) — 왜 매수인지
+    #   검증(2008–26): 한국은 RSI 45 회복(눌림)이 모든 구간 +, 미국은 RSI 60 이상(강세)이 세 구간 모두 보유를 이김.
+    #   매도는 느린 슈퍼트렌드(12,3) 빨강 하나. −3%·고점−5%·2주 타임컷은 검증에서 성과를 깎아 쓰지 않습니다.
+    # ══════════════════════════════════════════════════════════
+    fin_flags(stocks)
     for d in stocks.values():
         rs_ok = (d.get("rs") or 0) >= 70
-        buy = d.get("st") == 3 and d.get("cloud") == 1 and rs_ok
-        # 눌림 진입 — 추세 안에서 쉬었다 다시 오르기 시작한 날 (검증 ①)
-        d["pull"] = bool(d.get("upTrend") and rs_ok and d.get("stSlow") == 1 and d.get("rsi45"))
-        d["sig"] = "buy" if buy else ("exit" if d.get("stSlow") == 0 else "keep")
+        up = bool(d.get("upTrend") and d.get("stSlow") == 1 and rs_ok)
+        d["pull"]   = bool(up and d.get("rsi45"))                                            # 한국형
+        d["strong"] = bool(up and (d.get("rsi") or 0) >= 60 and d["m"] == "us")              # 미국형
+        d["trend3"] = bool(d.get("st") == 3 and d.get("cloud") == 1 and rs_ok)                # 추세 확인형
+        d["sig"] = "buy" if d["trend3"] else ("exit" if d.get("stSlow") == 0 else "keep")    # (구버전 호환)
+        if d.get("stSlow") == 0:
+            d["action"], d["why"] = "sell", "st"
+        elif d["m"] == "kr" and d["pull"]:
+            d["action"], d["why"] = "buy", "pull"
+        elif d["m"] == "us" and d["strong"]:
+            d["action"], d["why"] = "buy", "strong"
+        elif d["trend3"]:
+            d["action"], d["why"] = "buy", "trend"
+        else:
+            d["action"], d["why"] = "watch", None
+        # 급락(과매도) 판정 — 참고용. 27번 재검증: 어떤 조합도 주도주 보유를 못 이김 → −40 특별취급 없앰
+        dd, hl = d.get("w52p"), d.get("hlt")
+        prof = (d.get("fin") or {}).get("prof")
+        rebound = bool(d.get("ma20p") is not None and d["ma20p"] > 0)
+        if dd is not None and hl is not None and dd <= -25 and hl >= 0.6:
+            broken = (d.get("ma200p") or 0) < -50
+            d["dip"] = "broken" if broken else ("watch" if (rebound and (prof or d["m"] == "kr")) else "wait")
+        else:
+            d["dip"] = None
+        # 업종 → 섹터 ETF
+        d["sec"] = GICS_TO_ETF.get(d.get("s") or "", None) if d["m"] == "us" else None
 
     # 변동성 백분위 — 시장 안에서 줄세우기 (미국 진입 신호로 사용)
     pct_fill(stocks, "atrp", "atrr", ref, focus)
     # 화면·알림 어디서도 쓰지 않는 중간값 제거는 모든 백분위 계산이 끝난 '뒤'에
+    DROP = ("atrp", "macdX", "stPrev", "vr", "vr5", "rsi45", "upTrend")
     for d in stocks.values():
         for k in DROP: d.pop(k, None)
 
