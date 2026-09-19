@@ -1321,6 +1321,29 @@ def fetch_pool_batch(pool, range_="6mo", batch_size=50, delay_between_batches=5)
         if kr_holiday:
             print("🏖️ 한국 휴장 — 미국 종목만 갱신")
 
+
+# ══════════════════════════════════════════════════════════════
+# 저장 전 캔들 다이어트 (2026-09)
+#   stocks.json 이 11MB 였고 그중 98% 가 종목별 캔들 127봉이었습니다.
+#   이 파일은 하루 두 번 통째로 커밋돼 저장소가 109MB 까지 불었습니다.
+#   · 알파 터미널은 이 파일을 읽지 않습니다 (snapshot.json / bars 사용)
+#   · 베타 터미널의 F-Score 는 RSI14·20일 박스·5일 변동만 씁니다 → 40봉이면 충분
+#   계산은 수집 직후 전체 봉으로 이미 끝났고, 여기서는 '저장할 분량'만 줄입니다.
+# ══════════════════════════════════════════════════════════════
+KEEP_CANDLES = 40
+
+def slim_candles(output):
+    cut = 0
+    for sec in ("stocks", "pool"):
+        for st in (output.get(sec) or {}).values():
+            cd = st.get("candles")
+            if isinstance(cd, list) and len(cd) > KEEP_CANDLES:
+                cut += len(cd) - KEEP_CANDLES
+                st["candles"] = cd[-KEEP_CANDLES:]
+    if cut:
+        print(f"  🧹 캔들 정리 — 저장 분량에서 {cut:,}봉 제외 (종목당 최근 {KEEP_CANDLES}봉 유지)")
+    return output
+
 def main():
     now_str = datetime.now(timezone.utc).isoformat()
     print(f"\n{'='*60}")
@@ -1524,6 +1547,25 @@ def main():
             if ticker not in pool:
                 pool[ticker] = info
                 print(f"  ➕ 관심종목 추가: {ticker} ({info.get('label','')})")
+
+        # ★ 주간 종목풀 점검 기록 — 무엇이 빠지고 무엇이 들어왔는지 남깁니다
+        prev_keys = set((existing.get("stocks") or {}).keys())
+        new_keys = set(pool.keys())
+        uni_log = {
+            "date": datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M KST"),
+            "total": len(new_keys), "prevTotal": len(prev_keys),
+            "added": [{"t": t, "n": pool[t].get("label", t), "m": pool[t].get("market", "us")}
+                      for t in sorted(new_keys - prev_keys)],
+            "removed": [{"t": t, "n": (existing.get("stocks") or {}).get(t, {}).get("label", t),
+                         "m": (existing.get("stocks") or {}).get(t, {}).get("market", "us")}
+                        for t in sorted(prev_keys - new_keys)],
+        }
+        with open("public/data/universe_log.json", "w", encoding="utf-8") as f:
+            json.dump(uni_log, f, ensure_ascii=False)
+        print(f"\n📦 주간 종목풀 점검: {len(prev_keys)} → {len(new_keys)}종목 "
+              f"(추가 {len(uni_log['added'])} · 제외 {len(uni_log['removed'])})")
+        for x in uni_log["added"][:8]:  print(f"   ➕ {x['n']} ({x['t']})")
+        for x in uni_log["removed"][:8]: print(f"   ➖ {x['n']} ({x['t']})")
 
         kr_pool = sum(1 for t,v in pool.items() if v.get("market")=="kr")
         us_pool = len(pool) - kr_pool
@@ -1784,6 +1826,7 @@ def main():
 
         # hourly는 섹터/breadth 스킵 → 바로 저장
         output["updatedAt"] = now_str
+        slim_candles(output)
         path = "public/data/stocks.json"
         with open(path,"w",encoding="utf-8") as f:
             json.dump(output, f, ensure_ascii=False, separators=(",",":"))
@@ -1850,6 +1893,7 @@ def main():
         print(f"  🇰🇷 상승 {kr_up} / 하락 {kr_down}")
         print(f"  🇺🇸 상승 {us_up} / 하락 {us_down}")
 
+    slim_candles(output)
     path = "public/data/stocks.json"
     with open(path,"w",encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, separators=(",",":"))
