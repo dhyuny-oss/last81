@@ -24,6 +24,9 @@
  */
 
 const REPO = process.env.GH_REPO || "dhyuny-oss/last81";
+// 토큰 이름을 둘 다 받습니다 — 예전엔 refresh 는 GH_TOKEN, watchlist 는 GITHUB_TOKEN 을 찾아
+// 하나만 설정하면 한쪽이 조용히 죽었습니다.
+const TOKEN = process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "";
 const WF = process.env.GH_WORKFLOW || "daily.yml";
 // 앱에서 고를 수 있는 워크플로 — 허용 목록에 있는 것만 실행합니다
 const WF_ALLOW = { data: WF, financials: "quarterly-us.yml" };
@@ -38,7 +41,7 @@ const gh = (path, init = {}) =>
     ...init,
     headers: {
       Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${process.env.GH_TOKEN}`,
+      Authorization: `Bearer ${TOKEN}`,
       "X-GitHub-Api-Version": "2022-11-28",
       "User-Agent": "alpha-terminal",
       ...(init.body ? { "Content-Type": "application/json" } : {}),
@@ -49,9 +52,9 @@ const gh = (path, init = {}) =>
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
 
-  if (!process.env.GH_TOKEN) {
+  if (!TOKEN) {
     return res.status(500).json({ ok: false, code: "NO_TOKEN",
-      msg: "Vercel 환경변수 GH_TOKEN 이 없습니다. Settings → Environment Variables 에서 추가하고 재배포해 주세요." });
+      msg: "Vercel 환경변수에 깃허브 토큰이 없습니다. Settings → Environment Variables 에 GH_TOKEN (또는 GITHUB_TOKEN) 을 추가하고 재배포해 주세요." });
   }
   const OPEN = !process.env.REFRESH_KEY;    // 암호를 안 넣으면 '열린 모드' + 자동 제한
   const MIN_GAP_MIN = 30;                   // 수동 실행 최소 간격
