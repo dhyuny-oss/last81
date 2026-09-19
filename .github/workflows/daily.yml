@@ -61,11 +61,14 @@ jobs:
 
       # ① 유니버스·종목명 — 16:00 과 토요일, 그리고 수동 실행에서만
       - name: Install dependencies
-        if: github.event.schedule != '23 21 * * 1-5'
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '13 0 * * 6'
         run: pip install yfinance requests
 
-      - name: Fetch universe (stocks.json)
-        if: github.event.schedule != '23 21 * * 1-5'
+      # ★ 종목풀은 주 1회만 새로 뽑습니다 (토요일 + 수동 실행)
+      #   예전엔 평일마다 730종목을 6개월치로 다시 받아 실행 시간의 대부분을 썼습니다.
+      #   풀이 매일 바뀌면 신호도 따라 흔들려서, 주 단위로 정리하는 편이 낫습니다.
+      - name: Fetch universe (stocks.json) — 주간 1회
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '13 0 * * 6'
         run: python scripts/fetch_yahoo.py
 
       # ② 앱이 읽는 지표 스냅샷 — 매번. 외부 라이브러리 없이 표준 라이브러리만 씁니다
@@ -100,7 +103,7 @@ jobs:
           # ★ git add 는 없는 파일을 지정하면 통째로 실패합니다
           #   (notified.json 은 텔레그램 첫 발송 전엔 없습니다) → 있는 것만 담습니다
           # ★ alloc_state.json 을 빼먹으면 배분탭 '분기 고정'이 매번 초기화됩니다
-          for f in stocks.json alpha_hits.json snapshot.json market.json notified.json alloc_state.json bars; do
+          for f in stocks.json alpha_hits.json snapshot.json market.json notified.json alloc_state.json data_health.json universe_log.json bars; do
             [ -e "public/data/$f" ] && git add -A "public/data/$f"
           done
           git diff --staged --quiet || (
