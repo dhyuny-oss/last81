@@ -2,13 +2,14 @@
 // 관심종목 추가/삭제 API (GitHub API로 watchlist.json 업데이트)
 
 const REPO  = "dhyuny-oss/last81";
+const TOKEN = process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "";  // 두 이름 모두 허용
 const PATH  = "public/data/watchlist.json";
 const GH_API = `https://api.github.com/repos/${REPO}/contents/${PATH}`;
 
 async function getFile() {
   const r = await fetch(GH_API, {
     headers: {
-      Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+      Authorization: `Bearer ${TOKEN}`,
       Accept: "application/vnd.github.v3+json",
     }
   });
@@ -27,7 +28,7 @@ async function saveFile(content, sha) {
   const r = await fetch(GH_API, {
     method: "PUT",
     headers: {
-      Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+      Authorization: `Bearer ${TOKEN}`,
       Accept: "application/vnd.github.v3+json",
       "Content-Type": "application/json",
     },
@@ -70,6 +71,10 @@ export default async function handler(req, res) {
         date: String(p.date || "").slice(0, 10),
       })).filter(p => p.t);
       content.watch = watch.map(t => String(t).slice(0, 12)).filter(Boolean);
+      if (Array.isArray(req.body.extras))            // 급히 넣는 종목 (다음 수집 때 종목풀에 포함)
+        content.extras = req.body.extras.map(t => String(t).slice(0, 12).toUpperCase()).filter(Boolean).slice(0, 50);
+      if (Array.isArray(req.body.trades))            // 매매 기록 백업 (기기 분실 대비)
+        content.trades = req.body.trades.slice(-300);
       content.updatedAt = new Date().toISOString();
       const ok = await saveFile(content, sha);
       return res.status(ok ? 200 : 500).json({
