@@ -1587,7 +1587,7 @@ def main():
             pool.update(kr_kis)
             print(f"  ✅ 한투 API로 KR {len(kr_kis)}개 수집")
         else:
-            pool.update(get_krx_volume_top(300))
+            pool.update(get_krx_volume_top(200))   # 300 → 200: 상시 관찰 수를 줄입니다 (그 밖은 관심·추가로)
         # ★ 항상 주요종목 보강
         added_major = 0
         for t, (name, suffix) in KR_MAJOR_STOCKS.items():
