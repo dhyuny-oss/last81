@@ -23,7 +23,7 @@ Alpha Terminal v4 — 지표 스냅샷 파이프라인
 import json, os, sys, time, math, urllib.request
 from datetime import datetime, timezone, timedelta
 
-VERSION   = "6.4.0"
+VERSION   = "6.5.0"
 UA        = {"User-Agent": "Mozilla/5.0"}
 OUT_DIR   = "public/data"
 KST       = timezone(timedelta(hours=9))
@@ -407,7 +407,7 @@ def build_stock(ticker, cd, meta, name, market, sector):
     #   매도 기준 = 느린 슈퍼트렌드(12,3) 빨강. "셋 중 하나라도 빨강"으로 팔면 평균 7일 보유에
     #   비용 빼면 남는 게 없었고, 느린 선 기준은 약 30일 보유·손익비 1.4~1.7 이었습니다.
     #   RSI↑·MACD↑ 는 넣어도 빼도 결과가 같아 '참고'로만 저장합니다.
-    _, sl_dir = supertrend_series(cd, *ST_SET[2])
+    sl_line, sl_dir = supertrend_series(cd, *ST_SET[2])
     slow = sl_dir[-1] if sl_dir else None
     days = 0
     if slow is not None:
@@ -416,6 +416,8 @@ def build_stock(ticker, cd, meta, name, market, sector):
             else: break
     rs_ser = rsi_series(c)
     d["stSlow"]   = None if slow is None else (1 if slow == 1 else 0)
+    # ★ 트레일링 손절선 — 느린 슈퍼트렌드의 실제 선 값. 화면에 "여기 깨지면 매도"를 숫자로 보여주기 위해
+    d["stLine"]   = _r(sl_line[-1], 0 if d["c"] >= 2000 else 2) if sl_line and sl_line[-1] is not None else None
     d["slowDays"] = days                       # 느린 선이 지금 색으로 바뀐 뒤 경과 봉수
     d["rsiUp"]    = bool(len(rs_ser) > 4 and rs_ser[-1] is not None and rs_ser[-4] is not None
                          and rs_ser[-1] > rs_ser[-4])
@@ -1032,12 +1034,15 @@ def main():
     #   buy  = ST 3개 초록 + 구름 위 + RS 70 이상 (주도주만 새로 삽니다)
     #   exit = 느린 ST(12,3) 빨강 (들고 있으면 팝니다)
     #   keep = 그 사이 (들고 있으면 유지, 새로 사지는 않음)
+    # 화면·알림 어디서도 쓰지 않는 중간 계산값은 저장하지 않습니다 (스냅샷 용량)
+    DROP = ("atrp", "macdX", "stPrev", "vr", "vr5", "rsi45", "upTrend")
     for d in stocks.values():
         rs_ok = (d.get("rs") or 0) >= 70
         buy = d.get("st") == 3 and d.get("cloud") == 1 and rs_ok
         # 눌림 진입 — 추세 안에서 쉬었다 다시 오르기 시작한 날 (검증 ①)
         d["pull"] = bool(d.get("upTrend") and rs_ok and d.get("stSlow") == 1 and d.get("rsi45"))
         d["sig"] = "buy" if buy else ("exit" if d.get("stSlow") == 0 else "keep")
+        for k in DROP: d.pop(k, None)
 
     # 변동성 백분위 — 시장 안에서 줄세우기 (미국 진입 신호로 사용)
     for mkt in ("us","kr"):
