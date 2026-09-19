@@ -1,0 +1,48 @@
+# 장중 감시 — 보유 종목의 트레일링선·손익률만 확인합니다 (신호는 새로 만들지 않습니다)
+#
+# ⚠️ 깃허브 예약은 대기열 때문에 몇 시간씩 늦습니다(실측 평균 2~5.7시간).
+#    장중 감시에는 그만큼 쓸모가 떨어집니다. 쓰신다면 '없는 것보다 낫다' 정도로 보세요.
+#    제때 받으려면 AI 봇이나 PC의 작업 스케줄러에서 scripts/watch_alert.py 를 돌리는 편이 낫습니다.
+name: Intraday Watch
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '7 1,3,5 * * 1-5'     # KST 10:07 / 12:07 / 14:07  (한국 장중)
+    - cron: '7 14,16,18 * * 1-5'  # KST 23:07 / 01:07 / 03:07  (미국 장중)
+
+concurrency:
+  group: watch
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+
+      - name: Watch
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT:  ${{ secrets.TG_CHAT }}
+          ADD_PCT: '3'
+          HOLD_PCT: '5'
+          CUT_PCT: '-3'
+          STATE: 'public/data/watch_state.json'
+        run: python scripts/watch_alert.py
+
+      - name: Commit state
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/data/watch_state.json 2>/dev/null || true
+          git diff --cached --quiet && echo "변경 없음" && exit 0
+          git commit -m "⏱ 장중 감시 상태"
+          git pull --rebase --autostash || true
+          git push
