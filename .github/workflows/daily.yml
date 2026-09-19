@@ -92,6 +92,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           REPORT_MODE: full
+          WEEKLY: ${{ (github.event.schedule == '13 0 * * 6') && '1' || '0' }}
         run: python scripts/notify.py
 
       # ④ 커밋 1회 — 스냅샷이 실패해도 stocks.json 은 살립니다
