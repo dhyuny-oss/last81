@@ -23,7 +23,7 @@ Alpha Terminal v4 — 지표 스냅샷 파이프라인
 import json, os, sys, time, math, urllib.request
 from datetime import datetime, timezone, timedelta
 
-VERSION   = "6.6.0"
+VERSION   = "6.7.0"
 UA        = {"User-Agent": "Mozilla/5.0"}
 OUT_DIR   = "public/data"
 KST       = timezone(timedelta(hours=9))
@@ -883,6 +883,37 @@ def load_extra(universe):
         added.append(tk)
     return added
 
+def pct_fill(stocks, raw_key, out_key, ref, focus, value_fn=None):
+    """시장별 백분위. 전체 스캔이면 순위로 계산하고 분포를 ref 에 저장,
+       감시 모드(주도주만 스캔)면 지난 전체 분포(ref) 위치로 계산합니다 — 주도주끼리만 줄세우면 왜곡되기 때문."""
+    import bisect
+    for mkt in ("us", "kr"):
+        vals = []
+        for tk, d in stocks.items():
+            if d["m"] != mkt: continue
+            v = value_fn(tk, d) if value_fn else d.get(raw_key)
+            if v is None: d[out_key] = None
+            else: vals.append((tk, v))
+        if focus and ref.get(mkt, {}).get(out_key):
+            arr = ref[mkt][out_key]; n = len(arr)
+            for tk, v in vals:
+                lo, hi = bisect.bisect_left(arr, v), bisect.bisect_right(arr, v)
+                stocks[tk][out_key] = round(min(100, max(0, ((lo + hi - 1) / 2) / max(1, n - 1) * 100)), 1)
+            continue
+        n = len(vals)
+        if n < 10:
+            continue
+        vals.sort(key=lambda x: x[1])
+        i = 0
+        while i < n:
+            j = i
+            while j + 1 < n and vals[j + 1][1] == vals[i][1]: j += 1
+            pctl = round(((i + j) / 2) / (n - 1) * 100, 1)
+            for k in range(i, j + 1): stocks[vals[k][0]][out_key] = pctl
+            i = j + 1
+        ref.setdefault(mkt, {})[out_key] = [round(v, 4) for _, v in vals]   # 다음 평일 감시 모드용
+
+
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     t0 = time.time()
@@ -901,6 +932,44 @@ def main():
                         "y": tk + (".KS" if mkt=="kr" and not tk.endswith(".KS") else "")}
     base_n = len(universe)
     extra_added = load_extra(universe)
+
+    # ★ 감시 모드 (평일) — 신호가 날 수 있는 종목만 봅니다.
+    #   눌림·매수 신호는 RS 70↑ 주도주에서만, 과매도는 고점 −25%↓ 에서만 나므로
+    #   토요일 전체 스캔에서 RS 60↑ 또는 과매도 후보였던 종목 + 내 종목·관심·추가 만 평일에 다시 받습니다.
+    #   실측: 711 → 약 370종목 (신호 종목 56/56 포함). 실행 시간·요청 수가 절반 아래로.
+    focus = os.environ.get("FOCUS") == "1"
+    ref, prev_mkt, full_n = {}, {}, len(universe)
+    try:
+        prev_snap = json.load(open(f"{OUT_DIR}/snapshot.json", encoding="utf-8"))
+        prev_mkt = json.load(open(f"{OUT_DIR}/market.json", encoding="utf-8"))
+        ref = prev_mkt.get("ref") or {}
+        full_n = (prev_snap.get("meta", {}).get("health") or {}).get("fullUniverse") or len(universe)
+    except Exception:
+        prev_snap = None
+    if focus and prev_snap and ref:
+        prot = set()
+        try:
+            wl = json.load(open(f"{OUT_DIR}/watchlist.json", encoding="utf-8"))
+            prot |= {p.get("t") for p in (wl.get("positions") or []) if p.get("t")}
+            prot |= set(wl.get("watch") or []) | set(wl.get("extras") or []) | set(extra_added)
+        except Exception:
+            prot |= set(extra_added)
+        keep = {t for t, d in prev_snap.get("stocks", {}).items()
+                if (d.get("rs") or 0) >= 60 or ((d.get("w52p") or 0) <= -25 and (d.get("hlt") or 0) >= 0.6)}
+        keep |= {str(t).upper() for t in prot if t}
+        fu = {t: v for t, v in universe.items() if t in keep}
+        n_kr = sum(1 for v in fu.values() if v["market"] == "kr"); n_us = len(fu) - n_kr
+        if n_kr >= 40 and n_us >= 60:
+            universe = fu
+            print(f"\n🎯 감시 모드: 전체 {full_n} 중 {len(universe)}종목만 (kr {n_kr} · us {n_us}) — 토요일에 전체 재스캔")
+        else:
+            focus = False
+            print(f"\n⚠️ 감시 풀이 너무 작아({n_kr}/{n_us}) 전체 스캔으로 전환")
+    elif focus:
+        focus = False
+        print("\n⚠️ 지난 전체 스캔 기록이 없어 전체 스캔으로 실행")
+    if not focus:
+        ref = {}    # 전체 스캔이면 분포를 새로 만듭니다
     print(f"\n📋 유니버스 {len(universe)}종목 "
           f"(kr {sum(1 for x in universe.values() if x['market']=='kr')} · "
           f"us {sum(1 for x in universe.values() if x['market']=='us')})")
@@ -992,55 +1061,18 @@ def main():
             print(f"       → 티커가 야후 기준인지 확인해 주세요 "
                   f"(한국은 6자리 숫자, 미국은 영문. 예: 042660 / AAPL)")
 
-    # RS 백분위 — 교차단면 (시장별로 따로)
-    print("\n📈 RS 백분위 계산 (교차단면)")
-    for mkt in ("us","kr"):
-        grp = [(tk,d) for tk,d in stocks.items() if d["m"]==mkt and d.get("d21") is not None]
-        if len(grp) < 10: continue
-        # ★ 126일(6개월) 수익률 기준.
-        #   검증: 21/42/63/126/252일 중 126일이 양쪽 시장 모두 최고였습니다
-        #   (미국 +5.16%★ / 한국 +4.92%★ · 63일은 +3.34/+2.92%).
-        #   배분탭도 6개월 모멘텀을 쓰므로 앱 전체가 같은 기간으로 통일됩니다.
-        # ★ 이력이 짧은 종목을 -999 로 밀어 넣으면 "RS 0.0" 이 되어
-        #   진짜 폭락 종목과 구분이 안 됩니다 → 아예 값을 주지 않습니다(None).
-        vals=[]
-        for tk,d in grp:
-            cds = series.get(tk)
-            r63 = None
-            if cds and len(cds) > RS_LOOKBACK:
-                a,b = cds[-1][1], cds[-(RS_LOOKBACK+1)][1]
-                r63 = (a/b-1)*100 if b else None
-            if r63 is None: stocks[tk]["rs"] = None
-            else: vals.append((tk, r63))
-        n = len(vals)
-        if n > 1:
-            vals.sort(key=lambda x: x[1])
-            # 동점은 평균 순위 (같은 수익률인데 백분위가 다르면 안 됩니다)
-            i = 0
-            while i < n:
-                j = i
-                while j+1 < n and vals[j+1][1] == vals[i][1]: j += 1
-                pctl = round(((i+j)/2)/(n-1)*100, 1)
-                for k in range(i, j+1): stocks[vals[k][0]]["rs"] = pctl
-                i = j+1
-        elif n == 1:
-            stocks[vals[0][0]]["rs"] = 50.0
-        print(f"  {mkt}: {n}종목 (이력부족 {len(grp)-n})")
-
-    # 거래대금 백분위
-    for mkt in ("us","kr"):
-        # ★ tv==0 을 `if d.get("tv")` 로 걸러내면 그 종목엔 tvr 키가 아예 안 생겨
-        #   프론트의 (tvr ?? 0) >= 40 에서 조용히 사라집니다 → None 체크로 변경
-        grp = [(tk,d["tv"]) for tk,d in stocks.items() if d["m"]==mkt and d.get("tv") is not None]
-        if len(grp) < 10: continue
-        grp.sort(key=lambda x: x[1]); n=len(grp)
-        i = 0
-        while i < n:
-            j = i
-            while j+1 < n and grp[j+1][1] == grp[i][1]: j += 1
-            pctl = round(((i+j)/2)/(n-1)*100, 1)
-            for k in range(i, j+1): stocks[grp[k][0]]["tvr"] = pctl
-            i = j+1
+    # RS 백분위 — 6개월 수익률의 시장 내 순위 (검증: 21/42/63/126/252일 중 126일이 최고)
+    print("\n📈 RS·거래대금 백분위" + (" (감시 모드: 지난 전체 분포 기준)" if focus else ""))
+    def r126(tk, d):
+        cds = series.get(tk)
+        if cds and len(cds) > RS_LOOKBACK and cds[-(RS_LOOKBACK+1)][1]:
+            return (cds[-1][1] / cds[-(RS_LOOKBACK+1)][1] - 1) * 100
+        return None
+    pct_fill(stocks, None, "rs", ref, focus, value_fn=r126)
+    pct_fill(stocks, "tv", "tvr", ref, focus)
+    for mkt in ("us", "kr"):
+        n = sum(1 for d in stocks.values() if d["m"] == mkt and d.get("rs") is not None)
+        print(f"  {mkt}: RS {n}종목")
 
     # ══════════════════════════════════════════════════════════
     # ★ 안전장치 — 야후가 통째로 막힌 날 좋은 데이터를 빈 데이터로 덮어쓰지 않도록.
@@ -1048,13 +1080,13 @@ def main():
     # ══════════════════════════════════════════════════════════
     # ⑤ 시세 정지 제외 — 시장 기준일보다 STALE_DAYS 넘게 밀린 종목 (상장폐지·거래정지)
     from datetime import date as _date
-    ref = {}
+    refdate = {}     # (백분위 분포를 담는 ref 와 이름이 겹치지 않게)
     for mkt in ("kr", "us"):
         ds = sorted(d["asOf"] for d in stocks.values() if d["m"] == mkt and d.get("asOf"))
-        if ds: ref[mkt] = ds[-1]
-    for tk in [t for t, d in stocks.items() if d.get("asOf") and ref.get(d["m"])]:
+        if ds: refdate[mkt] = ds[-1]
+    for tk in [t for t, d in stocks.items() if d.get("asOf") and refdate.get(d["m"])]:
         d = stocks[tk]
-        gap = (_date.fromisoformat(ref[d["m"]]) - _date.fromisoformat(d["asOf"])).days
+        gap = (_date.fromisoformat(refdate[d["m"]]) - _date.fromisoformat(d["asOf"])).days
         if gap > STALE_DAYS:
             drop("시세 정지", tk, d.get("n") or tk, f"{d['asOf']} ({gap}일 전)")
             stocks.pop(tk, None); series.pop(tk, None)
@@ -1068,7 +1100,7 @@ def main():
     except Exception: pass
     now_by_mkt = {}
     for v in stocks.values(): now_by_mkt[v["m"]] = now_by_mkt.get(v["m"], 0) + 1
-    for mkt, pn in prev_by_mkt.items():
+    for mkt, pn in ({} if focus else prev_by_mkt).items():    # 감시 모드는 원래 적으므로 전체 대비 비교를 하지 않습니다
         nn = now_by_mkt.get(mkt, 0)
         if pn >= 30 and nn < pn * MIN_KEEP:
             print(f"\n❌ {mkt} 시장 {nn}종목 < 지난번 {pn}종목의 {MIN_KEEP:.0%}. "
@@ -1087,6 +1119,7 @@ def main():
         "exchange": {"KS": sum(1 for d in stocks.values() if d.get("ex") == ".KS"),
                      "KQ": sum(1 for d in stocks.values() if d.get("ex") == ".KQ")},
         "rules": {"minBars": MIN_BARS, "staleDays": STALE_DAYS, "minKeep": MIN_KEEP},
+        "mode": "focus" if focus else "full", "fullUniverse": full_n,
     }
     print("\n🩺 데이터 검사")
     print(f"  유니버스 {len(universe)} → 사용 {len(stocks)} "
@@ -1102,7 +1135,7 @@ def main():
         print(f"\n❌ 성공 {len(stocks)}/{len(universe)} — 유니버스의 {MIN_OK:.0%} 미만입니다. "
               f"기존 파일을 지키기 위해 쓰지 않고 종료합니다.")
         sys.exit(1)
-    if prev_n and len(stocks) < prev_n * MIN_OK:
+    if (not focus) and prev_n and len(stocks) < prev_n * MIN_OK:    # 감시 모드는 일부러 적으므로 유니버스 대비(위)만 봅니다
         print(f"\n❌ 이번 {len(stocks)}종목 < 기존 {prev_n}종목의 {MIN_OK:.0%}. "
               f"이상 축소로 보고 쓰지 않고 종료합니다.")
         sys.exit(1)
@@ -1119,30 +1152,28 @@ def main():
         # 눌림 진입 — 추세 안에서 쉬었다 다시 오르기 시작한 날 (검증 ①)
         d["pull"] = bool(d.get("upTrend") and rs_ok and d.get("stSlow") == 1 and d.get("rsi45"))
         d["sig"] = "buy" if buy else ("exit" if d.get("stSlow") == 0 else "keep")
-        for k in DROP: d.pop(k, None)
 
     # 변동성 백분위 — 시장 안에서 줄세우기 (미국 진입 신호로 사용)
-    for mkt in ("us","kr"):
-        grp = [(tk,d["atrp"]) for tk,d in stocks.items() if d["m"]==mkt and d.get("atrp") is not None]
-        if len(grp) < 10: continue
-        grp.sort(key=lambda x: x[1]); n=len(grp)
-        i = 0
-        while i < n:
-            j = i
-            while j+1 < n and grp[j+1][1] == grp[i][1]: j += 1
-            pctl = round(((i+j)/2)/(n-1)*100, 1)
-            for k in range(i, j+1): stocks[grp[k][0]]["atrr"] = pctl
-            i = j+1
+    pct_fill(stocks, "atrp", "atrr", ref, focus)
+    # 화면·알림 어디서도 쓰지 않는 중간값 제거는 모든 백분위 계산이 끝난 '뒤'에
+    for d in stocks.values():
+        for k in DROP: d.pop(k, None)
 
     # 시장 '폭' — 200일선 위 종목 비율과 그 3년 백분위. 한국 판단의 근거입니다.
-    print("\n🌡️ 시장 폭 계산")
-    breadth = build_breadth(bhist)
+    print("\n🌡️ 시장 폭 계산" + (" (감시 모드: 토요일 전체 스캔 값 유지)" if focus else ""))
+    if focus and prev_mkt.get("breadth"):
+        breadth = prev_mkt["breadth"]
+        market["breadthAsOf"] = prev_mkt.get("breadthAsOf") or prev_snap.get("meta", {}).get("generatedKST", "")[:10]
+    else:
+        breadth = build_breadth(bhist)
+        market["breadthAsOf"] = datetime.now(KST).strftime("%Y-%m-%d")
     for mkt in ("kr","us"):
         b = breadth.get(mkt)
         print(f"  {mkt}: " + (f"{b['v']:.1f}% · 3년 백분위 {b['pct']:.0f} ({b['n']}일 기준)"
                               if b else "표본 부족 — 200일선 판단으로 대체"))
     market["breadth"] = breadth
     market["judge"]   = decide_judge(market["indices"], breadth)
+    market["ref"]     = ref if ref else prev_mkt.get("ref") or {}     # 평일 감시 모드가 쓸 분포
     for mkt, j in market["judge"].items():
         print(f"  판단 {mkt}: {j['verdict']} — {j['why']}"
               f"{'' if j['gate'] else '  (참고용, 게이트 없음)'}")
@@ -1172,7 +1203,8 @@ def main():
     meta["counts"]["etfs"] = len(etfs)
     meta["health"] = {"kept": health["kept"], "universe": health["universe"],
                       "dropped": health["dropped"], "failed": health["failed"],
-                      "byMarket": health["byMarket"], "exchange": health["exchange"]}
+                      "byMarket": health["byMarket"], "exchange": health["exchange"],
+                      "mode": health["mode"], "fullUniverse": health["fullUniverse"]}
     _write(f"{OUT_DIR}/snapshot.json", {"meta":meta,"stocks":stocks,"etfs":etfs})
     _write(f"{OUT_DIR}/market.json",   {"meta":meta, **market})
     # 종목별 차트 파일
