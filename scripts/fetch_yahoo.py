@@ -1090,14 +1090,22 @@ def get_us_stocks():
             r'<tr>\s*<td[^>]*><a[^>]+>([A-Z.]{1,6})</a></td>\s*<td[^>]*><a[^>]+>([^<]+)</a>',
             r'<td[^>]*>([A-Z.]{1,6})</td>\s*<td[^>]*>([^<]+)</td>',
         ]
-        for pat in patterns:
-            rows = re.findall(pat, r.text)
-            if len(rows) > 100:
-                break
+        # 업종(GICS)까지 같이 — "주도 업종 → 주도 종목" 연결용. 표에 티커·이름·업종이 나란히 있습니다.
+        pat3 = r'<a[^>]+>([A-Z.]{1,6})</a></td>\s*<td[^>]*><a[^>]+>([^<]+)</a></td>\s*<td[^>]*>([^<]+)</td>'
+        rows3 = re.findall(pat3, r.text)
+        if len(rows3) > 100:
+            rows = [(t, n) for t, n, _ in rows3]
+            sec_of = {t.replace(".", "-").strip(): sec.strip() for t, _, sec in rows3}
+        else:
+            sec_of = {}
+            for pat in patterns:
+                rows = re.findall(pat, r.text)
+                if len(rows) > 100:
+                    break
         for ticker, name in rows[:520]:
             ticker = ticker.replace(".", "-").strip()
             if len(ticker) <= 6 and ticker.replace("-","").isalpha():
-                stocks[ticker] = {"label":name.strip()[:30],"sector":"US","market":"us"}
+                stocks[ticker] = {"label":name.strip()[:30],"sector":sec_of.get(ticker, ""),"market":"us"}
         print(f"    ✅ S&P500: {len(stocks)}개")
     except Exception as e:
         print(f"    ❌ S&P500: {e}")
