@@ -23,7 +23,7 @@ Alpha Terminal v4 — 지표 스냅샷 파이프라인
 import json, os, sys, time, math, urllib.request
 from datetime import datetime, timezone, timedelta
 
-VERSION   = "6.5.0"
+VERSION   = "6.6.0"
 UA        = {"User-Agent": "Mozilla/5.0"}
 OUT_DIR   = "public/data"
 KST       = timezone(timedelta(hours=9))
@@ -775,6 +775,70 @@ def build_dc(secs, series):
     return etfs, dc
 
 # ══════════════════════════════════════════════════════════════
+# 실전 검증 장부 — 신호가 난 날과 가격을 적어 두고, 그 뒤 실제로 어떻게 됐는지 매일 다시 셉니다.
+#   백테스트(생존편향 있음)와 별개로 '앱이 실제로 낸 신호'의 성적입니다. 이게 진짜 검증입니다.
+# ══════════════════════════════════════════════════════════════
+LOG_FILE = f"{OUT_DIR}/signals_log.json"
+LOG_KEEP_DAYS = 400
+
+def update_signal_log(stocks, series, idx_series):
+    try:
+        log = json.load(open(LOG_FILE, encoding="utf-8"))
+    except Exception:
+        log = []
+    today = max((d.get("asOf") or "") for d in stocks.values()) if stocks else ""
+    have = {(x["t"], x["k"]) for x in log if (today[:10] and x["d"] >= _shift_days(today, -20))}
+    added = 0
+    for t, d in stocks.items():
+        for k in ("pull", "buy"):
+            fired = d.get("pull") if k == "pull" else (d.get("sig") == "buy")
+            if fired and (t, k) not in have and d.get("asOf") and d.get("c"):
+                log.append({"d": d["asOf"], "t": t, "n": d.get("n"), "m": d["m"], "k": k, "p": d["c"]})
+                added += 1
+    cutoff = _shift_days(today, -LOG_KEEP_DAYS) if today else ""
+    log = [x for x in log if x["d"] >= cutoff]
+    # 이후 성과 계산 — 신호일 종가 → 5·10·20거래일 뒤, 그리고 지금까지
+    def close_at(rows, date, offset):
+        ds = [r[0] for r in rows]
+        if date not in ds: return None
+        i = ds.index(date) + offset
+        return rows[i][1] if 0 <= i < len(rows) else None
+    idx_rows = {m: [(r[0], r[1]) for r in v] for m, v in idx_series.items()}
+    for x in log:
+        ser = series.get(x["t"])           # build_series 는 행 목록을 바로 돌려줍니다
+        x["r"] = {}
+        rows = ser.get("rows") if isinstance(ser, dict) else ser
+        if not rows: continue
+        rr = [(datetime.fromtimestamp(r[0], timezone.utc).strftime("%Y-%m-%d"), r[1]) for r in rows]
+        ir = idx_rows.get(x["m"], [])
+        for h in (5, 10, 20):
+            c1 = close_at(rr, x["d"], h); i0 = close_at(ir, x["d"], 0); i1 = close_at(ir, x["d"], h)
+            if c1: x["r"][str(h)] = _r((c1 / x["p"] - 1) * 100, 2)
+            if c1 and i0 and i1: x["r"][f"x{h}"] = _r((c1 / x["p"] - i1 / i0) * 100, 2)
+        c_now = rr[-1][1] if rr else None
+        if c_now: x["r"]["now"] = _r((c_now / x["p"] - 1) * 100, 2)
+    _write(LOG_FILE, log)
+    # 요약 — 20거래일이 지난 신호만 성적으로 칩니다
+    summ = {}
+    for k in ("pull", "buy"):
+        for m in ("kr", "us", "all"):
+            L = [x for x in log if x["k"] == k and (m == "all" or x["m"] == m) and x.get("r", {}).get("20") is not None]
+            if len(L) < 3: continue
+            r20 = [x["r"]["20"] for x in L]; ex = [x["r"]["x20"] for x in L if x["r"].get("x20") is not None]
+            summ[f"{k}:{m}"] = {"n": len(L), "avg": _r(sum(r20) / len(r20), 2), "win": _r(sum(1 for v in r20 if v > 0) / len(r20) * 100, 0),
+                                "excess": _r(sum(ex) / len(ex), 2) if ex else None, "med": _r(sorted(r20)[len(r20) // 2], 2)}
+    pending = sum(1 for x in log if x.get("r", {}).get("20") is None)
+    done = sum(1 for x in log if x.get("r", {}).get("20") is not None)
+    print(f"  📒 실전 장부: 기록 {len(log)}건 (+{added}) · 20일 성적 확정 {done} · 대기 {pending}")
+    return {"summary": summ, "n": len(log), "pending": pending, "since": min((x["d"] for x in log), default=None)}
+
+def _shift_days(iso, n):
+    try:
+        return (datetime.fromisoformat(iso) + timedelta(days=n)).strftime("%Y-%m-%d")
+    except Exception:
+        return ""
+
+# ══════════════════════════════════════════════════════════════
 EXTRA_FILE = "scripts/tickers_extra.txt"
 
 def load_extra(universe):
@@ -1082,6 +1146,16 @@ def main():
     for mkt, j in market["judge"].items():
         print(f"  판단 {mkt}: {j['verdict']} — {j['why']}"
               f"{'' if j['gate'] else '  (참고용, 게이트 없음)'}")
+
+    # 실전 장부 갱신 (지수는 market 의 idxbars 를 날짜 문자열로 바꿔서)
+    try:
+        idx_series = {}
+        for m, key in (("kr", "kr"), ("us", "us")):
+            rows = (market.get("idxbars", {}).get(key) or {}).get("rows") or []
+            idx_series[m] = [(datetime.fromtimestamp(r[0], timezone.utc).strftime("%Y-%m-%d"), r[1]) for r in rows]
+        market["live"] = update_signal_log(stocks, series, idx_series)
+    except Exception as e:
+        print("  ⚠️ 실전 장부 갱신 실패:", e); market["live"] = None
 
     print("\n🏦 DC(퇴직연금) ETF 신호")
     etfs, dc = build_dc(market["sectors"], series)
