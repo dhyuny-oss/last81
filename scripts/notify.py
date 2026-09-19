@@ -75,25 +75,19 @@ def pct(v, d=1):
 # ══════════════════════════════════════════════════════════════
 # 선정 — 앱의 verdictFind / verdictOversold 와 같은 규칙
 # ══════════════════════════════════════════════════════════════
-def pick_entry(stocks, judge):
+def pick_entry(stocks, judge=None):
+    """앱 발굴탭의 '신호' 필터와 같은 목록: ⭐눌림 또는 🟢매수신호, 거래대금 하위 40% 제외.
+       예전의 '후보/관망(시장 위험이면 관망)' 개념은 없앴습니다 — 검증에서 종목 매매에 시장
+       게이트를 붙이면 성과가 절반이 됐고, 앱에서도 같은 이유로 제거했습니다."""
     out = []
     for s in stocks.values():
-        if (s.get("tvr") or 0) < 40:                     # 유동성 하한
+        if (s.get("tvr") or 0) < 40:
             continue
-        if not s.get("tmpl"):                            # 가격구조 7조건
+        if not (s.get("pull") or s.get("sig") == "buy"):
             continue
-        if (s.get("rs") or 0) < 70:                      # 상대강도 (6개월 백분위)
-            continue
-        if (s.get("rsi") or 0) > 75:                     # 과열 제외
-            continue
-        s = dict(s)
-        # ★ 시장 판단이 '위험'이어도 관망으로 내리는 건 gate=True 인 시장(한국)뿐입니다.
-        #   미국은 검증을 통과한 타이밍 지표가 없어(15개 후보 전부 2010년 이후 −)
-        #   판단을 표시만 하고 후보를 바꾸지 않습니다. 앱의 gateOf() 와 같은 규칙입니다.
-        j = judge.get(s["m"], {})
-        s["_wait"] = bool(j.get("gate")) and j.get("verdict") == "risk"
-        out.append(s)
-    out.sort(key=lambda x: -(x.get("rs") or 0))
+        out.append(dict(s))
+    # 눌림 먼저, 그다음 RS 높은 순 — 앱의 '신호순' 과 같은 순서
+    out.sort(key=lambda x: (0 if x.get("pull") else 1, -(x.get("rs") or 0)))
     return out
 
 
@@ -226,34 +220,27 @@ def build(snap, mkt, state, now):
         ab = mkt.get("allocation", {})
         L.append(f"   <i>안전자산 30%는 적격TDF·채권혼합형·예금 · 다음 비중 점검 {ab.get('nextRebal','분기 첫 거래일')}</i>")
 
-    # ── 3. 진입후보 ───────────────────────────────────────
+    # ── 3. 신호 (앱 발굴탭과 같은 목록·같은 순서) ─────────────
     L.append("")
     if entry:
-        # ★ 앱과 같은 숫자를 씁니다. 시장 위험으로 관망이 된 것은 후보 수에서 빼고 따로 적습니다
-        #   (앱 발굴탭의 '후보만 (n)' 과 이 숫자가 다르면 어느 쪽을 믿어야 할지 알 수 없습니다).
-        go   = [s for s in entry if not s["_wait"]]
-        wait = [s for s in entry if s["_wait"]]
-        nkr  = sum(1 for s in go if s["m"] == "kr")
-        head = f"🟢 <b>후보 {len(go)}</b> <i>(🇰🇷{nkr} · 🇺🇸{len(go)-nkr})</i>"
-        if wait:
-            wkr = sum(1 for s in wait if s["m"] == "kr")
-            head += f" <i>· 관망 {len(wait)}</i>" + (f"<i>(🇰🇷{wkr})</i>" if wkr else "")
+        npull = sum(1 for s in entry if s.get("pull"))
+        nkr = sum(1 for s in entry if s["m"] == "kr")
+        head = f"🔍 <b>신호 {len(entry)}</b> <i>(⭐눌림 {npull} · 🟢매수 {len(entry)-npull} · 🇰🇷{nkr} 🇺🇸{len(entry)-nkr})</i>"
         if new_entry: head += f" (신규 {len(new_entry)})"
         L.append(head)
         for s in entry[:MAX_ROWS]:
             mark = "🆕 " if is_new("entry", s["t"]) else ""
             flag = "🇰🇷" if s["m"] == "kr" else "🇺🇸"
+            kind = "⭐눌림" if s.get("pull") else "🟢매수"
             trig = " · 재돌파" if s.get("brk") else (" · ST전환" if s.get("stFlip") else "")
-            volc = f" · ⚡변동성 {int(s['atrr'])}" if s.get("atrr") is not None else ""
-            wait = " ⚠️시장위험→관망" if s.get("_wait") else ""
-            sig = " 🟢매수신호" if s.get("sig") == "buy" else (" 🔴추세이탈" if s.get("sig") == "exit" else "")
-            L.append(f"{mark}{flag} <b>{s['n']}</b> {price(s['c'], s['m'])} {pct(s.get('d1'))}{sig}")
-            L.append(f"   RS {int(s.get('rs') or 0)}{volc}{trig} · RSI {s.get('rsi',0):.0f}"
-                     f" · 대금 {money(s.get('tv'), s['m'])}{wait}")
+            L.append(f"{mark}{flag} <b>{s['n']}</b> {price(s['c'], s['m'])} {pct(s.get('d1'))} {kind}")
+            L.append(f"   RS {int(s.get('rs') or 0)}{trig} · 트레일링선 {price(s.get('stLine'), s['m'])}"
+                     f" · 대금 {money(s.get('tv'), s['m'])}")
         if len(entry) > MAX_ROWS:
             L.append(f"   … 외 {len(entry)-MAX_ROWS}종목")
+        L.append("<i>⭐눌림 = 추세 안에서 RSI 45 회복 (검증 1위) · 🟢매수 = ST 3개 초록+구름 위+RS 70↑ · 매도 = 트레일링선 아래 마감</i>")
     else:
-        L.append("🟢 <b>진입후보 없음</b> — 조건 미충족")
+        L.append("🔍 <b>신호 없음</b> — 오늘은 살 것이 없습니다")
 
     # ── 4. 장기 관찰 (과매도) ─────────────────────────────
     if new_over:
