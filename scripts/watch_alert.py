@@ -109,7 +109,7 @@ def main():
             hits.append(("sell", f"🔴 <b>매도! 후보</b> {name} — 현재 {cur} < 트레일링선 {line:,.0f}\n"
                                  f"   종가가 선 아래로 마감하면 매도 (앱·텔레그램 저녁 판정과 같은 기준)"))
         tr = p.get("tr") if isinstance(p.get("tr"), list) and p.get("tr") else ([{"px": p.get("avg")}] if p.get("avg") else [])
-        if p.get("role") == "swing" and len(tr) == 1 and tr[0].get("px") and d.get("stSlow") == 1 and px >= tr[0]["px"] * 1.03:
+        if p.get("role") == "swing" and len(tr) == 1 and tr[0].get("px") and d.get("stSlow") == 1 and tr[0]["px"] * 1.03 <= px <= tr[0]["px"] * 1.06:
             hits.append(("t2", f"🟢 <b>2회차 조건</b> {name} — 현재 {cur} ≥ 1회차 +3% ({tr[0]['px'] * 1.03:,.0f}) · 나머지 절반"))
         for kind, text in hits:
             key = f"{p['t']}:{kind}"
