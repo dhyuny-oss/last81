@@ -291,10 +291,12 @@ const trOf = (p) => (Array.isArray(p.tr) && p.tr.length ? p.tr : [{ d: p.date, p
 const avgOf = (p) => { const tr = trOf(p); const a = tr.reduce((x, t) => x + (t.amt || 0), 0); const sh = tr.reduce((x, t) => x + (t.amt || 0) / t.px, 0);
   return sh > 0 ? a / sh : tr[0].px; };
 const investedOf = (p) => trOf(p).reduce((x, t) => x + (t.amt || 0), 0);
-const nextTrancheOf = (p, s, limit) => {   // 2회차 조건: 1회차 매수가 +3% 이상 마감 · 트레일링선 위 · 아직 1회차뿐
-  const tr = trOf(p); if (tr.length >= 2 || !s?.c) return null;
-  const target = tr[0].px * 1.03;
-  return { target, ok: s.c >= target && s.stSlow === 1, amt: limit * 0.5, pctToGo: (target / s.c - 1) * 100 };
+const nextTrancheOf = (p, s, limit) => {   // 2회차 조건: 1회차 +3% ~ +6% 밴드 안에서 마감 · 느린ST 초록 · 아직 1회차뿐
+  const tr = trOf(p); if (tr.length >= 2 || !s?.c) return null;   // (+6% 넘게 오른 날은 추격 금지 — 검증과 같은 밴드)
+  const target = tr[0].px * 1.03, cap = tr[0].px * 1.06;
+  const gain = (s.c / tr[0].px - 1) * 100;
+  const chase = s.c > cap;
+  return { target, cap, gain, chase, ok: s.c >= target && !chase && s.stSlow === 1, amt: limit * 0.5, pctToGo: (target / s.c - 1) * 100 };
 };
 
 /* ══════════════ 행동 표기 — 앱 전체·텔레그램·감시 스크립트가 같은 말을 씁니다 ══════════════
@@ -2051,7 +2053,8 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
                   {nxt.ok ? <>
                     <b style={{ color: C.emerald }}>2회차 조건 도달</b> <span style={{ color: C.dim }}>· 1회차 +3% = {price(nxt.target, s.m)} 넘음 · {money(nxt.amt, s.m)} ≈ {Math.floor(nxt.amt / s.c)}주</span>
                     <button onClick={() => addTranche(p, s)} style={{ ...btn(C.emerald), width: "100%", marginTop: 6 }}>✓ 2회차 매수 완료 기록</button>
-                  </> : <span style={{ color: C.dim }}>⏳ 2회차 조건: 1회차 +3% = <b style={{ color: C.text }}>{price(nxt.target, s.m)}</b> ({nxt.pctToGo.toFixed(1)}% 남음){s.stSlow !== 1 ? " · 느린 ST 초록이어야" : ""}</span>}
+                  </> : nxt.chase ? <span style={{ color: C.gold }}>⛔ 추격 금지 — 1회차 대비 {nxt.gain.toFixed(1)}% (밴드 +3~6% 초과). 눌렸다 다시 +3~6% 안에 들어오면 2회차</span>
+                  : <span style={{ color: C.dim }}>⏳ 2회차 조건: 1회차 +3% = <b style={{ color: C.text }}>{price(nxt.target, s.m)}</b> ({nxt.pctToGo.toFixed(1)}% 남음){s.stSlow !== 1 ? " · 느린 ST 초록이어야" : ""}</span>}
                 </div>)}
             </Card>);
         })}
