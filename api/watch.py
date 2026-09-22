@@ -74,9 +74,9 @@ def run(base):
         line = d.get("stLine")
         tr = p.get("tr") if isinstance(p.get("tr"), list) and p.get("tr") else ([{"px": p.get("avg")}] if p.get("avg") else [])
         if line and px < line:
-            hits.append((f"{p['t']}:sell", f"🔴 <b>매도! 후보</b> {name} — 현재 {cur} < 트레일링선 {line:,.0f}\n   종가가 선 아래로 마감하면 매도"))
+            hits.append((f"{p['t']}:sell", f"🔴 <b>매도! 후보</b> {name} — 현재 {cur} < 트레일링선 {(f"{line:,.2f}" if d.get("m") != "kr" else f"{line:,.0f}")}\n   종가가 선 아래로 마감하면 매도"))
         if p.get("role") == "swing" and len(tr) == 1 and tr[0].get("px") and d.get("stSlow") == 1 and tr[0]["px"] * 1.03 <= px <= tr[0]["px"] * 1.06:
-            hits.append((f"{p['t']}:t2", f"🟢 <b>2회차 조건</b> {name} — 현재 {cur} ≥ 1회차 +3% ({tr[0]['px'] * 1.03:,.0f}) · 나머지 절반"))
+            hits.append((f"{p['t']}:t2", f"🟢 <b>2회차 조건</b> {name} — 현재 {cur} ≥ 1회차 +3% ({(f"{tr[0]['px'] * 1.03:,.2f}" if d.get("m") != "kr" else f"{tr[0]['px'] * 1.03:,.0f}")}) · 나머지 절반"))
     for key, text in hits:
         if time.time() - _LAST.get(key, 0) < 3600: continue    # 1시간 내 중복 억제
         _LAST[key] = time.time(); msgs.append(text)
