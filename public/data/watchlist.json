@@ -1,8 +1,36 @@
 {
   "stocks": {},
-  "positions": [],
+  "positions": [
+    {
+      "t": "OKTA",
+      "avg": 0,
+      "role": "swing",
+      "date": "2026-09-21"
+    },
+    {
+      "t": "ZS",
+      "avg": 0,
+      "role": "swing",
+      "date": "2026-09-22"
+    }
+  ],
   "watch": [],
   "extras": [],
-  "trades": [],
-  "updatedAt": "2026-09-19T14:28:42.482Z"
+  "trades": [
+    {
+      "t": "SMH",
+      "n": "반도체 (SMH)",
+      "m": "us",
+      "role": "etf",
+      "buy": 550.43,
+      "sell": 573,
+      "in": "2026-07-28",
+      "out": "2026-09-21",
+      "days": 56,
+      "pl": 4.100430572461544,
+      "k": 1,
+      "inv": 0
+    }
+  ],
+  "updatedAt": "2026-09-22T10:16:46.324Z"
 }
