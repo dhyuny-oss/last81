@@ -351,6 +351,32 @@ def build_weekly(snap, mkt, now):
     wk = (now - timedelta(days=7)).strftime("%Y-%m-%d")
     week = [x for x in log if x.get("d", "") >= wk]
     L.append(f"4️⃣ 이번 주 신호 {len(week)}건 (🇰🇷 {sum(1 for x in week if x['m']=='kr')} · 🇺🇸 {sum(1 for x in week if x['m']!='kr')})")
+    # 4.5 이번 주 5칸 추천 — 앱 점검 탭 "이번 주 선정 만들기" 와 같은 규칙 (강세·눌림 먼저 → 업종 순위 → RS · 같은 업종 하나 · 적자/매출 부진/선 20%↑ 제외)
+    secrank = {x["tk"]: x["rank"] for x in (mkt.get("sectors") or [])}
+    buys = [d for d in stocks.values() if d.get("action") == "buy" and (d.get("tvr") or 0) >= 40 and d.get("m") == "us"]
+    def rk(d): return (1 if d.get("why") == "trend" else 0) * 1000 + secrank.get(d.get("sec"), 99) * 10 - (d.get("rs") or 0) / 100
+    picks, used, drop = [], set(), []
+    for d in sorted(buys, key=rk):
+        f = d.get("fin") or {}; gap = (d["c"] / d["stLine"] - 1) * 100 if d.get("stLine") and d.get("c") else None
+        why = []
+        if f.get("prof") is False: why.append("적자")
+        if f.get("rev") is not None and f["rev"] < 10: why.append(f"매출{f['rev']:+.0f}%")
+        if gap is not None and gap > 20: why.append(f"선{gap:.0f}%")
+        if why: drop.append(f"{d['t']}({'·'.join(why)})"); continue
+        sec = d.get("sec") or f"?{d['t']}"      # 업종 정보가 없으면 분산 규칙을 적용하지 않음
+        if sec in used: continue
+        picks.append(d); used.add(sec)
+        if len(picks) >= 5: break
+    if picks:
+        L.append("4️⃣½ 🇺🇸 5칸 추천 (업종 분산 · 적자·매출 부진 제외)")
+        for i, d in enumerate(picks, 1):
+            f = d.get("fin") or {}; gap = (d["c"] / d["stLine"] - 1) * 100 if d.get("stLine") and d.get("c") else None
+            L.append(f"   {i}. <b>{d['t']}</b> {d.get('n','')[:18]} · {WHY.get(d.get('why'),'')} · RS{int(d.get('rs') or 0)}"
+                     + (f" · 선{gap:.0f}%" if gap is not None else "") + (f" · 매출{f['rev']:+.0f}%" if f.get("rev") is not None else ""))
+        if drop: L.append("   <i>제외: " + ", ".join(drop[:8]) + "</i>")
+    krb = [d for d in stocks.values() if d.get("action") == "buy" and d.get("m") == "kr" and (d.get("tvr") or 0) >= 40]
+    if krb:
+        L.append("   🇰🇷 " + ", ".join(f"{d['n']}({WHY.get(d.get('why'),'')})" for d in sorted(krb, key=rk)[:4]) + (" — 시장 위험이면 쉬어도 됨" if (mkt.get("judge") or {}).get("kr", {}).get("verdict") == "risk" else ""))
     # 5 DC
     dc = mkt.get("dc") or {}
     dual = dc.get("dual") or {}
