@@ -1367,7 +1367,12 @@ def prune_universe(output, pool):
     if n_kr < 150 or n_us < 300:
         print(f"  ⚠️ 이번 주 풀이 작아서(한국 {n_kr} · 미국 {n_us}) 정리를 건너뜁니다 — 수집 실패 의심")
         return []
-    keep = set(pool.keys()) | protected_tickers()
+    prot = protected_tickers()
+    try:
+        excl = {str(t).upper() for t in (json.load(open("public/data/watchlist.json", encoding="utf-8")).get("excludes") or [])} - prot
+    except Exception:
+        excl = set()
+    keep = (set(pool.keys()) | prot) - excl
     st = output.get("stocks") or {}
     gone = [t for t in st if t not in keep]
     for t in gone: st.pop(t, None)
@@ -1590,7 +1595,7 @@ def main():
             for t, info in output["stocks"].items():
                 if info.get("market") == "kr":
                     info["kisTurnover"] = 0  # 리셋
-        kr_kis = kis_get_kr_volume_top(300) if KIS_TOKEN else {}
+        kr_kis = kis_get_kr_volume_top(200) if KIS_TOKEN else {}   # 300 → 200 (KRX 폴백과 같게)
         if len(kr_kis) >= 50:
             pool.update(kr_kis)
             print(f"  ✅ 한투 API로 KR {len(kr_kis)}개 수집")
@@ -1869,10 +1874,8 @@ def main():
                     print(f"  {ticker} ❌ {e}")
                 time.sleep(0.5)
 
-        # hourly는 섹터/breadth 스킵 → 바로 저장
+        # hourly는 섹터/breadth 스킵 → 바로 저장 (종목풀 정리·기록은 주간 daily 에서만)
         output["updatedAt"] = now_str
-        prune_universe(output, pool)
-        write_universe_log(output, prev_stocks)
         slim_candles(output)
         path = "public/data/stocks.json"
         with open(path,"w",encoding="utf-8") as f:
@@ -1940,6 +1943,20 @@ def main():
         print(f"  🇰🇷 상승 {kr_up} / 하락 {kr_down}")
         print(f"  🇺🇸 상승 {us_up} / 하락 {us_down}")
 
+    if MODE == "daily":
+        # ★ 주간 종목풀 정리 (2026-09-22 수정: 예전엔 hourly 저장 지점에 있어서 한 번도 안 돌았고, 종목풀이 728→848 로 늘기만 했음)
+        #   ① 기존 종목의 업종도 이번 수집값으로 갱신 (새로 들어온 종목만 GICS 업종을 갖던 문제)
+        n_sec = 0
+        for t, info in pool.items():
+            st = output["stocks"].get(t)
+            if st is not None and info.get("sector") and info["sector"] not in ("US", "Korean"):
+                if st.get("sector") != info["sector"]: n_sec += 1
+                st["sector"] = info["sector"]
+        if n_sec: print(f"  🏷️ 업종 갱신 {n_sec}종목")
+        #   ② 이번 주 순위 밖 종목 정리 (보유·관심·추가·tickers_extra 는 보호)
+        prune_universe(output, pool)
+        #   ③ 변경 기록 (저장 직전 실제 목록 기준)
+        write_universe_log(output, prev_stocks)
     slim_candles(output)
     path = "public/data/stocks.json"
     with open(path,"w",encoding="utf-8") as f:
@@ -1950,18 +1967,20 @@ def main():
     print(f"  📡 API 요청: {_request_count}건 / 레이트리밋: {_rate_limit_hits}회")
     print(f"{'='*60}\n")
 
-    # ★ v2.3: 텔레그램 알림 (daily 완료 후)
-    if MODE == "daily":
+    # ★ 옛 알림(5필터 매수 신호·일일 리포트)은 끕니다 — 알림은 notify.py 가 앱과 같은 '매수!/매도!' 기준으로 보냅니다
+    if os.environ.get("LEGACY_ALERTS") == "1" and MODE == "daily":
         try:
             report = build_daily_report(alpha_hits, pool_data, pool)
             send_telegram(report)
         except Exception as e:
             print(f"  ⚠️ 텔레그램 리포트 생성 실패: {e}")
 
-    # ★ v2.3.5: 매수 신호 알림 (5필터 5/5 또는 4/4)
+    # ★ v2.3.5: 매수 신호 알림 (5필터 5/5 또는 4/4) — 옛 기준이라 기본 꺼짐 (LEGACY_ALERTS=1 일 때만)
     try:
         stocks_data = output.get("stocks", {})
-        if MODE == "daily":
+        if os.environ.get("LEGACY_ALERTS") != "1":
+            pass
+        elif MODE == "daily":
             # 종가 확정 신호 — 5/5 충족 시
             print("\n📢 매수 신호 검색 (종가 확정 5/5)...")
             send_buy_alerts(stocks_data, market_filter="kr", intraday=False)
