@@ -23,7 +23,7 @@ Alpha Terminal v4 — 지표 스냅샷 파이프라인
 import json, os, sys, time, math, urllib.request
 from datetime import datetime, timezone, timedelta
 
-VERSION   = "7.1.0"
+VERSION   = "7.2.0"
 UA        = {"User-Agent": "Mozilla/5.0"}
 OUT_DIR   = "public/data"
 KST       = timezone(timedelta(hours=9))
@@ -1016,6 +1016,15 @@ def main():
                         "y": tk + (".KS" if mkt=="kr" and not tk.endswith(".KS") else "")}
     base_n = len(universe)
     extra_added = load_extra(universe)
+    # 앱 📦 종목풀 탭에서 '빼기' 한 종목 — 보유·관심·추가에 있으면 무시(보호 우선)
+    try:
+        _wl = json.load(open(f"{OUT_DIR}/watchlist.json", encoding="utf-8"))
+        _prot = {str(p.get("t", "")).upper() for p in (_wl.get("positions") or [])} | {str(t).upper() for t in (_wl.get("watch") or []) + (_wl.get("extras") or [])}
+        _ex = [str(t).upper() for t in (_wl.get("excludes") or []) if str(t).upper() not in _prot]
+        _gone = [t for t in _ex if universe.pop(t, None) is not None]
+        if _gone: print(f"  ➖ 앱에서 뺀 종목 {len(_gone)}개: {', '.join(_gone[:10])}")
+    except Exception:
+        pass
 
     # ★ 감시 모드 (평일) — 신호가 날 수 있는 종목만 봅니다.
     #   눌림·매수 신호는 RS 70↑ 주도주에서만, 과매도는 고점 −25%↓ 에서만 나므로
