@@ -87,6 +87,11 @@ def act_txt(d, held=False):
     why = WHY.get(d.get("why")) if a == "buy" else ("트레일링선 아래" if a == "sell" else None)
     return ACT[a] + (f" ({why})" if why else "")
 
+REV_MIN = float(os.environ.get("REV_MIN", 10))   # 앱 '매출 필터' 기본값과 같게 (미국·재무 있는 종목만, 0=끄기)
+def rev_ok(s):
+    f = s.get("fin") or {}
+    return REV_MIN <= 0 or s.get("m") == "kr" or f.get("rev") is None or f["rev"] >= REV_MIN
+
 def pick_entry(stocks, judge=None):
     """앱 발굴탭의 '신호' 필터와 같은 목록: ⭐눌림 또는 🟢매수신호, 거래대금 하위 40% 제외.
        예전의 '후보/관망(시장 위험이면 관망)' 개념은 없앴습니다 — 검증에서 종목 매매에 시장
@@ -95,7 +100,7 @@ def pick_entry(stocks, judge=None):
     for s in stocks.values():
         if (s.get("tvr") or 0) < 40:
             continue
-        if s.get("action") != "buy":
+        if s.get("action") != "buy" or not rev_ok(s):
             continue
         out.append(dict(s))
     # 앱 '신호순' 과 같은 순서: 눌림·강세 → 추세, 그 안에서 RS 높은 순
@@ -244,7 +249,9 @@ def build(snap, mkt, state, now):
         nkr = sum(1 for s in entry if s["m"] == "kr")
         kinds = {}
         for s in entry: kinds[WHY.get(s.get("why"), "기타")] = kinds.get(WHY.get(s.get("why"), "기타"), 0) + 1
+        ncut = sum(1 for d in stocks.values() if d.get("action") == "buy" and (d.get("tvr") or 0) >= 40 and not rev_ok(d))
         head = f"🔍 <b>매수! {len(entry)}</b> <i>({' · '.join(f'{k} {v}' for k, v in kinds.items())} · 🇰🇷{nkr} 🇺🇸{len(entry)-nkr})</i>"
+        if ncut: head += f" <i>✂ 매출 +{REV_MIN:.0f}% 미만 {ncut} 제외</i>"
         if new_entry: head += f" (신규 {len(new_entry)})"
         L.append(head)
         for s in entry[:MAX_ROWS]:
@@ -353,14 +360,15 @@ def build_weekly(snap, mkt, now):
     L.append(f"4️⃣ 이번 주 신호 {len(week)}건 (🇰🇷 {sum(1 for x in week if x['m']=='kr')} · 🇺🇸 {sum(1 for x in week if x['m']!='kr')})")
     # 4.5 이번 주 5칸 추천 — 앱 점검 탭 "이번 주 선정 만들기" 와 같은 규칙 (강세·눌림 먼저 → 업종 순위 → RS · 같은 업종 하나 · 적자/매출 부진/선 20%↑ 제외)
     secrank = {x["tk"]: x["rank"] for x in (mkt.get("sectors") or [])}
-    buys = [d for d in stocks.values() if d.get("action") == "buy" and (d.get("tvr") or 0) >= 40 and d.get("m") == "us"]
+    held = {p.get("t") for p in ((wl or {}).get("positions") or [])}
+    buys = [d for d in stocks.values() if d.get("action") == "buy" and (d.get("tvr") or 0) >= 40 and d.get("m") == "us" and d.get("t") not in held]
     def rk(d): return (1 if d.get("why") == "trend" else 0) * 1000 + secrank.get(d.get("sec"), 99) * 10 - (d.get("rs") or 0) / 100
     picks, used, drop = [], set(), []
     for d in sorted(buys, key=rk):
         f = d.get("fin") or {}; gap = (d["c"] / d["stLine"] - 1) * 100 if d.get("stLine") and d.get("c") else None
         why = []
         if f.get("prof") is False: why.append("적자")
-        if f.get("rev") is not None and f["rev"] < 10: why.append(f"매출{f['rev']:+.0f}%")
+        if REV_MIN > 0 and f.get("rev") is not None and f["rev"] < REV_MIN: why.append(f"매출{f['rev']:+.0f}%")
         if gap is not None and gap > 20: why.append(f"선{gap:.0f}%")
         if why: drop.append(f"{d['t']}({'·'.join(why)})"); continue
         sec = d.get("sec") or f"?{d['t']}"      # 업종 정보가 없으면 분산 규칙을 적용하지 않음
