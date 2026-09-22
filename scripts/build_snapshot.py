@@ -23,7 +23,7 @@ Alpha Terminal v4 — 지표 스냅샷 파이프라인
 import json, os, sys, time, math, urllib.request
 from datetime import datetime, timezone, timedelta
 
-VERSION   = "7.0.0"
+VERSION   = "7.1.0"
 UA        = {"User-Agent": "Mozilla/5.0"}
 OUT_DIR   = "public/data"
 KST       = timezone(timedelta(hours=9))
@@ -1260,6 +1260,22 @@ def main():
             d["dip"] = None
         # 업종 → 섹터 ETF
         d["sec"] = GICS_TO_ETF.get(d.get("s") or "", None) if d["m"] == "us" else None
+        # ★ 예비 후보 (관찰용, 매수! 아님) — 검증(2026-09): '강해질 것 같은' 트리거는 현행을 못 이김.
+        #   그래도 다음 매수! 가 나올 자리를 미리 보기 위해 두 가지만 표시합니다.
+        #   rising: 추세 유지 · RS 55~70 · 1달 시장대비 플러스   /   turn: 느린ST 초록 전환 3거래일 이내 · RS 50↑ · 200일선 위
+        rsv = d.get("rs") or 0
+        trend_ok = bool(d.get("upTrend") and d.get("stSlow") == 1)
+        if d.get("action") != "buy" and d.get("stSlow") == 1:
+            _idx = (market.get("indices") or {}).get("^KS11" if d["m"] == "kr" else ("^IXIC" if d.get("ex") == "NMS" else "^GSPC")) or {}
+            _rel = (d.get("d21") or 0) - (_idx.get("d21") or 0)
+            if trend_ok and 55 <= rsv < 70 and _rel > 0:
+                d["pre"] = "rising"
+            elif (d.get("slowDays") or 99) <= 3 and rsv >= 50 and (d.get("ma200p") or -1) > 0:
+                d["pre"] = "turn"
+            else:
+                d["pre"] = None
+        else:
+            d["pre"] = None
 
     # 변동성 백분위 — 시장 안에서 줄세우기 (미국 진입 신호로 사용)
     pct_fill(stocks, "atrp", "atrr", ref, focus)
