@@ -65,12 +65,20 @@ export default async function handler(req, res) {
       if (positions.length > 100 || watch.length > 200)
         return res.status(400).json({ error: "목록이 너무 깁니다" });
       const { content, sha } = await getFile();
-      content.positions = positions.map(p => ({
-        t: String(p.t || "").slice(0, 12), avg: Number(p.avg) || 0,
-        role: ["swing", "long", "etf"].includes(p.role) ? p.role : "swing",
-        date: String(p.date || "").slice(0, 10),
-      })).filter(p => p.t);
+      // ★ 회차(tr) 를 그대로 보존합니다 — 예전엔 avg 만 받아서 앱의 새 형식이 '평단 0' 으로 저장됐고,
+      //   텔레그램·장중 감시가 2회차 조건과 손익을 계산하지 못했습니다 (2026-09-22 수정)
+      const num = (x) => { const v = Number(x); return Number.isFinite(v) && v > 0 ? v : 0; };
+      content.positions = positions.map(p => {
+        const tr = Array.isArray(p.tr) ? p.tr.slice(0, 10).map(t => ({
+          d: String(t.d || "").slice(0, 10), px: num(t.px), amt: num(t.amt) })).filter(t => t.px > 0) : [];
+        const avg = num(p.avg) || (tr.length ? (() => { const a = tr.reduce((x, t) => x + t.amt, 0), sh = tr.reduce((x, t) => x + (t.amt || 0) / t.px, 0); return sh > 0 ? a / sh : tr[0].px; })() : 0);
+        return { t: String(p.t || "").slice(0, 12).toUpperCase(), avg: Math.round(avg * 10000) / 10000, tr,
+                 role: ["swing", "long", "etf"].includes(p.role) ? p.role : "swing",
+                 date: String(p.date || (tr[0] && tr[0].d) || "").slice(0, 10) };
+      }).filter(p => p.t);
       content.watch = watch.map(t => String(t).slice(0, 12)).filter(Boolean);
+      if (Array.isArray(req.body.excludes))          // 종목풀에서 뺄 종목 (순위에 들어도 수집 안 함)
+        content.excludes = req.body.excludes.map(t => String(t).slice(0, 12).toUpperCase()).filter(Boolean).slice(0, 200);
       if (Array.isArray(req.body.extras))            // 급히 넣는 종목 (다음 수집 때 종목풀에 포함)
         content.extras = req.body.extras.map(t => String(t).slice(0, 12).toUpperCase()).filter(Boolean).slice(0, 50);
       if (Array.isArray(req.body.trades))            // 매매 기록 백업 (기기 분실 대비)
