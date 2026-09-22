@@ -17,7 +17,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-export const APP_VERSION = "v9.1.0";
+export const APP_VERSION = "v9.3.0";
 
 /* ══════════════ 디자인 토큰 ══════════════ */
 const C = {
@@ -334,7 +334,10 @@ const EXPLAIN = {
     ["매수 N주", "종목당 한도의 절반(1회차)으로 살 수 있는 주수"],
     ["RSI 52 ↑", "참고. 조건 아님 (검증에서 '상승중'은 효과 없음)"],
     ["업종 3위", "이 종목 업종의 섹터 ETF 순위 (미국만)"],
-    ["매출 +12% · 흑자", "연간 재무 참고 (미국만). 검증 불가라 조건이 아님"],
+    ["매출 +12% · 흑자", "연간 재무 참고 (미국만). 검증 불가라 조건이 아님. '매출 필터'는 내 취향 필터 — 한국·재무 없는 종목은 통과"],
+    ["예비", "관찰용. rising = 추세 유지·RS 55~70·1달 시장대비 + / turn = 느린ST 초록 전환 3일 이내. 검증에서 현행을 못 이겨 매수!로 쓰지 않음"],
+    ["○ 확인함", "누르면 회색으로 맨 아래. 그 주 동안 유지"],
+    ["🆕 오늘 · N일째", "매수! 조건을 처음 만족한 뒤 며칠째인지 (실전 장부 기준). 20일 넘으면 표시 없음"],
   ],
   dip: [
     ["관찰", "고점 −25%↓ · 3년 중 60%↑ 200일선 위 · 흑자(미국) · 20일선 회복. 재검증 결과 그나마 나은 조합"],
@@ -360,17 +363,21 @@ const shortName = (n) => (n || "")
   .replace(/,?\s*(Inc\.?|Corp\.?|Corporation|Co\.,? Ltd\.?)\s*$/i, "")
   .replace(/\s*\(.*?\)\s*$/, "")
   .trim() || n;
-function StockRow({ s, rank, rel, sub, onOpen, isWatch, onToggle, dip = false, held = false }) {
+function StockRow({ s, rank, rel, sub, onOpen, isWatch, onToggle, dip = false, held = false, seen = false, onSeen, age }) {
   const rs = s.rs;
   const gap = (s.stLine && s.c) ? (s.c / s.stLine - 1) * 100 : null;      // 트레일링선까지 거리
   return (
-    <div onClick={() => onOpen(s.t)} style={{ padding: "9px 0", borderBottom: `1px solid ${C.border}`, cursor: "pointer" }}>
+    <div onClick={() => onOpen(s.t)} style={{ padding: "9px 0", borderBottom: `1px solid ${C.border}`, cursor: "pointer", opacity: seen ? .45 : 1 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         {rank != null && <span style={{ fontSize: FS.xs, color: C.muted, fontFamily: MONO, width: 16, flexShrink: 0, textAlign: "right" }}>{rank}</span>}
         <div style={{ flex: 1, minWidth: 0, ...ONE }}>
           <b style={{ fontSize: 15, fontFamily: MONO }}>{s.t}</b>
           <span style={{ fontSize: FS.xs, color: C.dim }}> {shortName(s.n)}</span>
+          <InfoLink s={s} />
         </div>
+        {!dip && s.action === "buy" && age != null && <NewTag age={age} />}
+        {onSeen && <button onClick={e => { e.stopPropagation(); onSeen(s.t); }} aria-label={seen ? "확인 취소" : "확인함"}
+          style={{ background: "none", border: "none", cursor: "pointer", fontSize: 14, width: 30, height: 34, color: seen ? C.emerald : C.muted, padding: 0 }}>{seen ? "✓" : "○"}</button>}
         <span style={{ fontSize: 14, fontWeight: 700, fontFamily: MONO, flexShrink: 0 }}>{price(s.c, s.m)}</span>
         <span style={{ fontSize: FS.xs, fontFamily: MONO, color: col(s.d1), width: "clamp(40px, 12.5vw, 50px)", textAlign: "right", flexShrink: 0 }}>{pct(s.d1, 1)}</span>
         <Star on={isWatch} onClick={() => onToggle(s.t)} />
@@ -392,6 +399,23 @@ function StockRow({ s, rank, rel, sub, onOpen, isWatch, onToggle, dip = false, h
       {sub && <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2, paddingLeft: rank != null ? 22 : 0, ...ONE }}>{sub}</div>}
     </div>
   );
+}
+
+/** 33. 종목 정보 외부 링크 — 🇰🇷 네이버 증권 / 🇺🇸 야후 파이낸스 */
+const infoUrl = (s) => s?.m === "kr" ? `https://m.stock.naver.com/domestic/stock/${s.t}/total` : `https://finance.yahoo.com/quote/${s?.t}`;
+const InfoLink = ({ s, style }) => (
+  <a href={infoUrl(s)} target="_blank" rel="noopener" onClick={e => e.stopPropagation()} aria-label="종목 정보 열기"
+     style={{ color: C.muted, textDecoration: "none", fontSize: 13, padding: "0 4px", flexShrink: 0, ...style }}>↗</a>
+);
+/** 34. 티커 복사 — MTS 관심그룹 일괄 등록용 */
+function CopyBtn({ tickers, label = "티커 복사" }) {
+  const [ok, setOk] = useState(false);
+  const run = async (e) => {
+    e.stopPropagation();
+    try { await navigator.clipboard.writeText(tickers.join("\n")); setOk(true); setTimeout(() => setOk(false), 1500); }
+    catch { prompt("복사해서 쓰세요", tickers.join(", ")); }
+  };
+  return <button onClick={run} style={{ ...linkBtn, fontSize: FS.xs, minHeight: 32 }}>{ok ? "복사됨 ✓" : `📋 ${label} ${tickers.length}`}</button>;
 }
 
 /** 셋째 줄 참고 정보 — 거래 · 매수 주수 · RSI · 업종 순위 · 재무 */
@@ -888,13 +912,12 @@ function HoursCard({ nowMs }) {
 /* 내 원칙 — 하루 한 번 앱을 열 때 먼저 뜹니다 */
 /** 원칙 목록 — 4번은 앱에 구현된 매수·매도 규칙과 추적탭 설정값을 그대로 읽어 씁니다 */
 const myRules = (sz) => [
-  ["국내주식 비중을 키우지 않는다", "검증에서도 한국은 시장 판정이 '위험'일 때가 많고 변동이 큽니다"],
-  ["국내주식은 09:30 전에 사지 않는다", "시가 급변을 피합니다 (예약주문 시가 체결 금지)"],
-  [`2회차 매수 — 한도의 절반 먼저, 1회차가 +3% 넘게 마감하면 나머지 절반`,
-   `종목당 한도 🇰🇷 ${sz ? money(sz.limKr, "kr") : "—"} · 🇺🇸 ${sz ? money(sz.limUs, "us") : "—"} · 추격 금지(+5% 넘게 올랐으면 그 회차는 건너뜀)`],
-  ["매수는 앱이 '매수!'라고 쓴 종목만 · 매도는 '매도!'(트레일링선 아래 마감) 하나",
-   "🇰🇷 눌림(RSI 45 회복) · 🇺🇸 강세(RSI 60↑) · −3% 손절·고점 −5%·2주 타임컷은 검증에서 성과를 깎아 쓰지 않는다"],
-  ["이벤트 매매 금지 · 몰빵 금지", "뉴스·테마로 사지 않는다"],
+  ["앱이 '매수!'라고 쓴 종목만 산다", "🇰🇷 눌림(RSI 45 회복) · 🇺🇸 강세(RSI 60↑) · 추세(ST 3개 초록+구름 위). 뉴스·테마·감으로 사지 않는다"],
+  [`절반 → 1회차 +3% 확인 후 나머지 절반 · +6% 넘게 올랐으면 추격 금지`,
+   `종목당 한도 🇰🇷 ${sz ? money(sz.limKr, "kr") : "—"} · 🇺🇸 ${sz ? money(sz.limUs, "us") : "—"} · 고가 종목은 1주 한 번에`],
+  ["매도는 '매도!' 하나 — 트레일링선 아래 마감. 그날 처리한다", "−3% 손절·고점 −5%·2주 타임컷은 검증에서 성과를 깎아 쓰지 않는다. 매도를 미루면 매수 타이밍 차이보다 비싸다"],
+  ["🇰🇷는 쉬어도 된다 · 🇺🇸는 22:30 개장에 주문", "원화 노출은 부동산으로 충분. 한국을 한다면 09:30 이후에만"],
+  ["이벤트 매매 금지 · 몰빵 금지 · 적자 추격 금지 · 급락 탭은 소액만", "같은 업종에 두 칸 이상 넣지 않는다. 급락은 참고용(주도주 보유를 못 이김)"],
 ];
 function RulesPopup({ onClose, sizer }) {
   const MY_RULES = myRules(sizer);
@@ -925,8 +948,7 @@ function RulesPopup({ onClose, sizer }) {
             </button>);
         })}
         <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 10, lineHeight: 1.7 }}>
-          3번 한도는 내 종목 탭 설정을 그대로 씁니다. 검증(2008–26): 절반→+3%→절반이 총수익과 투입 효율의 균형점이었고,
-          −3% 초기손절은 거래의 65%를 추가 매수 전에 털어냈습니다.
+          2번 한도는 내 종목 탭 설정을 그대로 씁니다. 다섯 개 모두 2008–26 검증과 이 대화에서 확정한 규칙입니다.
         </div>
         <button onClick={onClose} disabled={!all}
           style={{ ...btn(all ? C.emerald : C.dim), width: "100%", marginTop: 12, opacity: all ? 1 : .5, minHeight: 44 }}>
@@ -1389,7 +1411,7 @@ function DcTab({ etfs, market, pos, setPos, openStock }) {
 }
 
 /* ══════════════ 3. 발굴 ══════════════ */
-const SORT_LABEL = { sig: "매수! 먼저", rs: "RS 높은 순", sec: "주도 업종 먼저", vol: "변동성 높은 순", tv: "거래대금 큰 순" };
+const SORT_LABEL = { new: "새로 매수! 된 순", sig: "매수! 먼저", rs: "RS 높은 순", sec: "주도 업종 먼저", rev: "매출 성장 큰 순", vol: "변동성 높은 순", tv: "거래대금 큰 순" };
 /** 시장 대비 = 그 종목 1달 수익 − 같은 시장 지수 1달 수익 */
 const benchOf = (s) => s.m === "kr" ? "^KS11" : (s.ex === "NMS" ? "^IXIC" : "^GSPC");
 const relOf = (s, market) => {
@@ -1436,12 +1458,44 @@ function RecentSignals({ siglog, stocks, openStock, market }) {
     </Card>);
 }
 
+/** 찾기 탭 상태를 세션에 남깁니다 — 탭을 오가도 필터·정렬·더 보기가 풀리지 않게 (31) */
+const useSticky = (key, init) => {
+  const [v, set] = useState(() => { try { const x = sessionStorage.getItem(key); return x == null ? init : JSON.parse(x); } catch { return init; } });
+  useEffect(() => { try { sessionStorage.setItem(key, JSON.stringify(v)); } catch {} }, [v]);
+  return [v, set];
+};
+/** 매수! 가 된 지 며칠째인지 — 실전 장부(signals_log)의 첫 발생일 기준. 거래일 수는 장부에 있는 날짜 수로 셉니다 */
+function sigAgeMap(siglog) {
+  if (!siglog?.length) return {};
+  const dates = [...new Set(siglog.map(x => x.d))].sort();
+  const last = dates[dates.length - 1];
+  const idx = Object.fromEntries(dates.map((d, i) => [d, i]));
+  const m = {};
+  for (const x of siglog) {
+    if (!(x.k === "pull" || x.k === "strong" || x.k === "buy")) continue;
+    const age = idx[last] - idx[x.d] + 1;
+    if (age <= 20 && (m[x.t] == null || age < m[x.t])) m[x.t] = age;
+  }
+  return m;
+}
+const NewTag = ({ age }) => age == null ? null : (
+  <span style={{ fontSize: 10.5, fontWeight: 800, color: age <= 1 ? C.gold : C.muted, flexShrink: 0,
+                 background: age <= 1 ? "rgba(245,158,11,.15)" : "transparent", borderRadius: 4, padding: age <= 1 ? "0 4px" : 0 }}>
+    {age <= 1 ? "🆕 오늘" : age <= 3 ? `🆕 ${age}일째` : `${age}일째`}</span>);
 function FindTab({ list, openStock, watch, toggleWatch, market, sizer, pos, siglog, stocks }) {
-  const [filt, setFilt] = useState("buy");
-  const [mkt, setMkt] = useState("all");
-  const [sortBy, setSortBy] = useState("sig");
-  const [limit, setLimit] = useState(20);
+  const [filt, setFilt] = useSticky("v9.find.filt", "buy");
+  const [mkt, setMkt] = useSticky("v9.find.mkt", "all");
+  const [sortBy, setSortBy] = useSticky("v9.find.sort", "new");
+  const ageMap = useMemo(() => sigAgeMap(siglog), [siglog]);
+  const [limit, setLimit] = useSticky("v9.find.limit", 20);
+  const [revMin, setRevMin] = useSticky("v9.find.rev", 10);          // 28. 매출 성장 필터 (%) · 0 = 끄기
+  const wk = weekKey();
+  const [seenMap, setSeenMap] = useState(() => loadJSON("v9.find.seen", {}));   // 31. 확인함 — 그 주 동안 유지
+  useEffect(() => { localStorage.setItem("v9.find.seen", JSON.stringify({ [wk]: seenMap[wk] || {} })); }, [seenMap]);
+  const seenSet = seenMap[wk] || {};
+  const toggleSeen = (t) => setSeenMap(o => ({ ...o, [wk]: { ...(o[wk] || {}), [t]: !(o[wk] || {})[t] } }));
   const heldSet = useMemo(() => new Set((pos || []).map(p => p.t)), [pos]);
+  const passRev = (s) => revMin <= 0 || s.m === "kr" || !s.fin || s.fin.rev == null || s.fin.rev >= revMin;
   const pool = useMemo(() => {
     let r = list.filter(s => (s.tvr ?? 0) >= 40);
     if (mkt !== "all") r = r.filter(s => s.m === mkt);
@@ -1449,36 +1503,51 @@ function FindTab({ list, openStock, watch, toggleWatch, market, sizer, pos, sigl
   }, [list, mkt]);
   const rows = useMemo(() => {
     let r = pool;
-    if (filt === "buy") r = r.filter(s => s.action === "buy");
+    if (filt === "buy") r = r.filter(s => s.action === "buy" && passRev(s));
+    else if (filt === "pre") r = r.filter(s => s.pre);
     const W = { pull: 3, strong: 3, trend: 2 };
-    const key = { sig: s => -((s.action === "buy" ? W[s.why] || 1 : 0) * 1000 + (s.rs ?? 0)),
-                  rs: s => -(s.rs ?? 0), vol: s => -(s.atrr ?? -1), tv: s => -(s.tvr ?? 0),
+    const key = { new: s => (ageMap[s.t] ?? 99) * 1000 - (s.rs ?? 0),          // 새로 매수! 된 순
+                  sig: s => -((s.action === "buy" ? W[s.why] || 1 : 0) * 1000 + (s.rs ?? 0)),
+                  rs: s => -(s.rs ?? 0), vol: s => -(s.atrr ?? -1), tv: s => -(s.tvr ?? 0), rev: s => -((s.fin?.rev) ?? -999),
                   sec: s => { const r = (market?.sectors || []).find(x => x.tk === s.sec); return (r ? r.rank : 99) * 1000 - (s.rs ?? 0); } }[sortBy];
-    return [...r].sort((a, b) => key(a) - key(b));
-  }, [pool, filt, sortBy, market]);
-  const nBuy = pool.filter(s => s.action === "buy").length;
+    const sorted = [...r].sort((a, b) => key(a) - key(b));
+    return [...sorted.filter(s => !seenSet[s.t]), ...sorted.filter(s => seenSet[s.t])];   // 확인한 것은 맨 아래
+  }, [pool, filt, sortBy, market, revMin, seenSet, ageMap]);
+  const nNew = pool.filter(s => s.action === "buy" && passRev(s) && (ageMap[s.t] ?? 99) <= 1).length;
+  const nBuy = pool.filter(s => s.action === "buy" && passRev(s)).length;
+  const nCut = pool.filter(s => s.action === "buy" && !passRev(s)).length;
+  const nPre = pool.filter(s => s.pre).length;
   const nKr = pool.filter(s => s.action === "buy" && s.m === "kr").length;
   return (
     <>
       <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
         <Seg full value={mkt} onChange={setMkt} items={[["all", "전체"], ["kr", "🇰🇷 한국"], ["us", "🇺🇸 미국"]]} />
+        <Seg full value={filt} onChange={setFilt} items={[["buy", `매수! ${nBuy}`], ["pre", `예비 ${nPre}`], ["all", "전체"]]} />
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(98px, 1fr))", gap: 6 }}>
-          <Seg full value={filt} onChange={setFilt} items={[["buy", `매수! ${nBuy}`], ["all", "전체"]]} />
           <SortSelect value={sortBy} onChange={setSortBy}
-            items={[["sig", "신호순"], ["rs", "RS순"], ["sec", "주도 업종순"], ["vol", "변동성순"], ["tv", "거래대금순"]]} />
+            items={[["new", "새로 된 순"], ["sig", "신호순"], ["rs", "RS순"], ["sec", "주도 업종순"], ["rev", "매출 성장순"], ["vol", "변동성순"], ["tv", "거래대금순"]]} />
+          <SortSelect value={revMin} onChange={v => setRevMin(Number(v))}
+            items={[[0, "매출 필터 끔"], [5, "매출 +5%↑"], [10, "매출 +10%↑"], [20, "매출 +20%↑"]]} />
         </div>
-        <div style={{ fontSize: FS.xs, color: C.muted }}>
-          매수! {nBuy} (🇰🇷 눌림 {nKr} · 🇺🇸 강세·추세 {nBuy - nKr}) · 🇰🇷 <Grade k="strong" /> · 🇺🇸 <Grade k="mid" />
+        <div style={{ fontSize: FS.xs, color: C.muted, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <span>{nNew > 0 && <b style={{ color: C.gold }}>🆕 오늘 새로 {nNew} · </b>}🇰🇷 눌림 {nKr} · 🇺🇸 강세·추세 {nBuy - nKr}{nCut > 0 && <span style={{ color: C.gold }}> · ✂ 매출 부진 {nCut} 숨김</span>}</span>
+          <span style={{ marginLeft: "auto" }}><CopyBtn tickers={rows.filter(s => !seenSet[s.t]).map(s => s.t)} /></span>
         </div>
       </div>
+      {filt === "pre" && (
+        <div style={{ fontSize: FS.xs, color: C.dim, background: "rgba(6,182,212,.07)", borderRadius: 8, padding: "7px 10px", marginTop: 6, lineHeight: 1.6 }}>
+          <b style={{ color: C.cyan }}>예비 후보 = 관찰용, 매수! 아님.</b> 검증(2008–26)에서 '강해질 것 같은' 진입 5종은 모두 현행을 못 이겼습니다(미국 −8~−14%p).
+          ☆로 담아 두면 매수!로 바뀌는 날 알림이 옵니다. <b>rising</b> = 추세 유지·RS 55~70·1달 시장대비 + / <b>turn</b> = 느린ST 초록 전환 3일 이내
+        </div>)}
       <RecentSignals siglog={siglog} stocks={stocks} openStock={openStock} market={market} />
-      <SortBar text={SORT_LABEL[sortBy]} n={rows.length} market={market} />
+      <SortBar text={filt === "pre" ? "예비 후보 (관찰)" : SORT_LABEL[sortBy]} n={rows.length} market={market} />
       <ExplainList items={EXPLAIN.trend} />
       <div>
-        {rows.length === 0 ? <Empty>지금은 매수! 신호가 없습니다 · ‘전체’를 누르면 관망 종목도 보입니다</Empty> : rows.slice(0, limit).map((s, i) => (
+        {rows.length === 0 ? <Empty>{filt === "buy" ? "지금은 매수! 신호가 없습니다 · ‘전체’를 누르면 관망 종목도 보입니다" : "해당 종목이 없습니다"}</Empty> : rows.slice(0, limit).map((s, i) => (
           <StockRow key={s.t} s={s} rank={i + 1} rel={relOf(s, market)} held={heldSet.has(s.t)}
+            seen={!!seenSet[s.t]} onSeen={toggleSeen} age={ageMap[s.t]}
             isWatch={watch.includes(s.t)} onToggle={toggleWatch} onOpen={openStock}
-            sub={subLine(s, sizer, market)} />))}
+            sub={subLine(s, sizer, market, filt === "pre" ? [s.pre === "rising" ? "예비: RS 오르는 중" : "예비: 추세 전환 초기"] : [])} />))}
         {rows.length > limit && (
           <button onClick={() => setLimit(l => l + 20)} style={{ ...btn(C.dim), width: "100%", marginTop: 10 }}>
             더 보기 ({limit} / {rows.length})</button>)}
@@ -1742,7 +1811,7 @@ function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, setPos, 
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <Star on={watch.includes(s.t)} onClick={() => toggleWatch(s.t)} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 17, fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.n}</div>
+            <div style={{ fontSize: 17, fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.n}<InfoLink s={s} style={{ fontSize: 15 }} /></div>
             <div style={{ fontSize: FS.xs, color: C.muted }}>{s.m === "kr" ? "🇰🇷" : "🇺🇸"} {s.t} · {s.asOf} 종가</div>
           </div>
           <div style={{ textAlign: "right" }}>
@@ -2123,7 +2192,7 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
         })}
 
       <SyncBtn pos={pos} watch={watch} extras={extras} trades={trades} />
-      <Sec>관심 {watch.length}</Sec>
+      <Sec right={<CopyBtn tickers={watch} />}>관심 {watch.length}</Sec>
       <Card style={{ padding: "0 10px" }}>
         {watch.length === 0 ? <Empty>종목 옆 ☆ 를 누르면 여기에 모입니다</Empty> :
           watch.map(t => { const s = look(t); if (!s) return null;
@@ -2321,7 +2390,79 @@ const REVIEW_STEPS = [
   ["trade", "내 매매 기록 대조", "내 승률·손익비가 검증값과 크게 다르면 규칙을 안 지킨 것"],
   ["decide", "전략 결정", "그대로 간다 / 바꾼다 — 바꾸면 이유를 한 줄 적기"],
 ];
-function ReviewTab({ market, uni, snap, trades, setTrades, pos, stocks, setTab, openStock }) {
+/** 29. 이번 주 선정 — 손으로 하던 절차를 버튼으로. 결과는 그 주 기록으로 저장 */
+function buildWeeklyPick(stocks, market, sizer) {
+  const list = Object.values(stocks).filter(s => (s.tvr ?? 0) >= 40);
+  const buys = list.filter(s => s.action === "buy");
+  const secRank = (s) => (market?.sectors || []).find(x => x.tk === s.sec)?.rank ?? 99;
+  const rel = (s) => relOf(s, market);
+  const gap = (s) => (s.stLine && s.c) ? (s.c / s.stLine - 1) * 100 : null;
+  const reasonsOut = (s) => {
+    const r = []; const f = s.fin || {};
+    if (f.prof === false) r.push("적자");
+    if (f.rev != null && f.rev < 10 && s.m === "us") r.push(`매출 ${f.rev >= 0 ? "+" : ""}${f.rev.toFixed(0)}%`);
+    if (gap(s) != null && gap(s) > 20) r.push(`선까지 ${gap(s).toFixed(0)}%`);
+    return r;
+  };
+  const rank = (s) => (s.why === "trend" ? 1 : 0) * 1000 + secRank(s) * 10 - (s.rs ?? 0) / 100;
+  const us = buys.filter(s => s.m === "us").sort((a, b) => rank(a) - rank(b));
+  const kr = buys.filter(s => s.m === "kr").sort((a, b) => rank(a) - rank(b));
+  // 5칸: 같은 업종은 하나씩, 제외 사유 없는 것 먼저
+  const pick = [], used = new Set(), excluded = [];
+  for (const s of us) {
+    const why = reasonsOut(s);
+    if (why.length) { excluded.push({ s, why }); continue; }
+    const sec = s.sec || `?${s.t}`;          // 업종 정보가 없으면 분산 규칙을 적용하지 않음
+    if (used.has(sec)) { excluded.push({ s, why: ["같은 업종 이미 선택"] }); continue; }
+    pick.push(s); used.add(sec);
+    if (pick.length >= sizer.slots("us")) break;
+  }
+  const dips = list.filter(s => s.dip === "watch" && s.m === "us").sort((a, b) => (a.w52p ?? 0) - (b.w52p ?? 0)).slice(0, 5);
+  const dual = market?.dc?.dual;
+  return { made: new Date().toISOString().slice(0, 10), judge: market?.judge, sectors: (market?.sectors || []).slice(0, 5),
+           pick: pick.map(s => ({ t: s.t, n: s.n, why: s.why, rs: s.rs, sec: s.sec, gap: gap(s), rel: rel(s), fin: s.fin, c: s.c, m: s.m })),
+           excluded: excluded.slice(0, 12).map(x => ({ t: x.s.t, n: x.s.n, why: x.why })),
+           kr: kr.slice(0, 5).map(s => ({ t: s.t, n: s.n, why: s.why, rs: s.rs, rel: rel(s), gap: gap(s), c: s.c, m: s.m })),
+           dips: dips.map(s => ({ t: s.t, n: s.n, w52p: s.w52p, hlt: s.hlt, fin: s.fin })),
+           dual: dual ? { hold: dual.hold, cands: dual.cands.map(c => ({ label: c.label, score: c.score })) } : null,
+           nBuy: buys.length };
+}
+function WeeklyPick({ stocks, market, sizer, openStock, setTab }) {
+  const wk = weekKey();
+  const [saved, setSaved] = useState(() => loadJSON("v9.pick", {}));
+  const cur = saved[wk];
+  const make = () => { const p = buildWeeklyPick(stocks, market, sizer); const next = { ...saved, [wk]: p }; setSaved(next); localStorage.setItem("v9.pick", JSON.stringify(next)); };
+  const prev = Object.keys(saved).filter(k => k < wk).sort().pop();
+  const J = { safe: "안전", warn: "주의", risk: "위험" };
+  return (
+    <Card style={{ marginTop: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: FS.md, fontWeight: 800 }}>이번 주 선정</span>
+        <span style={{ fontSize: FS.xs, color: C.muted }}>{cur ? `${cur.made} 작성` : "아직 없음"}</span>
+        <button onClick={make} style={{ ...btn(C.gold), marginLeft: "auto", minHeight: 34 }}>{cur ? "다시 만들기" : "이번 주 선정 만들기"}</button>
+      </div>
+      {cur && (<div style={{ marginTop: 8, fontSize: FS.sm, lineHeight: 1.7 }}>
+        <div style={{ color: C.dim }}>시장 🇺🇸 {J[cur.judge?.us?.verdict] || "—"} · 🇰🇷 {J[cur.judge?.kr?.verdict] || "—"} · 섹터 {cur.sectors.map(x => `${x.label}${x.rank}`).join(" ")}</div>
+        <div style={{ fontWeight: 800, marginTop: 6 }}>🇺🇸 {sizer.slots("us")}칸 추천 (업종 분산) · 매수! {cur.nBuy}건 중</div>
+        {cur.pick.length === 0 && <div style={{ color: C.muted }}>제외 사유 없는 후보가 없습니다</div>}
+        {cur.pick.map((p, i) => (
+          <div key={p.t} onClick={() => openStock(p.t)} style={{ display: "flex", gap: 6, alignItems: "baseline", cursor: "pointer", padding: "3px 0" }}>
+            <span style={{ color: C.muted, width: 14 }}>{i + 1}</span>
+            <b style={{ fontFamily: MONO }}>{p.t}</b><span style={{ color: C.dim, minWidth: 0, ...ONE }}>{shortName(p.n)}</span>
+            <span style={{ marginLeft: "auto", fontSize: FS.xs, color: C.muted, whiteSpace: "nowrap" }}>
+              {WHY[p.why]} · RS{Math.floor(p.rs)}{p.gap != null && ` · 선${p.gap >= 0 ? "−" : "+"}${Math.abs(p.gap).toFixed(0)}%`}{p.fin?.rev != null && ` · 매출${p.fin.rev >= 0 ? "+" : ""}${p.fin.rev.toFixed(0)}%`}</span>
+          </div>))}
+        {cur.excluded.length > 0 && <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 4 }}>제외: {cur.excluded.map(x => `${x.t}(${x.why.join("·")})`).join(", ")}</div>}
+        <div style={{ fontWeight: 800, marginTop: 8 }}>🇰🇷 {cur.kr.length ? "" : "없음"}</div>
+        {cur.kr.map(p => <div key={p.t} onClick={() => openStock(p.t)} style={{ cursor: "pointer", padding: "2px 0" }}><b style={{ fontFamily: MONO }}>{p.t}</b> <span style={{ color: C.dim }}>{shortName(p.n)}</span> <span style={{ fontSize: FS.xs, color: C.muted }}>{WHY[p.why]} · RS{Math.floor(p.rs)} · 시장{p.rel >= 0 ? "+" : ""}{p.rel?.toFixed(1)}p</span></div>)}
+        {cur.dips.length > 0 && <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 6 }}>급락 관찰(참고): {cur.dips.map(d => `${d.t} ${d.w52p?.toFixed(0)}%`).join(" · ")}</div>}
+        {cur.dual && <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 4 }}>DC 다음 달: {cur.dual.cands.map(c => `${c.label} ${c.score >= 0 ? "+" : ""}${c.score.toFixed(1)}`).join(" · ")} → 보유 {cur.dual.hold.join(" + ")}</div>}
+        {prev && saved[prev] && <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 6 }}>지난 주({prev}) 추천: {saved[prev].pick.map(p => p.t).join(", ") || "없음"}</div>}
+        <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 6 }}>"이 중 뭘 살지"와 "전략 유지/변경 한 줄"만 사람이 정합니다 · 기록은 이 기기에 저장</div>
+      </div>)}
+    </Card>);
+}
+function ReviewTab({ market, uni, snap, trades, setTrades, pos, stocks, setTab, openStock, sizer }) {
   const wk = weekKey();
   const [done, setDone] = useState(() => loadJSON("v8.review", {}));
   const [memo, setMemo] = useState(() => localStorage.getItem("v8.review.memo") || "");
@@ -2337,6 +2478,7 @@ function ReviewTab({ market, uni, snap, trades, setTrades, pos, stocks, setTab, 
   const drift = live.drift;
   return (
     <>
+      <WeeklyPick stocks={stocks} market={market} sizer={sizer} openStock={openStock} setTab={setTab} />
       <Sec right={`${nDone}/${REVIEW_STEPS.length} · ${wk} 주`}>이번 주 점검</Sec>
       <Card style={{ padding: "4px 12px" }}>
         {REVIEW_STEPS.map(([k, t, why], i) => (
