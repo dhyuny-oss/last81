@@ -363,6 +363,12 @@ def build_weekly(snap, mkt, now):
     wk = (now - timedelta(days=7)).strftime("%Y-%m-%d")
     week = [x for x in log if x.get("d", "") >= wk]
     L.append(f"4️⃣ 이번 주 신호 {len(week)}건 (🇰🇷 {sum(1 for x in week if x['m']=='kr')} · 🇺🇸 {sum(1 for x in week if x['m']!='kr')})")
+    # 57. 이번 주 이탈한 신호 — 규칙대로 팔았으면 얼마였나 (공부용)
+    outs = [x for x in log if (x.get("x") or {}).get("d", "") >= wk and x.get("p")]
+    if outs:
+        L.append(f"   📉 이번 주 이탈 {len(outs)}건 (규칙 손익 평균 {sum((x['x']['p']/x['p']-1)*100 for x in outs)/len(outs):+.1f}%)")
+        for x in sorted(outs, key=lambda x: (x['x']['p']/x['p']))[:5]:
+            L.append(f"      {x.get('n') or x['t']} {x['d'][5:]}→{x['x']['d'][5:]} {(x['x']['p']/x['p']-1)*100:+.1f}%")
     # 4.5 이번 주 5칸 추천 — 파이프라인이 확정한 today.json 을 그대로 (앱·AI 도구와 같은 목록). 없으면 같은 규칙으로 계산
     try:
         td = json.load(open(f"{DATA}/today.json", encoding="utf-8"))
