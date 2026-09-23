@@ -88,9 +88,10 @@ def act_txt(d, held=False):
     return ACT[a] + (f" ({why})" if why else "")
 
 REV_MIN = float(os.environ.get("REV_MIN", 10))   # 앱 '매출 필터' 기본값과 같게 (미국·재무 있는 종목만, 0=끄기)
-def rev_ok(s):
+def rev_ok(s):   # 대표 성장률(최근 분기 → 4분기 → 연간) 기준 — 앱과 같음
     f = s.get("fin") or {}
-    return REV_MIN <= 0 or s.get("m") == "kr" or f.get("rev") is None or f["rev"] >= REV_MIN
+    g = f.get("growth", f.get("rev"))
+    return REV_MIN <= 0 or s.get("m") == "kr" or g is None or g >= REV_MIN
 
 def pick_entry(stocks, judge=None):
     """앱 발굴탭의 '신호' 필터와 같은 목록: ⭐눌림 또는 🟢매수신호, 거래대금 하위 40% 제외.
@@ -261,7 +262,8 @@ def build(snap, mkt, state, now):
             mark = "🆕 " if is_new("entry", s["t"]) else ""
             flag = "🇰🇷" if s["m"] == "kr" else "🇺🇸"
             f = s.get("fin") or {}
-            fin = (f" · 매출 {f['rev']:+.0f}%" if f.get("rev") is not None else "") + (" · 적자" if f.get("prof") is False else "")
+            g = f.get("growth", f.get("rev"))
+            fin = (f" · 매출 {g:+.0f}%{'↑' if f.get('accel') else ''}" if g is not None else "") + (" · 적자" if f.get("prof") is False else "")
             gap = f" · 선까지 {(s['c'] / s['stLine'] - 1) * 100:.0f}%" if s.get("stLine") and s.get("c") else ""
             L.append(f"{mark}{flag} <b>{s['n']}</b> {price(s['c'], s['m'])} {pct(s.get('d1'))} {act_txt(s)}")
             L.append(f"   RS {int(s.get('rs') or 0)}{gap} · 대금 {money(s.get('tv'), s['m'])}{fin}")
@@ -370,7 +372,7 @@ def build_weekly(snap, mkt, now):
         L.append("4️⃣½ 🇺🇸 5칸 추천 (업종 분산 · 적자·매출 부진·보유 제외)")
         for i, r in enumerate(td["pickUs"], 1):
             L.append(f"   {i}. <b>{r['t']}</b> {(r.get('n') or '')[:18]} · {WHY.get(r.get('why'),'')} · RS{int(r.get('rs') or 0)}"
-                     + (f" · 선{r['gap']:.0f}%" if r.get("gap") is not None else "") + (f" · 매출{r['rev']:+.0f}%" if r.get("rev") is not None else "")
+                     + (f" · 선{r['gap']:.0f}%" if r.get("gap") is not None else "") + (f" · 매출{(r.get('growth') if r.get('growth') is not None else r['rev']):+.0f}%{'↑' if r.get('accel') else ''}" if (r.get("growth") is not None or r.get("rev") is not None) else "")
                      + (f" · 🆕{r['age']}일째" if r.get("age") else ""))
         if td.get("excluded"): L.append("   <i>제외: " + ", ".join(f"{x['t']}({'·'.join(x['why'])})" for x in td["excluded"][:8]) + "</i>")
         if td.get("pickKr"): L.append("   🇰🇷 " + ", ".join(f"{r.get('n')}({WHY.get(r.get('why'),'')})" for r in td["pickKr"]) + (" — 시장 위험이면 쉬어도 됨" if td.get("market", {}).get("kr") == "risk" else ""))
