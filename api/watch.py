@@ -32,12 +32,27 @@ def quote(sym):
 def symbol_of(d):
     return d["t"] + d["ex"] if d.get("m") == "kr" and str(d.get("ex", "")).startswith(".") else d["t"]
 
+
+# 휴장일 (2026) — 매년 12월에 다음 해 것을 추가하세요. 출처: 한국거래소·NYSE 공지
+KR_HOLIDAYS = {"2026-09-24", "2026-09-25", "2026-10-05", "2026-10-09", "2026-12-25", "2026-12-31"}
+US_HOLIDAYS = {"2026-11-26", "2026-12-25"}
+
+def us_dst(now_kst):
+    """미국 서머타임: 3월 둘째 일요일 ~ 11월 첫째 일요일 (예전 '3~10월' 근사는 3월 초·11월 초에 틀렸음)"""
+    import datetime as _dt
+    y = now_kst.year
+    def nth_sunday(month, n):
+        d = _dt.date(y, month, 1); first = d + _dt.timedelta(days=(6 - d.weekday()) % 7)
+        return first + _dt.timedelta(weeks=n - 1)
+    return nth_sunday(3, 2) <= now_kst.date() < nth_sunday(11, 1)
+
 def market_open(now):
     dow, mins = now.weekday(), now.hour * 60 + now.minute
-    dst = 3 <= now.month <= 10
-    kr = dow < 5 and 540 <= mins <= 930
+    dst = us_dst(now)
+    kr = dow < 5 and 540 <= mins <= 930 and now.strftime("%Y-%m-%d") not in KR_HOLIDAYS
     a, b = (22 * 60 + 30, 5 * 60) if dst else (23 * 60 + 30, 6 * 60)
-    us = (dow < 5 and mins >= a) or (dow <= 5 and mins < b)
+    us_day = now if mins >= a else now - timedelta(days=1)          # 미국 장은 한국 시간 자정을 넘깁니다
+    us = ((dow < 5 and mins >= a) or (dow <= 5 and mins < b)) and us_day.strftime("%Y-%m-%d") not in US_HOLIDAYS
     return kr, us
 
 def send(text):
