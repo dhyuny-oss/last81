@@ -141,3 +141,68 @@ if __name__ == "__main__":
     print("한국 마스터", len(M), "→ 풀", len(kp), "| 제외", kr_r)
     S = sp500(); X = us_screener(); up, us_r = build_us_pool(S, X)
     print("미국 S&P", len(S), "스크리너", len(X), "→ 풀", len(up), "| 제외", us_r)
+
+# ── 51. 미국 분기 매출 (SEC 공시 · frames API — 분기 하나에 전 회사, 0.4MB) ─────────
+SEC_UA = {"User-Agent": "AlphaTerminal personal research contact@example.com", "Accept-Encoding": "identity"}
+REV_TAGS = ("RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues", "SalesRevenueNet")
+
+def _sec(url):
+    return json.loads(urllib.request.urlopen(urllib.request.Request(url, headers=SEC_UA), timeout=60).read())
+
+def sec_revenue(tickers, today=None):
+    """{티커: {q, yoy, prev, ttm, accel}} — 최근 분기 매출의 전년 동기 대비(%), 직전 분기의 같은 값, 최근 4분기 합계 전년 대비, 가속 여부.
+       해외 ADR(20-F 공시)은 SEC 분기 데이터가 없어 빠집니다 → 연간 값으로 폴백."""
+    import datetime as _dt, time as _t
+    today = today or _dt.date.today()
+    cik_of = {}
+    try:
+        for v in _sec("https://www.sec.gov/files/company_tickers.json").values():
+            cik_of[v["ticker"].upper().replace(".", "-")] = int(v["cik_str"])
+    except Exception as e:
+        print(f"  ⚠️ SEC 티커 목록 실패: {e}"); return {}
+    y, q = today.year, (today.month - 1) // 3 + 1
+    qs = []
+    for _ in range(10):                       # 최근 10개 달력 분기
+        q -= 1
+        if q == 0: y, q = y - 1, 4
+        qs.append((y, q))
+    qs = qs[::-1]
+    years = sorted({a for a, _ in qs})
+    data = {}                                 # cik → {frame: val}
+    for tag in REV_TAGS:
+        for fr in [f"CY{a}Q{b}" for a, b in qs] + [f"CY{a}" for a in years]:
+            try:
+                for r in _sec(f"https://data.sec.gov/api/xbrl/frames/us-gaap/{tag}/USD/{fr}.json")["data"]:
+                    data.setdefault(r["cik"], {}).setdefault(fr, r["val"])     # 앞 태그 우선
+            except Exception:
+                pass
+            _t.sleep(0.12)                    # SEC 권장 속도(초당 10회) 아래
+    out = {}
+    for t in tickers:
+        c = cik_of.get(t.upper())
+        if not c or c not in data: continue
+        f = data[c]
+        for a in years:                        # 4분기가 연간 보고서에만 있으면 연간 − (1~3분기)
+            k4 = f"CY{a}Q4"
+            if k4 not in f and f"CY{a}" in f and all(f"CY{a}Q{i}" in f for i in (1, 2, 3)):
+                f[k4] = f[f"CY{a}"] - sum(f[f"CY{a}Q{i}"] for i in (1, 2, 3))
+        keys = [f"CY{a}Q{b}" for a, b in qs]
+        have = [k for k in keys if f.get(k)]
+        if not have: continue
+        last = have[-1]
+        if keys.index(last) < len(keys) - 3: continue    # 최근 3개 분기 안에 값이 없으면 오래된 것
+        def yoy_of(k):
+            a, b = int(k[2:6]), int(k[7])
+            p = f.get(f"CY{a-1}Q{b}")
+            return round((f[k] / p - 1) * 100, 1) if (p and f.get(k) and p > 0) else None
+        yoy = yoy_of(last)
+        i = keys.index(last)
+        prev = yoy_of(keys[i - 1]) if i >= 1 and f.get(keys[i - 1]) else None
+        ttm = None
+        if i >= 7 and all(f.get(keys[j]) for j in range(i - 7, i + 1)):
+            now4 = sum(f[keys[j]] for j in range(i - 3, i + 1)); pre4 = sum(f[keys[j]] for j in range(i - 7, i - 3))
+            ttm = round((now4 / pre4 - 1) * 100, 1) if pre4 > 0 else None
+        if yoy is None and ttm is None: continue
+        out[t] = {"q": last, "yoy": yoy, "prev": prev, "ttm": ttm,
+                  "accel": bool(yoy is not None and prev is not None and yoy > prev)}
+    return out
