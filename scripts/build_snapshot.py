@@ -23,7 +23,7 @@ Alpha Terminal v4 — 지표 스냅샷 파이프라인
 import json, os, sys, time, math, urllib.request
 from datetime import datetime, timezone, timedelta
 
-VERSION   = "7.6.0"
+VERSION   = "7.7.0"
 UA        = {"User-Agent": "Mozilla/5.0"}
 OUT_DIR   = "public/data"
 KST       = timezone(timedelta(hours=9))
@@ -94,8 +94,8 @@ def fetch_candles(ticker, tries=3, min_bars=200):
 # ══════════════════════════════════════════════════════════════
 # 상위 유니버스 파일의 이름이 뒤바뀐 종목 — 가격으로 확인해 바로잡습니다
 NAME_FIX = {"192820": "코스맥스", "044820": "코스맥스비티아이"}
-TV_MIN_KR  = 30e8      # 한국 거래대금 하한 (60일 평균, 원)
-TV_MIN_US  = 30e6      # 미국 거래대금 하한 (60일 평균, 달러)
+TV_MIN_KR  = 30e8      # 한국 거래대금 하한 (20일 평균, 원)
+TV_MIN_US  = 30e6      # 미국 거래대금 하한 (20일 평균, 달러)
 MIN_BARS   = 260     # 200일선·RS 를 계산할 수 있는 최소 봉수. 미달이면 아예 싣지 않습니다.
 STALE_DAYS = 7       # 시장 기준일보다 이만큼 밀리면 거래정지·상장폐지로 보고 제외
 JUMP_WARN  = 0.35    # 하루 ±35% 초과는 분할·오류 의심 → 경고만 (실제 급등락도 있으므로)
@@ -986,7 +986,8 @@ def update_signal_log(stocks, series, idx_series):
     return {"summary": summ, "n": len(log), "pending": pending, "since": min((x["d"] for x in log), default=None), "review": review,
             "drift": drift, "kinds": ["pull", "buy", "strong"]}
 
-REV_MIN = 10        # 앱 '매출 필터' 기본값과 같게
+REV_MIN = 10        # 앱 '매출 필터' 기본값 — 앱이 settings.revMin 을 보내면 그 값을 씁니다 (61)
+LINE_MAX_LOSS = 17  # 트레일링선까지(닿으면 잃는 폭) 17% 넘으면 오늘 후보에서 제외 — 예전 '선까지 20%'(c/선−1)와 같은 기준 (62)
 
 def build_today(stocks, market):
     idx = market.get("indices") or {}
@@ -996,6 +997,8 @@ def build_today(stocks, market):
     except Exception:
         wl = {}
     held = {str(p.get("t", "")).upper() for p in (wl.get("positions") or [])}
+    cfg = wl.get("settings") or {}
+    rev_min = float(cfg.get("revMin", REV_MIN)); slots_us = int(cfg.get("slotsUs") or 5); slots_kr = int(cfg.get("slotsKr") or 3)
     try:
         log = json.load(open(LOG_FILE, encoding="utf-8"))
     except Exception:
@@ -1010,19 +1013,19 @@ def build_today(stocks, market):
         i = idx.get("^KS11" if d["m"] == "kr" else ("^IXIC" if d.get("ex") in ("NMS", "NGM", "NCM") else "^GSPC")) or {}
         return _r(d["d21"] - i["d21"], 1) if d.get("d21") is not None and i.get("d21") is not None else None
     def row(d):
-        gap = _r((d["c"] / d["stLine"] - 1) * 100, 1) if d.get("stLine") else None
+        loss = _r((1 - d["stLine"] / d["c"]) * 100, 1) if (d.get("stLine") and d.get("c")) else None   # 선에 닿으면 잃는 폭 %
         f = d.get("fin") or {}
         return {"t": d["t"], "n": d.get("n"), "m": d["m"], "why": d.get("why"), "rs": d.get("rs"), "c": d["c"], "stLine": d.get("stLine"),
                 "growth": f.get("growth"), "qyoy": f.get("qyoy"), "accel": f.get("accel"), "ma20p": d.get("ma20p"),
-                "gap": gap, "rel": rel(d), "sec": d.get("sec"), "secRank": secrank.get(d.get("sec"), (None, None))[0],
+                "loss": loss, "rel": rel(d), "sec": d.get("sec"), "secRank": secrank.get(d.get("sec"), (None, None))[0],
                 "secLabel": secrank.get(d.get("sec"), (None, None))[1], "rev": f.get("rev"), "prof": f.get("prof"),
                 "mcap": d.get("mcap"), "tv": d.get("tv"), "age": age(d["t"]), "rsi": d.get("rsi"), "held": d["t"] in held}
     buys = [row(d) for d in stocks.values() if d.get("action") == "buy" and (d.get("tvr") or 0) >= 40]
     def reasons(r):
         out = []
         if r["prof"] is False: out.append("적자")
-        if r["m"] == "us" and r["growth"] is not None and r["growth"] < REV_MIN: out.append(f"매출 {r['growth']:+.0f}%")
-        if r["gap"] is not None and r["gap"] > 20: out.append(f"선까지 {r['gap']:.0f}%")
+        if rev_min > 0 and r["m"] == "us" and r["growth"] is not None and r["growth"] < rev_min: out.append(f"매출 {r['growth']:+.0f}%")
+        if r["loss"] is not None and r["loss"] > LINE_MAX_LOSS: out.append(f"선까지 −{r['loss']:.0f}%")
         if r["held"]: out.append("보유 중")
         return out
     rank = lambda r: ((1 if r["why"] == "trend" else 0) * 1000 + (r["secRank"] or 99) * 10 - (r["rs"] or 0) / 100)
@@ -1034,8 +1037,8 @@ def build_today(stocks, market):
         if r["m"] == "us":
             key = r["sec"] or f"?{r['t']}"
             if key in used: excluded.append({"t": r["t"], "n": r["n"], "m": "us", "why": ["같은 업종 이미 선택"]}); continue
-            if len(pick_us) < 5: pick_us.append(r); used.add(key)
-        elif len(pick_kr) < 3:
+            if len(pick_us) < slots_us: pick_us.append(r); used.add(key)
+        elif len(pick_kr) < slots_kr:
             pick_kr.append(r)
     heldrows = []
     for p in (wl.get("positions") or []):
@@ -1047,13 +1050,14 @@ def build_today(stocks, market):
             lo, hi = tr[0]["px"] * 1.03, tr[0]["px"] * 1.06
             t2 = "도달" if (lo <= d["c"] <= hi and d.get("stSlow") == 1) else ("추격 금지" if d["c"] > hi else f"목표 {lo:.2f}")
         heldrows.append({"t": d["t"], "n": d.get("n"), "m": d["m"], "c": d["c"], "action": "sell" if d.get("action") == "sell" else "hold",
-                         "stLine": d.get("stLine"), "gap": _r((d["c"] / d["stLine"] - 1) * 100, 1) if d.get("stLine") else None,
+                         "stLine": d.get("stLine"), "loss": _r((1 - d["stLine"] / d["c"]) * 100, 1) if d.get("stLine") else None,
                          "tranche2": t2, "halted": bool(d.get("halted") or d.get("status"))})
     dips = [row(d) | {"w52p": d.get("w52p"), "hlt": d.get("hlt")} for d in stocks.values() if d.get("dip") == "watch" and d["m"] == "us"]
     dips.sort(key=lambda r: r.get("w52p") or 0)
     dual = (market.get("dc") or {}).get("dual") or {}
     return {"asOf": max((d.get("asOf") or "" for d in stocks.values()), default=None),
-            "rules": {"buy": "action=buy", "rev": f"🇺🇸 매출 +{REV_MIN}%↑ (최근 분기 전년 동기 대비 → 없으면 4분기 합계 → 연간) · 적자 제외", "gap": "트레일링선까지 20% 이하", "sector": "🇺🇸 업종 하나씩 최대 5 · 🇰🇷 최대 3",
+            "rules": {"buy": "action=buy", "rev": f"🇺🇸 매출 +{rev_min:.0f}%↑ (최근 분기 전년 동기 대비 → 없으면 4분기 합계 → 연간) · 적자 제외",
+                      "loss": f"선까지(닿으면 잃는 폭) {LINE_MAX_LOSS}% 이하", "sector": f"🇺🇸 업종 하나씩 최대 {slots_us} · 🇰🇷 최대 {slots_kr}",
                       "tranche": "1회차 = 한도 절반 → +3~6% 마감 & 느린ST 초록이면 나머지 절반 · 매도 = 종가 < 트레일링선"},
             "market": {m: (market.get("judge") or {}).get(m, {}).get("verdict") for m in ("us", "kr")},
             "sectors": [{"tk": x["tk"], "label": x["label"], "rank": x["rank"], "score": x.get("score")} for x in (market.get("sectors") or [])[:6]],
@@ -1331,7 +1335,7 @@ def main():
             print(f"       → 티커가 야후 기준인지 확인해 주세요 "
                   f"(한국은 6자리 숫자, 미국은 영문. 예: 042660 / AAPL)")
 
-    # ★ 거래대금 하한 (60일 평균) — 🇰🇷 30억 · 🇺🇸 $30M. 팔 때 가격을 밀지 않을 만큼. 보유·관심·추가는 보호
+    # ★ 거래대금 하한 (20일 평균) — 🇰🇷 30억 · 🇺🇸 $30M. 팔 때 가격을 밀지 않을 만큼. 보유·관심·추가는 보호
     for tk in list(stocks):
         d = stocks[tk]; kr = d["m"] == "kr"; lim = TV_MIN_KR if kr else TV_MIN_US
         if tk not in PROT and d.get("tv") is not None and d["tv"] < lim:
