@@ -1364,7 +1364,7 @@ def prune_universe(output, pool):
     #   미국 목록은 위키피디아에서 긁어오므로, 실패하면 폴백 몇십 개만 남아 전부 지워질 수 있습니다.
     n_kr = sum(1 for v in pool.values() if v.get("market") == "kr")
     n_us = sum(1 for v in pool.values() if v.get("market") != "kr")
-    if n_kr < 150 or n_us < 300:
+    if n_kr < 120 or n_us < 300:
         print(f"  ⚠️ 이번 주 풀이 작아서(한국 {n_kr} · 미국 {n_us}) 정리를 건너뜁니다 — 수집 실패 의심")
         return []
     prot = protected_tickers()
@@ -1380,7 +1380,7 @@ def prune_universe(output, pool):
         print(f"  🧹 순위 밖 종목 {len(gone)}개 정리 (보호 목록 {len(protected_tickers())}개는 유지)")
     return gone
 
-def write_universe_log(output, prev_stocks):
+def write_universe_log(output, prev_stocks, entry_excluded=None):
     """주간 종목풀 점검 기록 — 저장 직전, 실제로 파일에 남는 목록 기준으로 비교합니다.
        (예전엔 미국 종목이 합쳐지기 전에 비교해 '제외 221' 같은 잘못된 기록이 남았습니다)"""
     new = output.get("stocks") or {}
@@ -1391,6 +1391,9 @@ def write_universe_log(output, prev_stocks):
         "added": [{"t": t, "n": new[t].get("label", t), "m": new[t].get("market", "us")} for t in sorted(new_keys - prev_keys)],
         "removed": [{"t": t, "n": (prev_stocks or {}).get(t, {}).get("label", t), "m": (prev_stocks or {}).get(t, {}).get("market", "us")}
                     for t in sorted(prev_keys - new_keys)],
+        "entryExcluded": entry_excluded or {},        # 기준에 걸려 입구에서 뺀 수 (사유별)
+        "rules": {"kr": "보통주 · 거래정지/관리/경고/정리매매 제외 · 시총 3,000억↑ · 거래대금 상위 150 ∪ 시총 상위 150",
+                  "us": "S&P500 + 시총 $25B↑ · 거래대금 $50M↑"},
     }
     with open("public/data/universe_log.json", "w", encoding="utf-8") as f:
         json.dump(log, f, ensure_ascii=False)
@@ -1595,21 +1598,44 @@ def main():
             for t, info in output["stocks"].items():
                 if info.get("market") == "kr":
                     info["kisTurnover"] = 0  # 리셋
-        kr_kis = kis_get_kr_volume_top(200) if KIS_TOKEN else {}   # 300 → 200 (KRX 폴백과 같게)
-        if len(kr_kis) >= 50:
-            pool.update(kr_kis)
-            print(f"  ✅ 한투 API로 KR {len(kr_kis)}개 수집")
+        # ★ 2026-09-23 개편 — 공식 명단 + 명확한 기준 (scripts/universe.py)
+        #   예전: 거래대금 상위 + 손으로 적은 '주요종목' 312개를 '항상' 추가 → 금양(거래정지)·NH프라임리츠(이름 오류) 등이 섞였음
+        #   지금: 🇰🇷 한투 공식 마스터에서 적격 보통주(거래정지·관리·경고·우선주·SPAC 제외, 시총 3,000억↑) 중 거래대금 상위 150 ∪ 시총 상위 150
+        #         🇺🇸 S&P500 + (시총 $25B↑ · 거래대금 $50M↑)
+        #   손 명단은 공식 명단 수신이 완전히 실패했을 때만 폴백으로 씁니다.
+        import universe as U
+        entry_excluded = {}
+        master = U.kr_master()
+        if len(master) > 1000:
+            kr_pool, kr_rs = U.build_kr_pool(master)
+            pool.update(kr_pool); entry_excluded["kr"] = kr_rs
+            print(f"  ✅ 한국 공식 명단 {len(master)} → 적격 상위 {len(kr_pool)} (입구 제외: {kr_rs})")
         else:
-            pool.update(get_krx_volume_top(200))   # 300 → 200: 상시 관찰 수를 줄입니다 (그 밖은 관심·추가로)
-        # ★ 항상 주요종목 보강
-        added_major = 0
-        for t, (name, suffix) in KR_MAJOR_STOCKS.items():
-            if t not in pool:
-                pool[t] = {"label":name,"sector":"Korean","market":"kr","suffix":suffix}
-                added_major += 1
-        if added_major:
-            print(f"  ➕ 주요종목 폴백 {added_major}개 추가")
-        pool.update(get_us_stocks())
+            kr_kis = kis_get_kr_volume_top(200) if KIS_TOKEN else {}
+            if len(kr_kis) >= 50:
+                pool.update(kr_kis); print(f"  ⚠️ 공식 명단 실패 → 한투 API 순위 {len(kr_kis)}개")
+            else:
+                got = get_krx_volume_top(200)
+                if len(got) >= 50:
+                    pool.update(got); print(f"  ⚠️ 공식 명단 실패 → KRX 순위 {len(got)}개")
+                else:
+                    for t, (name, suffix) in KR_MAJOR_STOCKS.items():
+                        pool.setdefault(t, {"label": name, "sector": "Korean", "market": "kr", "suffix": suffix})
+                    print(f"  ⚠️ 한국 순위 수집 전부 실패 → 손 명단 폴백 {len(KR_MAJOR_STOCKS)}개 (이번 주만)")
+        sp = U.sp500(); scr = U.us_screener()
+        if len(sp) > 400:
+            us_pool, us_rs = U.build_us_pool(sp, scr)
+            pool.update(us_pool); entry_excluded["us"] = us_rs
+            print(f"  ✅ 미국 S&P {len(sp)} + 스크리너 {len(scr)} → {len(us_pool)} (입구 제외: {us_rs})")
+        else:
+            pool.update(get_us_stocks()); print("  ⚠️ S&P500 목록 실패 → 이전 방식")
+        # 앱에서 '빼기' 한 종목 — 보유·관심·추가는 보호
+        _prot = protected_tickers()
+        try:
+            _ex = {str(t).upper() for t in (json.load(open("public/data/watchlist.json", encoding="utf-8")).get("excludes") or [])} - _prot
+        except Exception:
+            _ex = set()
+        for t in _ex: pool.pop(t, None)
 
         watchlist = load_watchlist()
         for ticker, info in watchlist.items():
@@ -1948,6 +1974,9 @@ def main():
         #   ① 기존 종목의 업종도 이번 수집값으로 갱신 (새로 들어온 종목만 GICS 업종을 갖던 문제)
         n_sec = 0
         for t, info in pool.items():
+            st0 = output["stocks"].get(t)
+            if st0 is not None and info.get("label") and info.get("market") == "kr" and st0.get("label") != info["label"]:
+                st0["label"] = info["label"]          # 공식 한글명으로 교정 (예: 338100 'NH투자증권' → 'NH프라임리츠')
             st = output["stocks"].get(t)
             if st is not None and info.get("sector") and info["sector"] not in ("US", "Korean"):
                 if st.get("sector") != info["sector"]: n_sec += 1
@@ -1956,7 +1985,7 @@ def main():
         #   ② 이번 주 순위 밖 종목 정리 (보유·관심·추가·tickers_extra 는 보호)
         prune_universe(output, pool)
         #   ③ 변경 기록 (저장 직전 실제 목록 기준)
-        write_universe_log(output, prev_stocks)
+        write_universe_log(output, prev_stocks, entry_excluded if "entry_excluded" in dir() else None)
     slim_candles(output)
     path = "public/data/stocks.json"
     with open(path,"w",encoding="utf-8") as f:
