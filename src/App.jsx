@@ -17,7 +17,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-export const APP_VERSION = "v10.2.0";
+export const APP_VERSION = "v11.0.0";
 
 /* ══════════════ 디자인 토큰 ══════════════ */
 const C = {
@@ -37,15 +37,16 @@ const money = (v, m = "us") => {
   if (v == null) return "—";
   const a = Math.abs(v), sg = v < 0 ? "-" : "";
   if (m === "kr") {
-    if (a >= 1e12) return `${sg}${(a / 1e12).toFixed(1)}조`;
-    if (a >= 1e8) return `${sg}${(a / 1e8).toFixed(0)}억`;
-    if (a >= 1e4) return `${sg}${(a / 1e4).toFixed(0)}만`;
+    const trim = (x, d) => x.toFixed(d).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");   // 1.70 → 1.7 · 10 → 10
+    if (a >= 1e12) return `${sg}${trim(a / 1e12, 1)}조`;
+    if (a >= 1e8) return `${sg}${trim(a / 1e8, a >= 1e10 ? 0 : a >= 1e9 ? 1 : 2)}억`;
+    if (a >= 1e4) return `${sg}${Math.round(a / 1e4).toLocaleString()}만`;
     return `${sg}${num(a, 0)}원`;
   }
   if (a >= 1e9) return `${sg}$${(a / 1e9).toFixed(1)}B`;
-  if (a >= 1e6) return `${sg}$${(a / 1e6).toFixed(0)}M`;
-  if (a >= 1e3) return `${sg}$${(a / 1e3).toFixed(0)}K`;
-  return `${sg}$${num(a, 0)}`;
+  if (a >= 1e6) return `${sg}$${(a / 1e6).toFixed(a >= 1e8 ? 0 : 1).replace(/\.0$/, "")}M`;
+  if (a >= 1e4) return `${sg}$${(a / 1e3).toFixed(1).replace(/\.0$/, "")}K`;
+  return `${sg}$${Math.round(a).toLocaleString()}`;              // $4,927 — 1만 달러 아래는 그대로
 };
 
 /* ══════════════ 세션·신선도 (앱 전체 공통) ══════════════ */
@@ -232,7 +233,8 @@ const Star = ({ on, onClick }) => (
 
 /** 목록 위에 붙어 스크롤해도 남는 바 — 시장 등락(비교 기준) + 정렬 */
 const SortBar = ({ text, n, market }) => {
-  const rows = [["🇰🇷 KOSPI", market?.indices?.["^KS11"], market?.judge?.kr], ["🇺🇸 S&P500", market?.indices?.["^GSPC"], market?.judge?.us]];
+  const rows = [["🇰🇷 코스피", market?.indices?.["^KS11"], market?.judge?.kr], ["🇺🇸 S&P500", market?.indices?.["^GSPC"], market?.judge?.us],
+                ["🇺🇸 나스닥", market?.indices?.["^IXIC"], null]];
   const J = { safe: ["안전", C.emerald], warn: ["주의", C.gold], risk: ["위험", C.red] };
   return (
     <div style={{ position: "sticky", top: "var(--hdr, 50px)", zIndex: 20, background: "rgba(10,14,26,.96)", backdropFilter: "blur(6px)",
@@ -254,7 +256,7 @@ const SortBar = ({ text, n, market }) => {
           </div>))}
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 3 }}>
         <span style={{ fontSize: FS.xs, color: C.gold, fontWeight: 700, ...ONE }}>▼ {text}</span>
-        <span style={{ fontSize: FS.xs, color: C.muted, marginLeft: "auto", flexShrink: 0 }}>{n}개 · 시장 = 같은 시장 지수 1달 대비</span>
+        <span style={{ fontSize: FS.xs, color: C.muted, marginLeft: "auto", flexShrink: 0 }}>{n}개</span>
       </div>
     </div>);
 };
@@ -338,13 +340,14 @@ const EXPLAIN = {
     ["매도!", "들고 있는 종목의 종가가 트레일링선(느린 슈퍼트렌드 12,3) 아래로 마감. 유일한 매도 기준. 안 들고 있으면 '관망 (추세 이탈)'로 표시"],
     ["관망", "위 어느 것도 아님"],
     ["RS", "같은 시장 6개월 수익률 순위 백분위. 100이 최고, 70↑ 주도주"],
-    ["시장 1달", "이 종목 1달 수익 − 같은 시장 지수 1달 수익 (나스닥 종목은 나스닥 기준)"],
+    ["나스닥比 +9p", "이 종목 1달 수익 − 비교 지수 1달 수익 (%p). 🇰🇷 코스피 · 나스닥 상장 종목은 나스닥 · 그 외 미국은 S&P500. 위 고정 바에 세 지수가 다 있음"],
+    ["20일선 이격", "검증: '많이 달린 종목을 피하고 20일선 가까이서만 사기'는 미국에서 성과를 깎았음(연 32.6→24.0%). 매수!면 그냥 산다"],
     ["선 −N%", "셋째 줄 맨 앞. 지금 사면 트레일링선까지 거리 — 그만큼 잃을 각오가 필요"],
     ["3일·5일·1달", "누적 등락. 위 고정 바의 지수 숫자와 같은 열"],
     ["매수 N주", "종목당 한도의 절반(1회차)으로 살 수 있는 주수"],
     ["RSI 52 ↑", "참고. 조건 아님 (검증에서 '상승중'은 효과 없음)"],
     ["업종 3위", "이 종목 업종의 섹터 ETF 순위 (미국만)"],
-    ["매출 +12% · 흑자", "연간 재무 참고 (미국만). 검증 불가라 조건이 아님. '매출 필터'는 내 취향 필터 — 한국·재무 없는 종목은 통과"],
+    ["매출 +16% 분기↑ · 흑자", "최근 분기 매출의 전년 동기 대비 (SEC 공시, ↑ = 직전 분기보다 성장 가속). 없으면 4분기 합계 → 연간. 미국만. 검증 불가라 조건이 아닌 취향 필터 — 한국·재무 없는 종목은 통과"],
     ["예비", "관찰용. rising = 추세 유지·RS 55~70·1달 시장대비 + / turn = 느린ST 초록 전환 3일 이내. 검증에서 현행을 못 이겨 매수!로 쓰지 않음"],
     ["○ 확인함", "누르면 회색으로 맨 아래. 그 주 동안 유지"],
     ["🆕 오늘 · N일째", "매수! 조건을 처음 만족한 뒤 며칠째인지 (실전 장부 기준). 20일 넘으면 표시 없음"],
@@ -381,8 +384,9 @@ function StockRow({ s, rank, rel, sub, onOpen, isWatch, onToggle, dip = false, h
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         {rank != null && <span style={{ fontSize: FS.xs, color: C.muted, fontFamily: MONO, width: 16, flexShrink: 0, textAlign: "right" }}>{rank}</span>}
         <div style={{ flex: 1, minWidth: 0, ...ONE }}>
-          <b style={{ fontSize: 15, fontFamily: MONO }}>{s.t}</b>
-          <span style={{ fontSize: FS.xs, color: C.dim }}> {shortName(s.n)}</span>
+          {s.m === "kr"
+            ? <><b style={{ fontSize: 15 }}>{s.n}</b><span style={{ fontSize: 10.5, color: C.muted, fontFamily: MONO }}> {s.t}</span></>   // 한국은 이름이 알아보기 쉬움
+            : <><b style={{ fontSize: 15, fontFamily: MONO }}>{s.t}</b><span style={{ fontSize: FS.xs, color: C.dim }}> {shortName(s.n)}</span></>}
           <InfoLink s={s} />
         </div>
         {!dip && s.action === "buy" && age != null && <NewTag age={age} />}
@@ -397,7 +401,7 @@ function StockRow({ s, rank, rel, sub, onOpen, isWatch, onToggle, dip = false, h
           {dip ? <DipTag s={s} /> : <ActionTag s={s} held={held} />}
           <span style={{ fontSize: FS.xs, color: (rs ?? 0) >= 70 ? C.cyan : C.muted, flexShrink: 0 }}>RS<b style={{ fontFamily: MONO }}>{rs != null ? Math.floor(rs) : "—"}</b></span>
           {rel != null && <span style={{ fontSize: FS.xs, color: rel >= 0 ? C.emerald : C.red, flexShrink: 0 }}>
-            시장<b style={{ fontFamily: MONO }}>{rel >= 0 ? "+" : ""}{rel.toFixed(0)}%p</b></span>}
+            {benchName(s)}比<b style={{ fontFamily: MONO }}>{rel >= 0 ? "+" : ""}{rel.toFixed(0)}p</b></span>}
 
         </div>
         <span style={{ marginLeft: "auto", display: "grid", gridTemplateColumns: COLS3, gap: 4, flexShrink: 0 }}>
@@ -410,14 +414,29 @@ function StockRow({ s, rank, rel, sub, onOpen, isWatch, onToggle, dip = false, h
   );
 }
 
+const NASDAQ = new Set(["NMS", "NGM", "NCM", "NAS"]);
+/** 54. 전체 투자금 — 앱 전체의 돈 기준. 비율로 DC·🇺🇸·🇰🇷·대기로 나누고, 칸 수로 종목당 한도를 정합니다 */
+const PLAN_KEY = "v11.plan";
+const PLAN_DEFAULT = { total: 0, dc: 60, us: 4, kr: 6, cash: 30, slotsUs: 5, slotsKr: 3, hist: [] };
+const loadPlan = () => ({ ...PLAN_DEFAULT, ...loadJSON(PLAN_KEY, {}) });
+const planAmounts = (p, fx) => {
+  if (!p?.total) return null;
+  const a = (k) => p.total * (p[k] || 0) / 100;
+  return { total: p.total, dc: a("dc"), kr: a("kr"), usKrw: a("us"), us: fx ? a("us") / fx : null, cash: a("cash"),
+           limKr: p.slotsKr ? a("kr") / p.slotsKr : a("kr"), limUs: fx && p.slotsUs ? a("us") / fx / p.slotsUs : null };
+};
+
+/** 52. 시장 대비의 비교 대상 — 한국 = 코스피 · 나스닥 상장 = 나스닥 · 그 외 미국 = S&P500 (모두 1달) */
+const benchName = (s) => s?.m === "kr" ? "코스피" : (NASDAQ.has(s?.ex) ? "나스닥" : "S&P");
+
 /** 매출 성장 필터 — 앱 전체 공통 설정. 오늘 할 일·찾기·선정이 같은 개수를 보여주도록 한 곳에서 읽습니다
     (텔레그램도 같은 기본값 +10% 를 씁니다) */
 const REV_KEY = "v9.revMin";
 const getRevMin = () => { try { const v = localStorage.getItem(REV_KEY); return v == null ? 10 : Number(v); } catch { return 10; } };
-const passRevOf = (s, revMin) => revMin <= 0 || s.m === "kr" || !s.fin || s.fin.rev == null || s.fin.rev >= revMin;
+const growthOf = (s) => s?.fin ? (s.fin.growth ?? s.fin.qyoy ?? s.fin.ttm ?? s.fin.rev ?? null) : null;   // 최근 분기 → 4분기 → 연간
+const passRevOf = (s, revMin) => { const g = growthOf(s); return revMin <= 0 || s.m === "kr" || g == null || g >= revMin; };
 
 /** 33·38. 종목 정보 외부 링크 — 전부 네이버 (🇰🇷 국내 · 🇺🇸 나스닥은 해외주식 페이지, 뉴욕은 네이버 검색) */
-const NASDAQ = new Set(["NMS", "NGM", "NCM", "NAS"]);
 const infoUrl = (s) => {
   if (!s) return "#";
   if (s.m === "kr") return `https://m.stock.naver.com/domestic/stock/${s.t}/total`;
@@ -452,7 +471,11 @@ function subLine(s, sizer, market, extra = []) {
     sh > 0 ? `매수 ${sh}주` : null,
     s.rsi != null ? `RSI ${s.rsi.toFixed(0)}${s.rsiUp ? "↑" : "↓"}` : null,
     secRank ? `${secRank.label} ${secRank.rank}위` : null,
-    f ? [f.rev != null ? `매출 ${f.rev >= 0 ? "+" : ""}${f.rev.toFixed(0)}%` : null, f.prof === false ? "적자" : f.prof ? "흑자" : null].filter(Boolean).join(" ") : null,
+    f ? [
+      f.qyoy != null ? `매출 ${f.qyoy >= 0 ? "+" : ""}${f.qyoy.toFixed(0)}% 분기${f.accel ? "↑" : ""}`
+        : f.ttm != null ? `매출 ${f.ttm >= 0 ? "+" : ""}${f.ttm.toFixed(0)}% 4분기`
+        : f.rev != null ? `매출 ${f.rev >= 0 ? "+" : ""}${f.rev.toFixed(0)}% 연간` : null,
+      f.prof === false ? "적자" : f.prof ? "흑자" : null].filter(Boolean).join(" ") : null,
     ...extra,
   ].filter(Boolean).join(" · ");
 }
@@ -697,13 +720,14 @@ export default function App() {
      1회차 = 한도의 절반, 2회차 = +3% 확인 후 나머지 절반 (검증: 총수익·투입효율의 균형점) */
   const sizer = useMemo(() => {
     const g = (k, d) => { const v = Number(localStorage.getItem(k)); return Number.isFinite(v) && v > 0 ? v : d; };
-    const capKr = g("v9.cap.kr", 20000000), capUs = g("v9.cap.us", 5000);
-    const limKr = g("v9.lim.kr", 20000000), limUs = g("v9.lim.us", 1000);
     const fx = market?.fx?.usdkrw || null;
+    const pa = planAmounts(loadPlan(), fx);      // 전체 투자금이 있으면 그걸로 계산
+    const capKr = pa ? pa.kr : g("v9.cap.kr", 20000000), capUs = pa?.us ?? g("v9.cap.us", 5000);
+    const limKr = pa ? pa.limKr : g("v9.lim.kr", 20000000), limUs = pa?.limUs ?? g("v9.lim.us", 1000);
     const limit = (m) => (m === "us" ? limUs : limKr);
     const cap = (m) => (m === "us" ? capUs : capKr);
     return {
-      capKr, capUs, limKr, limUs, fx, limit, cap,
+      capKr, capUs, limKr, limUs, fx, limit, cap, plan: pa,
       slots: (m) => Math.max(1, Math.floor(cap(m) / limit(m))),
       tranche: (m, k) => limit(m) * 0.5,                    // 1·2회차 모두 절반
       shares: (px, m) => (px ? Math.floor(limit(m) * 0.5 / px) : null),
@@ -1015,6 +1039,19 @@ function RulesPopup({ onClose, sizer }) {
 }
 
 /* ══════════════ 1. 시장 ══════════════ */
+/** 폭 추이 미니 차트 — 판정 줄 오른쪽. 점선 = 3년 백분위 40 근처(위험 경계) */
+function Spark({ b, c }) {
+  const hist = b?.hist || [];
+  if (hist.length < 5) return <span />;
+  const W = 84, H = 30, ys = hist.map(r => r[1]);
+  const lo = Math.min(...ys), hi = Math.max(...ys), sp = Math.max(hi - lo, 1);
+  const d = hist.map((r, i) => `${i ? "L" : "M"}${(i / (hist.length - 1) * W).toFixed(1)},${(H - 2 - (r[1] - lo) / sp * (H - 4)).toFixed(1)}`).join("");
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: W, height: H, display: "block" }} aria-label="폭 추이">
+      <path d={d} fill="none" stroke={c} strokeWidth="1.5" />
+      <circle cx={W} cy={H - 2 - (ys[ys.length - 1] - lo) / sp * (H - 4)} r="2.5" fill={c} />
+    </svg>);
+}
 function BreadthBar({ b, c }) {
   if (!b || b.v == null) return null;
   const hist = b.hist || [];
@@ -1069,28 +1106,41 @@ function MarketTab({ market, setTab, onShowRules, list, pos, stocks, sizer }) {
   const nowSeg = wd && ([...S.kr.map(x => ["🇰🇷 " + x[0], x[1], x[2]]), ...S.us.map(x => ["🇺🇸 " + x[0], x[1], x[2]])].find(([, a, b]) => inSpan(mins, a, b)) || null);
   return (
     <>
+      {sizer?.plan && (
+        <div onClick={() => setTab("track")} style={{ marginTop: 8, padding: "8px 12px", borderRadius: 10, background: C.card, border: `1px solid ${C.border}`,
+                                                       display: "flex", gap: 10, alignItems: "baseline", cursor: "pointer", fontSize: FS.xs, color: C.dim, ...ONE }}>
+          <b style={{ fontSize: FS.md, color: C.text, fontFamily: MONO }}>💰 {money(sizer.plan.total, "kr")}</b>
+          <span>DC {money(sizer.plan.dc, "kr")}</span><span>🇺🇸 {sizer.plan.us != null ? money(sizer.plan.us, "us") : "—"}</span>
+          <span>🇰🇷 {money(sizer.plan.kr, "kr")}</span><span>대기 {money(sizer.plan.cash, "kr")}</span>
+        </div>)}
       {/* 원칙 — 한 줄. 누르면 팝업 */}
       <button onClick={onShowRules} style={{ ...btn(C.gold), width: "100%", marginTop: 8, textAlign: "left", display: "flex", gap: 8 }}>
         <span>📌 오늘의 원칙 5개</span><span style={{ marginLeft: "auto", fontWeight: 400, color: C.dim }}>확인함 ✓ · 다시 보기 ›</span>
       </button>
 
-      <Sec>오늘 매매해도 되나</Sec>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 8 }}>
-        {["kr", "us"].map(m => {
-          const j = market.judge?.[m]; if (!j || !J[j.verdict]) return <div key={m} />;
-          const [t, c] = J[j.verdict];
+      <Sec right={<span style={{ fontSize: 10.5, color: C.muted }}>폭 = 200일선 위 종목 비율</span>}>시장 상태</Sec>
+      <Card style={{ padding: "2px 12px" }}>
+        {["kr", "us"].map((m, i) => {
+          const j = market.judge?.[m]; if (!j || !J[j.verdict]) return null;
+          const [t, c] = J[j.verdict]; const b = market.breadth?.[m];
           return (
-            <div key={m} style={{ borderRadius: 12, padding: 12, background: `${c}14`, border: `1px solid ${c}55`, minWidth: 0 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 4 }}>
-                <span style={{ fontSize: FS.md, fontWeight: 700 }}>{m === "us" ? "🇺🇸 미국" : "🇰🇷 한국"}</span>
-                <span style={{ fontSize: 10.5, color: j.gate ? C.emerald : C.muted }}>{j.gate ? "판단 사용" : "참고"}</span>
+            <div key={m} style={{ display: "grid", gridTemplateColumns: "auto minmax(0,1fr) 84px", gap: 10, alignItems: "center",
+                                  padding: "10px 0", borderTop: i ? `1px solid ${C.border}` : "none" }}>
+              <div style={{ textAlign: "center", minWidth: 56 }}>
+                <div style={{ fontSize: FS.xs, color: C.dim }}>{m === "us" ? "🇺🇸 미국" : "🇰🇷 한국"}</div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: c, whiteSpace: "nowrap" }}>{t.replace(/^\S+\s/, "")}</div>
               </div>
-              <div style={{ fontSize: 19, fontWeight: 800, color: c, marginTop: 4 }}>{t}</div>
-              <div style={{ fontSize: FS.xs, color: C.dim, marginTop: 2, lineHeight: 1.4 }}>{j.why}</div>
-              <BreadthBar b={market.breadth?.[m]} c={c} />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: FS.sm, fontWeight: 700, ...ONE }}>
+                  {b?.v != null && <>폭 <span style={{ fontFamily: MONO, color: c }}>{b.v.toFixed(0)}%</span> · 3년 {b.pct >= 50 ? `상위 ${Math.round(100 - b.pct)}%` : `하위 ${Math.round(b.pct)}%`}</>}
+                </div>
+                <div style={{ fontSize: FS.xs, color: C.dim, marginTop: 2, ...ONE }}>{j.why.replace(/\s*\(.*\)\s*$/, "")}</div>
+                <div style={{ fontSize: 10.5, color: j.gate ? C.cyan : C.muted, marginTop: 1 }}>{j.gate ? "DC 판단에만 사용" : "참고"}</div>
+              </div>
+              <Spark b={b} c={c} />
             </div>);
         })}
-      </div>
+      </Card>
       {/* 오늘 할 일 — 이 순서대로 탭을 넘기면 됩니다 */}
       <Sec>오늘 할 일</Sec>
       <Card style={{ padding: "4px 12px" }}>
@@ -1143,42 +1193,40 @@ function MarketTab({ market, setTab, onShowRules, list, pos, stocks, sizer }) {
       </Card>
 
       <Sec>위험 지표</Sec>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 8 }}>
+      <Card style={{ padding: "10px 8px", display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))" }}>
         {[["^VIX", "VIX", "", v => v.c < 22 ? ["안정", C.emerald] : v.c < 30 ? ["주의", C.gold] : ["위험", C.red]],
-          ["curve", "금리차 10Y−3M", "%p", v => v.c > 0 ? ["정상", C.emerald] : ["역전 · 침체 경고", C.red]],
-          ["^TNX", "미 10년물", "%", v => [`1달 ${v.d21p >= 0 ? "+" : ""}${num(v.d21p, 2)}%p`, C.muted]],
-          ["^IRX", "미 3개월물", "%", v => [`1달 ${v.d21p >= 0 ? "+" : ""}${num(v.d21p, 2)}%p`, C.muted]],
-        ].map(([k, label, unit, f]) => { const v = risk[k]; if (!v) return null; const [s, c] = f(v);
-          return (<Card key={k} style={{ padding: "10px 12px" }}>
-            <div style={{ fontSize: FS.xs, color: C.dim }}>{label}</div>
-            <div style={{ fontSize: 18, fontWeight: 800, fontFamily: MONO }}>
-              {num(v.c, k === "^VIX" ? 1 : 2)}<span style={{ fontSize: FS.xs, color: C.muted }}>{unit}</span></div>
-            <div style={{ fontSize: FS.xs, color: c }}>{s}</div>
-          </Card>); })}
-      </div>
+          ["curve", "금리차", "%p", v => v.c > 0 ? ["정상", C.emerald] : ["역전", C.red]],
+          ["^TNX", "미 10년", "%", v => [`${v.d21p >= 0 ? "+" : ""}${num(v.d21p, 2)} 1달`, C.muted]],
+          ["^IRX", "미 3개월", "%", v => [`${v.d21p >= 0 ? "+" : ""}${num(v.d21p, 2)} 1달`, C.muted]],
+        ].map(([k, label, unit, f], i) => { const v = risk[k]; if (!v) return <div key={k} />; const [st, c] = f(v);
+          return (<div key={k} style={{ textAlign: "center", borderLeft: i ? `1px solid ${C.border}` : "none", minWidth: 0, padding: "0 2px" }}>
+            <div style={{ fontSize: 10.5, color: C.dim, ...ONE }}>{label}</div>
+            <div style={{ fontSize: 15, fontWeight: 800, fontFamily: MONO, ...ONE }}>{Number(v.c).toFixed(k === "^VIX" ? 1 : 2)}<span style={{ fontSize: 10, color: C.muted }}>{unit}</span></div>
+            <div style={{ fontSize: 10.5, color: c, ...ONE }}>{st}</div>
+          </div>); })}
+      </Card>
 
       <Sec right={<Grade k="weak" />}>미국 섹터 순위</Sec>
       <Card style={{ padding: "2px 12px 6px" }}>
-        <Head cols={["#", "섹터", "3일", "5일", "1달", "점수"]} grid={SEC_GRID} />
+        <Head cols={["#", "섹터 · S&P比", "3일", "5일", "1달", "점수"]} grid={SEC_GRID} />
         {sectors.map(s => (
           <div key={s.tk} style={{ display: "grid", gridTemplateColumns: SEC_GRID, gap: 5, alignItems: "center",
-                                   padding: "9px 0", borderTop: `1px solid ${C.border}` }}>
+                                   padding: "8px 0", borderTop: `1px solid ${C.border}` }}>
             <span style={{ fontSize: FS.sm, color: C.muted }}>{s.rank}</span>
-            <span style={{ minWidth: 0, ...ONE }}>
-              <b style={FIT_NAME}>{s.label}</b> <span style={{ fontSize: 10, color: C.muted }}>{s.tk}</span>
-            </span>
+            {(() => {   // S&P比 = 섹터 1달 − S&P500 1달 — 이름 옆 한 줄
+              const r = (s.d21 == null || spy21 == null) ? null : s.d21 - spy21;
+              return (
+                <span style={{ minWidth: 0, display: "flex", alignItems: "baseline", gap: 4 }}>
+                  <b style={{ ...FIT_NAME, minWidth: 0, ...ONE }}>{s.label}</b>
+                  {r != null && <span style={{ fontSize: 10.5, fontFamily: MONO, color: r >= 0 ? C.emerald : C.red, flexShrink: 0 }}>{r >= 0 ? "+" : ""}{r.toFixed(1)}p</span>}
+                </span>);
+            })()}
             {["d3", "d5", "d21"].map(x =>
               <span key={x} style={{ ...FIT, textAlign: "right", color: col(s[x]) }}>{pctFit(s[x])}</span>)}
             <span style={{ ...FIT, textAlign: "right", fontWeight: 700, color: col(s.score) }}>{pctFit(s.score)}</span>
-            {(() => {   // 지수대비 = 섹터 1달 − S&P500 1달
-              const r = (s.d21 == null || spy21 == null) ? null : s.d21 - spy21;
-              return r == null ? <span /> : (
-                <span style={{ gridColumn: "2 / -1", fontSize: 10.5, color: r >= 0 ? C.emerald : C.red, marginTop: 1 }}>
-                  지수대비 {r >= 0 ? "+" : ""}{r.toFixed(1)}%p</span>);
-            })()}
           </div>))}
         <div style={{ fontSize: FS.xs, color: C.muted, padding: "7px 0 2px" }}>
-          점수 = 3·6·9·12개월 평균 · 섹터를 갈아타는 방식은 지수 보유와 차이가 없었습니다
+          이름 옆 숫자 = S&P500 대비 1달 %p · 점수 = 3·6·9·12개월 평균 · 섹터를 갈아타는 방식은 지수 보유와 차이가 없었습니다
           <button onClick={() => setTab("alloc")} style={{ ...linkBtn, fontSize: FS.sm, minHeight: 36, display: "block" }}>국내 ETF로 보기 ›</button>
         </div>
       </Card>
@@ -1208,9 +1256,11 @@ const Head = ({ cols, grid }) => (
 const DAY = 86400000;
 function loadJSON(k, d) { try { const v = JSON.parse(localStorage.getItem(k) || "null"); return v ?? d; } catch { return d; } }
 
-function DcTab({ etfs, market, pos, setPos, openStock }) {
+function DcTab({ etfs, market, pos, setPos, openStock, sizer }) {
   const dc = market.dc;
-  const [total, setTotal] = useState(() => Number(localStorage.getItem("v6.dc.total")) || 100000000);
+  const [total0, setTotal] = useState(() => Number(localStorage.getItem("v6.dc.total")) || 100000000);
+  const total = sizer?.plan?.dc || total0;          // 💰 전체 투자금이 있으면 그 DC 몫
+  const [showRef, setShowRef] = useState(false);
   const [split, setSplit] = useState(() => Number(localStorage.getItem("v6.dc.split")) || 3);
   const [done, setDone] = useState(() => loadJSON("v6.dc.done", { us: [], kr: [] }));
   const [moreUs, setMoreUs] = useState(false);
@@ -1273,7 +1323,26 @@ function DcTab({ etfs, market, pos, setPos, openStock }) {
       {mode === "dual" && dc.dual && (() => {
         const semiShare = semiOn && dc.semi ? dc.semi.share : 0;
         const riskW = 0.70 - semiShare;
+        const hold = dc.dual.cands.filter(c => dc.dual.hold.includes(c.sig));
+        const safeW = 1 - riskW * hold.length / 2 - (semiOn && dc.semi?.state === "hold" ? semiShare : 0);
         return (<>
+          {/* 53. 이번 달 할 일 — 코드와 금액 한 줄 */}
+          <div style={{ marginTop: 10, padding: "10px 12px", borderRadius: 10, background: "rgba(6,182,212,.08)", border: `1px solid ${C.cyan}44` }}>
+            <div style={{ fontSize: FS.xs, color: C.cyan, fontWeight: 800 }}>이번 달 보유 목표 · 총 {money(total, "kr")}</div>
+            <div style={{ display: "grid", gap: 3, marginTop: 5 }}>
+              {hold.map(c => (
+                <div key={c.sig} style={{ display: "flex", gap: 6, fontSize: FS.sm }}>
+                  <b style={{ fontFamily: MONO, color: C.cyan }}>{c.buy?.code || "—"}</b><span style={{ color: C.dim, minWidth: 0, ...ONE }}>{c.buy?.name || c.label}</span>
+                  <b style={{ marginLeft: "auto", fontFamily: MONO }}>{money(total * riskW / 2, "kr")}</b></div>))}
+              {semiOn && dc.semi?.state === "hold" && (
+                <div style={{ display: "flex", gap: 6, fontSize: FS.sm }}>
+                  <b style={{ fontFamily: MONO, color: C.cyan }}>{dc.semi.buy?.code}</b><span style={{ color: C.dim, minWidth: 0, ...ONE }}>반도체 고정 칸</span>
+                  <b style={{ marginLeft: "auto", fontFamily: MONO }}>{money(total * semiShare, "kr")}</b></div>)}
+              <div style={{ display: "flex", gap: 6, fontSize: FS.sm }}>
+                <b>안전자산</b><span style={{ color: C.dim }}>TDF·채권혼합·예금</span>
+                <b style={{ marginLeft: "auto", fontFamily: MONO }}>{money(total * safeW, "kr")}</b></div>
+            </div>
+          </div>
           <Sec right={<Grade k="strong" />}>이번 달 보유 (듀얼 모멘텀)</Sec>
           <Card style={{ padding: "4px 12px" }}>
             {dc.dual.cands.map((c, i) => {
@@ -1379,9 +1448,10 @@ function DcTab({ etfs, market, pos, setPos, openStock }) {
       <Card>
         <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: FS.sm, color: C.dim, width: 64, flexShrink: 0 }}>DC 총액</span>
-          <input type="number" inputMode="numeric" value={total} onChange={e => setTotal(Number(e.target.value) || 0)} style={{ ...inp("100%"), flex: 1 }} />
+          {sizer?.plan ? <span style={{ fontSize: 15, fontWeight: 800, fontFamily: MONO }}>{money(total, "kr")}</span>
+            : <input type="number" inputMode="numeric" value={total0} onChange={e => setTotal(Number(e.target.value) || 0)} style={{ ...inp("100%"), flex: 1 }} />}
         </label>
-        <div style={{ fontSize: FS.xs, color: C.muted, margin: "4px 0 0 72px" }}>{money(total, "kr")}</div>
+        <div style={{ fontSize: FS.xs, color: C.muted, margin: "4px 0 0 72px" }}>{sizer?.plan ? "💰 전체 투자금에서 자동 · 내 종목 탭에서 변경" : money(total, "kr")}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
           <span style={{ fontSize: FS.sm, color: C.dim, width: 64, flexShrink: 0 }}>진입</span>
           <Seg full value={split} onChange={setSplit} items={[[1, "한 번에"], [3, "3분할"]]} />
@@ -1394,6 +1464,10 @@ function DcTab({ etfs, market, pos, setPos, openStock }) {
         </Info>
       </Card>
 
+      <button onClick={() => setShowRef(v => !v)} style={{ ...btn(C.dim), width: "100%", marginTop: 14, textAlign: "left", display: "flex" }}>
+        <span>참고: 섹터·업종 ETF</span><span style={{ marginLeft: "auto", fontWeight: 400, color: C.muted }}>배분하지 않음 · 검증에서 지수 보유와 차이 없음 {showRef ? "▴" : "▾"}</span>
+      </button>
+      {showRef && <>
       <Sec right={<Grade k="weak" />}>🇺🇸 미국 섹터 → 국내 ETF</Sec>
       <Card style={{ padding: "0 12px" }}>
         {[...(dc.usCore || []), ...(dc.usSect || [])].slice(0, moreUs ? 99 : 5).map((t, i) => {
@@ -1466,6 +1540,7 @@ function DcTab({ etfs, market, pos, setPos, openStock }) {
         분기 첫 거래일에 35/35/30 비중을 다시 맞춥니다. 은행·보험사 DC는 ETF 실시간 매매가 안 될 수 있습니다.<br />
         기록은 이 기기 브라우저에만 저장됩니다. 투자자문이 아닙니다.
       </Info>
+      </>}
     </>
   );
 }
@@ -1473,7 +1548,7 @@ function DcTab({ etfs, market, pos, setPos, openStock }) {
 /* ══════════════ 3. 발굴 ══════════════ */
 const SORT_LABEL = { new: "새로 매수! 된 순", sig: "매수! 먼저", rs: "RS 높은 순", sec: "주도 업종 먼저", rev: "매출 성장 큰 순", vol: "변동성 높은 순", tv: "거래대금 큰 순" };
 /** 시장 대비 = 그 종목 1달 수익 − 같은 시장 지수 1달 수익 */
-const benchOf = (s) => s.m === "kr" ? "^KS11" : (s.ex === "NMS" ? "^IXIC" : "^GSPC");
+const benchOf = (s) => s.m === "kr" ? "^KS11" : (NASDAQ.has(s.ex) ? "^IXIC" : "^GSPC");   // 이름표(benchName)와 같은 기준
 const relOf = (s, market) => {
   const i = market?.indices?.[benchOf(s)];
   return (s.d21 == null || i?.d21 == null) ? null : s.d21 - i.d21;
@@ -1572,7 +1647,7 @@ function FindTab({ list, openStock, watch, toggleWatch, market, sizer, pos, sigl
     const W = { pull: 3, strong: 3, trend: 2 };
     const key = { new: s => (ageMap[s.t] ?? 99) * 1000 - (s.rs ?? 0),          // 새로 매수! 된 순
                   sig: s => -((s.action === "buy" ? W[s.why] || 1 : 0) * 1000 + (s.rs ?? 0)),
-                  rs: s => -(s.rs ?? 0), vol: s => -(s.atrr ?? -1), tv: s => -(s.tvr ?? 0), rev: s => -((s.fin?.rev) ?? -999),
+                  rs: s => -(s.rs ?? 0), vol: s => -(s.atrr ?? -1), tv: s => -(s.tvr ?? 0), rev: s => -(growthOf(s) ?? -999),
                   sec: s => { const r = (market?.sectors || []).find(x => x.tk === s.sec); return (r ? r.rank : 99) * 1000 - (s.rs ?? 0); } }[sortBy];
     const sorted = [...r].sort((a, b) => key(a) - key(b));
     return [...sorted.filter(s => !seenSet[s.t]), ...sorted.filter(s => seenSet[s.t])];   // 확인한 것은 맨 아래
@@ -2158,8 +2233,9 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
     </label>);
   return (
     <>
-      {/* 사이징 — 계좌별 자본·종목당 한도. 손절 폭 설정은 없습니다: 청산은 트레일링선 하나 */}
-      <Card style={{ marginTop: 8 }}>
+      <PlanCard sizer={sizer} bumpSizer={bumpSizer} pos={pos} stocks={stocks} />
+      {/* 사이징 — 전체 투자금이 없을 때만 계좌별로 직접 */}
+      {!sizer.plan && <Card style={{ marginTop: 8 }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 8 }}>
           {[["🇰🇷 원화 계좌", capKr, limKr, "kr"], ["🇺🇸 달러 계좌", capUs, limUs, "us"]].map(([l, c, lim, m]) => (
             <div key={m} style={{ padding: "8px 10px", borderRadius: 9, background: "rgba(255,255,255,.03)" }}>
@@ -2182,7 +2258,7 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
               절반→+3% 확인 후 절반이 투입 효율(한국 +3.2%·미국 +2.8%)과 총수익의 균형점이었습니다. −3% 초기손절·고점 −5% 트레일·2주 타임컷은 모두 성과를 깎아 쓰지 않습니다.
             </Info>
           </div>)}
-      </Card>
+      </Card>}
 
       <Sec right={<button onClick={() => setForm(form ? null : { t: "", avg: "", role: "swing", k: "1" })} style={linkBtn}>{form ? "닫기" : "＋ 직접 추가"}</button>}>
         보유 {pos.length}
@@ -2659,6 +2735,77 @@ function ReviewTab({ market, uni, snap, trades, setTrades, pos, stocks, setTab, 
       </Info>
     </>
   );
+}
+
+/* ══════════════ 💰 전체 투자금 ══════════════ */
+function PlanCard({ sizer, bumpSizer, pos, stocks }) {
+  const [p, setP] = useState(loadPlan);
+  const [open, setOpen] = useState(!loadPlan().total);
+  const save = (np) => { setP(np); localStorage.setItem(PLAN_KEY, JSON.stringify(np)); bumpSizer?.(); };
+  const set = (k, v) => save({ ...p, [k]: v });
+  const setTotal = (v) => { const d = new Date().toISOString().slice(0, 10);
+    const hist = [...(p.hist || []).filter(h => h.d !== d), { d, total: v }].slice(-60); save({ ...p, total: v, hist }); };
+  const pa = planAmounts(p, sizer.fx);
+  const sum = (p.dc || 0) + (p.us || 0) + (p.kr || 0) + (p.cash || 0);
+  const invKr = (pos || []).filter(x => /^\d{6}$/.test(x.t) && x.role !== "etf").reduce((a, x) => a + investedOf(x), 0);
+  const invUs = (pos || []).filter(x => !/^\d{6}$/.test(x.t) && x.role !== "etf").reduce((a, x) => a + investedOf(x), 0);
+  const Bar = ({ k, label, amt, sub, c }) => (
+    <div style={{ display: "grid", gridTemplateColumns: "58px 44px minmax(0,1fr)", gap: 8, alignItems: "center", padding: "6px 0" }}>
+      <span style={{ fontSize: FS.sm, fontWeight: 700 }}>{label}</span>
+      <input type="number" inputMode="numeric" value={p[k]} onChange={e => set(k, Math.max(0, Number(e.target.value) || 0))}
+        aria-label={`${label} 비율`} style={{ ...inp("100%"), padding: "6px 4px", textAlign: "right", fontSize: 14 }} />
+      <div style={{ minWidth: 0 }}>
+        <div style={{ height: 6, borderRadius: 3, background: "rgba(255,255,255,.06)", overflow: "hidden" }}>
+          <div style={{ width: `${Math.min(100, p[k] || 0)}%`, height: "100%", background: c }} /></div>
+        <div style={{ fontSize: FS.xs, color: C.dim, marginTop: 3, ...ONE }}><b style={{ color: C.text, fontFamily: MONO }}>{amt}</b>{sub && <span style={{ color: C.muted }}> · {sub}</span>}</div>
+      </div>
+    </div>);
+  return (
+    <Card style={{ marginTop: 8 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+        <span style={{ fontSize: FS.md, fontWeight: 800 }}>💰 전체 투자금</span>
+        <span style={{ fontSize: 17, fontWeight: 800, fontFamily: MONO, marginLeft: "auto" }}>{p.total ? money(p.total, "kr") : "미설정"}</span>
+        <button onClick={() => setOpen(v => !v)} style={{ ...linkBtn, minHeight: 32, fontSize: FS.xs }}>{open ? "닫기" : "설정"}</button>
+      </div>
+      {pa && !open && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", marginTop: 8, textAlign: "center" }}>
+          {[["🏦 DC", money(pa.dc, "kr"), `${p.dc}%`], ["🇺🇸 직투", pa.us != null ? money(pa.us, "us") : "—", `${p.slotsUs}칸 · ${pa.limUs != null ? money(pa.limUs, "us") : "—"}`],
+            ["🇰🇷 직투", money(pa.kr, "kr"), `${p.slotsKr}칸 · ${money(pa.limKr, "kr")}`], ["💤 대기", money(pa.cash, "kr"), `${p.cash}%`]].map(([l, v, sub], i) => (
+            <div key={l} style={{ borderLeft: i ? `1px solid ${C.border}` : "none", minWidth: 0, padding: "0 2px" }}>
+              <div style={{ fontSize: 10.5, color: C.dim }}>{l}</div>
+              <div style={{ fontSize: 13.5, fontWeight: 800, fontFamily: MONO, ...ONE }}>{v}</div>
+              <div style={{ fontSize: 10, color: C.muted, ...ONE }}>{sub}</div>
+            </div>))}
+        </div>)}
+      {pa && !open && (invKr > 0 || invUs > 0) && (
+        <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 6 }}>
+          지금 투입 중 — 🇺🇸 {money(invUs, "us")}{pa.us ? ` (${Math.round(invUs / pa.us * 100)}%)` : ""} · 🇰🇷 {money(invKr, "kr")} ({Math.round(invKr / Math.max(1, pa.kr) * 100)}%)</div>)}
+      {open && (
+        <div style={{ marginTop: 8 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: FS.sm, color: C.dim, width: 58, flexShrink: 0 }}>총액(원)</span>
+            <input type="number" inputMode="numeric" value={p.total || ""} placeholder="예: 170000000" onChange={e => setTotal(Math.max(0, Number(e.target.value) || 0))} style={{ ...inp("100%"), flex: 1 }} />
+          </label>
+          <div style={{ fontSize: FS.xs, color: C.muted, margin: "3px 0 6px 66px" }}>{p.total ? money(p.total, "kr") : "원 단위로 입력"} · 비율 합계 <b style={{ color: sum === 100 ? C.emerald : C.red }}>{sum}%</b>{sum !== 100 && " (100%가 되게 맞춰 주세요)"}</div>
+          <Bar k="dc" label="🏦 DC" c={C.cyan} amt={pa ? money(pa.dc, "kr") : "—"} sub="듀얼 모멘텀" />
+          <Bar k="us" label="🇺🇸 직투" c={C.emerald} amt={pa?.us != null ? `${money(pa.us, "us")} (${money(pa.usKrw, "kr")})` : "—"} sub={`환율 ${sizer.fx ? sizer.fx.toFixed(0) : "—"}`} />
+          <Bar k="kr" label="🇰🇷 직투" c={C.gold} amt={pa ? money(pa.kr, "kr") : "—"} sub="눌림" />
+          <Bar k="cash" label="💤 대기" c={C.muted} amt={pa ? money(pa.cash, "kr") : "—"} sub="예금·예비금" />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 8, marginTop: 6 }}>
+            {[["slotsUs", "🇺🇸 칸 수", pa?.limUs != null ? `칸당 ${money(pa.limUs, "us")}` : ""], ["slotsKr", "🇰🇷 칸 수", pa ? `칸당 ${money(pa.limKr, "kr")}` : ""]].map(([k, l, sub]) => (
+              <label key={k} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: FS.sm, color: C.dim, flexShrink: 0 }}>{l}</span>
+                <input type="number" inputMode="numeric" value={p[k]} onChange={e => set(k, Math.max(1, Number(e.target.value) || 1))} style={{ ...inp("100%"), width: 52, padding: "6px 4px", textAlign: "right" }} />
+                <span style={{ fontSize: 10.5, color: C.muted, ...ONE }}>{sub}</span>
+              </label>))}
+          </div>
+          <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 8, lineHeight: 1.6 }}>
+            여기서 한 번 정하면 DC 총액 · 원화/달러 자본 · 종목당 한도(= 직투 금액 ÷ 칸 수)가 모든 탭에 자동으로 반영됩니다.
+            1회차는 칸당 금액의 절반입니다. 아이들 적립 계좌는 넣지 않습니다.
+          </div>
+          <button onClick={() => setOpen(false)} disabled={!p.total || sum !== 100} style={{ ...btn(C.emerald), width: "100%", marginTop: 8, opacity: (!p.total || sum !== 100) ? .4 : 1 }}>저장</button>
+        </div>)}
+    </Card>);
 }
 
 /* ══════════════ 📦 종목풀 — 주 1회 자동 교체 + 수동 추가·빼기·즉시 교체 ══════════════ */
