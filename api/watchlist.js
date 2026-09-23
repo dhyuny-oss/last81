@@ -77,6 +77,10 @@ export default async function handler(req, res) {
                  date: String(p.date || (tr[0] && tr[0].d) || "").slice(0, 10) };
       }).filter(p => p.t);
       content.watch = watch.map(t => String(t).slice(0, 12)).filter(Boolean);
+      if (req.body.settings && typeof req.body.settings === "object") {   // 61. 앱 설정 — 오늘 후보·텔레그램이 같은 값을 쓰도록
+        const st = req.body.settings, num = (x, lo, hi, d) => { const v = Number(x); return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d; };
+        content.settings = { revMin: num(st.revMin, 0, 100, 10), slotsUs: Math.round(num(st.slotsUs, 1, 20, 5)), slotsKr: Math.round(num(st.slotsKr, 1, 20, 3)) };
+      }
       if (Array.isArray(req.body.excludes))          // 종목풀에서 뺄 종목 (순위에 들어도 수집 안 함)
         content.excludes = req.body.excludes.map(t => String(t).slice(0, 12).toUpperCase()).filter(Boolean).slice(0, 200);
       if (Array.isArray(req.body.extras))            // 급히 넣는 종목 (다음 수집 때 종목풀에 포함)
