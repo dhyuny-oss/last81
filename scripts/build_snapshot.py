@@ -23,7 +23,7 @@ Alpha Terminal v4 — 지표 스냅샷 파이프라인
 import json, os, sys, time, math, urllib.request
 from datetime import datetime, timezone, timedelta
 
-VERSION   = "7.4.0"
+VERSION   = "7.5.0"
 UA        = {"User-Agent": "Mozilla/5.0"}
 OUT_DIR   = "public/data"
 KST       = timezone(timedelta(hours=9))
@@ -706,6 +706,46 @@ KR_SECT = [
 ]
 DC_WEIGHTS = {"us": 0.35, "kr": 0.35, "safe": 0.30}
 
+SEC_CACHE = f"{OUT_DIR}/sec_rev.json"
+
+def attach_quarterly(stocks, refresh=False):
+    """51. 분기 매출 성장 (SEC 공시) — 최근 분기 전년 동기 대비가 기본, 없으면 4분기 합계, 그것도 없으면 연간.
+       전체 스캔(토요일·수동)이거나 캐시가 6일 넘으면 새로 받습니다 (약 15초·10MB)."""
+    import datetime as _dt
+    cache = {}
+    try:
+        cache = json.load(open(SEC_CACHE, encoding="utf-8"))
+    except Exception:
+        pass
+    age = 99
+    try:
+        age = (_dt.date.today() - _dt.date.fromisoformat(cache.get("asOf", "2000-01-01"))).days
+    except Exception:
+        pass
+    if refresh or age > 6 or not cache.get("data"):
+        try:
+            import universe as U
+            us = [t for t, d in stocks.items() if d["m"] == "us"]
+            got = U.sec_revenue(us)
+            if len(got) > 50:
+                cache = {"asOf": _dt.date.today().isoformat(), "data": got}
+                _write(SEC_CACHE, cache)
+                print(f"  📊 분기 매출(SEC): {len(got)}종목 새로 받음")
+        except Exception as e:
+            print("  ⚠️ 분기 매출 수신 실패 — 지난 값 사용:", e)
+    data = cache.get("data") or {}
+    n = 0
+    for t, d in stocks.items():
+        q = data.get(t)
+        if not q: continue
+        f = d.setdefault("fin", {})
+        f.update({"qyoy": q.get("yoy"), "qprev": q.get("prev"), "ttm": q.get("ttm"), "accel": q.get("accel"), "q": q.get("q")})
+        n += 1
+    for d in stocks.values():   # 필터·정렬이 쓰는 대표 성장률: 분기 → 4분기 → 연간
+        f = d.get("fin")
+        if f: f["growth"] = next((x for x in (f.get("qyoy"), f.get("ttm"), f.get("rev")) if x is not None), None)
+    print(f"  📊 분기 매출 붙임: {n}종목 (캐시 {cache.get('asOf')})")
+
 def fin_flags(stocks):
     """미국 재무 참고 배지 — stocks.json 의 financials(연간 2개년)에서. 검증 불가라 조건이 아니라 '참고'입니다."""
     try:
@@ -864,7 +904,7 @@ def update_signal_log(stocks, series, idx_series):
         f = d.get("fin") or {}
         k = {"pull": "pull", "strong": "strong", "trend": "buy"}.get(d.get("why"), "buy")   # 앱·알림과 같은 근거 하나
         log.append({"d": d["asOf"], "t": t, "n": d.get("n"), "m": d["m"], "k": k, "p": d["c"],
-                    "fin": {"rev": f.get("rev"), "prof": f.get("prof")} if f else None,   # 6개월 뒤 재무 유무별 성적 비교용
+                    "fin": {"rev": f.get("rev"), "qyoy": f.get("qyoy"), "growth": f.get("growth"), "prof": f.get("prof")} if f else None,   # 6개월 뒤 성장주 신호 성적 비교용
                     "sec": d.get("sec"), "both": bool(d.get("strong") and d.get("trend3"))})
         added += 1
     # 옛 기록의 같은 날·같은 종목 중복은 하나로 합칩니다 (강세·추세 둘 다 기록되던 버전)
@@ -944,12 +984,13 @@ def build_today(stocks, market):
     def age(t):
         d0 = first.get(t); return (pos_of[dates[-1]] - pos_of[d0] + 1) if (d0 in pos_of and dates) else None
     def rel(d):
-        i = idx.get("^KS11" if d["m"] == "kr" else ("^IXIC" if d.get("ex") == "NMS" else "^GSPC")) or {}
+        i = idx.get("^KS11" if d["m"] == "kr" else ("^IXIC" if d.get("ex") in ("NMS", "NGM", "NCM") else "^GSPC")) or {}
         return _r(d["d21"] - i["d21"], 1) if d.get("d21") is not None and i.get("d21") is not None else None
     def row(d):
         gap = _r((d["c"] / d["stLine"] - 1) * 100, 1) if d.get("stLine") else None
         f = d.get("fin") or {}
         return {"t": d["t"], "n": d.get("n"), "m": d["m"], "why": d.get("why"), "rs": d.get("rs"), "c": d["c"], "stLine": d.get("stLine"),
+                "growth": f.get("growth"), "qyoy": f.get("qyoy"), "accel": f.get("accel"), "ma20p": d.get("ma20p"),
                 "gap": gap, "rel": rel(d), "sec": d.get("sec"), "secRank": secrank.get(d.get("sec"), (None, None))[0],
                 "secLabel": secrank.get(d.get("sec"), (None, None))[1], "rev": f.get("rev"), "prof": f.get("prof"),
                 "mcap": d.get("mcap"), "tv": d.get("tv"), "age": age(d["t"]), "rsi": d.get("rsi"), "held": d["t"] in held}
@@ -957,7 +998,7 @@ def build_today(stocks, market):
     def reasons(r):
         out = []
         if r["prof"] is False: out.append("적자")
-        if r["m"] == "us" and r["rev"] is not None and r["rev"] < REV_MIN: out.append(f"매출 {r['rev']:+.0f}%")
+        if r["m"] == "us" and r["growth"] is not None and r["growth"] < REV_MIN: out.append(f"매출 {r['growth']:+.0f}%")
         if r["gap"] is not None and r["gap"] > 20: out.append(f"선까지 {r['gap']:.0f}%")
         if r["held"]: out.append("보유 중")
         return out
@@ -989,7 +1030,7 @@ def build_today(stocks, market):
     dips.sort(key=lambda r: r.get("w52p") or 0)
     dual = (market.get("dc") or {}).get("dual") or {}
     return {"asOf": max((d.get("asOf") or "" for d in stocks.values()), default=None),
-            "rules": {"buy": "action=buy", "rev": f"🇺🇸 매출 +{REV_MIN}%↑ (재무 있으면) · 적자 제외", "gap": "트레일링선까지 20% 이하", "sector": "🇺🇸 업종 하나씩 최대 5 · 🇰🇷 최대 3",
+            "rules": {"buy": "action=buy", "rev": f"🇺🇸 매출 +{REV_MIN}%↑ (최근 분기 전년 동기 대비 → 없으면 4분기 합계 → 연간) · 적자 제외", "gap": "트레일링선까지 20% 이하", "sector": "🇺🇸 업종 하나씩 최대 5 · 🇰🇷 최대 3",
                       "tranche": "1회차 = 한도 절반 → +3~6% 마감 & 느린ST 초록이면 나머지 절반 · 매도 = 종가 < 트레일링선"},
             "market": {m: (market.get("judge") or {}).get(m, {}).get("verdict") for m in ("us", "kr")},
             "sectors": [{"tk": x["tk"], "label": x["label"], "rank": x["rank"], "score": x.get("score")} for x in (market.get("sectors") or [])[:6]],
@@ -1364,6 +1405,7 @@ def main():
     #   매도는 느린 슈퍼트렌드(12,3) 빨강 하나. −3%·고점−5%·2주 타임컷은 검증에서 성과를 깎아 쓰지 않습니다.
     # ══════════════════════════════════════════════════════════
     fin_flags(stocks)
+    attach_quarterly(stocks, refresh=not focus)
     for d in stocks.values():
         rs_ok = (d.get("rs") or 0) >= 70
         up = bool(d.get("upTrend") and d.get("stSlow") == 1 and rs_ok)
@@ -1398,7 +1440,7 @@ def main():
         rsv = d.get("rs") or 0
         trend_ok = bool(d.get("upTrend") and d.get("stSlow") == 1)
         if d.get("action") != "buy" and d.get("stSlow") == 1:
-            _idx = (market.get("indices") or {}).get("^KS11" if d["m"] == "kr" else ("^IXIC" if d.get("ex") == "NMS" else "^GSPC")) or {}
+            _idx = (market.get("indices") or {}).get("^KS11" if d["m"] == "kr" else ("^IXIC" if d.get("ex") in ("NMS", "NGM", "NCM") else "^GSPC")) or {}
             _rel = (d.get("d21") or 0) - (_idx.get("d21") or 0)
             if trend_ok and 55 <= rsv < 70 and _rel > 0:
                 d["pre"] = "rising"
