@@ -1752,6 +1752,22 @@ def main():
             else:
                 pool_slim[ticker] = {k:v for k,v in stock.items() if k != "candles"}
         output["pool"] = pool_slim
+        # ★ 59. 종목풀 전체를 목록에 올립니다 (2026-09-24 수정)
+        #   예전: RS 상위 300 + 알파 300 만 output["stocks"] 에 넣고 나머지는 버림 → 옛 종목이 지워지지 않던 시절엔 안 보였지만,
+        #   순위 밖 정리를 켜자 새로 들어올 S&P500 102개·해외 대형주 81개가 빠지고 '이미 강한 종목'만 남았음.
+        #   스냅샷(build_snapshot)은 시세를 직접 받으므로 여기엔 이름·시장·업종·시총만 있으면 됩니다.
+        n_add = 0
+        for t, info in pool.items():
+            st0 = output["stocks"].get(t)
+            if st0 is None:
+                src = pool_data.get(t) or {}
+                output["stocks"][t] = {"label": info.get("label") or src.get("label") or t, "market": info.get("market", "us"),
+                                       "sector": info.get("sector", ""), "suffix": info.get("suffix") or src.get("suffix"),
+                                       "mcap": info.get("mcap")}
+                n_add += 1
+            elif info.get("mcap"):
+                st0["mcap"] = info["mcap"]
+        print(f"  📋 종목풀 전체 목록화: {len(pool)}개 (새로 올린 것 {n_add})")
 
         with open("public/data/alpha_hits.json", "w", encoding="utf-8") as f:
             json.dump({"hits":alpha_hits[:50],"count":len(alpha_hits),"scanned":len(pool_data),"updatedAt":now_str}, f, ensure_ascii=False, separators=(",",":"))
