@@ -23,7 +23,7 @@ Alpha Terminal v4 — 지표 스냅샷 파이프라인
 import json, os, sys, time, math, urllib.request
 from datetime import datetime, timezone, timedelta
 
-VERSION   = "7.5.0"
+VERSION   = "7.6.0"
 UA        = {"User-Agent": "Mozilla/5.0"}
 OUT_DIR   = "public/data"
 KST       = timezone(timedelta(hours=9))
@@ -378,6 +378,7 @@ def build_stock(ticker, cd, meta, name, market, sector):
     px = c[-1]
     ma200 = sma(c, 200)
     v20 = sma(v, 20); v5 = sma(v, 5)
+    _v50 = sma(v, 50)
     # ★ 52주 고점은 장중 고가 기준 — 증권사·차트사이트와 같은 정의입니다.
     #   종가만 쓰면 INFY 가 -45% 로 나오지만 실제 고점 대비로는 -63% 입니다.
     win = cd[-252:] if len(cd) >= 252 else cd
@@ -425,7 +426,8 @@ def build_stock(ticker, cd, meta, name, market, sector):
     rs_ser = rsi_series(c)
     d["stSlow"]   = None if slow is None else (1 if slow == 1 else 0)
     _ma20 = sma(c, 20)
-    d["ma20p"]    = _r((px / _ma20 - 1) * 100) if _ma20 else None      # 급락 탭 '반등 확인' 용
+    d["ma20p"]    = _r((px / _ma20 - 1) * 100) if _ma20 else None      # 급락 탭 '반등 확인' · 차트 '자리 정보'
+    d["vol"]      = _r(v5 / _v50, 2) if (v5 and _v50) else None        # 거래량 5일/50일 — 참고용 (거르면 성과 악화)
     # ★ 트레일링 손절선 — 느린 슈퍼트렌드의 실제 선 값. 화면에 "여기 깨지면 매도"를 숫자로 보여주기 위해
     d["stLine"]   = _r(sl_line[-1], 0 if d["c"] >= 2000 else 2) if sl_line and sl_line[-1] is not None else None
     d["slowDays"] = days                       # 느린 선이 지금 색으로 바뀐 뒤 경과 봉수
@@ -924,10 +926,20 @@ def update_signal_log(stocks, series, idx_series):
     idx_rows = {m: [(r[0], r[1]) for r in v] for m, v in idx_series.items()}
     for x in log:
         ser = series.get(x["t"])           # build_series 는 행 목록을 바로 돌려줍니다
-        x["r"] = {}
         rows = ser.get("rows") if isinstance(ser, dict) else ser
-        if not rows: continue
+        if not rows: continue              # ★ 감시 모드라 오늘 안 받은 종목은 지난 성적을 그대로 둡니다 (예전엔 여기서 지워졌음)
+        x["r"] = {}
         rr = [(datetime.fromtimestamp(r[0], timezone.utc).strftime("%Y-%m-%d"), r[1]) for r in rows]
+        # ★ 57. 규칙대로라면 언제 팔았나 — 신호 다음 날부터 처음으로 느린 ST 가 빨강(stDir 4비트 꺼짐)이 된 날의 종가
+        ex_, peak = None, x["p"]
+        for r in rows:
+            dd = datetime.fromtimestamp(r[0], timezone.utc).strftime("%Y-%m-%d")
+            if dd <= x["d"]: continue
+            if r[1]: peak = max(peak, r[1])
+            if r[10] is not None and not (r[10] & 4):
+                ex_ = {"d": dd, "p": r[1]}; break
+        x["x"] = ex_
+        x["peak"] = _r((peak / x["p"] - 1) * 100, 2) if x.get("p") else None
         ir = idx_rows.get(x["m"], [])
         for h in (5, 10, 20):
             c1 = close_at(rr, x["d"], h); i0 = close_at(ir, x["d"], 0); i1 = close_at(ir, x["d"], h)
@@ -960,7 +972,18 @@ def update_signal_log(stocks, series, idx_series):
         drift = {"flag": bool(reasons), "win": _r(win, 0), "excess": _r(exm, 2) if exm is not None else None, "reasons": reasons}
         if reasons: print("  🚨 드리프트 경보:", " · ".join(reasons))
     print(f"  📒 실전 장부: 기록 {len(log)}건 (+{added}) · 20일 성적 확정 {done} · 대기 {pending}")
-    return {"summary": summ, "n": len(log), "pending": pending, "since": min((x["d"] for x in log), default=None),
+    # 57. 복기 요약 — 이탈한 신호의 규칙 손익과 '판 뒤 더 떨어졌나'
+    exited = [x for x in log if x.get("x") and x.get("p")]
+    last_px = {}
+    for x in exited:
+        ser = series.get(x["t"])
+        if ser: last_px[x["t"]] = ser[-1][1]
+        elif (x.get("r") or {}).get("now") is not None: last_px[x["t"]] = x["p"] * (1 + x["r"]["now"] / 100)
+    good = [x for x in exited if last_px.get(x["t"]) and last_px[x["t"]] < x["x"]["p"]]
+    review = {"exited": len(exited), "holding": sum(1 for x in log if not x.get("x")),
+              "ruleAvg": _r(sum((x["x"]["p"] / x["p"] - 1) * 100 for x in exited) / len(exited), 2) if exited else None,
+              "savedPct": _r(len(good) / max(1, sum(1 for x in exited if last_px.get(x["t"]))) * 100, 0) if exited else None}
+    return {"summary": summ, "n": len(log), "pending": pending, "since": min((x["d"] for x in log), default=None), "review": review,
             "drift": drift, "kinds": ["pull", "buy", "strong"]}
 
 REV_MIN = 10        # 앱 '매출 필터' 기본값과 같게
@@ -1166,7 +1189,13 @@ def main():
                 continue
             r = U.kr_status_reason(x)
             if r and not r.startswith("시총"):
-                KR_CUT.append((r, tk, universe[tk]["name"])); universe.pop(tk, None)
+                KR_CUT.append((r, tk, universe[tk]["name"]))
+        # ★ 두 번째 안전장치 — 한국 종목의 15% 넘게 한꺼번에 빠지면 명단 쪽 문제로 보고 이번 검사를 취소합니다
+        n_kr = sum(1 for u in universe.values() if u["market"] == "kr")
+        if len(KR_CUT) > max(15, n_kr * 0.15):
+            print(f"  ⚠️ 공식 명단 기준 제외가 {len(KR_CUT)}/{n_kr} 로 비정상 — 명단 오류로 보고 이번엔 아무것도 빼지 않습니다")
+            KR_CUT = []
+        for r, tk, _ in KR_CUT: universe.pop(tk, None)
         if KR_CUT: print(f"  🚫 공식 명단 기준 제외 {len(KR_CUT)}: " + ", ".join(f"{n}({r})" for r, _, n in KR_CUT[:8]))
     else:
         print("  ⚠️ 한투 공식 명단을 받지 못해 이번엔 상태 검사를 건너뜁니다")
