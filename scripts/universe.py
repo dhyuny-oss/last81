@@ -35,15 +35,24 @@ def _get(url, timeout=40):
     return urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=timeout).read()
 
 def kr_master():
-    """{코드: {name, suffix(.KS/.KQ), grp, halt, clear, admin, warn, spac, pref, mcap(억), tv(전일 거래대금 원)}} — 실패하면 {}"""
-    out = {}
+    """{코드: {name, suffix(.KS/.KQ), grp, halt, clear, admin, warn, spac, pref, mcap(억), tv(전일 거래대금 원)}}
+       ★ 코스피·코스닥 두 파일을 '모두' 받아야 결과를 돌려줍니다. 하나라도 실패하면 {} —
+         (2026-09-24 발견: 코스피 파일만 503 으로 실패했을 때 '명단에 없음 = 상장폐지'로 읽혀 삼성전자 등 215종목이 빠질 뻔했음)"""
+    import time as _t
+    out, got = {}, set()
     for m, suf in (("kospi", ".KS"), ("kosdaq", ".KQ")):
-        try:
-            z = zipfile.ZipFile(io.BytesIO(_get(_MST.format(m=m))))
-            data = z.read(z.namelist()[0]).decode("cp949", errors="replace")
-        except Exception as e:
-            print(f"  ⚠️ 한투 마스터({m}) 수신 실패: {e}")
+        data = None
+        for attempt in range(3):                       # 일시 오류(503 등)는 세 번까지 다시 시도
+            try:
+                z = zipfile.ZipFile(io.BytesIO(_get(_MST.format(m=m))))
+                data = z.read(z.namelist()[0]).decode("cp949", errors="replace")
+                break
+            except Exception as e:
+                print(f"  ⚠️ 한투 마스터({m}) 수신 실패 {attempt + 1}/3: {e}")
+                _t.sleep(3 * (attempt + 1))
+        if data is None:
             continue
+        got.add(m)
         tail, widths, cols = _SPEC[m]
         for line in data.splitlines():
             if len(line) < tail + 21: continue
@@ -60,6 +69,13 @@ def kr_master():
                          "halt": v["halt"] == "Y", "clear": v["clear"] == "Y", "admin": v["admin"] == "Y",
                          "warn": v["warn"] not in ("", "00"), "spac": v["spac"] == "Y",
                          "pref": v["pref"] not in ("", "0"), "mcap": n("mcap"), "tv": n("pvol") * n("base")}
+    if got != {"kospi", "kosdaq"}:
+        print(f"  ⚠️ 한투 마스터를 일부만 받음({', '.join(sorted(got)) or '없음'}) — 이번엔 공식 명단 검사를 건너뜁니다")
+        return {}
+    n_ks = sum(1 for x in out.values() if x["suffix"] == ".KS"); n_kq = len(out) - n_ks
+    if n_ks < 700 or n_kq < 1200:                        # 평소 코스피 ≈ 950 · 코스닥 ≈ 1,800 (ETF 등 포함 시 더 많음)
+        print(f"  ⚠️ 한투 마스터 크기가 비정상(코스피 {n_ks} · 코스닥 {n_kq}) — 이번엔 공식 명단 검사를 건너뜁니다")
+        return {}
     return out
 
 def kr_status_reason(x):
