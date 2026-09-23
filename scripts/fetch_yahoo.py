@@ -1619,12 +1619,20 @@ def main():
                 if len(got) >= 50:
                     pool.update(got); print(f"  ⚠️ 공식 명단 실패 → KRX 순위 {len(got)}개")
                 else:
-                    for t, (name, suffix) in KR_MAJOR_STOCKS.items():
-                        pool.setdefault(t, {"label": name, "sector": "Korean", "market": "kr", "suffix": suffix})
-                    print(f"  ⚠️ 한국 순위 수집 전부 실패 → 손 명단 폴백 {len(KR_MAJOR_STOCKS)}개 (이번 주만)")
+                    # 손 명단(코드·이름 오류 많음)보다 지난주 한국 목록을 그대로 두는 편이 안전합니다
+                    kept = {t: v for t, v in (existing.get("stocks") or {}).items() if v.get("market") == "kr"}
+                    for t, v in kept.items():
+                        pool.setdefault(t, {"label": v.get("label", t), "sector": "Korean", "market": "kr", "suffix": v.get("suffix", ".KS"), "mcap": v.get("mcap")})
+                    print(f"  ⚠️ 한국 순위 수집 전부 실패 → 지난주 한국 목록 유지 ({len(kept)}개)")
         sp = U.sp500(); scr = U.us_screener()
         if len(sp) > 400:
             us_pool, us_rs = U.build_us_pool(sp, scr)
+            if len(scr) < 3000:
+                # ★ 스크리너가 실패하면 S&P500 밖 종목이 한꺼번에 빠지므로, 지난주 미국 종목을 그대로 둡니다
+                kept = {t: v for t, v in (existing.get("stocks") or {}).items() if v.get("market") == "us" and t not in us_pool}
+                for t, v in kept.items():
+                    us_pool[t] = {"label": v.get("label", t), "sector": v.get("sector", ""), "market": "us", "mcap": v.get("mcap")}
+                print(f"  ⚠️ 나스닥 스크리너 실패({len(scr)}) → S&P500 밖 종목은 지난주 목록 유지 ({len(kept)}개)")
             pool.update(us_pool); entry_excluded["us"] = us_rs
             print(f"  ✅ 미국 S&P {len(sp)} + 스크리너 {len(scr)} → {len(us_pool)} (입구 제외: {us_rs})")
         else:
