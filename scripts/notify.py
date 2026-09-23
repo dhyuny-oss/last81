@@ -87,7 +87,12 @@ def act_txt(d, held=False):
     why = WHY.get(d.get("why")) if a == "buy" else ("트레일링선 아래" if a == "sell" else None)
     return ACT[a] + (f" ({why})" if why else "")
 
-REV_MIN = float(os.environ.get("REV_MIN", 10))   # 앱 '매출 필터' 기본값과 같게 (미국·재무 있는 종목만, 0=끄기)
+REV_MIN = float(os.environ.get("REV_MIN", 10))   # 앱 '매출 필터' 기본값 — 앱이 settings.revMin 을 보내면 그 값 (61)
+try:
+    _cfg = (json.load(open(f"{DATA}/watchlist.json", encoding="utf-8")).get("settings") or {})
+    if "revMin" in _cfg: REV_MIN = float(_cfg["revMin"])
+except Exception:
+    pass
 def rev_ok(s):   # 대표 성장률(최근 분기 → 4분기 → 연간) 기준 — 앱과 같음
     f = s.get("fin") or {}
     g = f.get("growth", f.get("rev"))
@@ -166,7 +171,8 @@ def build(snap, mkt, state, now):
     for p in (wl.get("positions") or []):
         d = look(p.get("t"))
         if not d:   # 들고 있는데 데이터가 없음 → 거래정지·상장폐지·티커 변경 가능. 조용히 넘기지 않습니다
-            mine.append((True, f"   ⚠️ <b>{p.get('t')}</b> 데이터 없음 — 거래정지·상장폐지·티커 변경 확인 필요"))
+            mine.append((True, f"   ⚠️ <b>{p.get('t')}</b> 데이터 없음 — 거래정지·상장폐지·티커 변경 확인 필요",
+                         "kr" if str(p.get("t", "")).isdigit() else "us", 0, 0))
             continue
         tr = tr_of(p); amt = sum(t.get("amt") or 0 for t in tr); sh = sum((t.get("amt") or 0) / t["px"] for t in tr)
         avg = (amt / sh) if sh else (tr[0]["px"] if tr else None)
@@ -181,7 +187,8 @@ def build(snap, mkt, state, now):
             line += f"\n      ✅ <b>2회차 조건 도달</b> (1회차 +3% = {price(tr[0]['px'] * 1.03, d.get('m'))} 넘음, +6% 안) — 나머지 절반"
         elif p.get("role") == "swing" and len(tr) == 1 and d.get("c") and d["c"] > tr[0]["px"] * 1.06:
             line += f"\n      ⛔ 추격 금지 — 1회차 대비 {(d['c'] / tr[0]['px'] - 1) * 100:+.1f}% (밴드 +3~6% 초과)"
-        mine.append((out, line))
+        val = sum((t.get("amt") or 0) / t["px"] * (d.get("c") or t["px"]) for t in tr)
+        mine.append((out, line, d.get("m") or ("kr" if str(p.get("t", "")).isdigit() else "us"), amt, val))
     buys = []
     for t in (wl.get("watch") or []):
         d = look(t)
@@ -191,7 +198,12 @@ def build(snap, mkt, state, now):
     if mine or buys:
         L.append("")
         L.append("📁 <b>내 종목</b>")
-        for _, line in sorted(mine, key=lambda x: not x[0]): L.append(line)
+        for mk, flag in (("us", "🇺🇸"), ("kr", "🇰🇷")):          # 69. 🇺🇸 먼저 · 시장별 소계 (달러는 달러, 원은 원)
+            ms = [x for x in mine if x[2] == mk]
+            if not ms: continue
+            inv = sum(x[3] for x in ms); val = sum(x[4] for x in ms)
+            L.append(f"  {flag} {len(ms)}종목" + (f" · 투입 {money(inv, mk)} → 평가 {money(val, mk)} ({(val/inv-1)*100:+.1f}%)" if inv else ""))
+            for x in sorted(ms, key=lambda x: not x[0]): L.append(x[1])
         if buys:
             L.append("   <i>관심 목록 신호</i>")
             L += buys
@@ -264,7 +276,7 @@ def build(snap, mkt, state, now):
             f = s.get("fin") or {}
             g = f.get("growth", f.get("rev"))
             fin = (f" · 매출 {g:+.0f}%{'↑' if f.get('accel') else ''}" if g is not None else "") + (" · 적자" if f.get("prof") is False else "")
-            gap = f" · 선까지 {(s['c'] / s['stLine'] - 1) * 100:.0f}%" if s.get("stLine") and s.get("c") else ""
+            gap = f" · 선까지 −{(1 - s['stLine'] / s['c']) * 100:.0f}%" if s.get("stLine") and s.get("c") else ""
             L.append(f"{mark}{flag} <b>{s['n']}</b> {price(s['c'], s['m'])} {pct(s.get('d1'))} {act_txt(s)}")
             L.append(f"   RS {int(s.get('rs') or 0)}{gap} · 대금 {money(s.get('tv'), s['m'])}{fin}")
         if len(entry) > MAX_ROWS:
@@ -378,7 +390,7 @@ def build_weekly(snap, mkt, now):
         L.append("4️⃣½ 🇺🇸 5칸 추천 (업종 분산 · 적자·매출 부진·보유 제외)")
         for i, r in enumerate(td["pickUs"], 1):
             L.append(f"   {i}. <b>{r['t']}</b> {(r.get('n') or '')[:18]} · {WHY.get(r.get('why'),'')} · RS{int(r.get('rs') or 0)}"
-                     + (f" · 선{r['gap']:.0f}%" if r.get("gap") is not None else "") + (f" · 매출{(r.get('growth') if r.get('growth') is not None else r['rev']):+.0f}%{'↑' if r.get('accel') else ''}" if (r.get("growth") is not None or r.get("rev") is not None) else "")
+                     + (f" · 선까지 −{r['loss']:.0f}%" if r.get("loss") is not None else "") + (f" · 매출{(r.get('growth') if r.get('growth') is not None else r['rev']):+.0f}%{'↑' if r.get('accel') else ''}" if (r.get("growth") is not None or r.get("rev") is not None) else "")
                      + (f" · 🆕{r['age']}일째" if r.get("age") else ""))
         if td.get("excluded"): L.append("   <i>제외: " + ", ".join(f"{x['t']}({'·'.join(x['why'])})" for x in td["excluded"][:8]) + "</i>")
         if td.get("pickKr"): L.append("   🇰🇷 " + ", ".join(f"{r.get('n')}({WHY.get(r.get('why'),'')})" for r in td["pickKr"]) + (" — 시장 위험이면 쉬어도 됨" if td.get("market", {}).get("kr") == "risk" else ""))
@@ -390,11 +402,11 @@ def build_weekly(snap, mkt, now):
       def rk(d): return (1 if d.get("why") == "trend" else 0) * 1000 + secrank.get(d.get("sec"), 99) * 10 - (d.get("rs") or 0) / 100
       picks, used, drop = [], set(), []
       for d in sorted(buys, key=rk):
-          f = d.get("fin") or {}; gap = (d["c"] / d["stLine"] - 1) * 100 if d.get("stLine") and d.get("c") else None
+          f = d.get("fin") or {}; gap = (1 - d["stLine"] / d["c"]) * 100 if d.get("stLine") and d.get("c") else None   # 선까지(닿으면 잃는 폭)
           why = []
           if f.get("prof") is False: why.append("적자")
           if REV_MIN > 0 and f.get("rev") is not None and f["rev"] < REV_MIN: why.append(f"매출{f['rev']:+.0f}%")
-          if gap is not None and gap > 20: why.append(f"선{gap:.0f}%")
+          if gap is not None and gap > 17: why.append(f"선까지−{gap:.0f}%")
           if why: drop.append(f"{d['t']}({'·'.join(why)})"); continue
           sec = d.get("sec") or f"?{d['t']}"      # 업종 정보가 없으면 분산 규칙을 적용하지 않음
           if sec in used: continue
@@ -403,9 +415,9 @@ def build_weekly(snap, mkt, now):
       if picks:
           L.append("4️⃣½ 🇺🇸 5칸 추천 (업종 분산 · 적자·매출 부진 제외)")
           for i, d in enumerate(picks, 1):
-              f = d.get("fin") or {}; gap = (d["c"] / d["stLine"] - 1) * 100 if d.get("stLine") and d.get("c") else None
+              f = d.get("fin") or {}; gap = (1 - d["stLine"] / d["c"]) * 100 if d.get("stLine") and d.get("c") else None   # 선까지(닿으면 잃는 폭)
               L.append(f"   {i}. <b>{d['t']}</b> {d.get('n','')[:18]} · {WHY.get(d.get('why'),'')} · RS{int(d.get('rs') or 0)}"
-                       + (f" · 선{gap:.0f}%" if gap is not None else "") + (f" · 매출{f['rev']:+.0f}%" if f.get("rev") is not None else ""))
+                       + (f" · 선까지 −{gap:.0f}%" if gap is not None else "") + (f" · 매출{f['rev']:+.0f}%" if f.get("rev") is not None else ""))
           if drop: L.append("   <i>제외: " + ", ".join(drop[:8]) + "</i>")
       krb = [d for d in stocks.values() if d.get("action") == "buy" and d.get("m") == "kr" and (d.get("tvr") or 0) >= 40]
       if krb:
