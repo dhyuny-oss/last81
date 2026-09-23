@@ -23,7 +23,7 @@ Alpha Terminal v4 — 지표 스냅샷 파이프라인
 import json, os, sys, time, math, urllib.request
 from datetime import datetime, timezone, timedelta
 
-VERSION   = "7.2.0"
+VERSION   = "7.4.0"
 UA        = {"User-Agent": "Mozilla/5.0"}
 OUT_DIR   = "public/data"
 KST       = timezone(timedelta(hours=9))
@@ -94,6 +94,8 @@ def fetch_candles(ticker, tries=3, min_bars=200):
 # ══════════════════════════════════════════════════════════════
 # 상위 유니버스 파일의 이름이 뒤바뀐 종목 — 가격으로 확인해 바로잡습니다
 NAME_FIX = {"192820": "코스맥스", "044820": "코스맥스비티아이"}
+TV_MIN_KR  = 30e8      # 한국 거래대금 하한 (60일 평균, 원)
+TV_MIN_US  = 30e6      # 미국 거래대금 하한 (60일 평균, 달러)
 MIN_BARS   = 260     # 200일선·RS 를 계산할 수 있는 최소 봉수. 미달이면 아예 싣지 않습니다.
 STALE_DAYS = 7       # 시장 기준일보다 이만큼 밀리면 거래정지·상장폐지로 보고 제외
 JUMP_WARN  = 0.35    # 하루 ±35% 초과는 분할·오류 의심 → 경고만 (실제 급등락도 있으므로)
@@ -855,17 +857,22 @@ def update_signal_log(stocks, series, idx_series):
     except Exception:
         log = []
     today = max((d.get("asOf") or "") for d in stocks.values()) if stocks else ""
-    have = {(x["t"], x["k"]) for x in log if (today[:10] and x["d"] >= _shift_days(today, -20))}
+    have = {x["t"] for x in log if (today[:10] and x["d"] >= _shift_days(today, -20))}   # 종목당 20거래일 안 한 번
     added = 0
     for t, d in stocks.items():
-        for k in ("pull", "buy", "strong"):
-            fired = d.get("pull") if k == "pull" else (d.get("strong") if k == "strong" else d.get("trend3"))
-            if fired and (t, k) not in have and d.get("asOf") and d.get("c"):
-                f = d.get("fin") or {}
-                log.append({"d": d["asOf"], "t": t, "n": d.get("n"), "m": d["m"], "k": k, "p": d["c"],
-                            "fin": {"rev": f.get("rev"), "prof": f.get("prof")} if f else None,   # 6개월 뒤 재무 유무별 성적 비교용
-                            "sec": d.get("sec")})
-                added += 1
+        if d.get("action") != "buy" or not d.get("asOf") or not d.get("c") or t in have: continue
+        f = d.get("fin") or {}
+        k = {"pull": "pull", "strong": "strong", "trend": "buy"}.get(d.get("why"), "buy")   # 앱·알림과 같은 근거 하나
+        log.append({"d": d["asOf"], "t": t, "n": d.get("n"), "m": d["m"], "k": k, "p": d["c"],
+                    "fin": {"rev": f.get("rev"), "prof": f.get("prof")} if f else None,   # 6개월 뒤 재무 유무별 성적 비교용
+                    "sec": d.get("sec"), "both": bool(d.get("strong") and d.get("trend3"))})
+        added += 1
+    # 옛 기록의 같은 날·같은 종목 중복은 하나로 합칩니다 (강세·추세 둘 다 기록되던 버전)
+    seen_dt, dedup = set(), []
+    for x in sorted(log, key=lambda x: (x["d"], x["t"], {"pull": 0, "strong": 0, "buy": 1}.get(x["k"], 2))):
+        if (x["d"], x["t"]) in seen_dt: continue
+        seen_dt.add((x["d"], x["t"])); dedup.append(x)
+    log = dedup
     cutoff = _shift_days(today, -LOG_KEEP_DAYS) if today else ""
     log = [x for x in log if x["d"] >= cutoff]
     # 이후 성과 계산 — 신호일 종가 → 5·10·20거래일 뒤, 그리고 지금까지
@@ -915,6 +922,79 @@ def update_signal_log(stocks, series, idx_series):
     print(f"  📒 실전 장부: 기록 {len(log)}건 (+{added}) · 20일 성적 확정 {done} · 대기 {pending}")
     return {"summary": summ, "n": len(log), "pending": pending, "since": min((x["d"] for x in log), default=None),
             "drift": drift, "kinds": ["pull", "buy", "strong"]}
+
+REV_MIN = 10        # 앱 '매출 필터' 기본값과 같게
+
+def build_today(stocks, market):
+    idx = market.get("indices") or {}
+    secrank = {x["tk"]: (x["rank"], x["label"]) for x in (market.get("sectors") or [])}
+    try:
+        wl = json.load(open(f"{OUT_DIR}/watchlist.json", encoding="utf-8"))
+    except Exception:
+        wl = {}
+    held = {str(p.get("t", "")).upper() for p in (wl.get("positions") or [])}
+    try:
+        log = json.load(open(LOG_FILE, encoding="utf-8"))
+    except Exception:
+        log = []
+    dates = sorted({x["d"] for x in log}); pos_of = {d: i for i, d in enumerate(dates)}
+    first = {}
+    for x in log:
+        if x["t"] not in first or x["d"] < first[x["t"]]: first[x["t"]] = x["d"]
+    def age(t):
+        d0 = first.get(t); return (pos_of[dates[-1]] - pos_of[d0] + 1) if (d0 in pos_of and dates) else None
+    def rel(d):
+        i = idx.get("^KS11" if d["m"] == "kr" else ("^IXIC" if d.get("ex") == "NMS" else "^GSPC")) or {}
+        return _r(d["d21"] - i["d21"], 1) if d.get("d21") is not None and i.get("d21") is not None else None
+    def row(d):
+        gap = _r((d["c"] / d["stLine"] - 1) * 100, 1) if d.get("stLine") else None
+        f = d.get("fin") or {}
+        return {"t": d["t"], "n": d.get("n"), "m": d["m"], "why": d.get("why"), "rs": d.get("rs"), "c": d["c"], "stLine": d.get("stLine"),
+                "gap": gap, "rel": rel(d), "sec": d.get("sec"), "secRank": secrank.get(d.get("sec"), (None, None))[0],
+                "secLabel": secrank.get(d.get("sec"), (None, None))[1], "rev": f.get("rev"), "prof": f.get("prof"),
+                "mcap": d.get("mcap"), "tv": d.get("tv"), "age": age(d["t"]), "rsi": d.get("rsi"), "held": d["t"] in held}
+    buys = [row(d) for d in stocks.values() if d.get("action") == "buy" and (d.get("tvr") or 0) >= 40]
+    def reasons(r):
+        out = []
+        if r["prof"] is False: out.append("적자")
+        if r["m"] == "us" and r["rev"] is not None and r["rev"] < REV_MIN: out.append(f"매출 {r['rev']:+.0f}%")
+        if r["gap"] is not None and r["gap"] > 20: out.append(f"선까지 {r['gap']:.0f}%")
+        if r["held"]: out.append("보유 중")
+        return out
+    rank = lambda r: ((1 if r["why"] == "trend" else 0) * 1000 + (r["secRank"] or 99) * 10 - (r["rs"] or 0) / 100)
+    cands = sorted(buys, key=rank)
+    excluded, pick_us, pick_kr, used = [], [], [], set()
+    for r in cands:
+        why = reasons(r)
+        if why: excluded.append({"t": r["t"], "n": r["n"], "m": r["m"], "why": why}); continue
+        if r["m"] == "us":
+            key = r["sec"] or f"?{r['t']}"
+            if key in used: excluded.append({"t": r["t"], "n": r["n"], "m": "us", "why": ["같은 업종 이미 선택"]}); continue
+            if len(pick_us) < 5: pick_us.append(r); used.add(key)
+        elif len(pick_kr) < 3:
+            pick_kr.append(r)
+    heldrows = []
+    for p in (wl.get("positions") or []):
+        d = stocks.get(str(p.get("t", "")).upper())
+        if not d: heldrows.append({"t": p.get("t"), "state": "데이터 없음"}); continue
+        tr = p.get("tr") if isinstance(p.get("tr"), list) and p.get("tr") else ([{"px": p.get("avg"), "amt": 0}] if p.get("avg") else [])
+        t2 = None
+        if p.get("role") == "swing" and len(tr) == 1 and tr and tr[0].get("px"):
+            lo, hi = tr[0]["px"] * 1.03, tr[0]["px"] * 1.06
+            t2 = "도달" if (lo <= d["c"] <= hi and d.get("stSlow") == 1) else ("추격 금지" if d["c"] > hi else f"목표 {lo:.2f}")
+        heldrows.append({"t": d["t"], "n": d.get("n"), "m": d["m"], "c": d["c"], "action": "sell" if d.get("action") == "sell" else "hold",
+                         "stLine": d.get("stLine"), "gap": _r((d["c"] / d["stLine"] - 1) * 100, 1) if d.get("stLine") else None,
+                         "tranche2": t2, "halted": bool(d.get("halted") or d.get("status"))})
+    dips = [row(d) | {"w52p": d.get("w52p"), "hlt": d.get("hlt")} for d in stocks.values() if d.get("dip") == "watch" and d["m"] == "us"]
+    dips.sort(key=lambda r: r.get("w52p") or 0)
+    dual = (market.get("dc") or {}).get("dual") or {}
+    return {"asOf": max((d.get("asOf") or "" for d in stocks.values()), default=None),
+            "rules": {"buy": "action=buy", "rev": f"🇺🇸 매출 +{REV_MIN}%↑ (재무 있으면) · 적자 제외", "gap": "트레일링선까지 20% 이하", "sector": "🇺🇸 업종 하나씩 최대 5 · 🇰🇷 최대 3",
+                      "tranche": "1회차 = 한도 절반 → +3~6% 마감 & 느린ST 초록이면 나머지 절반 · 매도 = 종가 < 트레일링선"},
+            "market": {m: (market.get("judge") or {}).get(m, {}).get("verdict") for m in ("us", "kr")},
+            "sectors": [{"tk": x["tk"], "label": x["label"], "rank": x["rank"], "score": x.get("score")} for x in (market.get("sectors") or [])[:6]],
+            "candidates": cands, "pickUs": pick_us, "pickKr": pick_kr, "excluded": excluded[:30], "held": heldrows,
+            "dips": dips[:8], "dc": {"hold": dual.get("hold"), "cands": dual.get("cands")}}
 
 def _shift_days(iso, n):
     try:
@@ -1012,7 +1092,7 @@ def main():
         sec = s.get("sector") or ""
         if sec in ("US", "Korean", "KR", "us", "kr"): sec = ""
         universe[tk] = {"name": NAME_FIX.get(tk) or s.get("label") or tk, "market": mkt,
-                        "sector": sec,
+                        "sector": sec, "mcap": s.get("mcap"),
                         "y": tk + (".KS" if mkt=="kr" and not tk.endswith(".KS") else "")}
     base_n = len(universe)
     extra_added = load_extra(universe)
@@ -1024,7 +1104,31 @@ def main():
         _gone = [t for t in _ex if universe.pop(t, None) is not None]
         if _gone: print(f"  ➖ 앱에서 뺀 종목 {len(_gone)}개: {', '.join(_gone[:10])}")
     except Exception:
-        pass
+        _prot = set()
+    PROT = set(_prot) | {str(t).upper() for t in extra_added}      # 기준과 무관하게 유지하는 종목
+
+    # ★ 한국 공식 명단 검사 (한투 공개 마스터, 매일) — 주중에 새로 거래정지·관리·경고로 지정될 수 있어 매번 확인합니다
+    #   · 이름은 공식 한글명으로 교정 (손 명단의 코드·이름 오류가 앱에 그대로 뜨던 문제)
+    #   · 거래정지/정리매매/관리종목/투자경고·위험/우선주/SPAC/리츠·ETF/공식 명단에 없음 → 수집 전에 제외 (보유·관심·추가는 보호)
+    #   · 시총 기준은 주간 수집에서만 적용 (매일 흔들리지 않게)
+    import universe as U
+    KRM = U.kr_master()
+    KR_CUT = []
+    if len(KRM) > 1000:
+        for tk in [t for t, u in universe.items() if u["market"] == "kr"]:
+            x = KRM.get(tk)
+            if x:
+                universe[tk]["name"] = x["name"]; universe[tk]["mcap"] = x["mcap"]
+            if tk in PROT:
+                r0 = U.kr_status_reason(x)
+                if r0 and not r0.startswith("시총"): universe[tk]["status"] = r0     # 보호 종목은 남기되 상태를 표시
+                continue
+            r = U.kr_status_reason(x)
+            if r and not r.startswith("시총"):
+                KR_CUT.append((r, tk, universe[tk]["name"])); universe.pop(tk, None)
+        if KR_CUT: print(f"  🚫 공식 명단 기준 제외 {len(KR_CUT)}: " + ", ".join(f"{n}({r})" for r, _, n in KR_CUT[:8]))
+    else:
+        print("  ⚠️ 한투 공식 명단을 받지 못해 이번엔 상태 검사를 건너뜁니다")
 
     # ★ 감시 모드 (평일) — 신호가 날 수 있는 종목만 봅니다.
     #   눌림·매수 신호는 RS 70↑ 주도주에서만, 과매도는 고점 −25%↓ 에서만 나므로
@@ -1096,6 +1200,7 @@ def main():
     warns = []
     def drop(reason, tk, name, detail=""):
         drops.setdefault(reason, []).append({"t": tk, "n": name, "d": detail})
+    for r, tk, n in KR_CUT: drop(r, tk, n)
 
     def try_one(tk, info, pause):
         """1종목 처리. 검사를 통과한 것만 싣습니다 (종목 수보다 정확도 우선)."""
@@ -1113,7 +1218,8 @@ def main():
         if len(cd) < MIN_BARS:
             drop("이력 부족", tk, info["name"], f"{len(cd)}봉"); time.sleep(pause); return True
         # ③ 최근 거래 확인
-        if all((b.get("v") or 0) == 0 for b in cd[-5:]):
+        halted = all((b.get("v") or 0) == 0 for b in cd[-5:])
+        if halted and tk not in PROT:
             drop("거래 없음", tk, info["name"]); time.sleep(pause); return True
         cd = cd[-max(BARS_KEEP, 1000):]                # 3년(756일) 건강도 + 200일선 = 956봉 필요
         d = build_stock(tk, cd, meta, info["name"], info["market"], info["sector"])
@@ -1123,6 +1229,7 @@ def main():
         if d.get("d1") is not None and abs(d["d1"]) > JUMP_WARN * 100:
             warns.append({"t": tk, "n": info["name"], "w": f"1일 {d['d1']:+.1f}%"})
         d["ex"] = info["y"][-3:] if info["market"] == "kr" else (meta.get("exchangeName") or "US")
+        if halted: d["halted"] = True          # 보유·관심 종목인데 최근 5일 거래 없음 → 거래정지 표시
         stocks[tk] = d
         # ★ 차트용 시계열 — 종목당 파일 1개.
         #   예전처럼 한 덩어리(candles.json)로 묶으면 차트 탭을 처음 열 때 9MB 를 받습니다.
@@ -1154,6 +1261,18 @@ def main():
             print(f"       → 티커가 야후 기준인지 확인해 주세요 "
                   f"(한국은 6자리 숫자, 미국은 영문. 예: 042660 / AAPL)")
 
+    # ★ 거래대금 하한 (60일 평균) — 🇰🇷 30억 · 🇺🇸 $30M. 팔 때 가격을 밀지 않을 만큼. 보유·관심·추가는 보호
+    for tk in list(stocks):
+        d = stocks[tk]; kr = d["m"] == "kr"; lim = TV_MIN_KR if kr else TV_MIN_US
+        if tk not in PROT and d.get("tv") is not None and d["tv"] < lim:
+            drop("거래대금 미달", tk, d.get("n") or tk, f"{d['tv'] / (1e8 if kr else 1e6):.0f}{'억' if kr else '$M'}")
+            stocks.pop(tk, None); series.pop(tk, None)
+        elif tk in stocks:
+            mc = (universe.get(tk) or {}).get("mcap")
+            if mc: d["mcap"] = mc                     # 🇰🇷 억원 · 🇺🇸 달러
+            st_ = (universe.get(tk) or {}).get("status")
+            if st_: d["status"] = st_                 # 보호 종목의 공식 상태 (거래정지·관리종목 등)
+
     # RS 백분위 — 6개월 수익률의 시장 내 순위 (검증: 21/42/63/126/252일 중 126일이 최고)
     print("\n📈 RS·거래대금 백분위" + (" (감시 모드: 지난 전체 분포 기준)" if focus else ""))
     def r126(tk, d):
@@ -1181,6 +1300,8 @@ def main():
         d = stocks[tk]
         gap = (_date.fromisoformat(refdate[d["m"]]) - _date.fromisoformat(d["asOf"])).days
         if gap > STALE_DAYS:
+            if tk in PROT:
+                d["halted"] = True; continue     # 들고 있거나 관심 종목이면 남기고 '거래정지'로 표시
             drop("시세 정지", tk, d.get("n") or tk, f"{d['asOf']} ({gap}일 전)")
             stocks.pop(tk, None); series.pop(tk, None)
 
@@ -1193,11 +1314,17 @@ def main():
     except Exception: pass
     now_by_mkt = {}
     for v in stocks.values(): now_by_mkt[v["m"]] = now_by_mkt.get(v["m"], 0) + 1
-    for mkt, pn in ({} if focus else prev_by_mkt).items():    # 감시 모드는 원래 적으므로 전체 대비 비교를 하지 않습니다
-        nn = now_by_mkt.get(mkt, 0)
-        if pn >= 30 and nn < pn * MIN_KEEP:
-            print(f"\n❌ {mkt} 시장 {nn}종목 < 지난번 {pn}종목의 {MIN_KEEP:.0%}. "
-                  f"수집이 망가진 것으로 보고 파일을 쓰지 않고 종료합니다.")
+    # ★ '수집이 망가졌나'만 봅니다 — 기준(거래정지·거래대금 등)으로 일부러 뺀 종목은 실패가 아닙니다.
+    #   시장별로 받으려던 종목 중 '수집 실패'가 10% 를 넘으면 쓰지 않고 종료 (야후 차단·네트워크 장애)
+    uni_by_mkt = {}
+    for u in universe.values(): uni_by_mkt[u["market"]] = uni_by_mkt.get(u["market"], 0) + 1
+    fail_by_mkt = {}
+    for t in fails:
+        m_ = (universe.get(t) or {}).get("market", "us"); fail_by_mkt[m_] = fail_by_mkt.get(m_, 0) + 1
+    for mkt, un in uni_by_mkt.items():
+        fr = fail_by_mkt.get(mkt, 0) / max(1, un)
+        if un >= 30 and fr > 0.10:
+            print(f"\n❌ {mkt} 시장 수집 실패 {fail_by_mkt.get(mkt, 0)}/{un} ({fr:.0%}) — 망가진 것으로 보고 파일을 쓰지 않고 종료합니다.")
             sys.exit(1)
 
     # ⑦ 검사 결과 보고 — 제외된 종목이 화면에서 소리 없이 사라지지 않게 남깁니다
@@ -1224,14 +1351,10 @@ def main():
     _write(f"{OUT_DIR}/data_health.json", health)
 
     MIN_OK = 0.8
-    if len(stocks) < MIN_OK * len(universe):
-        print(f"\n❌ 성공 {len(stocks)}/{len(universe)} — 유니버스의 {MIN_OK:.0%} 미만입니다. "
-              f"기존 파일을 지키기 위해 쓰지 않고 종료합니다.")
+    if len(fails) > (1 - MIN_OK) * len(universe):
+        print(f"\n❌ 수집 실패 {len(fails)}/{len(universe)} — 20% 를 넘습니다. 기존 파일을 지키기 위해 쓰지 않고 종료합니다.")
         sys.exit(1)
-    if (not focus) and prev_n and len(stocks) < prev_n * MIN_OK:    # 감시 모드는 일부러 적으므로 유니버스 대비(위)만 봅니다
-        print(f"\n❌ 이번 {len(stocks)}종목 < 기존 {prev_n}종목의 {MIN_OK:.0%}. "
-              f"이상 축소로 보고 쓰지 않고 종료합니다.")
-        sys.exit(1)
+    # (지난번 대비 급감 비교는 뺐습니다 — 주간 기준으로 종목풀이 줄어드는 것은 정상이고, 망가짐은 위 '수집 실패율'로 잡습니다)
 
     # ══════════════════════════════════════════════════════════
     # ★ 행동 판정 — 여기서 한 번만 정합니다. 앱 4개 화면·텔레그램·장중 감시는 이 값을 읽기만 합니다.
@@ -1322,6 +1445,18 @@ def main():
     except Exception as e:
         print("  ⚠️ 실전 장부 갱신 실패:", e); market["live"] = None
 
+    # ══════════════════════════════════════════════════════════
+    # ★ today.json — 오늘 후보를 파이프라인이 확정해 작은 파일로. (48번)
+    #   AI 도구는 이것만 읽으면 되고, 텔레그램 5칸 추천·앱 선정과 같은 규칙이라 서로 어긋나지 않습니다.
+    #   규칙: action=buy · 미국 매출 +10%↑(재무 있으면) · 적자 제외 · 트레일링선까지 20% 이하 · 보유 제외 · 업종 하나씩 · 🇺🇸 5 · 🇰🇷 3
+    # ══════════════════════════════════════════════════════════
+    try:
+        market["today"] = build_today(stocks, market)
+        _write(f"{OUT_DIR}/today.json", market["today"])
+        print(f"  📝 today.json: 후보 {len(market['today']['candidates'])} · 🇺🇸 추천 {len(market['today']['pickUs'])} · 🇰🇷 {len(market['today']['pickKr'])} · 제외 {len(market['today']['excluded'])}")
+    except Exception as e:
+        print("  ⚠️ today.json 실패:", e)
+
     print("\n🏦 DC(퇴직연금) ETF 신호")
     etfs, dc = build_dc(market["sectors"], series)
     market["dc"] = dc
@@ -1335,6 +1470,12 @@ def main():
                       "sectors":len(market["sectors"]),"indices":len(market["indices"])}}
 
     meta["counts"]["etfs"] = len(etfs)
+    try:
+        _fin = json.load(open(f"{OUT_DIR}/stocks.json", encoding="utf-8")).get("financials") or {}
+        _d = max((str(v.get("betaUpdatedAt") or v.get("updatedAt") or "") for v in _fin.values() if isinstance(v, dict)), default="")
+        meta["finUpdated"] = _d[:10] or None
+    except Exception:
+        meta["finUpdated"] = None
     meta["health"] = {"kept": health["kept"], "universe": health["universe"],
                       "dropped": health["dropped"], "failed": health["failed"],
                       "byMarket": health["byMarket"], "exchange": health["exchange"],
