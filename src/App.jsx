@@ -17,7 +17,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-export const APP_VERSION = "v11.0.0";
+export const APP_VERSION = "v11.1.0";
 
 /* ══════════════ 디자인 토큰 ══════════════ */
 const C = {
@@ -417,13 +417,26 @@ function StockRow({ s, rank, rel, sub, onOpen, isWatch, onToggle, dip = false, h
 const NASDAQ = new Set(["NMS", "NGM", "NCM", "NAS"]);
 /** 54. 전체 투자금 — 앱 전체의 돈 기준. 비율로 DC·🇺🇸·🇰🇷·대기로 나누고, 칸 수로 종목당 한도를 정합니다 */
 const PLAN_KEY = "v11.plan";
-const PLAN_DEFAULT = { total: 0, dc: 60, us: 4, kr: 6, cash: 30, slotsUs: 5, slotsKr: 3, hist: [] };
-const loadPlan = () => ({ ...PLAN_DEFAULT, ...loadJSON(PLAN_KEY, {}) });
+// 계좌별 금액을 넣고 합계·비율은 계산 — DC 잔액·예수금은 이미 정해진 금액이라서 (56)
+const PLAN_DEFAULT = { dcAmt: 0, usAmt: 0, krAmt: 0, cashAmt: 0, slotsUs: 5, slotsKr: 3, hist: [] };
+const loadPlan = () => {
+  const raw = loadJSON(PLAN_KEY, {});
+  if (raw.total && raw.dcAmt == null) {           // v11.0 의 '총액 + 비율' 저장값을 금액으로 한 번 바꿔 둡니다
+    const a = (k) => Math.round(raw.total * (raw[k] || 0) / 100);
+    return { ...PLAN_DEFAULT, dcAmt: a("dc"), krAmt: a("kr"), cashAmt: a("cash"), usKrwOld: a("us"), slotsUs: raw.slotsUs || 5, slotsKr: raw.slotsKr || 3 };
+  }
+  return { ...PLAN_DEFAULT, ...raw };
+};
 const planAmounts = (p, fx) => {
-  if (!p?.total) return null;
-  const a = (k) => p.total * (p[k] || 0) / 100;
-  return { total: p.total, dc: a("dc"), kr: a("kr"), usKrw: a("us"), us: fx ? a("us") / fx : null, cash: a("cash"),
-           limKr: p.slotsKr ? a("kr") / p.slotsKr : a("kr"), limUs: fx && p.slotsUs ? a("us") / fx / p.slotsUs : null };
+  if (!p) return null;
+  const us = p.usAmt || (p.usKrwOld && fx ? p.usKrwOld / fx : 0);
+  const usKrw = fx ? us * fx : 0;
+  const total = (p.dcAmt || 0) + (p.krAmt || 0) + (p.cashAmt || 0) + usKrw;
+  if (!total) return null;
+  const pct = (v) => Math.round(v / total * 100);
+  return { total, dc: p.dcAmt || 0, kr: p.krAmt || 0, us, usKrw, cash: p.cashAmt || 0,
+           pct: { dc: pct(p.dcAmt || 0), us: pct(usKrw), kr: pct(p.krAmt || 0), cash: pct(p.cashAmt || 0) },
+           limKr: p.slotsKr ? (p.krAmt || 0) / p.slotsKr : (p.krAmt || 0), limUs: p.slotsUs ? us / p.slotsUs : us };
 };
 
 /** 52. 시장 대비의 비교 대상 — 한국 = 코스피 · 나스닥 상장 = 나스닥 · 그 외 미국 = S&P500 (모두 1달) */
@@ -1969,6 +1982,19 @@ function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, setPos, 
                        {s.action === "sell" ? `느린 ST 빨강 ${s.slowDays ?? "—"}거래일째${held ? "" : " · 새로 사지 않음"}` : s.stLine ? `트레일링선 ${price(s.stLine, s.m)} (${((s.c / s.stLine - 1) * 100).toFixed(1)}%)` : ""}</span>
                      {s.dip && <DipTag s={s} />}</>}
         </div>
+        {isStock && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", marginTop: 8, padding: "6px 0", borderRadius: 8,
+                        background: "rgba(255,255,255,.03)", textAlign: "center" }}>
+            {[["20일선", s.ma20p != null ? `${s.ma20p >= 0 ? "+" : ""}${s.ma20p.toFixed(1)}%` : "—", s.ma20p],
+              ["선까지", s.stLine ? `${((s.stLine / s.c - 1) * 100).toFixed(0)}%` : "—", s.stLine ? (s.stLine / s.c - 1) * 100 : null],
+              ["거래량 5/50", s.vol != null ? `${s.vol.toFixed(2)}배` : "—", s.vol != null ? s.vol - 1 : null],
+              ["52주 고점", s.w52p != null ? `${s.w52p.toFixed(0)}%` : "—", s.w52p]].map(([l, v, c], i) => (
+              <div key={l} style={{ borderLeft: i ? `1px solid ${C.border}` : "none", minWidth: 0 }}>
+                <div style={{ fontSize: 10, color: C.muted, ...ONE }}>{l}</div>
+                <div style={{ fontSize: FS.sm, fontWeight: 700, fontFamily: MONO, color: c == null ? C.muted : col(c), ...ONE }}>{v}</div>
+              </div>))}
+          </div>)}
+        {isStock && <div style={{ fontSize: 10, color: C.muted, marginTop: 3 }}>자리 정보는 참고용 — 이 값으로 걸러 사면 검증에서 성과가 떨어졌습니다. 선까지 = 지금 사면 잃을 수 있는 폭</div>}
         {isEtf && veh && (
           <div style={{ fontSize: FS.sm, color: C.dim, marginTop: 6, padding: "7px 9px", borderRadius: 8, background: "rgba(6,182,212,.07)" }}>
             {veh.code ? <>DC 매수 → <b style={{ fontFamily: MONO, color: C.cyan }}>{veh.code}</b> <b style={{ color: C.text }}>{veh.name}</b>
@@ -1981,7 +2007,7 @@ function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, setPos, 
               <span style={{ color: C.muted }}> · 2회차는 +3% 확인 후</span></>
               : Math.floor(sizer.limit(regM) / regPx) >= 1
                 ? <span style={{ color: C.gold }}>고가 종목 — 절반으로는 1주도 안 됩니다. <b style={{ color: C.text }}>1주를 한 번에</b> (2회차 없음)</span>
-                : <span style={{ color: C.gold }}>1주 가격이 종목당 한도({money(sizer.limit(regM), regM)})보다 큽니다 — 한도를 올리세요</span>}
+                : <span style={{ color: C.gold }}>1주 가격이 종목당 한도({money(sizer.limit(regM), regM)})보다 큽니다. 사려면 칸 두 개를 쓰는 셈이니, 💰 투자금에서 칸 수나 금액을 조정하세요</span>}
           </div>)}
         <button onClick={() => {
           if (held) { setTab("track"); return; }
@@ -1995,7 +2021,9 @@ function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, setPos, 
           setTab("track");
         }} disabled={isEtf && !veh?.code} style={{ ...btn(held ? C.dim : C.emerald), width: "100%", marginTop: 10, opacity: isEtf && !veh?.code ? .4 : 1 }}>
           {held ? "내 종목에서 보기" : isEtf ? `＋ ${price(regPx, regM)} 에 보유 등록${veh?.code ? ` (${veh.code})` : ""}`
-            : (sh > 0 ? `＋ 1회차 매수 등록 · ${price(regPx, regM)}` : `＋ 1주 매수 등록 · ${price(regPx, regM)}`)}</button>
+            : sh > 0 ? `＋ 1회차 매수 등록 · ${price(regPx, regM)}`
+            : Math.floor(sizer.limit(regM) / regPx) >= 1 ? `＋ 1주 매수 등록 · ${price(regPx, regM)}`
+            : `＋ 1주 등록 (한도 초과 — 칸 2개 쓰는 셈) · ${price(regPx, regM)}`}</button>
       </Card>
 
       {/* 매매 체크리스트 — 충동 매매 방지 (검증된 규칙만) */}
@@ -2628,7 +2656,78 @@ function WeeklyPick({ stocks, market, sizer, openStock, setTab, pos, today }) {
       </div>)}
     </Card>);
 }
-function ReviewTab({ market, uni, snap, trades, setTrades, pos, stocks, setTab, openStock, sizer, today }) {
+/** 57. 지난 신호 복기 — 매수! 가 떴던 종목이 그 뒤 어떻게 됐나. 규칙대로 팔았으면 얼마였고, 판 뒤에는 어떻게 됐나 */
+function SignalReview({ siglog, stocks, market, openStock }) {
+  const [weeks, setWeeks] = useState(8);
+  const [filter, setFilter] = useState("exit");
+  const [limit, setLimit] = useState(15);
+  if (!siglog?.length) return null;
+  const since = new Date(Date.now() - weeks * 7 * 86400000).toISOString().slice(0, 10);
+  const K = { pull: "눌림", strong: "강세", buy: "추세" };
+  const rows = siglog.filter(x => x.d >= since && x.p).map(x => {
+    const s = stocks[x.t]; const now = s?.c ?? (x.r?.now != null ? x.p * (1 + x.r.now / 100) : null);
+    const ex = x.x;
+    const rule = ex ? (ex.p / x.p - 1) * 100 : (now ? (now / x.p - 1) * 100 : null);   // 이탈 = 규칙 손익 · 유지 = 지금까지
+    const after = ex && now ? (now / ex.p - 1) * 100 : null;                              // 판 뒤 흐름
+    const dropped = !ex && s && s.action !== "buy";                                          // 목록에서 빠졌지만 매도 신호는 아님
+    return { ...x, n: s?.n || x.n, m: x.m, now, ex, rule, after, dropped, cur: s };
+  });
+  const exited = rows.filter(r => r.ex);
+  const holding = rows.filter(r => !r.ex);
+  const saved = exited.filter(r => r.after != null && r.after < 0).length;
+  const withAfter = exited.filter(r => r.after != null).length;
+  const avg = (a) => a.length ? a.reduce((x, r) => x + (r.rule ?? 0), 0) / a.length : null;
+  const list = (filter === "exit" ? exited : filter === "hold" ? holding : rows)
+    .sort((a, b) => (b.ex?.d || b.d).localeCompare(a.ex?.d || a.d));
+  const dlabel = (d) => d ? d.slice(5).replace("-", "/") : "";
+  return (
+    <>
+      <Sec right={<Seg value={weeks} onChange={setWeeks} items={[[4, "4주"], [8, "8주"], [26, "6달"]]} />}>지난 신호 복기</Sec>
+      <Card style={{ padding: "8px 12px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", textAlign: "center" }}>
+          {[["이탈 (매도!)", `${exited.length}건`, avg(exited) != null ? `규칙 손익 ${pct(avg(exited), 1)}` : "—", col(avg(exited))],
+            ["판 뒤 더 떨어짐", withAfter ? `${Math.round(saved / withAfter * 100)}%` : "—", withAfter ? `${saved}/${withAfter}건 · 선이 지켜 줌` : "아직 없음", C.emerald],
+            ["유지 중", `${holding.length}건`, avg(holding) != null ? `지금까지 ${pct(avg(holding), 1)}` : "—", col(avg(holding))]].map(([l, v, sub, c], i) => (
+            <div key={l} style={{ borderLeft: i ? `1px solid ${C.border}` : "none", padding: "0 4px", minWidth: 0 }}>
+              <div style={{ fontSize: 10.5, color: C.dim, ...ONE }}>{l}</div>
+              <div style={{ fontSize: 16, fontWeight: 800, fontFamily: MONO }}>{v}</div>
+              <div style={{ fontSize: 10.5, color: c, ...ONE }}>{sub}</div>
+            </div>))}
+        </div>
+        <div style={{ marginTop: 8 }}>
+          <Seg full value={filter} onChange={setFilter} items={[["exit", `이탈 ${exited.length}`], ["hold", `유지 ${holding.length}`], ["all", "전체"]]} />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 58px 54px 54px", gap: 6, fontSize: 10, color: C.muted, padding: "8px 0 2px" }}>
+          <span>종목 · 신호 → 매도</span><span style={{ textAlign: "right" }}>규칙 손익</span><span style={{ textAlign: "right" }}>판 뒤</span><span style={{ textAlign: "right" }}>최고</span>
+        </div>
+        {list.slice(0, limit).map((r, i) => (
+          <div key={r.t + r.d + i} onClick={() => openStock(r.t)} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 58px 54px 54px", gap: 6, alignItems: "center",
+                                                                    padding: "7px 0", borderTop: `1px solid ${C.border}`, cursor: "pointer" }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: FS.sm, ...ONE }}>
+                <b style={r.m === "kr" ? {} : { fontFamily: MONO }}>{r.m === "kr" ? r.n : r.t}</b>
+                <span style={{ fontSize: 10.5, color: C.muted }}> {K[r.k]}</span>
+                {r.dropped && <span style={{ fontSize: 10.5, color: C.gold }}> 목록 빠짐</span>}
+              </div>
+              <div style={{ fontSize: 10.5, color: C.muted, fontFamily: MONO, ...ONE }}>
+                {dlabel(r.d)} {price(r.p, r.m)}{r.ex ? ` → ${dlabel(r.ex.d)} ${price(r.ex.p, r.m)}` : " → 유지 중"}</div>
+            </div>
+            <span style={{ fontSize: FS.sm, fontFamily: MONO, fontWeight: 700, textAlign: "right", color: col(r.rule) }}>{r.rule == null ? "—" : pct(r.rule, 1)}</span>
+            <span style={{ fontSize: FS.xs, fontFamily: MONO, textAlign: "right", color: r.after == null ? C.muted : r.after < 0 ? C.emerald : C.red }}>
+              {r.after == null ? "—" : `${r.after < 0 ? "✓" : "✗"}${pct(r.after, 0)}`}</span>
+            <span style={{ fontSize: FS.xs, fontFamily: MONO, textAlign: "right", color: C.dim }}>{r.peak == null ? "—" : pct(r.peak, 0)}</span>
+          </div>))}
+        {list.length > limit && <button onClick={() => setLimit(l => l + 15)} style={{ ...btn(C.dim), width: "100%", marginTop: 6 }}>더 보기 ({limit} / {list.length})</button>}
+        <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 8, lineHeight: 1.6 }}>
+          규칙 손익 = 매수! 날 종가에 사서, 처음 종가가 트레일링선 아래로 마감한 날 종가에 판 결과 (유지 중이면 지금까지).
+          판 뒤 = 그 뒤 지금까지 · <b style={{ color: C.emerald }}>✓</b> 더 떨어짐(판 게 맞음) · <b style={{ color: C.red }}>✗</b> 다시 오름.
+          최고 = 신호 뒤 가장 높았던 종가. "목록 빠짐" = 매수! 조건은 사라졌지만 매도 신호는 아님(보유 중이면 계속 보유).
+        </div>
+      </Card>
+    </>);
+}
+
+function ReviewTab({ market, uni, snap, trades, setTrades, pos, stocks, setTab, openStock, sizer, today, siglog }) {
   const wk = weekKey();
   const [done, setDone] = useState(() => loadJSON("v8.review", {}));
   const [memo, setMemo] = useState(() => localStorage.getItem("v8.review.memo") || "");
@@ -2670,6 +2769,9 @@ function ReviewTab({ market, uni, snap, trades, setTrades, pos, stocks, setTab, 
         <div style={{ fontSize: FS.xs, color: C.muted, padding: "8px 0 4px" }}>매월 1거래일에는 DC 탭도 함께 · 체크는 이 기기에 저장</div>
       </Card>
 
+      {live.review?.exited > 0 && (
+        <div style={{ fontSize: FS.xs, color: C.dim, marginTop: 8 }}>
+          파이프라인 집계: 이탈 {live.review.exited}건 · 규칙 손익 평균 {pct(live.review.ruleAvg, 1)} · 판 뒤 더 떨어진 비율 {live.review.savedPct}%</div>)}
       {drift?.flag && (
         <div style={{ marginTop: 10, padding: "10px 12px", borderRadius: 10, background: "rgba(255,69,58,.12)", border: `1px solid ${C.red}66` }}>
           <div style={{ fontSize: FS.md, fontWeight: 800, color: C.red }}>🚨 규칙 재검토 필요</div>
@@ -2698,6 +2800,8 @@ function ReviewTab({ market, uni, snap, trades, setTrades, pos, stocks, setTab, 
           </div>
         </>)}
       </Card>
+
+      <SignalReview siglog={siglog} stocks={stocks} market={market} openStock={openStock} />
 
       <TradeLog trades={trades} setTrades={setTrades} />
 
@@ -2740,37 +2844,38 @@ function ReviewTab({ market, uni, snap, trades, setTrades, pos, stocks, setTab, 
 /* ══════════════ 💰 전체 투자금 ══════════════ */
 function PlanCard({ sizer, bumpSizer, pos, stocks }) {
   const [p, setP] = useState(loadPlan);
-  const [open, setOpen] = useState(!loadPlan().total);
-  const save = (np) => { setP(np); localStorage.setItem(PLAN_KEY, JSON.stringify(np)); bumpSizer?.(); };
+  const [open, setOpen] = useState(() => !planAmounts(loadPlan(), 1));
+  const save = (np) => {
+    const pa = planAmounts(np, sizer.fx); const d = new Date().toISOString().slice(0, 10);
+    const hist = pa ? [...(np.hist || []).filter(h => h.d !== d), { d, total: Math.round(pa.total) }].slice(-60) : (np.hist || []);
+    const out = { ...np, hist }; delete out.usKrwOld;
+    setP(out); localStorage.setItem(PLAN_KEY, JSON.stringify(out)); bumpSizer?.();
+  };
   const set = (k, v) => save({ ...p, [k]: v });
-  const setTotal = (v) => { const d = new Date().toISOString().slice(0, 10);
-    const hist = [...(p.hist || []).filter(h => h.d !== d), { d, total: v }].slice(-60); save({ ...p, total: v, hist }); };
   const pa = planAmounts(p, sizer.fx);
-  const sum = (p.dc || 0) + (p.us || 0) + (p.kr || 0) + (p.cash || 0);
   const invKr = (pos || []).filter(x => /^\d{6}$/.test(x.t) && x.role !== "etf").reduce((a, x) => a + investedOf(x), 0);
   const invUs = (pos || []).filter(x => !/^\d{6}$/.test(x.t) && x.role !== "etf").reduce((a, x) => a + investedOf(x), 0);
-  const Bar = ({ k, label, amt, sub, c }) => (
-    <div style={{ display: "grid", gridTemplateColumns: "58px 44px minmax(0,1fr)", gap: 8, alignItems: "center", padding: "6px 0" }}>
+  const Row = ({ k, label, unit, m, sub }) => (
+    <label style={{ display: "grid", gridTemplateColumns: "70px minmax(0,1fr) 40px", gap: 8, alignItems: "center", padding: "5px 0" }}>
       <span style={{ fontSize: FS.sm, fontWeight: 700 }}>{label}</span>
-      <input type="number" inputMode="numeric" value={p[k]} onChange={e => set(k, Math.max(0, Number(e.target.value) || 0))}
-        aria-label={`${label} 비율`} style={{ ...inp("100%"), padding: "6px 4px", textAlign: "right", fontSize: 14 }} />
       <div style={{ minWidth: 0 }}>
-        <div style={{ height: 6, borderRadius: 3, background: "rgba(255,255,255,.06)", overflow: "hidden" }}>
-          <div style={{ width: `${Math.min(100, p[k] || 0)}%`, height: "100%", background: c }} /></div>
-        <div style={{ fontSize: FS.xs, color: C.dim, marginTop: 3, ...ONE }}><b style={{ color: C.text, fontFamily: MONO }}>{amt}</b>{sub && <span style={{ color: C.muted }}> · {sub}</span>}</div>
+        <input type="number" inputMode="numeric" value={p[k] || ""} placeholder={unit === "$" ? "달러" : "원"}
+          onChange={e => set(k, Math.max(0, Number(e.target.value) || 0))} style={{ ...inp("100%"), padding: "7px 8px", fontSize: 15 }} />
+        <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2, ...ONE }}>{p[k] ? money(p[k], m) : "—"}{sub ? ` · ${sub}` : ""}</div>
       </div>
-    </div>);
+      <span style={{ fontSize: FS.sm, fontFamily: MONO, color: C.dim, textAlign: "right" }}>{pa ? `${pa.pct[k.replace("Amt", "")]}%` : ""}</span>
+    </label>);
   return (
     <Card style={{ marginTop: 8 }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-        <span style={{ fontSize: FS.md, fontWeight: 800 }}>💰 전체 투자금</span>
-        <span style={{ fontSize: 17, fontWeight: 800, fontFamily: MONO, marginLeft: "auto" }}>{p.total ? money(p.total, "kr") : "미설정"}</span>
-        <button onClick={() => setOpen(v => !v)} style={{ ...linkBtn, minHeight: 32, fontSize: FS.xs }}>{open ? "닫기" : "설정"}</button>
+        <span style={{ fontSize: FS.md, fontWeight: 800 }}>💰 투자금</span>
+        <span style={{ fontSize: 17, fontWeight: 800, fontFamily: MONO, marginLeft: "auto" }}>{pa ? money(pa.total, "kr") : "미설정"}</span>
+        <button onClick={() => setOpen(v => !v)} style={{ ...linkBtn, minHeight: 32, fontSize: FS.xs }}>{open ? "닫기" : "수정"}</button>
       </div>
       {pa && !open && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", marginTop: 8, textAlign: "center" }}>
-          {[["🏦 DC", money(pa.dc, "kr"), `${p.dc}%`], ["🇺🇸 직투", pa.us != null ? money(pa.us, "us") : "—", `${p.slotsUs}칸 · ${pa.limUs != null ? money(pa.limUs, "us") : "—"}`],
-            ["🇰🇷 직투", money(pa.kr, "kr"), `${p.slotsKr}칸 · ${money(pa.limKr, "kr")}`], ["💤 대기", money(pa.cash, "kr"), `${p.cash}%`]].map(([l, v, sub], i) => (
+          {[["🏦 DC", money(pa.dc, "kr"), `${pa.pct.dc}%`], ["🇺🇸 직투", money(pa.us, "us"), `${p.slotsUs}칸 · ${money(pa.limUs, "us")}`],
+            ["🇰🇷 직투", money(pa.kr, "kr"), `${p.slotsKr}칸 · ${money(pa.limKr, "kr")}`], ["💤 대기", money(pa.cash, "kr"), `${pa.pct.cash}%`]].map(([l, v, sub], i) => (
             <div key={l} style={{ borderLeft: i ? `1px solid ${C.border}` : "none", minWidth: 0, padding: "0 2px" }}>
               <div style={{ fontSize: 10.5, color: C.dim }}>{l}</div>
               <div style={{ fontSize: 13.5, fontWeight: 800, fontFamily: MONO, ...ONE }}>{v}</div>
@@ -2779,20 +2884,17 @@ function PlanCard({ sizer, bumpSizer, pos, stocks }) {
         </div>)}
       {pa && !open && (invKr > 0 || invUs > 0) && (
         <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 6 }}>
-          지금 투입 중 — 🇺🇸 {money(invUs, "us")}{pa.us ? ` (${Math.round(invUs / pa.us * 100)}%)` : ""} · 🇰🇷 {money(invKr, "kr")} ({Math.round(invKr / Math.max(1, pa.kr) * 100)}%)</div>)}
+          지금 투입 중 — 🇺🇸 {money(invUs, "us")}{pa.us ? ` (${Math.round(invUs / pa.us * 100)}%)` : ""} · 🇰🇷 {money(invKr, "kr")}{pa.kr ? ` (${Math.round(invKr / pa.kr * 100)}%)` : ""}</div>)}
       {open && (
-        <div style={{ marginTop: 8 }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: FS.sm, color: C.dim, width: 58, flexShrink: 0 }}>총액(원)</span>
-            <input type="number" inputMode="numeric" value={p.total || ""} placeholder="예: 170000000" onChange={e => setTotal(Math.max(0, Number(e.target.value) || 0))} style={{ ...inp("100%"), flex: 1 }} />
-          </label>
-          <div style={{ fontSize: FS.xs, color: C.muted, margin: "3px 0 6px 66px" }}>{p.total ? money(p.total, "kr") : "원 단위로 입력"} · 비율 합계 <b style={{ color: sum === 100 ? C.emerald : C.red }}>{sum}%</b>{sum !== 100 && " (100%가 되게 맞춰 주세요)"}</div>
-          <Bar k="dc" label="🏦 DC" c={C.cyan} amt={pa ? money(pa.dc, "kr") : "—"} sub="듀얼 모멘텀" />
-          <Bar k="us" label="🇺🇸 직투" c={C.emerald} amt={pa?.us != null ? `${money(pa.us, "us")} (${money(pa.usKrw, "kr")})` : "—"} sub={`환율 ${sizer.fx ? sizer.fx.toFixed(0) : "—"}`} />
-          <Bar k="kr" label="🇰🇷 직투" c={C.gold} amt={pa ? money(pa.kr, "kr") : "—"} sub="눌림" />
-          <Bar k="cash" label="💤 대기" c={C.muted} amt={pa ? money(pa.cash, "kr") : "—"} sub="예금·예비금" />
+        <div style={{ marginTop: 6 }}>
+          <Row k="dcAmt" label="🏦 DC" unit="원" m="kr" sub="듀얼 모멘텀" />
+          <Row k="usAmt" label="🇺🇸 직투" unit="$" m="us" sub={sizer.fx && p.usAmt ? `≈ ${money(p.usAmt * sizer.fx, "kr")} (환율 ${sizer.fx.toFixed(0)})` : "달러로 입력"} />
+          <Row k="krAmt" label="🇰🇷 직투" unit="원" m="kr" sub="눌림" />
+          <Row k="cashAmt" label="💤 대기" unit="원" m="kr" sub="예금·예비금" />
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0 4px", borderTop: `1px solid ${C.border}`, marginTop: 4 }}>
+            <b>합계</b><b style={{ fontFamily: MONO }}>{pa ? money(pa.total, "kr") : "—"}</b></div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 8, marginTop: 6 }}>
-            {[["slotsUs", "🇺🇸 칸 수", pa?.limUs != null ? `칸당 ${money(pa.limUs, "us")}` : ""], ["slotsKr", "🇰🇷 칸 수", pa ? `칸당 ${money(pa.limKr, "kr")}` : ""]].map(([k, l, sub]) => (
+            {[["slotsUs", "🇺🇸 칸 수", pa ? `칸당 ${money(pa.limUs, "us")}` : ""], ["slotsKr", "🇰🇷 칸 수", pa ? `칸당 ${money(pa.limKr, "kr")}` : ""]].map(([k, l, sub]) => (
               <label key={k} style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <span style={{ fontSize: FS.sm, color: C.dim, flexShrink: 0 }}>{l}</span>
                 <input type="number" inputMode="numeric" value={p[k]} onChange={e => set(k, Math.max(1, Number(e.target.value) || 1))} style={{ ...inp("100%"), width: 52, padding: "6px 4px", textAlign: "right" }} />
@@ -2800,10 +2902,10 @@ function PlanCard({ sizer, bumpSizer, pos, stocks }) {
               </label>))}
           </div>
           <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 8, lineHeight: 1.6 }}>
-            여기서 한 번 정하면 DC 총액 · 원화/달러 자본 · 종목당 한도(= 직투 금액 ÷ 칸 수)가 모든 탭에 자동으로 반영됩니다.
-            1회차는 칸당 금액의 절반입니다. 아이들 적립 계좌는 넣지 않습니다.
+            계좌별 금액을 넣으면 합계와 비율은 자동입니다. DC 탭 총액 · 원화/달러 자본 · 종목당 한도(= 직투 금액 ÷ 칸 수)가 모든 탭에 반영됩니다.
+            1회차는 칸당 금액의 절반. 금액을 바꾼 날짜와 합계는 기록됩니다. 아이들 적립 계좌는 넣지 않습니다.
           </div>
-          <button onClick={() => setOpen(false)} disabled={!p.total || sum !== 100} style={{ ...btn(C.emerald), width: "100%", marginTop: 8, opacity: (!p.total || sum !== 100) ? .4 : 1 }}>저장</button>
+          <button onClick={() => setOpen(false)} disabled={!pa} style={{ ...btn(C.emerald), width: "100%", marginTop: 8, opacity: pa ? 1 : .4 }}>저장</button>
         </div>)}
     </Card>);
 }
