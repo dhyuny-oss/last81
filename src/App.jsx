@@ -17,7 +17,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-export const APP_VERSION = "v10.0.0";
+export const APP_VERSION = "v10.2.0";
 
 /* ══════════════ 디자인 토큰 ══════════════ */
 const C = {
@@ -66,20 +66,29 @@ function usDST(nowMs) {
   } catch { return true; }
 }
 
+/* 휴장일 (2026) — 매년 12월에 다음 해 것을 추가합니다. 장중 감시 스크립트와 같은 목록 */
+const KR_HOLIDAYS = new Set(["2026-09-24", "2026-09-25", "2026-10-05", "2026-10-09", "2026-12-25", "2026-12-31"]);
+const US_HOLIDAYS = new Set(["2026-11-26", "2026-12-25"]);
+const HOLI_NAME = { "2026-09-24": "추석", "2026-09-25": "추석", "2026-10-05": "개천절 대체", "2026-10-09": "한글날",
+                    "2026-12-25": "성탄절", "2026-12-31": "연말", "2026-11-26": "추수감사절" };
 function marketState(nowMs = Date.now()) {
   // ★ UTC 게터로 읽습니다. 로컬 게터를 쓰면 미국에서 접속했을 때
   //   서머타임 전환 주에 KST 가 1시간 어긋납니다.
   const kst = new Date(nowMs + 9 * 3600000);
   const dow = kst.getUTCDay(), mins = kst.getUTCHours() * 60 + kst.getUTCMinutes();
+  const ymd = kst.toISOString().slice(0, 10);
+  const krHol = KR_HOLIDAYS.has(ymd);
+  const usYmd = new Date(nowMs + 9 * 3600000 - (mins < 720 ? 86400000 : 0)).toISOString().slice(0, 10);   // 미국 장은 KST 자정을 넘김
+  const usHol = US_HOLIDAYS.has(usYmd);
   const wd = dow >= 1 && dow <= 5;
-  const krRegular = wd && mins >= 540 && mins <= 930;          // 09:00~15:30
-  const krExt = wd && ((mins >= 450 && mins < 540) || (mins > 930 && mins <= 1080));
+  const krRegular = wd && !krHol && mins >= 540 && mins <= 930;          // 09:00~15:30
+  const krExt = wd && !krHol && ((mins >= 450 && mins < 540) || (mins > 930 && mins <= 1080));
   const dst = usDST(nowMs);
   const usOpen = dst ? 1350 : 1410;                            // 22:30 / 23:30 KST
   const usClose = dst ? 300 : 360;                             // 05:00 / 06:00 KST
-  const usRegular = (wd && mins >= usOpen) || (mins <= usClose && dow >= 2 && dow <= 6);
-  const usPre = wd && mins >= usOpen - 330 && mins < usOpen;
-  const usAfter = mins > usClose && mins <= usClose + 240 && dow >= 2 && dow <= 6;
+  const usRegular = !usHol && ((wd && mins >= usOpen) || (mins <= usClose && dow >= 2 && dow <= 6));
+  const usPre = !usHol && wd && mins >= usOpen - 330 && mins < usOpen;
+  const usAfter = !usHol && mins > usClose && mins <= usClose + 240 && dow >= 2 && dow <= 6;
   // 토요일 아침은 아직 미국 장 뒷정리 시간이고 06:30·09:00 빌드가 남아 있습니다.
   const weekend = dow === 0 || (dow === 6 && mins > 570) || (dow === 1 && mins < 450);
   const anyOpen = krRegular || usRegular;
@@ -94,13 +103,13 @@ function marketState(nowMs = Date.now()) {
   }
   // ★ 라벨 — "휴장"은 아예 안 여는 날에만 씁니다.
   //   장이 열렸다가 끝난 평일 저녁을 "휴장"이라고 하면 데이터가 없는 것처럼 읽힙니다.
-  const krLabel = weekend ? "휴장"
+  const krLabel = weekend ? "휴장" : krHol ? `휴장(${HOLI_NAME[ymd] || "공휴일"})`
     : mins < 450 ? "개장 전" : mins < 540 ? "장전" : mins <= 930 ? "장중"
     : mins <= 1080 ? "장후" : "장마감";
-  const usLabel = weekend ? "휴장"
+  const usLabel = weekend ? "휴장" : usHol ? `휴장(${HOLI_NAME[usYmd] || "공휴일"})`
     : usRegular ? "장중" : usPre ? "프리마켓" : usAfter ? "애프터"
     : (mins > usClose + 240 && mins < usOpen - 330) ? "장마감" : "개장 전";
-  return { krRegular, krExt, usRegular, usPre, usAfter, weekend, anyOpen, next, dst, krLabel, usLabel };
+  return { krRegular, krExt, usRegular, usPre, usAfter, weekend, anyOpen, next, dst, krLabel, usLabel, krHol, usHol };
 }
 /** 그 사이에 낀 평일 수 — 대략적인 '놓친 거래일'.
  *  주말·시간외라고 경보를 끄면 안 되고, 반대로 토요일에 금요일 데이터를 보고
@@ -438,6 +447,7 @@ function subLine(s, sizer, market, extra = []) {
   const f = s.fin;
   return [
     gap != null && s.stSlow === 1 ? `선 −${gap.toFixed(0)}%` : null,     // 지금 사면 트레일링선까지 거리
+    s.mcap ? `시총 ${s.m === "kr" ? (s.mcap >= 10000 ? `${(s.mcap / 10000).toFixed(1)}조` : `${s.mcap.toLocaleString()}억`) : `$${s.mcap >= 1e12 ? (s.mcap / 1e12).toFixed(1) + "T" : (s.mcap / 1e9).toFixed(0) + "B"}`}` : null,
     `거래 ${money(s.tv, s.m)}`,
     sh > 0 ? `매수 ${sh}주` : null,
     s.rsi != null ? `RSI ${s.rsi.toFixed(0)}${s.rsiUp ? "↑" : "↓"}` : null,
@@ -551,6 +561,10 @@ export default function App() {
   }, [snap, market]);   // 데이터가 오기 전엔 헤더가 없어서, 온 뒤에 다시 붙입니다
   const [uni, setUni] = useState(null);   // 주간 종목풀 점검 기록 (작은 파일, 한 번만 읽습니다)
   const [siglog, setSiglog] = useState(null);   // 실전 장부 — 최근 신호 모아보기·성과 측정
+  const [today, setToday] = useState(null);     // 파이프라인이 확정한 오늘 후보 (앱·텔레그램·AI 도구가 같은 것을 봄)
+  useEffect(() => {
+    fetch("/data/today.json?t=" + Date.now()).then(r => r.ok ? r.json() : null).then(setToday).catch(() => {});
+  }, []);
   useEffect(() => {
     fetch("/data/signals_log.json?t=" + Date.now()).then(r => r.ok ? r.json() : null).then(setSiglog).catch(() => {});
   }, []);
@@ -720,7 +734,7 @@ export default function App() {
   if (!snap || !market) return <Shell><div style={{ textAlign: "center", color: C.muted, marginTop: 80, fontSize: FS.md }}>불러오는 중…</div></Shell>;
 
   const shared = { stocks, list, etfs, items, openStock, watch, toggleWatch, market, setTab, setSel, pos, setPos,
-                   seen, sizer, bumpSizer, extras, setExtras, trades, setTrades, siglog };
+                   seen, sizer, bumpSizer, extras, setExtras, trades, setTrades, siglog, today };
   const nTrack = pos.length + watch.length;
   const warn = fr.tone === "stale" || fr.tone === "old" || fr.tone === "bad";
 
@@ -916,11 +930,12 @@ function HoursCard({ nowMs }) {
   const dow = kst.getUTCDay(), mins = kst.getUTCHours() * 60 + kst.getUTCMinutes();
   const wd = dow >= 1 && dow <= 5;
   const S = sessions(nowMs);
+  const _ms = marketState(nowMs);
   const Row = ({ list, flag, label }) => (
     <div style={{ marginTop: 8 }}>
       <div style={{ fontSize: FS.sm, fontWeight: 700, marginBottom: 4 }}>{flag} {label}</div>
       {list.map(([n, a, b, note]) => {
-        const on = wd && inSpan(mins, a, b);
+        const on = wd && inSpan(mins, a, b) && !(flag === "🇰🇷" ? _ms.krHol : _ms.usHol);
         return (
           <div key={n} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 6, alignItems: "center",
                                 padding: "5px 7px", borderRadius: 7, marginBottom: 3,
@@ -939,7 +954,7 @@ function HoursCard({ nowMs }) {
         <span style={{ fontSize: FS.md, fontWeight: 800 }}>거래 시간 (KST)</span>
         <span style={{ marginLeft: "auto", fontSize: FS.xs, color: C.muted }}>지금 {hhmm(mins)}{wd ? "" : " · 휴장일"}</span>
       </div>
-      <Row list={S.kr} flag="🇰🇷" label="한국" />
+      <Row list={S.kr} flag="🇰🇷" label={_ms.krHol ? `한국 · ${_ms.krLabel}` : "한국"} />
       <Row list={S.us} flag="🇺🇸" label={`미국 (${S.dst ? "서머타임" : "겨울시간"})`} />
       <div style={{ marginTop: 9, padding: "8px 10px", borderRadius: 8, background: "rgba(6,182,212,.07)", fontSize: FS.xs, color: C.dim, lineHeight: 1.7 }}>
         <b style={{ color: C.text }}>내 매매 시각</b><br />
@@ -1468,7 +1483,10 @@ function RecentSignals({ siglog, stocks, openStock, market }) {
   const [open, setOpen] = useState(false);
   if (!siglog?.length) return null;
   const days = [...new Set(siglog.map(x => x.d))].sort().slice(-5);
+  const seenDT = new Set();
   const rows = siglog.filter(x => days.includes(x.d) && (x.k === "pull" || x.k === "strong" || x.k === "buy"))
+    .sort((a, b) => ({ pull: 0, strong: 0, buy: 1 }[a.k] ?? 2) - ({ pull: 0, strong: 0, buy: 1 }[b.k] ?? 2))
+    .filter(x => { const key = x.d + x.t; if (seenDT.has(key)) return false; seenDT.add(key); return true; })   // 같은 날 같은 종목 한 줄
     .map(x => { const s = stocks[x.t]; const now = s?.c ?? null;
       return { ...x, now, ret: now && x.p ? (now / x.p - 1) * 100 : null, n: s?.n || x.n }; })
     .sort((a, b) => b.d.localeCompare(a.d) || (b.ret ?? -99) - (a.ret ?? -99));
@@ -1524,7 +1542,7 @@ function sigAgeMap(siglog) {
   return m;
 }
 const NewTag = ({ age }) => age == null ? null : (
-  <span style={{ fontSize: 10.5, fontWeight: 800, color: age <= 1 ? C.gold : C.muted, flexShrink: 0,
+  <span style={{ fontSize: 10.5, fontWeight: 800, color: age <= 1 ? C.gold : C.muted, flexShrink: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                  background: age <= 1 ? "rgba(245,158,11,.15)" : "transparent", borderRadius: 4, padding: age <= 1 ? "0 4px" : 0 }}>
     {age <= 1 ? "🆕 오늘" : age <= 3 ? `🆕 ${age}일째` : `${age}일째`}</span>);
 function FindTab({ list, openStock, watch, toggleWatch, market, sizer, pos, siglog, stocks }) {
@@ -2104,7 +2122,7 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
       if (sell > 0) {
         const avg = avgOf(p), tr = trOf(p);
         const days = Math.max(1, Math.round((Date.now() - new Date(tr[0].d + "T00:00:00").getTime()) / 86400000));
-        setTrades(v => [...v, { t: p.t, n: s?.n || p.t, m: s?.m || "kr", role: p.role, buy: avg, sell, in: tr[0].d,
+        setTrades(v => [...v, { t: p.t, n: s?.n || p.t, m: s?.m || (/^\d{6}$/.test(p.t) ? "kr" : "us"), role: p.role, buy: avg, sell, in: tr[0].d,
                                 out: new Date().toISOString().slice(0, 10), days, pl: (sell / avg - 1) * 100,
                                 k: tr.length, inv: investedOf(p) }].slice(-300));
       }
@@ -2183,7 +2201,18 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
         </Card>)}
       {rows.length === 0 ? <Card><Empty>기록된 포지션이 없습니다 · 차트탭에서 ‘1회차 매수 등록’</Empty></Card> :
         rows.map(p => {
-          const s = look(p.t); if (!s) return null;
+          const s = look(p.t);
+          if (!s) return (   // ★ 데이터가 없어도 들고 있는 종목은 사라지면 안 됩니다
+            <Card key={p.id} style={{ marginBottom: 8, borderColor: "rgba(245,158,11,.6)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700 }}><b style={{ fontFamily: MONO }}>{p.t}</b> <InfoLink s={{ t: p.t, m: /^\d{6}$/.test(p.t) ? "kr" : "us" }} /></div>
+                  <div style={{ fontSize: FS.xs, color: C.gold, marginTop: 3 }}>⚠ 데이터 없음 — 거래정지·상장폐지·티커 변경 가능성. ↗ 네이버에서 상태를 확인하세요</div>
+                  <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 2 }}>투입 {money(investedOf(p), /^\d{6}$/.test(p.t) ? "kr" : "us")} · 평단 {avgOf(p).toLocaleString()}</div>
+                </div>
+                <button onClick={() => closePos(p, null)} aria-label="매도 기록" style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: 18, width: 32, height: 34 }}>×</button>
+              </div>
+            </Card>);
           const tr = trOf(p), avg = avgOf(p), inv = investedOf(p);
           const pl = (s.c / avg - 1) * 100, pl1 = (s.c / tr[0].px - 1) * 100;
           const [rl, rt] = RB[p.role] || RB.swing;
@@ -2213,6 +2242,7 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
                               background: isSell ? "rgba(255,69,58,.12)" : "rgba(48,209,88,.07)" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ fontSize: FS.md, fontWeight: 800, color: isSell ? C.red : C.emerald }}>{isSell ? "매도!" : "보유"}</span>
+                    {(s.halted || s.status) && <span style={{ fontSize: FS.xs, fontWeight: 800, color: C.gold }}>⚠ {s.status || "거래정지"}</span>}
                     <span style={{ fontSize: FS.xs, color: C.dim }}>
                       {isSell ? `종가 ${price(s.c, s.m)} < 트레일링선 ${price(s.stLine, s.m)}`
                               : s.stLine ? `트레일링선 ${price(s.stLine, s.m)} · 여유 ${gap.toFixed(1)}%` : "트레일링선 없음"}
@@ -2479,11 +2509,18 @@ function buildWeeklyPick(stocks, market, sizer, held = []) {
            dual: dual ? { hold: dual.hold, cands: dual.cands.map(c => ({ label: c.label, score: c.score })) } : null,
            nBuy: allBuys.length, held: allBuys.filter(s => heldSet.has(s.t)).map(s => s.t) };
 }
-function WeeklyPick({ stocks, market, sizer, openStock, setTab, pos }) {
+function WeeklyPick({ stocks, market, sizer, openStock, setTab, pos, today }) {
   const wk = weekKey();
   const [saved, setSaved] = useState(() => loadJSON("v9.pick", {}));
   const cur = saved[wk];
-  const make = () => { const p = buildWeeklyPick(stocks, market, sizer, (pos || []).map(x => x.t)); const next = { ...saved, [wk]: p }; setSaved(next); localStorage.setItem("v9.pick", JSON.stringify(next)); };
+  // 파이프라인이 확정한 today.json 이 있으면 그것을 씁니다 (텔레그램·AI 도구와 같은 목록). 없으면 앱이 같은 규칙으로 계산
+  const fromToday = (t) => ({
+    made: new Date().toISOString().slice(0, 10) + " (파이프라인 " + (t.asOf || "") + ")", judge: { us: { verdict: t.market?.us }, kr: { verdict: t.market?.kr } },
+    sectors: t.sectors || [], pick: t.pickUs.map(r => ({ ...r, fin: { rev: r.rev, prof: r.prof } })),
+    excluded: t.excluded.map(x => ({ t: x.t, n: x.n, why: x.why })), kr: t.pickKr, dips: t.dips.map(d => ({ t: d.t, n: d.n, w52p: d.w52p, hlt: d.hlt })),
+    dual: t.dc && t.dc.cands ? { hold: t.dc.hold || [], cands: t.dc.cands } : null, nBuy: t.candidates.length,
+    held: t.candidates.filter(r => r.held).map(r => r.t) });
+  const make = () => { const p = today?.pickUs ? fromToday(today) : buildWeeklyPick(stocks, market, sizer, (pos || []).map(x => x.t)); const next = { ...saved, [wk]: p }; setSaved(next); localStorage.setItem("v9.pick", JSON.stringify(next)); };
   const prev = Object.keys(saved).filter(k => k < wk).sort().pop();
   const J = { safe: "안전", warn: "주의", risk: "위험" };
   return (
@@ -2515,7 +2552,7 @@ function WeeklyPick({ stocks, market, sizer, openStock, setTab, pos }) {
       </div>)}
     </Card>);
 }
-function ReviewTab({ market, uni, snap, trades, setTrades, pos, stocks, setTab, openStock, sizer }) {
+function ReviewTab({ market, uni, snap, trades, setTrades, pos, stocks, setTab, openStock, sizer, today }) {
   const wk = weekKey();
   const [done, setDone] = useState(() => loadJSON("v8.review", {}));
   const [memo, setMemo] = useState(() => localStorage.getItem("v8.review.memo") || "");
@@ -2531,7 +2568,7 @@ function ReviewTab({ market, uni, snap, trades, setTrades, pos, stocks, setTab, 
   const drift = live.drift;
   return (
     <>
-      <WeeklyPick stocks={stocks} market={market} sizer={sizer} openStock={openStock} setTab={setTab} pos={pos} />
+      <WeeklyPick stocks={stocks} market={market} sizer={sizer} openStock={openStock} setTab={setTab} pos={pos} today={today} />
       <Sec right={`${nDone}/${REVIEW_STEPS.length} · ${wk} 주`}>이번 주 점검</Sec>
       <Card style={{ padding: "4px 12px" }}>
         {REVIEW_STEPS.map(([k, t, why], i) => (
@@ -2675,12 +2712,32 @@ function PoolTab({ snap, uni, list, openStock, watch, pos, extras, setExtras, tr
           <span style={{ fontSize: FS.xs, color: C.muted }}>
             {h.mode === "focus" ? `감시 중 ${list.length} · 전체 ${h.fullUniverse ?? "—"}` : `${list.length}종목`} (🇰🇷 {list.filter(s => s.m === "kr").length} · 🇺🇸 {list.filter(s => s.m === "us").length})</span>
         </div>
-        <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 4, lineHeight: 1.6 }}>
-          매주 토요일 자동 교체: 🇰🇷 거래대금 상위 200 · 🇺🇸 S&P500 · + 보유·관심·추가 종목(보호).
-          평일은 그중 신호가 날 수 있는 종목만 봅니다(감시 모드).
+        <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 4, lineHeight: 1.7 }}>
+          <b style={{ color: C.text }}>입구 기준</b> (매주 토요일 자동 교체 · 출처: 한투 공식 종목 마스터 · 나스닥 스크리너 · S&P500 목록)<br />
+          🇰🇷 보통주 · 거래정지/정리매매/관리종목/투자경고 제외 · 시총 3,000억↑ → 거래대금 상위 150 + 시총 상위 150 (≈200)<br />
+          🇺🇸 S&P500 + (시총 $25B↑ · 거래대금 $50M↑) — 밈주식·코인채굴·테마 ETF·소형주 제외 (≈645)<br />
+          매일: 60일 평균 거래대금 🇰🇷 30억↑ · 🇺🇸 $30M↑ · 🇰🇷 거래정지 등은 그날 바로 제외 · 보유·관심·추가는 보호
         </div>
-        <button onClick={runNow} disabled={busy} style={{ ...btn(C.gold), width: "100%", marginTop: 8 }}>🔁 지금 종목풀 교체 (주간 수집 즉시 실행)</button>
-        {msg && <div style={{ fontSize: FS.xs, color: msg.bad ? C.red : C.emerald, marginTop: 6 }}>{msg.t}</div>}
+        {(() => {
+          const dr = h.dropped || {}; const ee = uni?.entryExcluded || {};
+          const parts = Object.entries(dr).filter(([, v]) => v > 0);
+          const kr = Object.entries(ee.kr || {}), us = Object.entries(ee.us || {});
+          return (parts.length || kr.length || us.length) ? (
+            <div style={{ fontSize: FS.xs, color: C.dim, marginTop: 6, padding: "6px 8px", borderRadius: 7, background: "rgba(255,255,255,.03)", lineHeight: 1.6 }}>
+              {parts.length > 0 && <>오늘 제외: {parts.map(([k, v]) => `${k} ${v}`).join(" · ")}<br /></>}
+              {kr.length > 0 && <>주간 입구 🇰🇷: {kr.map(([k, v]) => `${k} ${v}`).join(" · ")}<br /></>}
+              {us.length > 0 && <>주간 입구 🇺🇸: {us.map(([k, v]) => `${k} ${v}`).join(" · ")}</>}
+            </div>) : null;
+        })()}
+        <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
+          <button onClick={runNow} disabled={busy} style={{ ...btn(C.gold), width: "100%" }}>🔁 종목풀 교체 (주간 수집 즉시 · 30~40분)</button>
+          {msg && <div style={{ fontSize: FS.xs, color: msg.bad ? C.red : C.emerald }}>{msg.t}</div>}
+          <RefreshBtn />
+          <FinRefreshBtn />
+          <div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.6 }}>
+            마지막: 종목풀 {uni?.date?.slice(0, 10) || "—"} · 시세 {snap?.meta?.generatedKST || "—"} · 재무 {snap?.meta?.finUpdated || "—"}
+          </div>
+        </div>
       </Card>
 
       {uni && (
