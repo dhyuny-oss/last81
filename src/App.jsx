@@ -17,7 +17,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-export const APP_VERSION = "v12.0.0";
+export const APP_VERSION = "v12.1.0";
 
 /* ══════════════ 디자인 토큰 ══════════════ */
 const C = {
@@ -348,6 +348,7 @@ const EXPLAIN = {
     ["하루 거래 $5.2B", "최근 20거래일 평균 하루 거래대금"],
     ["RSI 62(3일↑)", "RSI(14일) 값과 3일 전보다 올랐는지(↑)·내렸는지(↓). 참고용 — 검증에서 '상승 중'은 효과 없음"],
     ["RS 100", "같은 시장 종목 중 최근 6개월 수익률 순위(백분위). 100이 1등, 70 이상 = 주도주"],
+    ["강도 88", "RS 백분위와 200일선 거리 백분위의 평균(0~100). 매수! 중 무엇부터 살지 정하는 점수 — '강한 것 중 더 강한 것'. 규칙을 2010–18에서 정하고 2019–26에 적용해도 RS 순·업종 순보다 나았음"],
     ["전일 +2.7%", "직전 거래일 종가 대비 오늘(마지막) 종가"],
     ["업종 3위", "이 종목 업종의 섹터 ETF 순위 (미국만)"],
     ["매출 +16% 분기↑ · 흑자", "최근 분기 매출의 전년 동기 대비 (SEC 공시, ↑ = 직전 분기보다 성장 가속). 없으면 4분기 합계 → 연간. 미국만. 검증 불가라 조건이 아닌 취향 필터 — 한국·재무 없는 종목은 통과"],
@@ -367,8 +368,8 @@ const EXPLAIN = {
 const ROW_GUIDE = [
   ["1줄", "DELL Dell Technologies ↗ 🆕 오늘 ○ · $568.06 · 전일 −3.5% · ☆", "티커(한국은 이름) · 네이버 ↗ · 매수! 된 지 며칠째 · 확인함 ○ · 종가 · 전일 대비 · 관심 ☆"],
   ["2줄", "매수! (강세) · RS 100 · 1달 S&P比 +31p · +4.5% +0.1% +29.8%", "행동(근거) · 6개월 상대강도 순위 · 1달 수익 − 비교 지수 1달 수익 · 3일·5일·1달 누적(위 고정 바와 같은 열)"],
-  ["3줄", "선까지 −16% · 시총 $390B · 하루 거래 $5.2B · 1회차 1주 · RSI 62(3일↑) · 업종 기술 2위 · 매출 분기 전년比 +58% · 흑자",
-          "선에 닿으면 잃는 폭 · 시가총액 · 20일 평균 하루 거래대금 · 한도 절반으로 살 수 있는 주수 · RSI와 3일 전 대비 방향 · 섹터 ETF 점수 순위 · 최근 분기 매출의 전년 같은 분기 대비"],
+  ["3줄", "강도 88 · 선까지 −16% · 시총 $390B · 하루 거래 $5.2B · 1회차 1주 · RSI 62(3일↑) · 업종 기술 2위 · 매출 분기 전년比 +58% · 흑자",
+          "강도 점수(RS+200일선) · 선에 닿으면 잃는 폭 · 시가총액 · 20일 평균 하루 거래대금 · 한도 절반으로 살 수 있는 주수 · RSI와 3일 전 대비 방향 · 섹터 ETF 점수 순위 · 최근 분기 매출의 전년 같은 분기 대비"],
 ];
 const ExplainList = ({ items }) => (
   <Info label="▸ 표기 설명 · 행 읽는 법">
@@ -504,6 +505,7 @@ function subLine(s, sizer, market, extra = []) {
   const secRank = s.sec && (market?.sectors || []).find(x => x.tk === s.sec);
   const f = s.fin;
   return [
+    s.str != null ? `강도 ${s.str}` : null,                                  // RS + 200일선 거리 (0~100)
     s.stSlow === 1 && lossOf(s) != null ? `선까지 ${lossTxt(s)}` : null,     // 지금 사면 선에 닿을 때 잃는 폭
     s.mcap ? `시총 ${s.m === "kr" ? (s.mcap >= 10000 ? `${(s.mcap / 10000).toFixed(1)}조` : `${s.mcap.toLocaleString()}억`) : `$${s.mcap >= 1e12 ? (s.mcap / 1e12).toFixed(1) + "T" : (s.mcap / 1e9).toFixed(0) + "B"}`}` : null,
     `하루 거래 ${money(s.tv, s.m)}`,
@@ -1643,7 +1645,7 @@ function DcTab({ etfs, market, pos, setPos, openStock, sizer }) {
 }
 
 /* ══════════════ 3. 발굴 ══════════════ */
-const SORT_LABEL = { new: "새로 매수! 된 순", sig: "매수! 먼저", rs: "RS 높은 순", sec: "주도 업종 먼저", rev: "매출 성장 큰 순", vol: "변동성 높은 순", tv: "거래대금 큰 순" };
+const SORT_LABEL = { str: "강도 높은 순 (RS + 200일선 거리)", new: "새로 매수! 된 순", sig: "매수! 먼저", rs: "RS 높은 순", sec: "주도 업종 먼저", rev: "매출 성장 큰 순", vol: "변동성 높은 순", tv: "거래대금 큰 순" };
 /** 시장 대비 = 그 종목 1달 수익 − 같은 시장 지수 1달 수익 */
 const benchOf = (s) => s.m === "kr" ? "^KS11" : (NASDAQ.has(s.ex) ? "^IXIC" : "^GSPC");   // 이름표(benchName)와 같은 기준
 const relOf = (s, market) => {
@@ -1726,7 +1728,7 @@ function TodayPicks({ today, stocks, sizer, openStock, pos }) {
   const K = { pull: "눌림", strong: "강세", trend: "추세" };
   const Row = ({ r, i }) => {
     const s = stocks[r.t] || r; const sh = sizer?.shares(r.c, r.m);
-    const why = [K[r.why], r.rs != null && `RS ${Math.floor(r.rs)}`, r.secRank && `업종 ${r.secLabel || ""} ${r.secRank}위`,
+    const why = [K[r.why], r.str != null && `강도 ${r.str}`, r.rs != null && `RS ${Math.floor(r.rs)}`, r.ma200p != null && `200일선 +${Math.round(r.ma200p)}%`, r.secRank && `업종 ${r.secLabel || ""} ${r.secRank}위`,
                  r.growth != null && `매출 ${r.growth >= 0 ? "+" : ""}${r.growth.toFixed(0)}%${r.accel ? " 가속" : ""}`,
                  r.loss != null && `선까지 −${r.loss.toFixed(0)}%`, r.age && (r.age <= 1 ? "🆕 오늘" : `${r.age}일째`)].filter(Boolean).join(" · ");
     return (
@@ -1758,7 +1760,8 @@ function TodayPicks({ today, stocks, sizer, openStock, pos }) {
         <div style={{ fontSize: FS.xs, color: C.gold, fontWeight: 700, marginTop: 8 }}>🇰🇷 한국{today.market?.kr === "risk" ? " · 시장 위험 — 쉬어도 됨" : ""}</div>
         {today.pickKr.map((r, i) => <Row key={r.t} r={r} i={i} />)}</>}
       <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.6 }}>
-        고른 방법: 매수! 중 강세·눌림 먼저 → 주도 업종 → RS 순 · 같은 업종은 하나 · 적자·매출 부진·선까지 −17% 넘는 것·보유 종목 제외 (텔레그램·AI 도구와 같은 목록)
+        고른 방법: 매수! 중 강세·눌림 먼저 → <b style={{ color: C.text }}>강도 점수(RS + 200일선 거리) 높은 순</b> · 같은 업종은 하나(위험 관리) · 적자·매출 부진·보유 제외.
+        검증: 규칙을 2010–18에서 정하고 2019–26에 적용 — 🇺🇸 연 +50%·+38% (RS 순 +41%·+27%) · 🇰🇷 +48%·+39% (+45%·+23%). 텔레그램·AI 도구와 같은 목록
       </div>
     </Card>);
 }
@@ -1766,7 +1769,7 @@ function TodayPicks({ today, stocks, sizer, openStock, pos }) {
 function FindTab({ list, openStock, watch, toggleWatch, market, sizer, pos, siglog, stocks, today }) {
   const [filt, setFilt] = useSticky("v9.find.filt", "buy");
   const [mkt, setMkt] = useSticky("v9.find.mkt", "us");      // 🇺🇸 기본
-  const [sortBy, setSortBy] = useSticky("v9.find.sort", "new");
+  const [sortBy, setSortBy] = useSticky("v12.find.sort", "str");
   const ageMap = useMemo(() => sigAgeMap(siglog), [siglog]);
   const [limit, setLimit] = useSticky("v9.find.limit", 20);
   const [revMin, setRevMinRaw] = useState(getRevMin);                  // 28. 매출 성장 필터 (%) · 0 = 끄기 — 공통 설정
@@ -1789,7 +1792,8 @@ function FindTab({ list, openStock, watch, toggleWatch, market, sizer, pos, sigl
     if (filt === "buy") r = r.filter(s => s.action === "buy" && passRev(s));
     else if (filt === "pre") r = r.filter(s => s.pre);
     const W = { pull: 3, strong: 3, trend: 2 };
-    const key = { new: s => (ageMap[s.t] ?? 99) * 1000 - (s.rs ?? 0),          // 새로 매수! 된 순
+    const key = { str: s => ((s.action === "buy" && s.why !== "trend") ? 0 : 1) * 1000 - (s.str ?? -1),   // 강도순 (검증된 순서)
+                  new: s => (ageMap[s.t] ?? 99) * 1000 - (s.rs ?? 0),          // 새로 매수! 된 순
                   sig: s => -((s.action === "buy" ? W[s.why] || 1 : 0) * 1000 + (s.rs ?? 0)),
                   rs: s => -(s.rs ?? 0), vol: s => -(s.atrr ?? -1), tv: s => -(s.tvr ?? 0), rev: s => -(growthOf(s) ?? -999),
                   sec: s => { const r = (market?.sectors || []).find(x => x.tk === s.sec); return (r ? r.rank : 99) * 1000 - (s.rs ?? 0); } }[sortBy];
@@ -1813,7 +1817,7 @@ function FindTab({ list, openStock, watch, toggleWatch, market, sizer, pos, sigl
         <Seg full value={filt} onChange={setFilt} items={[["buy", `매수! ${nBuy}`], ["pre", `예비 ${nPre}`], ["all", "전체"]]} />
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(98px, 1fr))", gap: 6 }}>
           <SortSelect value={sortBy} onChange={setSortBy}
-            items={[["new", "새로 된 순"], ["sig", "신호순"], ["rs", "RS순"], ["sec", "주도 업종순"], ["rev", "매출 성장순"], ["vol", "변동성순"], ["tv", "거래대금순"]]} />
+            items={[["str", "강도순 (검증)"], ["new", "새로 된 순"], ["rs", "RS순"], ["sec", "주도 업종순"], ["rev", "매출 성장순"], ["vol", "변동성순"], ["tv", "거래대금순"]]} />
           <SortSelect value={revMin} onChange={v => setRevMin(Number(v))}
             items={[[0, "매출 필터 끔"], [5, "매출 +5%↑"], [10, "매출 +10%↑"], [20, "매출 +20%↑"]]} />
         </div>
@@ -2736,10 +2740,9 @@ function buildWeeklyPick(stocks, market, sizer, held = []) {
     if (f.prof === false) r.push("적자");
     const rm = getRevMin();
     if (rm > 0 && f.rev != null && f.rev < rm && s.m === "us") r.push(`매출 ${f.rev >= 0 ? "+" : ""}${f.rev.toFixed(0)}%`);
-    if (gap(s) != null && gap(s) > 20) r.push(`선까지 ${gap(s).toFixed(0)}%`);
     return r;
   };
-  const rank = (s) => (s.why === "trend" ? 1 : 0) * 1000 + secRank(s) * 10 - (s.rs ?? 0) / 100;
+  const rank = (s) => (s.why === "trend" ? 1 : 0) * 1000 - (s.str ?? 0);      // 강도 점수 순 (70)
   const us = buys.filter(s => s.m === "us").sort((a, b) => rank(a) - rank(b));
   const kr = buys.filter(s => s.m === "kr").sort((a, b) => rank(a) - rank(b));
   // 5칸: 같은 업종은 하나씩, 제외 사유 없는 것 먼저
@@ -2755,7 +2758,8 @@ function buildWeeklyPick(stocks, market, sizer, held = []) {
   const dips = list.filter(s => s.dip === "watch" && s.m === "us").sort((a, b) => (a.w52p ?? 0) - (b.w52p ?? 0)).slice(0, 5);
   const dual = market?.dc?.dual;
   return { made: new Date().toISOString().slice(0, 10), judge: market?.judge, sectors: (market?.sectors || []).slice(0, 5),
-           pick: pick.map(s => ({ t: s.t, n: s.n, why: s.why, rs: s.rs, sec: s.sec, gap: gap(s), rel: rel(s), fin: s.fin, c: s.c, m: s.m })),
+           pick: pick.map(s => ({ t: s.t, n: s.n, why: s.why, rs: s.rs, str: s.str, sec: s.sec, loss: lossOf(s), rel: rel(s),
+                                  fin: s.fin ? { rev: growthOf(s), prof: s.fin.prof, accel: s.fin.accel } : null, c: s.c, m: s.m })),
            excluded: excluded.slice(0, 12).map(x => ({ t: x.s.t, n: x.s.n, why: x.why })),
            kr: kr.slice(0, 5).map(s => ({ t: s.t, n: s.n, why: s.why, rs: s.rs, rel: rel(s), gap: gap(s), c: s.c, m: s.m })),
            dips: dips.map(s => ({ t: s.t, n: s.n, w52p: s.w52p, hlt: s.hlt, fin: s.fin })),
@@ -2769,7 +2773,7 @@ function WeeklyPick({ stocks, market, sizer, openStock, setTab, pos, today }) {
   // 파이프라인이 확정한 today.json 이 있으면 그것을 씁니다 (텔레그램·AI 도구와 같은 목록). 없으면 앱이 같은 규칙으로 계산
   const fromToday = (t) => ({
     made: new Date().toISOString().slice(0, 10) + " (파이프라인 " + (t.asOf || "") + ")", judge: { us: { verdict: t.market?.us }, kr: { verdict: t.market?.kr } },
-    sectors: t.sectors || [], pick: t.pickUs.map(r => ({ ...r, fin: { rev: r.rev, prof: r.prof } })),
+    sectors: t.sectors || [], pick: t.pickUs.map(r => ({ ...r, fin: { rev: r.growth ?? r.rev, prof: r.prof, accel: r.accel } })),
     excluded: t.excluded.map(x => ({ t: x.t, n: x.n, why: x.why })), kr: t.pickKr, dips: t.dips.map(d => ({ t: d.t, n: d.n, w52p: d.w52p, hlt: d.hlt })),
     dual: t.dc && t.dc.cands ? { hold: t.dc.hold || [], cands: t.dc.cands } : null, nBuy: t.candidates.length,
     held: t.candidates.filter(r => r.held).map(r => r.t) });
@@ -2785,7 +2789,7 @@ function WeeklyPick({ stocks, market, sizer, openStock, setTab, pos, today }) {
       </div>
       {cur && (<div style={{ marginTop: 8, fontSize: FS.sm, lineHeight: 1.7 }}>
         <div style={{ color: C.dim }}>시장 🇺🇸 {J[cur.judge?.us?.verdict] || "—"} · 🇰🇷 {J[cur.judge?.kr?.verdict] || "—"} · 섹터 {cur.sectors.map(x => `${x.label}${x.rank}`).join(" ")}</div>
-        <div style={{ fontWeight: 800, marginTop: 6 }}>🇺🇸 {sizer.slots("us")}칸 추천 (업종 분산) · 매수! {cur.nBuy}건 중</div>
+        <div style={{ fontWeight: 800, marginTop: 6 }}>🇺🇸 추천 (강도 점수 순 · 업종 분산) · 매수! {cur.nBuy}건 중</div>
         {cur.held?.length > 0 && <div style={{ fontSize: FS.xs, color: C.cyan }}>이미 보유 중이라 제외: {cur.held.join(", ")}</div>}
         {cur.pick.length === 0 && <div style={{ color: C.muted }}>제외 사유 없는 후보가 없습니다</div>}
         {cur.pick.map((p, i) => (
@@ -2793,11 +2797,11 @@ function WeeklyPick({ stocks, market, sizer, openStock, setTab, pos, today }) {
             <span style={{ color: C.muted, width: 14 }}>{i + 1}</span>
             <b style={{ fontFamily: MONO }}>{p.t}</b><span style={{ color: C.dim, minWidth: 0, ...ONE }}>{shortName(p.n)}</span>
             <span style={{ marginLeft: "auto", fontSize: FS.xs, color: C.muted, whiteSpace: "nowrap" }}>
-              {WHY[p.why]} · RS{Math.floor(p.rs)}{p.gap != null && ` · 선${p.gap >= 0 ? "−" : "+"}${Math.abs(p.gap).toFixed(0)}%`}{p.fin?.rev != null && ` · 매출${p.fin.rev >= 0 ? "+" : ""}${p.fin.rev.toFixed(0)}%`}</span>
+              {WHY[p.why]}{p.str != null && ` · 강도${p.str}`} · RS{Math.floor(p.rs)}{p.loss != null && ` · 선까지−${p.loss.toFixed(0)}%`}{p.fin?.rev != null && ` · 매출${p.fin.rev >= 0 ? "+" : ""}${p.fin.rev.toFixed(0)}%${p.fin.accel ? "↑" : ""}`}</span>
           </div>))}
         {cur.excluded.length > 0 && <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 4 }}>제외: {cur.excluded.map(x => `${x.t}(${x.why.join("·")})`).join(", ")}</div>}
         <div style={{ fontWeight: 800, marginTop: 8 }}>🇰🇷 {cur.kr.length ? "" : "없음"}</div>
-        {cur.kr.map(p => <div key={p.t} onClick={() => openStock(p.t)} style={{ cursor: "pointer", padding: "2px 0" }}><b style={{ fontFamily: MONO }}>{p.t}</b> <span style={{ color: C.dim }}>{shortName(p.n)}</span> <span style={{ fontSize: FS.xs, color: C.muted }}>{WHY[p.why]} · RS{Math.floor(p.rs)} · 시장{p.rel >= 0 ? "+" : ""}{p.rel?.toFixed(1)}p</span></div>)}
+        {cur.kr.map(p => <div key={p.t} onClick={() => openStock(p.t)} style={{ cursor: "pointer", padding: "2px 0" }}><b>{p.n}</b> <span style={{ fontSize: 10.5, color: C.muted, fontFamily: MONO }}>{p.t}</span> <span style={{ fontSize: FS.xs, color: C.muted }}>{WHY[p.why]}{p.str != null && ` · 강도${p.str}`} · RS{Math.floor(p.rs)}{p.rel != null && ` · 1달 코스피比${p.rel >= 0 ? "+" : ""}${p.rel.toFixed(1)}p`}</span></div>)}
         {cur.dips.length > 0 && <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 6 }}>급락 관찰(참고): {cur.dips.map(d => `${d.t} ${d.w52p?.toFixed(0)}%`).join(" · ")}</div>}
         {cur.dual && <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 4 }}>DC 다음 달: {cur.dual.cands.map(c => `${c.label} ${c.score >= 0 ? "+" : ""}${c.score.toFixed(1)}`).join(" · ")} → 보유 {cur.dual.hold.join(" + ")}</div>}
         {prev && saved[prev] && <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 6 }}>지난 주({prev}) 추천: {saved[prev].pick.map(p => p.t).join(", ") || "없음"}</div>}
