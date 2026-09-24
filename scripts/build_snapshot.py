@@ -23,7 +23,7 @@ Alpha Terminal v4 — 지표 스냅샷 파이프라인
 import json, os, sys, time, math, urllib.request
 from datetime import datetime, timezone, timedelta
 
-VERSION   = "7.7.0"
+VERSION   = "7.8.0"
 UA        = {"User-Agent": "Mozilla/5.0"}
 OUT_DIR   = "public/data"
 KST       = timezone(timedelta(hours=9))
@@ -1017,6 +1017,7 @@ def build_today(stocks, market):
         f = d.get("fin") or {}
         return {"t": d["t"], "n": d.get("n"), "m": d["m"], "why": d.get("why"), "rs": d.get("rs"), "c": d["c"], "stLine": d.get("stLine"),
                 "growth": f.get("growth"), "qyoy": f.get("qyoy"), "accel": f.get("accel"), "ma20p": d.get("ma20p"),
+                "str": d.get("str"), "ma200p": d.get("ma200p"),
                 "loss": loss, "rel": rel(d), "sec": d.get("sec"), "secRank": secrank.get(d.get("sec"), (None, None))[0],
                 "secLabel": secrank.get(d.get("sec"), (None, None))[1], "rev": f.get("rev"), "prof": f.get("prof"),
                 "mcap": d.get("mcap"), "tv": d.get("tv"), "age": age(d["t"]), "rsi": d.get("rsi"), "held": d["t"] in held}
@@ -1025,10 +1026,11 @@ def build_today(stocks, market):
         out = []
         if r["prof"] is False: out.append("적자")
         if rev_min > 0 and r["m"] == "us" and r["growth"] is not None and r["growth"] < rev_min: out.append(f"매출 {r['growth']:+.0f}%")
-        if r["loss"] is not None and r["loss"] > LINE_MAX_LOSS: out.append(f"선까지 −{r['loss']:.0f}%")
+        # (선까지 −17% 초과 제외는 없앰 — 검증에서 🇺🇸 2024–26 성과를 26.8% → 7.1% 로 깎았음. 선이 먼 종목이 곧 강하게 달리는 종목)
         if r["held"]: out.append("보유 중")
         return out
-    rank = lambda r: ((1 if r["why"] == "trend" else 0) * 1000 + (r["secRank"] or 99) * 10 - (r["rs"] or 0) / 100)
+    # 강세·눌림(검증한 신호) 먼저 → 그 안에서 강도 점수 높은 순. 업종 순위 먼저 정렬은 검증에서 성과가 절반이라 뺐음 (70)
+    rank = lambda r: ((1 if r["why"] == "trend" else 0) * 1000 - (r.get("str") or 0))
     cands = sorted(buys, key=rank)
     excluded, pick_us, pick_kr, used = [], [], [], set()
     for r in cands:
@@ -1057,7 +1059,8 @@ def build_today(stocks, market):
     dual = (market.get("dc") or {}).get("dual") or {}
     return {"asOf": max((d.get("asOf") or "" for d in stocks.values()), default=None),
             "rules": {"buy": "action=buy", "rev": f"🇺🇸 매출 +{rev_min:.0f}%↑ (최근 분기 전년 동기 대비 → 없으면 4분기 합계 → 연간) · 적자 제외",
-                      "loss": f"선까지(닿으면 잃는 폭) {LINE_MAX_LOSS}% 이하", "sector": f"🇺🇸 업종 하나씩 최대 {slots_us} · 🇰🇷 최대 {slots_kr}",
+                      "order": "강세·눌림 먼저 → 강도 점수(RS 백분위와 200일선 거리 백분위의 평균) 높은 순",
+                      "sector": f"🇺🇸 같은 업종은 하나(위험 관리용 · 미검증) · 최대 {slots_us} · 🇰🇷 최대 {slots_kr}",
                       "tranche": "1회차 = 한도 절반 → +3~6% 마감 & 느린ST 초록이면 나머지 절반 · 매도 = 종가 < 트레일링선"},
             "market": {m: (market.get("judge") or {}).get(m, {}).get("verdict") for m in ("us", "kr")},
             "sectors": [{"tk": x["tk"], "label": x["label"], "rank": x["rank"], "score": x.get("score")} for x in (market.get("sectors") or [])[:6]],
@@ -1356,6 +1359,12 @@ def main():
         return None
     pct_fill(stocks, None, "rs", ref, focus, value_fn=r126)
     pct_fill(stocks, "tv", "tvr", ref, focus)
+    # ★ 70. 강도 점수 — 매수! 중 무엇부터 살지. 검증(2008–26, 규칙은 2010–18에서 정하고 2019–26에 적용):
+    #   🇺🇸 5칸 2019–23 +50.0%·2024–26 +38.4% (RS 순 +41.3%·+26.8%, 업종 순위 먼저 +13.3%·+16.9%)
+    #   🇰🇷 3칸 +48.0%·+39.4% (RS 순 +44.5%·+23.0%). 둘 다 그날 종가로 계산되는 값이라 당시에도 알 수 있었음.
+    pct_fill(stocks, "ma200p", "d200r", ref, focus)
+    for d in stocks.values():
+        d["str"] = _r((d["rs"] + d["d200r"]) / 2, 0) if (d.get("rs") is not None and d.get("d200r") is not None) else None
     for mkt in ("us", "kr"):
         n = sum(1 for d in stocks.values() if d["m"] == mkt and d.get("rs") is not None)
         print(f"  {mkt}: RS {n}종목")
