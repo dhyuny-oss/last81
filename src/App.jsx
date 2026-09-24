@@ -17,7 +17,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-export const APP_VERSION = "v12.1.0";
+export const APP_VERSION = "v12.2.0";
 
 /* ══════════════ 디자인 토큰 ══════════════ */
 const C = {
@@ -2721,7 +2721,7 @@ const weekKey = () => {                      // 이번 주(토요일 시작) 키
 };
 const REVIEW_STEPS = [
   ["pool", "종목풀 변경 확인", "이번 주 들어온·나간 종목을 훑고, 관심 있으면 ☆"],
-  ["hold", "내 종목 점검", "🔴 이탈은 처리했는지 · 트레일링선 여유가 5% 미만인 종목 확인"],
+  ["hold", "내 종목 점검", "매도!는 처리했는지 · 선까지 −5% 이내(곧 매도 구간)인 종목 확인"],
   ["live", "실전 성적 보기", "앱이 실제로 낸 신호의 20일 성적이 검증값과 비슷한지"],
   ["trade", "내 매매 기록 대조", "내 승률·손익비가 검증값과 크게 다르면 규칙을 안 지킨 것"],
   ["decide", "전략 결정", "그대로 간다 / 바꾼다 — 바꾸면 이유를 한 줄 적기"],
@@ -2890,7 +2890,7 @@ function ReviewTab({ market, uni, snap, trades, setTrades, pos, stocks, setTab, 
   const toggle = (k) => setDone(o => ({ ...o, [wk]: { ...(o[wk] || {}), [k]: !cur[k] } }));
   const nDone = REVIEW_STEPS.filter(([k]) => cur[k]).length;
   const live = market.live || {};
-  const risky = (pos || []).map(p => stocks[p.t]).filter(s => s && s.stLine && s.stSlow === 1 && (s.c / s.stLine - 1) * 100 < 5);
+  const risky = (pos || []).map(p => stocks[p.t]).filter(s => s && s.stLine && s.stSlow === 1 && (lossOf(s) ?? 99) < 5);   // 선까지 −5% 이내
   const out = (pos || []).filter(p => p.role !== "long" && stocks[p.t]?.stSlow === 0);
   const VAL = { "pull:kr": ["눌림 🇰🇷"], "pull:us": ["눌림 🇺🇸"], "strong:us": ["강세 🇺🇸"], "strong:kr": ["강세 🇰🇷"], "buy:kr": ["추세 🇰🇷"], "buy:us": ["추세 🇺🇸"] };
   const drift = live.drift;
@@ -2914,7 +2914,7 @@ function ReviewTab({ market, uni, snap, trades, setTrades, pos, stocks, setTab, 
                 {uni.removed?.length > 0 && <span style={{ color: C.red }}> · −{uni.removed.length} {uni.removed.slice(0, 4).map(x => x.n).join(", ")}</span>}</div>}
               {k === "hold" && <div style={{ fontSize: FS.xs, color: C.dim, marginTop: 4 }}>
                 {out.length ? <span style={{ color: C.red }}>🔴 이탈 {out.length} </span> : "이탈 0 "}
-                · 여유 5% 미만 {risky.length}{risky.length ? `: ${risky.slice(0, 3).map(s => s.t).join(", ")}` : ""}
+                · 선까지 −5% 이내 {risky.length}{risky.length ? `: ${risky.slice(0, 3).map(s => s.t).join(", ")}` : ""}
                 <button onClick={() => setTab("track")} style={{ ...linkBtn, fontSize: FS.xs, minHeight: 34, marginLeft: 6 }}>내 종목 ›</button></div>}
               {k === "decide" && <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="예: 그대로 유지 / 한국 비중 줄임"
                 style={{ ...inp("100%"), marginTop: 6, fontSize: 14 }} />}
