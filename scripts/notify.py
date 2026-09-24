@@ -355,8 +355,8 @@ def build_weekly(snap, mkt, now):
     near = []
     for p in ps:
         d = stocks.get(p["t"]) or {}
-        if d.get("stLine") and d.get("c") and d.get("stSlow") == 1 and (d["c"] / d["stLine"] - 1) * 100 < 5: near.append(d.get("n") or p["t"])
-    L.append(f"2️⃣ 내 종목 {len(ps)} · 매도! {len(sells)} · 트레일링선 여유 5% 미만 {len(near)}" + (f" ({', '.join(near[:4])})" if near else ""))
+        if d.get("stLine") and d.get("c") and d.get("stSlow") == 1 and (1 - d["stLine"] / d["c"]) * 100 < 5: near.append(d.get("n") or p["t"])
+    L.append(f"2️⃣ 내 종목 {len(ps)} · 매도! {len(sells)} · 선까지 −5% 이내 {len(near)}" + (f" ({', '.join(near[:4])})" if near else ""))
     # 3 실전 성적
     summ = live.get("summary") or {}
     if summ:
