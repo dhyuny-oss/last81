@@ -109,8 +109,8 @@ def pick_entry(stocks, judge=None):
         if s.get("action") != "buy" or not rev_ok(s):
             continue
         out.append(dict(s))
-    # 앱 '신호순' 과 같은 순서: 눌림·강세 → 추세, 그 안에서 RS 높은 순
-    out.sort(key=lambda x: (0 if x.get("why") in ("pull", "strong") else 1, -(x.get("rs") or 0)))
+    # 오늘 살 것과 같은 순서: 눌림·강세 → 추세, 그 안에서 강도 점수(RS + 200일선 거리) 높은 순 (70)
+    out.sort(key=lambda x: (0 if x.get("why") in ("pull", "strong") else 1, -(x.get("str") or x.get("rs") or 0)))
     return out
 
 
@@ -278,7 +278,7 @@ def build(snap, mkt, state, now):
             fin = (f" · 매출 {g:+.0f}%{'↑' if f.get('accel') else ''}" if g is not None else "") + (" · 적자" if f.get("prof") is False else "")
             gap = f" · 선까지 −{(1 - s['stLine'] / s['c']) * 100:.0f}%" if s.get("stLine") and s.get("c") else ""
             L.append(f"{mark}{flag} <b>{s['n']}</b> {price(s['c'], s['m'])} {pct(s.get('d1'))} {act_txt(s)}")
-            L.append(f"   RS {int(s.get('rs') or 0)}{gap} · 대금 {money(s.get('tv'), s['m'])}{fin}")
+            L.append(f"   강도 {int(s.get('str') or 0)} · RS {int(s.get('rs') or 0)}{gap} · 하루 거래 {money(s.get('tv'), s['m'])}{fin}")
         if len(entry) > MAX_ROWS:
             L.append(f"   … 외 {len(entry)-MAX_ROWS}종목")
         L.append("<i>눌림 🇰🇷 = 추세 안 RSI 45 회복 · 강세 🇺🇸 = 추세 안 RSI 60↑ · 추세 = ST 3개 초록+구름 위 · 매도! = 트레일링선 아래 마감</i>")
@@ -387,9 +387,9 @@ def build_weekly(snap, mkt, now):
     except Exception:
         td = None
     if td and td.get("pickUs") is not None:
-        L.append("4️⃣½ 🇺🇸 5칸 추천 (업종 분산 · 적자·매출 부진·보유 제외)")
+        L.append("4️⃣½ 🇺🇸 추천 (강도 점수 순 · 업종 분산 · 적자·매출 부진·보유 제외)")
         for i, r in enumerate(td["pickUs"], 1):
-            L.append(f"   {i}. <b>{r['t']}</b> {(r.get('n') or '')[:18]} · {WHY.get(r.get('why'),'')} · RS{int(r.get('rs') or 0)}"
+            L.append(f"   {i}. <b>{r['t']}</b> {(r.get('n') or '')[:18]} · {WHY.get(r.get('why'),'')} · 강도{int(r.get('str') or 0)} · RS{int(r.get('rs') or 0)}"
                      + (f" · 선까지 −{r['loss']:.0f}%" if r.get("loss") is not None else "") + (f" · 매출{(r.get('growth') if r.get('growth') is not None else r['rev']):+.0f}%{'↑' if r.get('accel') else ''}" if (r.get("growth") is not None or r.get("rev") is not None) else "")
                      + (f" · 🆕{r['age']}일째" if r.get("age") else ""))
         if td.get("excluded"): L.append("   <i>제외: " + ", ".join(f"{x['t']}({'·'.join(x['why'])})" for x in td["excluded"][:8]) + "</i>")
@@ -399,14 +399,13 @@ def build_weekly(snap, mkt, now):
       secrank = {x["tk"]: x["rank"] for x in (mkt.get("sectors") or [])}
       held = {p.get("t") for p in ((wl or {}).get("positions") or [])}
       buys = [d for d in stocks.values() if d.get("action") == "buy" and (d.get("tvr") or 0) >= 40 and d.get("m") == "us" and d.get("t") not in held]
-      def rk(d): return (1 if d.get("why") == "trend" else 0) * 1000 + secrank.get(d.get("sec"), 99) * 10 - (d.get("rs") or 0) / 100
+      def rk(d): return (1 if d.get("why") == "trend" else 0) * 1000 - (d.get("str") or 0)
       picks, used, drop = [], set(), []
       for d in sorted(buys, key=rk):
           f = d.get("fin") or {}; gap = (1 - d["stLine"] / d["c"]) * 100 if d.get("stLine") and d.get("c") else None   # 선까지(닿으면 잃는 폭)
           why = []
           if f.get("prof") is False: why.append("적자")
           if REV_MIN > 0 and f.get("rev") is not None and f["rev"] < REV_MIN: why.append(f"매출{f['rev']:+.0f}%")
-          if gap is not None and gap > 17: why.append(f"선까지−{gap:.0f}%")
           if why: drop.append(f"{d['t']}({'·'.join(why)})"); continue
           sec = d.get("sec") or f"?{d['t']}"      # 업종 정보가 없으면 분산 규칙을 적용하지 않음
           if sec in used: continue
