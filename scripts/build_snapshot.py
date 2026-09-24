@@ -1252,6 +1252,11 @@ def main():
 
     print("\n🌐 시장·섹터 수집")
     market = build_market()
+    # ★ 벤치마크 지수는 필수 — 하나라도 빠지면 판정·비교·DC 가 빈 채로 배포되므로 지난 파일을 지키고 중단합니다
+    _need = [k for k in ("^GSPC", "^IXIC", "^KS11") if k not in (market.get("indices") or {})]
+    if _need:
+        print(f"\n❌ 지수 수집 실패 {', '.join(_need)} — 시장 판정을 만들 수 없어 파일을 쓰지 않고 종료합니다 (야후 일시 장애일 가능성)")
+        sys.exit(1)
 
     print(f"\n📊 종목 지표 계산 ({len(universe)}종목)")
     stocks, series = {}, {}
