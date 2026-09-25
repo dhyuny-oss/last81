@@ -23,7 +23,7 @@ Alpha Terminal v4 — 지표 스냅샷 파이프라인
 import json, os, sys, time, math, urllib.request
 from datetime import datetime, timezone, timedelta
 
-VERSION   = "7.8.0"
+VERSION   = "7.9.0"
 UA        = {"User-Agent": "Mozilla/5.0"}
 OUT_DIR   = "public/data"
 KST       = timezone(timedelta(hours=9))
@@ -709,6 +709,43 @@ KR_SECT = [
 DC_WEIGHTS = {"us": 0.35, "kr": 0.35, "safe": 0.30}
 
 SEC_CACHE = f"{OUT_DIR}/sec_rev.json"
+TGT_CACHE = f"{OUT_DIR}/targets.json"
+
+def attach_targets(stocks, prot):
+    """74. 🇺🇸 애널리스트 목표가 (나스닥 공개 API) — 참고용, 매매 규칙에는 쓰지 않음.
+       매수!·보유·관심 종목만, 7일 지난 것만 새로 받음 (한 번에 최대 80개 · 요청 사이 0.25초)"""
+    import datetime as _dt, urllib.request as _u
+    try:
+        cache = json.load(open(TGT_CACHE, encoding="utf-8"))
+    except Exception:
+        cache = {}
+    today = _dt.date.today().isoformat()
+    want = [t for t, d in stocks.items() if d["m"] == "us" and (d.get("action") == "buy" or t in prot)]
+    stale = [t for t in want if (_dt.date.today() - _dt.date.fromisoformat(cache.get(t, {}).get("d", "2000-01-01"))).days > 7][:80]
+    got = 0
+    for t in stale:
+        try:
+            r = _u.urlopen(_u.Request(f"https://api.nasdaq.com/api/analyst/{t}/targetprice",
+                                      headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"}), timeout=12)
+            c = ((json.load(r).get("data") or {}).get("consensusOverview") or {})
+            num = lambda k: (float(c[k]) if c.get(k) not in (None, "", "N/A") else None)
+            if num("priceTarget"):
+                cache[t] = {"a": num("priceTarget"), "h": num("highPriceTarget"), "l": num("lowPriceTarget"),
+                            "b": c.get("buy"), "hd": c.get("hold"), "s": c.get("sell"), "d": today}
+                got += 1
+            else:
+                cache[t] = {"d": today}                       # 목표가 없음 — 7일 뒤 다시
+        except Exception:
+            pass
+        time.sleep(0.25)
+    if got or stale:
+        _write(TGT_CACHE, cache)
+    n = 0
+    for t, d in stocks.items():
+        x = cache.get(t)
+        if x and x.get("a"):
+            d["tgt"] = {k: x.get(k) for k in ("a", "h", "l", "b", "hd", "s", "d")}; n += 1
+    print(f"  🎯 애널리스트 목표가: {n}종목 (이번에 새로 {got})")
 
 def attach_quarterly(stocks, refresh=False):
     """51. 분기 매출 성장 (SEC 공시) — 최근 분기 전년 동기 대비가 기본, 없으면 4분기 합계, 그것도 없으면 연간.
@@ -1453,6 +1490,7 @@ def main():
     # ══════════════════════════════════════════════════════════
     fin_flags(stocks)
     attach_quarterly(stocks, refresh=not focus)
+    attach_targets(stocks, PROT)
     for d in stocks.values():
         rs_ok = (d.get("rs") or 0) >= 70
         up = bool(d.get("upTrend") and d.get("stSlow") == 1 and rs_ok)
