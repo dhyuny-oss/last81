@@ -179,9 +179,16 @@ def build(snap, mkt, state, now):
         pl = ((d.get("c") or 0) / avg - 1) * 100 if avg else None
         out = p.get("role") != "long" and act_of(d, True) == "sell"
         warn = f" ⚠️{d.get('status') or '거래정지'}" if (d.get("halted") or d.get("status")) else ""
+        # 74. 목표가까지 거리 — 내 목표가 우선, 없으면 애널리스트 평균 (참고용 · 매도 신호 아님)
+        _nt = (wl.get("notes") or {}).get(str(p.get("t", "")).upper()) or {}
+        _tg = _nt.get("tg") or (d.get("tgt") or {}).get("a")
+        tgt_part = ""
+        if _tg and d.get("c"):
+            _gap = (_tg / d["c"] - 1) * 100
+            tgt_part = f" · {'🎯 목표 도달(매도 신호 아님)' if _gap <= 0 else f'목표까지 {_gap:+.0f}%'}{'' if _nt.get('tg') else '(애널)'}"
         line = (f"   {ACT['sell'] if out else ACT['hold']} <b>{d.get('n') or p['t']}</b>{warn} {price(d.get('c'), d.get('m'))}"
                 + (f" {pct(pl)}" if pl is not None else "")
-                + (f" · 트레일링선 {price(d.get('stLine'), d.get('m'))}" if d.get("stLine") else ""))
+                + (f" · 트레일링선 {price(d.get('stLine'), d.get('m'))}" if d.get("stLine") else "") + tgt_part)
         # 2회차 조건: 1회차뿐이고 1회차 매수가 +3% 넘게 마감 · 느린ST 초록
         if p.get("role") == "swing" and len(tr) == 1 and d.get("c") and d.get("stSlow") == 1 and tr[0]["px"] * 1.03 <= d["c"] <= tr[0]["px"] * 1.06:
             line += f"\n      ✅ <b>2회차 조건 도달</b> (1회차 +3% = {price(tr[0]['px'] * 1.03, d.get('m'))} 넘음, +6% 안) — 나머지 절반"
@@ -293,6 +300,23 @@ def build(snap, mkt, state, now):
             L.append(f"🆕 관찰 <b>{s['n']}</b> 고점대비 {pct(s.get('w52p'),0)} · "
                      f"{yrs(s.get('hltY'))}년건강 {int((s.get('hlt') or 0)*100)}% · 20일선 회복")
 
+    # ── 4.9 매월 1거래일: DC 이번 달 보유 목표 (앱 💰 투자금의 DC 금액 · 듀얼 모멘텀 모드일 때) ──
+    try:
+        cfg = (wl.get("settings") or {})
+        dual = ((mkt.get("dc") or {}).get("dual") or {})
+        if cfg.get("dcMode") == "dual" and cfg.get("dcAmt") and dual.get("cands") and _first_trading_day(now):
+            total = float(cfg["dcAmt"]); hold = [c for c in dual["cands"] if c["sig"] in (dual.get("hold") or [])]
+            semi = cfg.get("dcSemi") and ((mkt.get("dc") or {}).get("semi") or {}).get("state") == "hold"
+            share = 0.10 if semi else 0.0; riskw = 0.70 - share
+            L.append(""); L.append(f"🏦 <b>DC 이번 달 보유 목표</b> (총 {money(total, 'kr')} · 매월 1거래일)")
+            for c in hold:
+                L.append(f"   {c.get('buy', {}).get('code', '—')} {c.get('buy', {}).get('name') or c['label']} · {money(total * riskw / 2, 'kr')}")
+            if semi: L.append(f"   {((mkt.get('dc') or {}).get('semi') or {}).get('buy', {}).get('code', '')} 반도체 고정 칸 · {money(total * share, 'kr')}")
+            safe = 1 - riskw * len(hold) / 2 - share
+            L.append(f"   안전자산(TDF·채권혼합·예금) · {money(total * safe, 'kr')}")
+    except Exception as e:
+        print("  ⚠️ DC 목표 안내 실패:", e)
+
     # ── 5. 청산 규칙 한 줄 (매번 같은 말을 하도록) ────────
     L.append("")
     L.append("<i>매수 = 한도의 절반 → 1회차 +3% 확인 후 나머지 절반 · 매도! = 트레일링선(느린 ST) 아래 마감 · 그 외 손절·타임컷 없음</i>")
@@ -334,6 +358,15 @@ def send(text):
         print(f"❌ 발송 실패: {e}")
         return False
 
+
+def _first_trading_day(now):
+    """이 달의 첫 거래일(주말·휴장일 제외)인가 — 06:23 미국 발송분 기준으로 판단"""
+    KR_HOL = {"2026-09-24", "2026-09-25", "2026-10-05", "2026-10-09", "2026-12-25", "2026-12-31"}
+    d = now.date()
+    from datetime import date, timedelta
+    x = date(d.year, d.month, 1)
+    while x.weekday() >= 5 or x.isoformat() in KR_HOL: x += timedelta(days=1)
+    return d == x or os.environ.get("DC_MONTHLY") == "1"
 
 def build_weekly(snap, mkt, now):
     """토요일 주간 리포트 — 점검 탭 5단계를 읽기만 해도 채울 수 있게"""
