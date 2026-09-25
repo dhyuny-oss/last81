@@ -68,6 +68,14 @@ export default async function handler(req, res) {
       // ★ 회차(tr) 를 그대로 보존합니다 — 예전엔 avg 만 받아서 앱의 새 형식이 '평단 0' 으로 저장됐고,
       //   텔레그램·장중 감시가 2회차 조건과 손익을 계산하지 못했습니다 (2026-09-22 수정)
       const num = (x) => { const v = Number(x); return Number.isFinite(v) && v > 0 ? v : 0; };
+      // ★ 빈 기기 덮어쓰기 방지 (2026-09-25 사고: 기록이 빈 브라우저가 보유 6·관심 11을 지움)
+      //   서버에 보유·관심이 있는데 둘 다 빈 목록이 오면, 앱이 force 를 붙인 경우(사용자가 확인)만 받습니다.
+      const hadAny = (content.positions || []).length + (content.watch || []).length > 0;
+      if (hadAny && positions.length === 0 && watch.length === 0 && !req.body.force) {
+        return res.status(409).json({ ok: false, error: "empty_overwrite",
+          message: `서버에 보유 ${(content.positions || []).length} · 관심 ${(content.watch || []).length}이 있어 빈 목록으로 덮어쓰지 않았습니다` });
+      }
+      if (hadAny) content.backup = { at: new Date().toISOString(), positions: content.positions, watch: content.watch, notes: content.notes };   // 직전 값 1개 보관
       content.positions = positions.map(p => {
         const tr = Array.isArray(p.tr) ? p.tr.slice(0, 10).map(t => ({
           d: String(t.d || "").slice(0, 10), px: num(t.px), amt: num(t.amt) })).filter(t => t.px > 0) : [];
@@ -79,7 +87,18 @@ export default async function handler(req, res) {
       content.watch = watch.map(t => String(t).slice(0, 12)).filter(Boolean);
       if (req.body.settings && typeof req.body.settings === "object") {   // 61. 앱 설정 — 오늘 후보·텔레그램이 같은 값을 쓰도록
         const st = req.body.settings, num = (x, lo, hi, d) => { const v = Number(x); return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d; };
-        content.settings = { revMin: num(st.revMin, 0, 100, 10), slotsUs: Math.round(num(st.slotsUs, 1, 20, 5)), slotsKr: Math.round(num(st.slotsKr, 1, 20, 3)) };
+        content.settings = { revMin: num(st.revMin, 0, 100, 10), slotsUs: Math.round(num(st.slotsUs, 1, 20, 5)), slotsKr: Math.round(num(st.slotsKr, 1, 20, 3)),
+                             dcAmt: num(st.dcAmt, 0, 1e13, 0), dcMode: st.dcMode === "dual" ? "dual" : "st", dcSemi: !!st.dcSemi };
+      }
+      if (req.body.notes && typeof req.body.notes === "object") {   // 74. 종목 메모·내 목표가
+        const out = {};
+        for (const [t, v] of Object.entries(req.body.notes).slice(0, 300)) {
+          if (!v || typeof v !== "object") continue;
+          const tg = Number(v.tg); const m = String(v.m || "").slice(0, 500);
+          if (!m && !(tg > 0)) continue;
+          out[String(t).slice(0, 12).toUpperCase()] = { m, ...(tg > 0 ? { tg } : {}) };
+        }
+        content.notes = out;
       }
       if (Array.isArray(req.body.excludes))          // 종목풀에서 뺄 종목 (순위에 들어도 수집 안 함)
         content.excludes = req.body.excludes.map(t => String(t).slice(0, 12).toUpperCase()).filter(Boolean).slice(0, 200);
