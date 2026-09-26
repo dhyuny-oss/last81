@@ -162,18 +162,18 @@
       "inv": 1490.76
     }
   ],
-  "updatedAt": "2026-09-26T09:49:40.018Z",
+  "updatedAt": "2026-09-26T10:22:49.920Z",
   "settings": {
     "revMin": 10,
     "slotsUs": 7,
     "slotsKr": 5,
-    "dcAmt": 102000000,
+    "dcAmt": 100000000,
     "dcMode": "st",
     "dcSemi": false
   },
   "excludes": [],
   "backup": {
-    "at": "2026-09-26T09:49:40.017Z",
+    "at": "2026-09-26T10:22:49.920Z",
     "positions": [
       {
         "t": "DDOG",
