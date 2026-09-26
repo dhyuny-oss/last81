@@ -162,18 +162,18 @@
       "inv": 1490.76
     }
   ],
-  "updatedAt": "2026-09-25T12:08:07.325Z",
+  "updatedAt": "2026-09-26T09:49:40.018Z",
   "settings": {
     "revMin": 10,
-    "slotsUs": 5,
-    "slotsKr": 3,
+    "slotsUs": 7,
+    "slotsKr": 5,
     "dcAmt": 102000000,
     "dcMode": "st",
     "dcSemi": false
   },
   "excludes": [],
   "backup": {
-    "at": "2026-09-25T12:08:07.325Z",
+    "at": "2026-09-26T09:49:40.017Z",
     "positions": [
       {
         "t": "DDOG",
@@ -276,7 +276,8 @@
       "DDOG",
       "MTD",
       "NTRA"
-    ]
+    ],
+    "notes": {}
   },
   "notes": {}
 }
