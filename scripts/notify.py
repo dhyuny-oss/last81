@@ -26,6 +26,19 @@ import json, os, urllib.request, urllib.parse
 from datetime import datetime, timezone, timedelta
 
 KST      = timezone(timedelta(hours=9))
+
+def earn_txt(d, within=7):
+    """93. 실적 발표 D-n (그 시장 현지 날짜 기준) — within 일 안일 때만. 참고용 (매매 규칙 아님)"""
+    e = (d or {}).get("earn")
+    if not e: return ""
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo("Asia/Seoul" if d.get("m") == "kr" else "America/New_York")
+        n = (datetime.strptime(e, "%Y-%m-%d").date() - datetime.now(tz).date()).days
+    except Exception:
+        return ""
+    if n < 0 or n > within: return ""
+    return f" · 📅 실적 {'오늘' if n == 0 else f'D-{n}'}{'(예상)' if d.get('earnE') else ''}"
 DATA     = "public/data"
 STATE    = f"{DATA}/notified.json"
 TOKEN    = os.environ.get("TELEGRAM_BOT_TOKEN", "")
@@ -172,7 +185,7 @@ def build(snap, mkt, state, now):
         d = look(p.get("t"))
         if not d:   # 들고 있는데 데이터가 없음 → 거래정지·상장폐지·티커 변경 가능. 조용히 넘기지 않습니다
             mine.append((True, f"   ⚠️ <b>{p.get('t')}</b> 데이터 없음 — 거래정지·상장폐지·티커 변경 확인 필요",
-                         "kr" if str(p.get("t", "")).isdigit() else "us", 0, 0))
+                         "kr" if str(p.get("t", "")).isdigit() else "us", 0, 0, 0))
             continue
         tr = tr_of(p); amt = sum(t.get("amt") or 0 for t in tr); sh = sum((t.get("amt") or 0) / t["px"] for t in tr)
         avg = (amt / sh) if sh else (tr[0]["px"] if tr else None)
@@ -188,14 +201,16 @@ def build(snap, mkt, state, now):
             tgt_part = f" · {'🎯 목표 도달(매도 신호 아님)' if _gap <= 0 else f'목표까지 {_gap:+.0f}%'}{'' if _nt.get('tg') else '(애널)'}"
         line = (f"   {ACT['sell'] if out else ACT['hold']} <b>{d.get('n') or p['t']}</b>{warn} {price(d.get('c'), d.get('m'))}"
                 + (f" {pct(pl)}" if pl is not None else "")
-                + (f" · 트레일링선 {price(d.get('stLine'), d.get('m'))}" if d.get("stLine") else "") + tgt_part)
+                + (f" · 트레일링선 {price(d.get('stLine'), d.get('m'))}" if d.get("stLine") else "") + tgt_part + earn_txt(d))
         # 2회차 조건: 1회차뿐이고 1회차 매수가 +3% 넘게 마감 · 느린ST 초록
         if p.get("role") == "swing" and len(tr) == 1 and d.get("c") and d.get("stSlow") == 1 and tr[0]["px"] * 1.03 <= d["c"] <= tr[0]["px"] * 1.06:
             line += f"\n      ✅ <b>2회차 조건 도달</b> (1회차 +3% = {price(tr[0]['px'] * 1.03, d.get('m'))} 넘음, +6% 안) — 나머지 절반"
         elif p.get("role") == "swing" and len(tr) == 1 and d.get("c") and d["c"] > tr[0]["px"] * 1.06:
             line += f"\n      ⛔ 추격 금지 — 1회차 대비 {(d['c'] / tr[0]['px'] - 1) * 100:+.1f}% (밴드 +3~6% 초과)"
         val = sum((t.get("amt") or 0) / t["px"] * (d.get("c") or t["px"]) for t in tr)
-        mine.append((out, line, d.get("m") or ("kr" if str(p.get("t", "")).isdigit() else "us"), amt, val))
+        # 92. 위험 합계 재료 — 스윙·선 위 종목만: 선에 닿으면 잃는 금액 (장기 보유는 선으로 팔지 않아 제외)
+        risk = val * (1 - d["stLine"] / d["c"]) if (p.get("role") != "long" and not out and d.get("stSlow") == 1 and d.get("stLine") and d.get("c")) else 0
+        mine.append((out, line, d.get("m") or ("kr" if str(p.get("t", "")).isdigit() else "us"), amt, val, risk))
     buys = []
     for t in (wl.get("watch") or []):
         d = look(t)
@@ -208,8 +223,9 @@ def build(snap, mkt, state, now):
         for mk, flag in (("us", "🇺🇸"), ("kr", "🇰🇷")):          # 69. 🇺🇸 먼저 · 시장별 소계 (달러는 달러, 원은 원)
             ms = [x for x in mine if x[2] == mk]
             if not ms: continue
-            inv = sum(x[3] for x in ms); val = sum(x[4] for x in ms)
-            L.append(f"  {flag} {len(ms)}종목" + (f" · 투입 {money(inv, mk)} → 평가 {money(val, mk)} ({(val/inv-1)*100:+.1f}%)" if inv else ""))
+            inv = sum(x[3] for x in ms); val = sum(x[4] for x in ms); rk = sum(x[5] for x in ms)
+            L.append(f"  {flag} {len(ms)}종목" + (f" · 투입 {money(inv, mk)} → 평가 {money(val, mk)} ({(val/inv-1)*100:+.1f}%)" if inv else "")
+                     + (f" · 전부 선 닿으면 −{money(rk, mk)}" if rk > 0 else ""))
             for x in sorted(ms, key=lambda x: not x[0]): L.append(x[1])
         if buys:
             L.append("   <i>관심 목록 신호</i>")
@@ -247,9 +263,22 @@ def build(snap, mkt, state, now):
 
     # ── 2. DC(퇴직연금) — 미국 S&P500 35% + 코스피200 35% + 안전자산 30% ──
     #   각 몫은 느린 슈퍼트렌드(12,3) 초록일 때만 보유. 색이 바뀐 날은 🔔 로 따로 알립니다.
-    if dc.get("core"):
+    # 99. 앱 DC 탭에서 고른 규칙 하나로만 알립니다 (예전엔 듀얼을 골라도 매일 느린ST 상태를 보내 화면과 반대로 보였음)
+    dc_mode = ((wl or {}).get("settings") or {}).get("dcMode", "st")
+    dual_d = dc.get("dual") or {}
+    if dc_mode == "dual" and dual_d.get("cands"):
         L.append("")
-        L.append("🏦 <b>DC 규칙</b> <i>(느린ST 초록=보유 · 빨강=안전자산)</i>")
+        L.append("🏦 <b>DC 규칙 · 듀얼 모멘텀</b> <i>(매월 1거래일 상위 2개 반반 · 점수 마이너스면 안전자산)</i>")
+        hold = dual_d.get("hold") or []
+        for c in dual_d["cands"]:
+            on = c.get("sig") in hold
+            L.append(f"   {'🟢 보유' if on else '⚪ 제외'} <b>{c.get('label')}</b> 점수 {c.get('score', 0):+.1f}%")
+        L.append("   <i>교체는 매월 1거래일에만 · 그 사이 오르내림으로는 사고팔지 않습니다</i>")
+    if dc.get("core"):
+        if dc_mode != "dual":
+            L.append("")
+            L.append("🏦 <b>DC 규칙</b> <i>(느린ST 초록=보유 · 빨강=안전자산)</i>")
+        _dcL = L if dc_mode != "dual" else []          # 듀얼이면 느린ST 줄은 보내지 않고 상태만 기록
         for c in dc["core"]:
             d = etfs.get(c.get("sig")) or {}
             st = c.get("state")
@@ -258,13 +287,13 @@ def build(snap, mkt, state, now):
             flip = (not first_run) and prev and prev != st and st in ("hold", "wait")
             mark = "🟢 보유" if st == "hold" else "🟡 대기" if st == "wait" else "⚪ 확인불가"
             days = d.get("slowDays")
-            L.append(f"   {mark} <b>{c.get('label')}</b> {int(c.get('w',0)*100)}% → {buy.get('name','')} "
+            _dcL.append(f"   {mark} <b>{c.get('label')}</b> {int(c.get('w',0)*100)}% → {buy.get('name','')} "
                      f"({buy.get('code','')}){f' · {days}거래일째' if days is not None else ''}")
             if flip:
-                L.append("   🔔 <b>" + ("초록 전환 — 매수 시작" if st == "hold" else "빨강 전환 — 보유분 매도 → 안전자산") + "</b>")
+                _dcL.append("   🔔 <b>" + ("초록 전환 — 매수 시작" if st == "hold" else "빨강 전환 — 보유분 매도 → 안전자산") + "</b>")
             state[f"dc:{c['key']}"] = {"ts": now.timestamp(), "state": st}
         ab = mkt.get("allocation", {})
-        L.append(f"   <i>안전자산 30%는 적격TDF·채권혼합형·예금 · 다음 비중 점검 {ab.get('nextRebal','분기 첫 거래일')}</i>")
+        _dcL.append(f"   <i>안전자산 30%는 적격TDF·채권혼합형·예금 · 다음 비중 점검 {ab.get('nextRebal','분기 첫 거래일')}</i>")
 
     # ── 3. 신호 (앱 발굴탭과 같은 목록·같은 순서) ─────────────
     L.append("")
@@ -285,7 +314,7 @@ def build(snap, mkt, state, now):
             fin = (f" · 매출 {g:+.0f}%{'↑' if f.get('accel') else ''}" if g is not None else "") + (" · 적자" if f.get("prof") is False else "")
             gap = f" · 선까지 −{(1 - s['stLine'] / s['c']) * 100:.0f}%" if s.get("stLine") and s.get("c") else ""
             L.append(f"{mark}{flag} <b>{s['n']}</b> {price(s['c'], s['m'])} {pct(s.get('d1'))} {act_txt(s)}")
-            L.append(f"   강도 {int(s.get('str') or 0)} · RS {int(s.get('rs') or 0)}{gap} · 하루 거래 {money(s.get('tv'), s['m'])}{fin}")
+            L.append(f"   강도 {int(s.get('str') or 0)} · RS {int(s.get('rs') or 0)}{gap} · 하루 거래 {money(s.get('tv'), s['m'])}{fin}{earn_txt(s)}")
         if len(entry) > MAX_ROWS:
             L.append(f"   … 외 {len(entry)-MAX_ROWS}종목")
         L.append("<i>눌림 🇰🇷 = 추세 안 RSI 45 회복 · 강세 🇺🇸 = 추세 안 RSI 60↑ · 추세 = ST 3개 초록+구름 위 · 매도! = 트레일링선 아래 마감</i>")
@@ -424,9 +453,15 @@ def build_weekly(snap, mkt, now):
         for i, r in enumerate(td["pickUs"], 1):
             L.append(f"   {i}. <b>{r['t']}</b> {(r.get('n') or '')[:18]} · {WHY.get(r.get('why'),'')} · 강도{int(r.get('str') or 0)} · RS{int(r.get('rs') or 0)}"
                      + (f" · 선까지 −{r['loss']:.0f}%" if r.get("loss") is not None else "") + (f" · 매출{(r.get('growth') if r.get('growth') is not None else r['rev']):+.0f}%{'↑' if r.get('accel') else ''}" if (r.get("growth") is not None or r.get("rev") is not None) else "")
-                     + (f" · 🆕{r['age']}일째" if r.get("age") else ""))
+                     + (f" · 🆕{int(r['since'][5:7])}/{int(r['since'][8:10])}~ {r['age']}일째" if (r.get("age") and r.get("since")) else (f" · 🆕{r['age']}일째" if r.get("age") else ""))
+                     + (f" · 1회차 {r['sh']}주" if r.get("sh") else "")
+                     + earn_txt(r))
         if td.get("excluded"): L.append("   <i>제외: " + ", ".join(f"{x['t']}({'·'.join(x['why'])})" for x in td["excluded"][:8]) + "</i>")
-        if td.get("pickKr"): L.append("   🇰🇷 " + ", ".join(f"{r.get('n')}({WHY.get(r.get('why'),'')})" for r in td["pickKr"]) + (" — 시장 위험이면 쉬어도 됨" if td.get("market", {}).get("kr") == "risk" else ""))
+        if ((td.get("size") or {}).get("us") or {}).get("amt"):
+            _z = td["size"]["us"]; L.append(f"   <i>🇺🇸 칸당 ${_z['slot']:,.0f} · 1회차 ${_z['half']:,.0f} ({_z['slots']}칸)</i>")
+        _krz = (td.get("size") or {}).get("kr")
+        if td.get("pickKr"): L.append("   🇰🇷 " + ", ".join(f"{r.get('n')}({WHY.get(r.get('why'),'')})" for r in td["pickKr"])
+                                     + (" — 🇰🇷 투자금 0원 (쉬는 중)" if (_krz and not _krz.get("amt")) else (" — 시장 위험이면 쉬어도 됨" if td.get("market", {}).get("kr") == "risk" else "")))
     else:
       # (today.json 이 없을 때의 예비 계산)
       secrank = {x["tk"]: x["rank"] for x in (mkt.get("sectors") or [])}
@@ -458,9 +493,11 @@ def build_weekly(snap, mkt, now):
     dc = mkt.get("dc") or {}
     dual = dc.get("dual") or {}
     if dual.get("cands"):
-        L.append("5️⃣ DC 듀얼 모멘텀: " + " · ".join(f"{c['label']} {c['score']:+.1f}%{' ●' if c['sig'] in (dual.get('hold') or []) else ''}" for c in dual["cands"]))
+        _mine = ((wl or {}).get("settings") or {}).get("dcMode", "st")
+        L.append("5️⃣ DC 듀얼 모멘텀" + (" (내 규칙)" if _mine == "dual" else " (참고)") + ": "
+                 + " · ".join(f"{c['label']} {c['score']:+.1f}%{' ●' if c['sig'] in (dual.get('hold') or []) else ''}" for c in dual["cands"]))
     for c in (dc.get("core") or []):
-        L.append(f"   느린ST 규칙 {c.get('label')}: {'보유' if c.get('state')=='hold' else '대기'}")
+        L.append(f"   느린ST 규칙{' (내 규칙)' if ((wl or {}).get('settings') or {}).get('dcMode', 'st') != 'dual' else ' (참고)'} {c.get('label')}: {'보유' if c.get('state')=='hold' else '대기'}")
     h = meta.get("health") or {}
     L.append(f"<i>🩺 {h.get('kept','?')}종목 · {meta.get('generatedKST','')} · 전략 결정은 앱 점검 탭 5번에 한 줄</i>")
     L.append(f'<a href="{APP_URL}">점검 탭 열기 →</a>')
