@@ -23,7 +23,7 @@ Alpha Terminal v4 — 지표 스냅샷 파이프라인
 import json, os, sys, time, math, urllib.request
 from datetime import datetime, timezone, timedelta
 
-VERSION   = "7.9.0"
+VERSION   = "7.11.0"
 UA        = {"User-Agent": "Mozilla/5.0"}
 OUT_DIR   = "public/data"
 KST       = timezone(timedelta(hours=9))
@@ -62,6 +62,26 @@ KR_ETF = ("069500.KS", "KODEX 200")
 # ══════════════════════════════════════════════════════════════
 # 데이터 수집
 # ══════════════════════════════════════════════════════════════
+_RUN_TS = time.time()      # 100. 실행 시작 시각 하나로 판단 — 수집 도중 마감 시각을 넘어도 종목마다 날짜가 섞이지 않게
+
+def _drop_partial(out, ticker):
+    """100. 장이 아직 안 끝난 오늘 봉은 버립니다 — 매수!·매도! 는 '확정 종가'로만 판정하기 위해.
+       (2026-09-28 사고: 예약이 늦게 돌아 미국 장중 가격이 9/28 종가로 저장되고, 장중 값으로 매도 신호가 켜짐)
+       🇰🇷 15:45 KST · 🇺🇸 16:10 뉴욕 시각 전이면, 그 시장 '오늘' 날짜의 봉을 뺍니다. 환율(=X)·선물(=F)은 24시간이라 그대로."""
+    if not out or ticker.endswith(("=X", "=F")): return out
+    try:
+        from zoneinfo import ZoneInfo
+        kr = ticker.endswith((".KS", ".KQ")) or ticker in ("^KS11", "^KQ11", "^KS200")
+        tz = ZoneInfo("Asia/Seoul" if kr else "America/New_York")
+        now = datetime.fromtimestamp(_RUN_TS, tz)
+        cut = now.replace(hour=15, minute=45, second=0, microsecond=0) if kr else now.replace(hour=16, minute=10, second=0, microsecond=0)
+        last = datetime.fromtimestamp(out[-1]["t"], tz)
+        if last.date() == now.date() and now < cut:
+            return out[:-1]
+    except Exception:
+        pass
+    return out
+
 def fetch_candles(ticker, tries=3, min_bars=200):
     """전체 히스토리 일봉. period1/period2 방식 (range=max 는 월봉을 줌)
        ★ query1 이 막히면 query2 로 한 번 더 (야후는 종종 한쪽만 404 를 냅니다)"""
@@ -83,7 +103,7 @@ def fetch_candles(ticker, tries=3, min_bars=200):
             #   ma200/추세템플릿이 전부 None 인 종목이 정상인 척 배포됩니다.
             if len(out) < min_bars and a < tries-1:
                 time.sleep(1.2*(a+1)); continue
-            return out, d.get("meta", {})
+            return _drop_partial(out, ticker), d.get("meta", {})
         except Exception:
             if a == tries-1: return [], {}
             time.sleep(1.2*(a+1))
@@ -530,11 +550,28 @@ def build_market():
         cd,_ = fetch_candles(tk); time.sleep(0.25)
         if len(cd) < 210:
             print(f"  ⚠️ {tk} 캔들 부족 {len(cd)}"); continue
+        est = None
+        if tk == "^KS11":
+            # 101. 야후 코스피 지수가 며칠씩 멈추는 일이 있음 (2026-09 추석 뒤 9/23 에 멈춰 +0.9% 로 표시, 실제 −2.7%)
+            #      KODEX 200 이 더 최근 날짜를 갖고 있으면, 멈춘 날 이후를 KODEX 200 등락률로 이어 붙여 '추정'으로 씁니다.
+            try:
+                kd,_k = fetch_candles(KR_ETF[0]); time.sleep(0.25)
+                day = lambda x: datetime.fromtimestamp(x["t"], timezone.utc).strftime("%Y-%m-%d")
+                last = day(cd[-1])
+                base = next((x for x in reversed(kd) if day(x) == last), None)
+                after = [x for x in kd if day(x) > last]
+                if base and after:
+                    r = cd[-1]["c"] / base["c"]
+                    cd = cd + [{"t": x["t"], "o": x["o"] * r, "h": x["h"] * r, "l": x["l"] * r, "c": x["c"] * r, "v": 0} for x in after]
+                    est = f"{last} 이후 {len(after)}일은 KODEX 200 으로 추정"
+                    print(f"  ⚠️ 코스피 지수가 {last} 에 멈춰 있어 KODEX 200 으로 {len(after)}일 이어 붙임")
+            except Exception as e:
+                print(f"  ⚠️ 코스피 대체 실패: {str(e)[:60]}")
         c=[x["c"] for x in cd]; ma200=sma(c,200)
         idx[tk] = {"label":label,"market":mkt,"c":_r(c[-1],2),
                    "d1":_r(chg(cd,1)),"d3":_r(chg(cd,3)),"d5":_r(chg(cd,5)),"d21":_r(chg(cd,21)),
                    "ma200p": _r((c[-1]/ma200-1)*100) if ma200 else None,
-                   "asOf": datetime.fromtimestamp(cd[-1]["t"],timezone.utc).strftime("%Y-%m-%d")}
+                   "asOf": datetime.fromtimestamp(cd[-1]["t"],timezone.utc).strftime("%Y-%m-%d"), **({"est": est} if est else {})}
         # 벤치마크 지수만 봉을 남깁니다 (차트 오버레이용, 종목 파일과 같은 200봉)
         if BENCH.get(mkt) == tk:
             keep = cd[-BARS_KEEP:]
@@ -746,6 +783,67 @@ def attach_targets(stocks, prot):
         if x and x.get("a"):
             d["tgt"] = {k: x.get(k) for k in ("a", "h", "l", "b", "hd", "s", "d")}; n += 1
     print(f"  🎯 애널리스트 목표가: {n}종목 (이번에 새로 {got})")
+
+EARN_CACHE = f"{OUT_DIR}/earnings.json"
+
+def attach_earnings(stocks):
+    """93. 다음 실적 발표일 (야후 공개 시세 API) — 참고 표시용, 매매 규칙에는 쓰지 않음 (과거 발표일 자료가 없어 검증 불가).
+       한 번에 150종목씩 묶어 받습니다(약 6번 요청). 실패하면 지난번 값 중 아직 지나지 않은 날짜만 씁니다.
+       날짜는 그 시장 현지 날짜 (🇺🇸 뉴욕 · 🇰🇷 서울). earnE = 회사가 확정 안 한 '예상일'"""
+    import http.cookiejar as _cj, urllib.request as _u
+    from zoneinfo import ZoneInfo
+    TZ = {"us": ZoneInfo("America/New_York"), "kr": ZoneInfo("Asia/Seoul")}
+    now = time.time()
+    try:
+        cache = json.load(open(EARN_CACHE, encoding="utf-8"))
+    except Exception:
+        cache = {}
+    ysym = {}
+    for t, d in stocks.items():
+        ysym[(t + (d.get("ex") or ".KS")) if d["m"] == "kr" else t.replace(".", "-")] = t
+    fresh, ok = {}, False
+    try:
+        jar = _cj.CookieJar()
+        op = _u.build_opener(_u.HTTPCookieProcessor(jar))
+        op.addheaders = [("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36")]
+        try:
+            op.open("https://fc.yahoo.com", timeout=10)            # 쿠키만 받으면 됨 (404 가 정상)
+        except Exception:
+            pass
+        crumb = op.open("https://query2.finance.yahoo.com/v1/test/getcrumb", timeout=10).read().decode().strip()
+        if not crumb or "<" in crumb: raise RuntimeError("crumb")
+        keys = list(ysym)
+        for i in range(0, len(keys), 150):
+            b = keys[i:i + 150]
+            u = ("https://query2.finance.yahoo.com/v7/finance/quote?symbols=" + ",".join(b) + f"&crumb={crumb}"
+                 "&fields=earningsTimestampStart,earningsTimestamp,isEarningsDateEstimate")
+            r = json.load(op.open(u, timeout=20))
+            for q in (r.get("quoteResponse") or {}).get("result") or []:
+                t = ysym.get(q.get("symbol"))
+                if not t: continue
+                ts = q.get("earningsTimestampStart") or q.get("earningsTimestamp")
+                if ts and ts > now - 86400:                       # 이미 지난 발표는 버림
+                    day = datetime.fromtimestamp(ts, TZ[stocks[t]["m"]]).strftime("%Y-%m-%d")
+                    fresh[t] = [day, 1 if q.get("isEarningsDateEstimate") else 0]
+            ok = True
+            time.sleep(0.3)
+    except Exception as e:
+        print(f"  📅 실적 발표일: 받기 실패 ({str(e)[:60]}) — 지난번 값 사용")
+    base = fresh if ok else (cache.get("e") or {})
+    n = 0
+    for t, d in stocks.items():
+        x = base.get(t)
+        if not x: continue
+        today_local = datetime.now(TZ[d["m"]]).strftime("%Y-%m-%d")
+        if x[0] < today_local: continue                            # 캐시에 남은 지난 날짜
+        d["earn"] = x[0]
+        if x[1]: d["earnE"] = 1
+        n += 1
+    if ok:
+        keep = {t: v for t, v in (cache.get("e") or {}).items() if t not in stocks}   # 감시 모드에서 안 본 종목은 지난 값 유지
+        keep.update(fresh)
+        _write(EARN_CACHE, {"d": datetime.now(timezone.utc).strftime("%Y-%m-%d"), "e": keep})
+    print(f"  📅 실적 발표일: {n}종목")
 
 def attach_quarterly(stocks, refresh=False):
     """51. 분기 매출 성장 (SEC 공시) — 최근 분기 전년 동기 대비가 기본, 없으면 4분기 합계, 그것도 없으면 연간.
@@ -1036,16 +1134,27 @@ def build_today(stocks, market):
     held = {str(p.get("t", "")).upper() for p in (wl.get("positions") or [])}
     cfg = wl.get("settings") or {}
     rev_min = float(cfg.get("revMin", REV_MIN)); slots_us = int(cfg.get("slotsUs") or 5); slots_kr = int(cfg.get("slotsKr") or 3)
+    # 98. 1회차 금액 — 앱 💰 투자금(직투 금액 ÷ 칸 수의 절반). 앱이 금액을 보낸 적이 없으면 넣지 않음
+    size = {}
+    for _m, _amt, _n in (("us", cfg.get("usAmt"), slots_us), ("kr", cfg.get("krAmt"), slots_kr)):
+        if _amt is not None:
+            _slot = float(_amt) / _n if _n else 0.0
+            size[_m] = {"amt": _amt, "slots": _n, "slot": round(_slot, 2), "half": round(_slot / 2, 2)}
     try:
         log = json.load(open(LOG_FILE, encoding="utf-8"))
     except Exception:
         log = []
-    dates = sorted({x["d"] for x in log}); pos_of = {d: i for i, d in enumerate(dates)}
-    first = {}
+    # 87. 매수! 된 날 = 장부에서 그 종목의 '가장 최근' 기록일 (장부는 같은 종목을 20일 안에 한 번만 적음 → 최근 기록 = 이번 신호의 첫날)
+    #     며칠째 = 그 시장의 장부 날짜 수로 셈 (예전엔 가장 오래된 기록 · 두 시장 날짜를 섞어 셌음)
+    first, mdates = {}, {}
     for x in log:
-        if x["t"] not in first or x["d"] < first[x["t"]]: first[x["t"]] = x["d"]
+        if x.get("k") not in ("pull", "strong", "buy"): continue
+        mdates.setdefault(x.get("m"), set()).add(x["d"])
+        if x["t"] not in first or x["d"] > first[x["t"]]: first[x["t"]] = x["d"]
+    mdates = {m: sorted(v) for m, v in mdates.items()}
     def age(t):
-        d0 = first.get(t); return (pos_of[dates[-1]] - pos_of[d0] + 1) if (d0 in pos_of and dates) else None
+        d0 = first.get(t); ds = mdates.get((stocks.get(t) or {}).get("m")) or []
+        return (len(ds) - ds.index(d0)) if d0 in ds else None
     def rel(d):
         i = idx.get("^KS11" if d["m"] == "kr" else ("^IXIC" if d.get("ex") in ("NMS", "NGM", "NCM") else "^GSPC")) or {}
         return _r(d["d21"] - i["d21"], 1) if d.get("d21") is not None and i.get("d21") is not None else None
@@ -1057,7 +1166,8 @@ def build_today(stocks, market):
                 "str": d.get("str"), "ma200p": d.get("ma200p"),
                 "loss": loss, "rel": rel(d), "sec": d.get("sec"), "secRank": secrank.get(d.get("sec"), (None, None))[0],
                 "secLabel": secrank.get(d.get("sec"), (None, None))[1], "rev": f.get("rev"), "prof": f.get("prof"),
-                "mcap": d.get("mcap"), "tv": d.get("tv"), "age": age(d["t"]), "rsi": d.get("rsi"), "held": d["t"] in held}
+                "mcap": d.get("mcap"), "tv": d.get("tv"), "age": age(d["t"]), "since": first.get(d["t"]), "rsi": d.get("rsi"), "held": d["t"] in held,
+                "earn": d.get("earn"), "earnE": d.get("earnE")}
     buys = [row(d) for d in stocks.values() if d.get("action") == "buy" and (d.get("tvr") or 0) >= 40]
     def reasons(r):
         out = []
@@ -1067,7 +1177,8 @@ def build_today(stocks, market):
         if r["held"]: out.append("보유 중")
         return out
     # 강세·눌림(검증한 신호) 먼저 → 그 안에서 강도 점수 높은 순. 업종 순위 먼저 정렬은 검증에서 성과가 절반이라 뺐음 (70)
-    rank = lambda r: ((1 if r["why"] == "trend" else 0) * 1000 - (r.get("str") or 0))
+    # 점수가 같으면 티커 순 — 앱(src/picks.js)과 순서가 똑같이 나오도록 (96)
+    rank = lambda r: ((1 if r["why"] == "trend" else 0) * 1000 - (r.get("str") or 0), r["t"])
     cands = sorted(buys, key=rank)
     excluded, pick_us, pick_kr, used = [], [], [], set()
     for r in cands:
@@ -1079,6 +1190,9 @@ def build_today(stocks, market):
             if len(pick_us) < slots_us: pick_us.append(r); used.add(key)
         elif len(pick_kr) < slots_kr:
             pick_kr.append(r)
+    for r in pick_us + pick_kr:                     # 98. 1회차 몇 주 (앱 '오늘 살 것'과 같은 계산)
+        h = (size.get(r["m"]) or {}).get("half")
+        r["sh"] = int(h // r["c"]) if (h and r.get("c")) else None
     heldrows = []
     for p in (wl.get("positions") or []):
         d = stocks.get(str(p.get("t", "")).upper())
@@ -1090,7 +1204,7 @@ def build_today(stocks, market):
             t2 = "도달" if (lo <= d["c"] <= hi and d.get("stSlow") == 1) else ("추격 금지" if d["c"] > hi else f"목표 {lo:.2f}")
         heldrows.append({"t": d["t"], "n": d.get("n"), "m": d["m"], "c": d["c"], "action": "sell" if d.get("action") == "sell" else "hold",
                          "stLine": d.get("stLine"), "loss": _r((1 - d["stLine"] / d["c"]) * 100, 1) if d.get("stLine") else None,
-                         "tranche2": t2, "halted": bool(d.get("halted") or d.get("status"))})
+                         "tranche2": t2, "halted": bool(d.get("halted") or d.get("status")), "earn": d.get("earn"), "earnE": d.get("earnE")})
     dips = [row(d) | {"w52p": d.get("w52p"), "hlt": d.get("hlt")} for d in stocks.values() if d.get("dip") == "watch" and d["m"] == "us"]
     dips.sort(key=lambda r: r.get("w52p") or 0)
     dual = (market.get("dc") or {}).get("dual") or {}
@@ -1101,7 +1215,7 @@ def build_today(stocks, market):
                       "tranche": "1회차 = 한도 절반 → +3~6% 마감 & 느린ST 초록이면 나머지 절반 · 매도 = 종가 < 트레일링선"},
             "market": {m: (market.get("judge") or {}).get(m, {}).get("verdict") for m in ("us", "kr")},
             "sectors": [{"tk": x["tk"], "label": x["label"], "rank": x["rank"], "score": x.get("score")} for x in (market.get("sectors") or [])[:6]],
-            "candidates": cands, "pickUs": pick_us, "pickKr": pick_kr, "excluded": excluded[:30], "held": heldrows,
+            "candidates": cands, "pickUs": pick_us, "pickKr": pick_kr, "size": size, "excluded": excluded[:30], "held": heldrows,
             "dips": dips[:8], "dc": {"hold": dual.get("hold"), "cands": dual.get("cands")}}
 
 def _shift_days(iso, n):
@@ -1491,6 +1605,7 @@ def main():
     fin_flags(stocks)
     attach_quarterly(stocks, refresh=not focus)
     attach_targets(stocks, PROT)
+    attach_earnings(stocks)
     for d in stocks.values():
         rs_ok = (d.get("rs") or 0) >= 70
         up = bool(d.get("upTrend") and d.get("stSlow") == 1 and rs_ok)

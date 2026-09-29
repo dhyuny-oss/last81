@@ -88,7 +88,10 @@ export default async function handler(req, res) {
       if (req.body.settings && typeof req.body.settings === "object") {   // 61. 앱 설정 — 오늘 후보·텔레그램이 같은 값을 쓰도록
         const st = req.body.settings, num = (x, lo, hi, d) => { const v = Number(x); return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d; };
         content.settings = { revMin: num(st.revMin, 0, 100, 10), slotsUs: Math.round(num(st.slotsUs, 1, 20, 5)), slotsKr: Math.round(num(st.slotsKr, 1, 20, 3)),
-                             dcAmt: num(st.dcAmt, 0, 1e13, 0), dcMode: st.dcMode === "dual" ? "dual" : "st", dcSemi: !!st.dcSemi };
+                             dcAmt: num(st.dcAmt, 0, 1e13, 0), dcMode: st.dcMode === "dual" ? "dual" : "st", dcSemi: !!st.dcSemi,
+                             // 98. 직투 금액 — 칸당·1회차 금액을 파이프라인(today.json)·텔레그램·AI 도구가 같은 값으로 씀. 안 보내면 이전 값 유지
+                             usAmt: st.usAmt != null ? num(st.usAmt, 0, 1e9, 0) : (content.settings?.usAmt ?? null),
+                             krAmt: st.krAmt != null ? num(st.krAmt, 0, 1e13, 0) : (content.settings?.krAmt ?? null) };
       }
       if (req.body.notes && typeof req.body.notes === "object") {   // 74. 종목 메모·내 목표가
         const out = {};

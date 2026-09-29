@@ -21,6 +21,10 @@
  * 쓰는 법
  *   GET  /api/refresh   지금 돌고 있는지 · 마지막 실행이 언제 끝났는지
  *   POST /api/refresh   실행 시작 (헤더 x-key 에 REFRESH_KEY)
+ *   POST /api/refresh?mode=quick   앱 🔄 시세 갱신 버튼 — 감시 모드 약 5분 · 항상 실행
+ *   POST /api/refresh?mode=daily   ★ 102. 평일 갱신 — 감시 모드 약 5분 · 종목풀 교체 없음 · 이미 최신이면 몇 초 만에 건너뜀
+ *        cron-job.org 가 평일 06:30·07:30·16:30·17:30 에 이 주소를 부릅니다 (깃허브 예약은 몇 시간씩 늦을 수 있어서).
+ *        열린 모드 제한은 전체 실행과 따로 셉니다: 20분 간격 · 24시간 10회
  */
 
 const REPO = process.env.GH_REPO || "dhyuny-oss/last81";
@@ -35,6 +39,8 @@ const pickWF = (req) => {
   return WF_ALLOW[k] || WF;
 };
 const API = "https://api.github.com";
+const modeOf = (req) => { const m = req.query?.mode || req.body?.mode; return m === "daily" || m === "quick" ? m : "full"; };
+const isDaily = (x) => /\((daily|quick)\)/.test(x.display_title || x.name || "");     // run-name 으로 구분 (daily.yml)
 
 const gh = (path, init = {}) =>
   fetch(`${API}${path}`, {
@@ -109,24 +115,25 @@ export default async function handler(req, res) {
             live: { id: live.id, status: live.status, started: live.run_started_at || live.created_at, url: live.html_url } });
         }
         if (OPEN) {
-          const now = Date.now();
+          const now = Date.now(), daily = modeOf(req) !== "full" && pickWF(req) === WF;
+          const gap = daily ? 20 : MIN_GAP_MIN, cap = daily ? 10 : MAX_PER_DAY;
           const manual = all
-            .filter(x => x.event === "workflow_dispatch")
+            .filter(x => x.event === "workflow_dispatch" && isDaily(x) === daily)
             .map(x => new Date(x.run_started_at || x.created_at).getTime());
           const recent = manual.filter(t => now - t < 24 * 3600 * 1000);
           const gapMin = manual.length ? Math.floor((now - Math.max(...manual)) / 60000) : Infinity;
-          if (gapMin < MIN_GAP_MIN) {
+          if (gapMin < gap) {
             return res.status(429).json({ ok: false, code: "COOLDOWN",
-              msg: `방금 돌렸습니다. ${MIN_GAP_MIN - gapMin}분 뒤에 다시 눌러 주세요.`, waitMin: MIN_GAP_MIN - gapMin });
+              msg: `방금 돌렸습니다. ${gap - gapMin}분 뒤에 다시 눌러 주세요.`, waitMin: gap - gapMin });
           }
-          if (recent.length >= MAX_PER_DAY) {
+          if (recent.length >= cap) {
             return res.status(429).json({ ok: false, code: "DAILY_CAP",
-              msg: `오늘 수동 실행을 ${MAX_PER_DAY}번 다 썼습니다. 예약 실행(평일 16:00·06:30)은 그대로 돕니다.` });
+              msg: `24시간 안에 ${daily ? "평일 갱신" : "전체 실행"}을 ${cap}번 다 썼습니다. 예약 실행은 그대로 돕니다.` });
           }
         }
       }
       const r = await gh(`/repos/${REPO}/actions/workflows/${pickWF(req)}/dispatches`, {
-        method: "POST", body: JSON.stringify({ ref: "main" }),
+        method: "POST", body: JSON.stringify(pickWF(req) === WF ? { ref: "main", inputs: { mode: modeOf(req) } } : { ref: "main" }),
       });
       if (r.status !== 204) {
         const t = await r.text();
@@ -136,7 +143,8 @@ export default async function handler(req, res) {
              : `깃허브가 ${r.status} 를 돌려줬습니다.`,
           detail: t.slice(0, 300) });
       }
-      return res.status(202).json({ ok: true, started: true, msg: "실행을 시작했습니다. 약 25분 걸립니다." });
+      return res.status(202).json({ ok: true, started: true, mode: modeOf(req),
+        msg: modeOf(req) !== "full" && pickWF(req) === WF ? (modeOf(req) === "daily" ? "평일 갱신을 시작했습니다. 약 5분 (이미 최신이면 바로 끝남)." : "갱신을 시작했습니다. 약 5분 걸립니다.") : "실행을 시작했습니다. 약 25분 걸립니다." });
     } catch (e) {
       return res.status(502).json({ ok: false, code: "NET", msg: "깃허브에 연결하지 못했습니다.", detail: String(e).slice(0, 200) });
     }

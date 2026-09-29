@@ -37,7 +37,18 @@ on:
     - cron: '17 9 * * 1-5'   # KST 18:17  한국 보험 2
     - cron: '23 22 * * 1-5'  # KST 07:23  미국 보험 1
     - cron: '23 23 * * 1-5'  # KST 08:23  미국 보험 2
+  # ★ 102. 수동·외부 호출 — mode=daily 는 평일 갱신(감시 모드 약 5분·종목풀 교체 없음·이미 최신이면 건너뜀)
+  #   cron-job.org 가 /api/refresh?mode=daily 를 06:30·07:30·16:30·17:30 에 부릅니다 (깃허브 예약은 몇 시간씩 늦을 수 있어서)
+  #   mode=full 은 예전 그대로 전체 스캔 + 종목풀 교체 (약 25분)
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "full = 전체 스캔·종목풀 교체(약 25분) / daily = 평일 갱신(약 5분·최신이면 건너뜀) / quick = 앱 🔄 버튼(약 5분·항상 실행)"
+        type: choice
+        options: [full, daily, quick]
+        default: full
+
+run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'daily' && 'Daily refresh (daily)' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'quick' && 'Daily refresh (quick)' || 'Daily Data Update') }}
 
 # 앞 실행이 아직 안 끝났으면 새로 시작하지 않습니다 (한도 낭비 방지)
 concurrency:
@@ -65,16 +76,28 @@ jobs:
         env:
           EV: ${{ github.event_name }}
           SCH: ${{ github.event.schedule }}
+          MODE: ${{ inputs.mode }}
         run: |
           python3 - <<'PY'
           import json, os, datetime as dt
           skip = "false"
-          if os.environ.get("EV") == "schedule" and os.environ.get("SCH") != "13 0 * * 6":
+          daily_call = os.environ.get("EV") == "workflow_dispatch" and os.environ.get("MODE") == "daily"
+          if (os.environ.get("EV") == "schedule" and os.environ.get("SCH") != "13 0 * * 6") or daily_call:
               kst = dt.datetime.utcnow() + dt.timedelta(hours=9)
-              slot = kst.replace(hour=16, minute=17, second=0, microsecond=0) if kst.hour >= 16 else kst.replace(hour=6, minute=23, second=0, microsecond=0)
+              # ★ 102. '가장 최근에 지난' 수집 시각과 비교 (예전엔 00~06시에 돌면 아직 안 온 오늘 06:23 과 비교해 늘 다시 돌았고,
+              #        늦게 돈 예약이 미국 장중 값을 만들었습니다). 한국 16:17 · 미국 06:23 · 어제 16:17 중 지금보다 앞선 것
+              z = dict(second=0, microsecond=0)
+              cands = [kst.replace(hour=16, minute=17, **z), kst.replace(hour=6, minute=23, **z),
+                       (kst - dt.timedelta(days=1)).replace(hour=16, minute=17, **z)]
+              slot = max(x for x in cands if x <= kst)
               try:
-                  gen = dt.datetime.strptime(json.load(open("public/data/snapshot.json"))["meta"]["generatedKST"], "%Y-%m-%d %H:%M")
+                  snap = json.load(open("public/data/snapshot.json"))
+                  gen = dt.datetime.strptime(snap["meta"]["generatedKST"], "%Y-%m-%d %H:%M")
                   if gen >= slot: skip = "true"
+                  # 한국 슬롯인데 한국 종가 날짜가 아직 오늘이 아니면(야후가 늦게 채움) 건너뛰지 않음
+                  kr = max((d.get("asOf") or "" for d in snap.get("stocks", {}).values() if d.get("m") == "kr"), default="")
+                  if skip == "true" and slot.hour == 16 and slot.weekday() < 5 and kr < slot.strftime("%Y-%m-%d"):
+                      skip = "false"; print(f"한국 종가가 아직 {kr} — 다시 받습니다")
                   print(f"마지막 생성 {gen} · 이번 슬롯 {slot} → {'건너뜀' if skip == 'true' else '실행'}")
               except Exception as e:
                   print("확인 실패 → 실행:", e)
@@ -88,14 +111,14 @@ jobs:
 
       # ① 유니버스·종목명 — 16:00 과 토요일, 그리고 수동 실행에서만
       - name: Install dependencies
-        if: steps.fresh.outputs.skip != 'true' && (github.event_name == 'workflow_dispatch' || github.event.schedule == '13 0 * * 6')
+        if: steps.fresh.outputs.skip != 'true' && ((github.event_name == 'workflow_dispatch' && inputs.mode != 'daily' && inputs.mode != 'quick') || github.event.schedule == '13 0 * * 6')
         run: pip install yfinance requests
 
       # ★ 종목풀은 주 1회만 새로 뽑습니다 (토요일 + 수동 실행)
       #   예전엔 평일마다 730종목을 6개월치로 다시 받아 실행 시간의 대부분을 썼습니다.
       #   풀이 매일 바뀌면 신호도 따라 흔들려서, 주 단위로 정리하는 편이 낫습니다.
       - name: Fetch universe (stocks.json) — 주간 1회
-        if: steps.fresh.outputs.skip != 'true' && (github.event_name == 'workflow_dispatch' || github.event.schedule == '13 0 * * 6')
+        if: steps.fresh.outputs.skip != 'true' && ((github.event_name == 'workflow_dispatch' && inputs.mode != 'daily' && inputs.mode != 'quick') || github.event.schedule == '13 0 * * 6')
         run: python scripts/fetch_yahoo.py
 
       # ② 앱이 읽는 지표 스냅샷 — 매번. 외부 라이브러리 없이 표준 라이브러리만 씁니다
@@ -103,7 +126,7 @@ jobs:
       - name: Build snapshot
         if: steps.fresh.outputs.skip != 'true'
         env:
-          FOCUS: ${{ (github.event_name == 'schedule' && github.event.schedule != '13 0 * * 6') && '1' || '0' }}
+          FOCUS: ${{ ((github.event_name == 'schedule' && github.event.schedule != '13 0 * * 6') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'daily' || inputs.mode == 'quick'))) && '1' || '0' }}
         run: python scripts/build_snapshot.py
 
       - name: Show result
@@ -135,7 +158,7 @@ jobs:
           # ★ git add 는 없는 파일을 지정하면 통째로 실패합니다
           #   (notified.json 은 텔레그램 첫 발송 전엔 없습니다) → 있는 것만 담습니다
           # ★ alloc_state.json 을 빼먹으면 배분탭 '분기 고정'이 매번 초기화됩니다
-          for f in stocks.json alpha_hits.json snapshot.json market.json notified.json alloc_state.json data_health.json universe_log.json signals_log.json today.json sec_rev.json targets.json bars; do
+          for f in stocks.json alpha_hits.json snapshot.json market.json notified.json alloc_state.json data_health.json universe_log.json signals_log.json today.json sec_rev.json targets.json earnings.json bars; do
             [ -e "public/data/$f" ] && git add -A "public/data/$f"
           done
           git diff --staged --quiet || (
