@@ -204,7 +204,15 @@ def build(snap, mkt, state, now):
                 + (f" · 트레일링선 {price(d.get('stLine'), d.get('m'))}" if d.get("stLine") else "") + tgt_part + earn_txt(d))
         # 2회차 조건: 1회차뿐이고 1회차 매수가 +3% 넘게 마감 · 느린ST 초록
         if p.get("role") == "swing" and len(tr) == 1 and d.get("c") and d.get("stSlow") == 1 and tr[0]["px"] * 1.03 <= d["c"] <= tr[0]["px"] * 1.06:
-            line += f"\n      ✅ <b>2회차 조건 도달</b> (1회차 +3% = {price(tr[0]['px'] * 1.03, d.get('m'))} 넘음, +6% 안) — 나머지 절반"
+            # 109. 투자금 한도 확인 — 이미 넣은 돈 + 2회차(= 1회차 금액)가 직투 금액을 넘으면 건너뜀 (앱과 같은 판정)
+            _mk = d.get("m") or "us"; _cap = (wl.get("settings") or {}).get("usAmt" if _mk == "us" else "krAmt")
+            _inv = sum(sum((t.get("amt") or 0) for t in tr_of(q)) for q in (wl.get("positions") or [])
+                       if q.get("role") != "etf" and (str(q.get("t", "")).isdigit() == (_mk == "kr")))
+            _add = tr[0].get("amt") or 0
+            if _cap and _inv + _add > _cap * 1.001:
+                line += f"\n      ⚠️ 2회차 조건은 됐지만 <b>투자금 한도 초과 — 건너뜀</b> ({money(_inv, _mk)} 투입 / 직투 {money(_cap, _mk)})"
+            else:
+                line += f"\n      ✅ <b>2회차 조건 도달</b> (1회차 +3% = {price(tr[0]['px'] * 1.03, d.get('m'))} 넘음, +6% 안) — 1회차와 같은 금액{f' {money(_add, _mk)}' if _add else ''}"
         elif p.get("role") == "swing" and len(tr) == 1 and d.get("c") and d["c"] > tr[0]["px"] * 1.06:
             line += f"\n      ⛔ 추격 금지 — 1회차 대비 {(d['c'] / tr[0]['px'] - 1) * 100:+.1f}% (밴드 +3~6% 초과)"
         val = sum((t.get("amt") or 0) / t["px"] * (d.get("c") or t["px"]) for t in tr)
@@ -306,6 +314,14 @@ def build(snap, mkt, state, now):
         if ncut: head += f" <i>✂ 매출 +{REV_MIN:.0f}% 미만 {ncut} 제외</i>"
         if new_entry: head += f" (신규 {len(new_entry)})"
         L.append(head)
+        # 109. 빈 칸 — 앱 '오늘 살 것'과 같은 계산 (칸 수 − 들고 있는 단기 종목 수). 칸이 차면 아래 목록은 참고
+        _cfg = (wl.get("settings") or {})
+        _note = []
+        for _m, _f, _n in (("us", "🇺🇸", int(_cfg.get("slotsUs") or 5)), ("kr", "🇰🇷", int(_cfg.get("slotsKr") or 3))):
+            _h = sum(1 for q in (wl.get("positions") or []) if (q.get("role") or "swing") == "swing" and (str(q.get("t", "")).isdigit() == (_m == "kr")))
+            _amt = _cfg.get("usAmt" if _m == "us" else "krAmt")
+            _note.append(f"{_f} 투자금 0" if _amt == 0 else (f"{_f} <b>칸이 다 참</b>({_h}/{_n})" if _h >= _n else f"{_f} 빈 칸 {_n - _h}/{_n}"))
+        L.append("   " + " · ".join(_note) + " — <i>빈 칸만큼만 삽니다</i>")
         for s in entry[:MAX_ROWS]:
             mark = "🆕 " if is_new("entry", s["t"]) else ""
             flag = "🇰🇷" if s["m"] == "kr" else "🇺🇸"
@@ -449,7 +465,14 @@ def build_weekly(snap, mkt, now):
     except Exception:
         td = None
     if td and td.get("pickUs") is not None:
-        L.append("4️⃣½ 🇺🇸 추천 (강도 점수 순 · 업종 분산 · 적자·매출 부진·보유 제외)")
+        _sl = (td.get("slots") or {}).get("us") or {}
+        _free = _sl.get("free")
+        L.append("4️⃣½ 🇺🇸 추천 (강도 점수 순 · 업종 분산 · 적자·매출 부진·보유 제외)"
+                 + (f" · <b>빈 칸 {_free}/{_sl.get('n')}</b>" if _free is not None else ""))
+        if _free == 0:
+            L.append(f"   ⛔ <b>칸이 다 찼습니다 (보유 {_sl.get('held')} · {_sl.get('n')}칸) — 새로 사지 않습니다.</b> 아래는 칸이 비면 살 순번")
+        elif _free is not None and _free < len(td["pickUs"]):
+            L.append(f"   위에서 {_free}개만 삽니다 — 나머지는 대기")
         for i, r in enumerate(td["pickUs"], 1):
             L.append(f"   {i}. <b>{r['t']}</b> {(r.get('n') or '')[:18]} · {WHY.get(r.get('why'),'')} · 강도{int(r.get('str') or 0)} · RS{int(r.get('rs') or 0)}"
                      + (f" · 선까지 −{r['loss']:.0f}%" if r.get("loss") is not None else "") + (f" · 매출{(r.get('growth') if r.get('growth') is not None else r['rev']):+.0f}%{'↑' if r.get('accel') else ''}" if (r.get("growth") is not None or r.get("rev") is not None) else "")

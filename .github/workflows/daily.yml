@@ -98,6 +98,10 @@ jobs:
                   kr = max((d.get("asOf") or "" for d in snap.get("stocks", {}).values() if d.get("m") == "kr"), default="")
                   if skip == "true" and slot.hour == 16 and slot.weekday() < 5 and kr < slot.strftime("%Y-%m-%d"):
                       skip = "false"; print(f"한국 종가가 아직 {kr} — 다시 받습니다")
+                  # 미국 슬롯(화~토 06:23)인데 미국 종가가 아직 전날 것이 아니면(서머타임 해제 뒤 06시 초반 수집·야후 지연) 건너뛰지 않음
+                  us = max((d.get("asOf") or "" for d in snap.get("stocks", {}).values() if d.get("m") == "us"), default="")
+                  if skip == "true" and slot.hour == 6 and 1 <= slot.weekday() <= 5 and us < (slot - dt.timedelta(days=1)).strftime("%Y-%m-%d"):
+                      skip = "false"; print(f"미국 종가가 아직 {us} — 다시 받습니다")
                   print(f"마지막 생성 {gen} · 이번 슬롯 {slot} → {'건너뜀' if skip == 'true' else '실행'}")
               except Exception as e:
                   print("확인 실패 → 실행:", e)

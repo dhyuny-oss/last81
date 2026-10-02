@@ -23,7 +23,7 @@ Alpha Terminal v4 — 지표 스냅샷 파이프라인
 import json, os, sys, time, math, urllib.request
 from datetime import datetime, timezone, timedelta
 
-VERSION   = "7.11.0"
+VERSION   = "7.12.0"
 UA        = {"User-Agent": "Mozilla/5.0"}
 OUT_DIR   = "public/data"
 KST       = timezone(timedelta(hours=9))
@@ -786,8 +786,11 @@ def attach_targets(stocks, prot):
 
 EARN_CACHE = f"{OUT_DIR}/earnings.json"
 
-def attach_earnings(stocks):
-    """93. 다음 실적 발표일 (야후 공개 시세 API) — 참고 표시용, 매매 규칙에는 쓰지 않음 (과거 발표일 자료가 없어 검증 불가).
+def attach_earnings(stocks, universe_all=None, market=None):
+    """110·111. 같은 요청으로 🇺🇸 PER(최근 12개월)·예상 PER 도 받습니다 — 참고 표시용.
+       종목: d["pe"] · d["fpe"] (적자·자료 없음이면 없음). 업종: 종목풀 '전체' 🇺🇸 종목의 중앙값을 market["sectors"] 에 pe·fpe·n 으로 붙입니다
+       (평일 감시 모드는 강한 종목만 보므로, 업종 중앙값은 전체 종목풀을 따로 조회해 계산). 🇰🇷 은 야후에 PER 이 없습니다.
+       93. 다음 실적 발표일 (야후 공개 시세 API) — 참고 표시용, 매매 규칙에는 쓰지 않음 (과거 발표일 자료가 없어 검증 불가).
        한 번에 150종목씩 묶어 받습니다(약 6번 요청). 실패하면 지난번 값 중 아직 지나지 않은 날짜만 씁니다.
        날짜는 그 시장 현지 날짜 (🇺🇸 뉴욕 · 🇰🇷 서울). earnE = 회사가 확정 안 한 '예상일'"""
     import http.cookiejar as _cj, urllib.request as _u
@@ -801,7 +804,10 @@ def attach_earnings(stocks):
     ysym = {}
     for t, d in stocks.items():
         ysym[(t + (d.get("ex") or ".KS")) if d["m"] == "kr" else t.replace(".", "-")] = t
-    fresh, ok = {}, False
+    for t, v in (universe_all or {}).items():                     # 업종 PER 용 — 스냅샷에 없는 🇺🇸 종목도 조회
+        if v.get("market") == "us" and t not in stocks: ysym.setdefault(t.replace(".", "-"), t)
+    fresh, ok, val = {}, False, {}
+    pos = lambda x: round(float(x), 1) if isinstance(x, (int, float)) and 0 < x < 5000 else None
     try:
         jar = _cj.CookieJar()
         op = _u.build_opener(_u.HTTPCookieProcessor(jar))
@@ -816,11 +822,14 @@ def attach_earnings(stocks):
         for i in range(0, len(keys), 150):
             b = keys[i:i + 150]
             u = ("https://query2.finance.yahoo.com/v7/finance/quote?symbols=" + ",".join(b) + f"&crumb={crumb}"
-                 "&fields=earningsTimestampStart,earningsTimestamp,isEarningsDateEstimate")
+                 "&fields=earningsTimestampStart,earningsTimestamp,isEarningsDateEstimate,trailingPE,forwardPE")
             r = json.load(op.open(u, timeout=20))
             for q in (r.get("quoteResponse") or {}).get("result") or []:
                 t = ysym.get(q.get("symbol"))
                 if not t: continue
+                pe, fpe = pos(q.get("trailingPE")), pos(q.get("forwardPE"))
+                if pe or fpe: val[t] = [pe, fpe]
+                if t not in stocks: continue
                 ts = q.get("earningsTimestampStart") or q.get("earningsTimestamp")
                 if ts and ts > now - 86400:                       # 이미 지난 발표는 버림
                     day = datetime.fromtimestamp(ts, TZ[stocks[t]["m"]]).strftime("%Y-%m-%d")
@@ -839,11 +848,37 @@ def attach_earnings(stocks):
         d["earn"] = x[0]
         if x[1]: d["earnE"] = 1
         n += 1
+    # PER — 받기에 실패하면 지난번 값
+    if not ok: val = cache.get("v") or {}
+    npe = 0
+    for t, d in stocks.items():
+        x = val.get(t)
+        if not x: continue
+        if x[0]: d["pe"] = x[0]
+        if x[1]: d["fpe"] = x[1]
+        npe += 1
+    # 업종 중앙값 (종목풀 전체 🇺🇸 · GICS 업종 → 섹터 ETF 키)
+    if market is not None and val:
+        import statistics as _st
+        grp = {}
+        sec_of = lambda t: (stocks.get(t) or {}).get("s") or ((universe_all or {}).get(t) or {}).get("sector") or ""
+        for t, x in val.items():
+            k = GICS_TO_ETF.get(sec_of(t))
+            if not k: continue
+            g = grp.setdefault(k, [[], []])
+            if x[0]: g[0].append(x[0])
+            if x[1]: g[1].append(x[1])
+        for x in (market.get("sectors") or []):
+            g = grp.get(x.get("tk"))
+            if g and len(g[1]) >= 3:
+                x["pe"] = round(_st.median(g[0]), 1) if len(g[0]) >= 3 else None
+                x["fpe"] = round(_st.median(g[1]), 1)
+                x["n"] = len(g[1])
     if ok:
         keep = {t: v for t, v in (cache.get("e") or {}).items() if t not in stocks}   # 감시 모드에서 안 본 종목은 지난 값 유지
         keep.update(fresh)
-        _write(EARN_CACHE, {"d": datetime.now(timezone.utc).strftime("%Y-%m-%d"), "e": keep})
-    print(f"  📅 실적 발표일: {n}종목")
+        _write(EARN_CACHE, {"d": datetime.now(timezone.utc).strftime("%Y-%m-%d"), "e": keep, "v": val})
+    print(f"  📅 실적 발표일: {n}종목 · PER {npe}종목")
 
 def attach_quarterly(stocks, refresh=False):
     """51. 분기 매출 성장 (SEC 공시) — 최근 분기 전년 동기 대비가 기본, 없으면 4분기 합계, 그것도 없으면 연간.
@@ -1167,7 +1202,7 @@ def build_today(stocks, market):
                 "loss": loss, "rel": rel(d), "sec": d.get("sec"), "secRank": secrank.get(d.get("sec"), (None, None))[0],
                 "secLabel": secrank.get(d.get("sec"), (None, None))[1], "rev": f.get("rev"), "prof": f.get("prof"),
                 "mcap": d.get("mcap"), "tv": d.get("tv"), "age": age(d["t"]), "since": first.get(d["t"]), "rsi": d.get("rsi"), "held": d["t"] in held,
-                "earn": d.get("earn"), "earnE": d.get("earnE")}
+                "earn": d.get("earn"), "earnE": d.get("earnE"), "pe": d.get("pe"), "fpe": d.get("fpe")}
     buys = [row(d) for d in stocks.values() if d.get("action") == "buy" and (d.get("tvr") or 0) >= 40]
     def reasons(r):
         out = []
@@ -1190,6 +1225,12 @@ def build_today(stocks, market):
             if len(pick_us) < slots_us: pick_us.append(r); used.add(key)
         elif len(pick_kr) < slots_kr:
             pick_kr.append(r)
+    # 109. 빈 칸 = 칸 수 − 지금 들고 있는 단기 종목 수. 0 이면 새로 사지 않음 (앱·텔레그램·AI 도구가 같은 숫자를 봄)
+    slots = {}
+    for _m, _n in (("us", slots_us), ("kr", slots_kr)):
+        _h = sum(1 for p in (wl.get("positions") or []) if (p.get("role") or "swing") == "swing"
+                 and (str(p.get("t", "")).isdigit() == (_m == "kr")))
+        slots[_m] = {"n": _n, "held": _h, "free": max(0, _n - _h)}
     for r in pick_us + pick_kr:                     # 98. 1회차 몇 주 (앱 '오늘 살 것'과 같은 계산)
         h = (size.get(r["m"]) or {}).get("half")
         r["sh"] = int(h // r["c"]) if (h and r.get("c")) else None
@@ -1215,7 +1256,7 @@ def build_today(stocks, market):
                       "tranche": "1회차 = 한도 절반 → +3~6% 마감 & 느린ST 초록이면 나머지 절반 · 매도 = 종가 < 트레일링선"},
             "market": {m: (market.get("judge") or {}).get(m, {}).get("verdict") for m in ("us", "kr")},
             "sectors": [{"tk": x["tk"], "label": x["label"], "rank": x["rank"], "score": x.get("score")} for x in (market.get("sectors") or [])[:6]],
-            "candidates": cands, "pickUs": pick_us, "pickKr": pick_kr, "size": size, "excluded": excluded[:30], "held": heldrows,
+            "candidates": cands, "pickUs": pick_us, "pickKr": pick_kr, "size": size, "slots": slots, "excluded": excluded[:30], "held": heldrows,
             "dips": dips[:8], "dc": {"hold": dual.get("hold"), "cands": dual.get("cands")}}
 
 def _shift_days(iso, n):
@@ -1371,6 +1412,7 @@ def main():
         full_n = (prev_snap.get("meta", {}).get("health") or {}).get("fullUniverse") or len(universe)
     except Exception:
         prev_snap = None
+    universe_all = dict(universe)        # 110. 업종 PER 은 감시 모드에서도 종목풀 전체로 계산
     if focus and prev_snap and ref:
         prot = set()
         try:
@@ -1605,7 +1647,7 @@ def main():
     fin_flags(stocks)
     attach_quarterly(stocks, refresh=not focus)
     attach_targets(stocks, PROT)
-    attach_earnings(stocks)
+    attach_earnings(stocks, universe_all, market)
     for d in stocks.values():
         rs_ok = (d.get("rs") or 0) >= 70
         up = bool(d.get("upTrend") and d.get("stSlow") == 1 and rs_ok)
