@@ -1,25 +1,55 @@
 {
   "rewrites": [
-    { "source": "/beta", "destination": "/beta.html" }
+    {
+      "source": "/beta",
+      "destination": "/beta.html"
+    }
   ],
   "headers": [
     {
       "source": "/data/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
       ]
     },
     {
       "source": "/api/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
       ]
     },
     {
       "source": "/beta(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
       ]
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/us-1",
+      "schedule": "0 21 * * 1-5"
+    },
+    {
+      "path": "/api/cron/us-2",
+      "schedule": "0 22 * * 1-5"
+    },
+    {
+      "path": "/api/cron/kr-1",
+      "schedule": "0 7 * * 1-5"
+    },
+    {
+      "path": "/api/cron/kr-2",
+      "schedule": "0 8 * * 1-5"
     }
   ]
 }
