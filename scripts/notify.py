@@ -316,13 +316,20 @@ def build(snap, mkt, state, now):
         L.append(head)
         # 109. 빈 칸 — 앱 '오늘 살 것'과 같은 계산 (칸 수 − 들고 있는 단기 종목 수). 칸이 차면 아래 목록은 참고
         _cfg = (wl.get("settings") or {})
-        _note = []
+        _note, _open = [], {}
+        _held = {str(q.get("t", "")).upper() for q in (wl.get("positions") or [])}
         for _m, _f, _n in (("us", "🇺🇸", int(_cfg.get("slotsUs") or 5)), ("kr", "🇰🇷", int(_cfg.get("slotsKr") or 3))):
             _h = sum(1 for q in (wl.get("positions") or []) if (q.get("role") or "swing") == "swing" and (str(q.get("t", "")).isdigit() == (_m == "kr")))
             _amt = _cfg.get("usAmt" if _m == "us" else "krAmt")
             _note.append(f"{_f} 투자금 0" if _amt == 0 else (f"{_f} <b>칸이 다 참</b>({_h}/{_n})" if _h >= _n else f"{_f} 빈 칸 {_n - _h}/{_n}"))
+            _open[_m] = (_amt != 0) and _h < _n
         L.append("   " + " · ".join(_note) + " — <i>빈 칸만큼만 삽니다</i>")
-        for s in entry[:MAX_ROWS]:
+        # 114. 이미 가진 종목은 빼고, 살 수 없는 시장(칸이 참 · 투자금 0)은 목록을 접습니다 (앱 '오늘 살 것'과 같게)
+        rows = [s for s in entry if str(s["t"]).upper() not in _held and _open.get(s["m"])]
+        _hid = len(entry) - len(rows)
+        if not rows:
+            L.append("   <i>지금 살 수 있는 칸이 없어 목록은 접었습니다 · 전체는 앱 찾기 탭</i>")
+        for s in rows[:MAX_ROWS]:
             mark = "🆕 " if is_new("entry", s["t"]) else ""
             flag = "🇰🇷" if s["m"] == "kr" else "🇺🇸"
             f = s.get("fin") or {}
@@ -331,8 +338,10 @@ def build(snap, mkt, state, now):
             gap = f" · 선까지 −{(1 - s['stLine'] / s['c']) * 100:.0f}%" if s.get("stLine") and s.get("c") else ""
             L.append(f"{mark}{flag} <b>{s['n']}</b> {price(s['c'], s['m'])} {pct(s.get('d1'))} {act_txt(s)}")
             L.append(f"   강도 {int(s.get('str') or 0)} · RS {int(s.get('rs') or 0)}{gap} · 하루 거래 {money(s.get('tv'), s['m'])}{fin}{earn_txt(s)}")
-        if len(entry) > MAX_ROWS:
-            L.append(f"   … 외 {len(entry)-MAX_ROWS}종목")
+        if len(rows) > MAX_ROWS:
+            L.append(f"   … 외 {len(rows)-MAX_ROWS}종목")
+        if rows and _hid:
+            L.append(f"   <i>보유 중이거나 칸이 없는 시장의 {_hid}종목은 뺐습니다</i>")
         L.append("<i>눌림 🇰🇷 = 추세 안 RSI 45 회복 · 강세 🇺🇸 = 추세 안 RSI 60↑ · 추세 = ST 3개 초록+구름 위 · 매도! = 트레일링선 아래 마감</i>")
     else:
         L.append("🔍 <b>매수! 없음</b> — 오늘은 살 것이 없습니다")

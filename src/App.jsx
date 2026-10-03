@@ -18,7 +18,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-export const APP_VERSION = "v13.3.0";
+export const APP_VERSION = "v13.3.1";
 
 /* ══════════════ 디자인 토큰 ══════════════ */
 const C = {
@@ -807,9 +807,32 @@ export default function App() {
           fetch("/data/snapshot.json?t=" + Date.now()).then(r => r.ok ? r.json() : Promise.reject(new Error("snapshot " + r.status))),
           fetch("/data/market.json?t=" + Date.now()).then(r => r.ok ? r.json() : Promise.reject(new Error("market " + r.status))),
         ]);
-        setSnap(a); setMarket(b);
+        setSnap(a); setMarket(b); genRef.current = b?.meta?.generatedAt || null; loadedAt.current = Date.now();
       } catch (e) { setErr(e.message); }
     })();
+  }, []);
+  /* 119. 앱을 켜 둔 채 돌아왔을 때 — 서버 데이터가 새로 만들어졌으면 다시 받습니다 (작은 market.json 으로 먼저 확인 · 5분에 한 번까지) */
+  const genRef = useRef(null), loadedAt = useRef(0);
+  useEffect(() => {
+    let busy = false;
+    const check = async () => {
+      if (document.hidden || busy || Date.now() - loadedAt.current < 5 * 60000) return;
+      busy = true;
+      try {
+        const b = await fetch("/data/market.json?t=" + Date.now()).then(r => r.ok ? r.json() : null);
+        loadedAt.current = Date.now();
+        const g = b?.meta?.generatedAt;
+        if (g && g !== genRef.current) {
+          const a = await fetch("/data/snapshot.json?t=" + Date.now()).then(r => r.ok ? r.json() : null);
+          if (a?.stocks && a?.meta?.generatedAt === g) { setSnap(a); setMarket(b); genRef.current = g; }
+        }
+      } catch { /* 다음에 다시 */ }
+      busy = false;
+    };
+    const id = setInterval(check, 5 * 60000);
+    document.addEventListener("visibilitychange", check);
+    window.addEventListener("focus", check);
+    return () => { clearInterval(id); document.removeEventListener("visibilitychange", check); window.removeEventListener("focus", check); };
   }, []);
 
   /* ── 후보 체류일 ── */
@@ -2423,7 +2446,7 @@ function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, setPos, 
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <Star on={watch.includes(s.t)} onClick={() => toggleWatch(s.t)} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 17, fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.n}<InfoLink s={s} style={{ fontSize: 15 }} /></div>
+            <div style={{ fontSize: 17, fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.n}</div>
             <div style={{ fontSize: FS.xs, color: C.muted }}>{s.m === "kr" ? "🇰🇷" : "🇺🇸"} {s.t} · {s.asOf} 종가</div>
           </div>
           <div style={{ textAlign: "right" }}>
@@ -2476,7 +2499,7 @@ function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, setPos, 
               <div style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>PER = 주가 ÷ 최근 12개월 주당순이익 · 예상 PER = 주가 ÷ 앞으로 12개월 예상 이익 · 참고용(이 값으로 거르지 않음)</div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
                 <a href={tvUrl(s)} target="_blank" rel="noopener" style={link}>📈 트레이딩뷰에서 열기 (확대·선긋기)</a>
-                <a href={infoUrl(s)} target="_blank" rel="noopener" style={link}>↗ {s.m === "kr" ? "네이버 증권" : "종목 정보"}</a>
+                <a href={infoUrl(s)} target="_blank" rel="noopener" style={link}>↗ 네이버 증권에서 보기</a>
               </div>
             </div>);
         })()}

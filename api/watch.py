@@ -1,6 +1,6 @@
 """
 장중 감시 — Vercel 파이썬 서버리스 함수 (36번)
-  주소: /api/watch   (GET)   cron-job.org 같은 외부 스케줄러가 장중 매시 정각에 부릅니다.
+  주소: /api/watch   (GET)   외부 스케줄러가 부를 때만 동작합니다 (지금은 부르는 곳 없음 · 장중 감시는 깃허브 watch.yml 이 담당).
   하는 일 (앱·텔레그램·감시 스크립트와 같은 규칙, 신호를 새로 만들지 않음):
     1) 매도! 후보 — 현재가 < 트레일링선(느린 ST)
     2) 2회차 조건 — 1회차만 들고 있고 현재가가 1회차 +3%~+6% 밴드 안
@@ -87,11 +87,15 @@ def run(base):
         if not px: continue
         name = d.get("n") or p["t"]; cur = f"{px:,.2f}" if d.get("m") != "kr" else f"{px:,.0f}"
         line = d.get("stLine")
+        kr_ = d.get("m") == "kr"
+        line_txt = (f"{line:,.0f}" if kr_ else f"{line:,.2f}") if line else ""
         tr = p.get("tr") if isinstance(p.get("tr"), list) and p.get("tr") else ([{"px": p.get("avg")}] if p.get("avg") else [])
         if line and px < line:
-            hits.append((f"{p['t']}:sell", f"🔴 <b>매도! 후보</b> {name} — 현재 {cur} < 트레일링선 {(f"{line:,.2f}" if d.get("m") != "kr" else f"{line:,.0f}")}\n   종가가 선 아래로 마감하면 매도"))
+            hits.append((f"{p['t']}:sell", f"🔴 <b>매도! 후보</b> {name} — 현재 {cur} < 트레일링선 {line_txt}\n   종가가 선 아래로 마감하면 매도"))
         if p.get("role") == "swing" and len(tr) == 1 and tr[0].get("px") and d.get("stSlow") == 1 and tr[0]["px"] * 1.03 <= px <= tr[0]["px"] * 1.06:
-            hits.append((f"{p['t']}:t2", f"🟢 <b>2회차 조건</b> {name} — 현재 {cur} ≥ 1회차 +3% ({(f"{tr[0]['px'] * 1.03:,.2f}" if d.get("m") != "kr" else f"{tr[0]['px'] * 1.03:,.0f}")}) · 나머지 절반"))
+            t2_px = tr[0]["px"] * 1.03
+            t2_txt = f"{t2_px:,.0f}" if kr_ else f"{t2_px:,.2f}"
+            hits.append((f"{p['t']}:t2", f"🟢 <b>2회차 조건</b> {name} — 현재 {cur} ≥ 1회차 +3% ({t2_txt}) · 나머지 절반"))
     for key, text in hits:
         if time.time() - _LAST.get(key, 0) < 3600: continue    # 1시간 내 중복 억제
         _LAST[key] = time.time(); msgs.append(text)
