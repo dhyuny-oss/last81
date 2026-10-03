@@ -38,7 +38,7 @@ on:
     - cron: '23 22 * * 1-5'  # KST 07:23  미국 보험 1
     - cron: '23 23 * * 1-5'  # KST 08:23  미국 보험 2
   # ★ 102. 수동·외부 호출 — mode=daily 는 평일 갱신(감시 모드 약 5분·종목풀 교체 없음·이미 최신이면 건너뜀)
-  #   cron-job.org 가 /api/refresh?mode=daily 를 06:30·07:30·16:30·17:30 에 부릅니다 (깃허브 예약은 몇 시간씩 늦을 수 있어서)
+  #   Vercel 예약(vercel.json crons → /api/cron/*)이 평일 06·07·16·17시(KST)쯤 mode=daily 로 부릅니다 (깃허브 예약은 몇 시간씩 늦을 수 있어서)
   #   mode=full 은 예전 그대로 전체 스캔 + 종목풀 교체 (약 25분)
   workflow_dispatch:
     inputs:

@@ -23,7 +23,7 @@ Alpha Terminal v4 — 지표 스냅샷 파이프라인
 import json, os, sys, time, math, urllib.request
 from datetime import datetime, timezone, timedelta
 
-VERSION   = "7.12.0"
+VERSION = "7.12.1"
 UA        = {"User-Agent": "Mozilla/5.0"}
 OUT_DIR   = "public/data"
 KST       = timezone(timedelta(hours=9))
@@ -1421,8 +1421,11 @@ def main():
             prot |= set(wl.get("watch") or []) | set(wl.get("extras") or []) | set(extra_added)
         except Exception:
             prot |= set(extra_added)
+        # 115. 감시 풀은 토요일 전체 스캔 직후 한 번만 고르고, 평일에는 그대로 둡니다.
+        #   (예전: 평일마다 다시 걸러서 RS 가 60 아래로 잠깐 내려간 종목이 빠지고 토요일까지 못 돌아왔음 — 298 → 278 → 266)
+        _prev_focus = ((prev_snap.get("meta", {}).get("health") or {}).get("mode") == "focus")
         keep = {t for t, d in prev_snap.get("stocks", {}).items()
-                if (d.get("rs") or 0) >= 60 or ((d.get("w52p") or 0) <= -25 and (d.get("hlt") or 0) >= 0.6)}
+                if _prev_focus or (d.get("rs") or 0) >= 60 or ((d.get("w52p") or 0) <= -25 and (d.get("hlt") or 0) >= 0.6)}
         keep |= {str(t).upper() for t in prot if t}
         fu = {t: v for t, v in universe.items() if t in keep}
         n_kr = sum(1 for v in fu.values() if v["market"] == "kr"); n_us = len(fu) - n_kr

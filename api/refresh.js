@@ -23,7 +23,7 @@
  *   POST /api/refresh   실행 시작 (헤더 x-key 에 REFRESH_KEY)
  *   POST /api/refresh?mode=quick   앱 🔄 시세 갱신 버튼 — 감시 모드 약 5분 · 항상 실행
  *   POST /api/refresh?mode=daily   ★ 102. 평일 갱신 — 감시 모드 약 5분 · 종목풀 교체 없음 · 이미 최신이면 몇 초 만에 건너뜀
- *        cron-job.org 가 평일 06:30·07:30·16:30·17:30 에 이 주소를 부릅니다 (깃허브 예약은 몇 시간씩 늦을 수 있어서).
+ *        정시 갱신은 Vercel 예약(vercel.json crons → /api/cron/*)이 같은 방식으로 실행합니다 (깃허브 예약은 몇 시간씩 늦을 수 있어서).
  *        열린 모드 제한은 전체 실행과 따로 셉니다: 20분 간격 · 24시간 10회
  */
 
