@@ -29,8 +29,8 @@ jobs:
 
       - name: Watch
         env:
-          TG_TOKEN: ${{ secrets.TG_TOKEN }}
-          TG_CHAT:  ${{ secrets.TG_CHAT }}
+          TG_TOKEN: ${{ secrets.TG_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}   # 120. 매일 리포트와 같은 비밀키도 읽습니다
+          TG_CHAT:  ${{ secrets.TG_CHAT || secrets.TELEGRAM_CHAT_ID }}
           ADD_PCT: '3'
           HOLD_PCT: '5'
           CUT_PCT: '-3'

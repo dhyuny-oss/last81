@@ -86,9 +86,19 @@ jobs:
               kst = dt.datetime.utcnow() + dt.timedelta(hours=9)
               # ★ 102. '가장 최근에 지난' 수집 시각과 비교 (예전엔 00~06시에 돌면 아직 안 온 오늘 06:23 과 비교해 늘 다시 돌았고,
               #        늦게 돈 예약이 미국 장중 값을 만들었습니다). 한국 16:17 · 미국 06:23 · 어제 16:17 중 지금보다 앞선 것
+              # ★ 121. 휴장일의 수집 시각은 후보에서 뺍니다 (예전엔 휴일마다 "종가가 아직 오늘이 아님"으로 예약 때마다 다시 돌고 텔레그램도 그만큼 갔음)
+              #        매년 12월에 다음 해 휴장일을 추가 — App.jsx · watch_alert.py · api/watch.py 와 같은 목록
+              KR_HOL = {"2026-09-24", "2026-09-25", "2026-10-05", "2026-10-09", "2026-12-25", "2026-12-31"}
+              US_HOL = {"2026-11-26", "2026-12-25"}
               z = dict(second=0, microsecond=0)
-              cands = [kst.replace(hour=16, minute=17, **z), kst.replace(hour=6, minute=23, **z),
-                       (kst - dt.timedelta(days=1)).replace(hour=16, minute=17, **z)]
+              cands = []
+              for back in range(0, 8):
+                  day = kst - dt.timedelta(days=back)
+                  if day.weekday() < 5 and day.strftime("%Y-%m-%d") not in KR_HOL:
+                      cands.append(day.replace(hour=16, minute=17, **z))            # 그날 한국 종가
+                  us_day = day - dt.timedelta(days=1)                                  # 06:23 에 받는 것은 전날 미국 종가
+                  if us_day.weekday() < 5 and us_day.strftime("%Y-%m-%d") not in US_HOL:
+                      cands.append(day.replace(hour=6, minute=23, **z))
               slot = max(x for x in cands if x <= kst)
               try:
                   snap = json.load(open("public/data/snapshot.json"))
