@@ -108,7 +108,7 @@
   ],
   "extras": [],
   "trades": [],
-  "updatedAt": "2026-10-04T00:08:24.516Z",
+  "updatedAt": "2026-10-04T22:25:29.774Z",
   "settings": {
     "revMin": 10,
     "slotsUs": 7,
@@ -121,7 +121,7 @@
   },
   "excludes": [],
   "backup": {
-    "at": "2026-10-04T00:08:24.516Z",
+    "at": "2026-10-04T22:25:29.774Z",
     "positions": [
       {
         "t": "DDOG",
