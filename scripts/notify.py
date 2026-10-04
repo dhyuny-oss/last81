@@ -22,7 +22,7 @@ COOLDOWN_DAYS 안에는 '신규' 로 치지 않습니다.
 환경변수: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
           REPORT_MODE = full(기본) | brief   ※ brief 는 신규 신호가 있을 때만 발송
 """
-import json, os, urllib.request, urllib.parse
+import json, os, html as _htmllib, urllib.request, urllib.parse
 from datetime import datetime, timezone, timedelta
 
 KST      = timezone(timedelta(hours=9))
@@ -220,7 +220,9 @@ def build(snap, mkt, state, now):
         risk = val * (1 - d["stLine"] / d["c"]) if (p.get("role") != "long" and not out and d.get("stSlow") == 1 and d.get("stLine") and d.get("c")) else 0
         mine.append((out, line, d.get("m") or ("kr" if str(p.get("t", "")).isdigit() else "us"), amt, val, risk))
     buys = []
+    _own = {str(q.get("t", "")).upper() for q in (wl.get("positions") or [])}
     for t in (wl.get("watch") or []):
+        if str(t if isinstance(t, str) else (t or {}).get("t", "")).upper() in _own: continue    # 134. 보유 종목은 위 '내 종목'에 이미 나옴 — 관심 신호에서 뺌
         d = look(t)
         if not d: continue
         if d.get("action") == "buy":
@@ -470,7 +472,7 @@ def build_weekly(snap, mkt, now):
             L.append(f"      {x.get('n') or x['t']} {x['d'][5:]}→{x['x']['d'][5:]} {(x['x']['p']/x['p']-1)*100:+.1f}%")
     # 4.5 이번 주 5칸 추천 — 파이프라인이 확정한 today.json 을 그대로 (앱·AI 도구와 같은 목록). 없으면 같은 규칙으로 계산
     try:
-        td = json.load(open(f"{DATA}/today.json", encoding="utf-8"))
+        td = _fix_names(json.load(open(f"{DATA}/today.json", encoding="utf-8")))
     except Exception:
         td = None
     if td and td.get("pickUs") is not None:
@@ -535,6 +537,16 @@ def build_weekly(snap, mkt, now):
     L.append(f'<a href="{APP_URL}">점검 탭 열기 →</a>')
     return "\n".join(L)
 
+def _fix_names(o):
+    """135. 모든 'n'(이름) 값: 한 번 풀고 → 텔레그램 HTML 용으로 한 번만 이스케이프"""
+    if isinstance(o, dict):
+        for k, v in o.items():
+            if k == "n" and isinstance(v, str): o[k] = _htmllib.escape(_htmllib.unescape(v), quote=False)
+            else: _fix_names(v)
+    elif isinstance(o, list):
+        for v in o: _fix_names(v)
+    return o
+
 def main():
     snap = load(f"{DATA}/snapshot.json")
     mkt  = load(f"{DATA}/market.json")
@@ -543,6 +555,8 @@ def main():
         return
     state = load(STATE, {}) or {}
     now = datetime.now(KST)
+    # 135. 텔레그램은 HTML 모드 — 이름의 & < > 는 한 번만 이스케이프 (이미 &amp; 로 들어온 이름도 한 번 풀고 다시 씌움)
+    _fix_names(snap); _fix_names(mkt)
 
     if os.environ.get("WEEKLY") == "1":          # 토요일 전체 스캔 뒤 주간 리포트 (daily.yml 이 넣어 줍니다)
         text = build_weekly(snap, mkt, now)

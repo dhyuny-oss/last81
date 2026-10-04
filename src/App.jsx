@@ -18,7 +18,10 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-export const APP_VERSION = "v13.6.0";
+export const APP_VERSION = "v13.7.0";
+
+/** 135. 수집 데이터에 남아 있던 "&amp;" 를 "&" 로 (예: Procter &amp; Gamble). 파이프라인이 고친 뒤에는 할 일이 없어 그냥 지나갑니다 */
+const getJson = (url) => fetch(url).then(r => r.ok ? r.text().then(t => JSON.parse(t.includes("&amp;") ? t.replace(/&amp;/g, "&") : t)) : null);
 
 /* ★ 한투 (1/2) — 한투 계좌 조회 카드(보기 전용). 빼려면: 이 두 줄 + 아래 "★ 한투 (2/2)" 한 줄 + src/Kis.jsx + api/kis.js + Vercel 환경변수 KIS_* 삭제 */
 const KisPanel = React.lazy(() => import("./Kis.jsx"));
@@ -786,7 +789,7 @@ export default function App() {
   useEffect(() => { const f = () => setCfgTick(x => x + 1); window.addEventListener("v11:settings", f); return () => window.removeEventListener("v11:settings", f); }, []);
   const [syncState, setSyncState] = useState(() => ({ at: localStorage.getItem("v7.sync.at"), ok: true }));
   useEffect(() => {
-    fetch("/data/today.json?t=" + Date.now()).then(r => r.ok ? r.json() : null).then(setToday).catch(() => {});
+    getJson("/data/today.json?t=" + Date.now()).then(setToday).catch(() => {});
   }, []);
   useEffect(() => {
     fetch("/data/signals_log.json?t=" + Date.now()).then(r => r.ok ? r.json() : null).then(setSiglog).catch(() => {});
@@ -824,8 +827,8 @@ export default function App() {
     (async () => {
       try {
         const [a, b] = await Promise.all([
-          fetch("/data/snapshot.json?t=" + Date.now()).then(r => r.ok ? r.json() : Promise.reject(new Error("snapshot " + r.status))),
-          fetch("/data/market.json?t=" + Date.now()).then(r => r.ok ? r.json() : Promise.reject(new Error("market " + r.status))),
+          getJson("/data/snapshot.json?t=" + Date.now()).then(j => j || Promise.reject(new Error("snapshot"))),
+          getJson("/data/market.json?t=" + Date.now()).then(j => j || Promise.reject(new Error("market"))),
         ]);
         setSnap(a); setMarket(b); genRef.current = b?.meta?.generatedAt || null; loadedAt.current = Date.now();
       } catch (e) { setErr(e.message); }
@@ -839,11 +842,11 @@ export default function App() {
       if (document.hidden || busy || Date.now() - loadedAt.current < 5 * 60000) return;
       busy = true;
       try {
-        const b = await fetch("/data/market.json?t=" + Date.now()).then(r => r.ok ? r.json() : null);
+        const b = await getJson("/data/market.json?t=" + Date.now());
         loadedAt.current = Date.now();
         const g = b?.meta?.generatedAt;
         if (g && g !== genRef.current) {
-          const a = await fetch("/data/snapshot.json?t=" + Date.now()).then(r => r.ok ? r.json() : null);
+          const a = await getJson("/data/snapshot.json?t=" + Date.now());
           if (a?.stocks && a?.meta?.generatedAt === g) { setSnap(a); setMarket(b); genRef.current = g; }
         }
       } catch { /* 다음에 다시 */ }
@@ -1164,7 +1167,7 @@ export default function App() {
         {tab === "review" && <ReviewTab {...shared} uni={uni} snap={snap} onShowRules={() => setRulesOpen(true)} />}
         {tab === "pool" && <PoolTab {...shared} snap={snap} uni={uni} />}
         {tab === "track" && <TrackTab {...shared} stocks={items} />}
-        {tab === "track" && <React.Suspense fallback={null}><KisPanel held={pos.map(p => p.t)} /></React.Suspense>}{/* ★ 한투 (2/2) */}
+        {tab === "track" && <React.Suspense fallback={null}><KisPanel held={pos.map(p => p.t)} stocks={stocks} picks={today?.pickUs || []} watch={watch} toggleWatch={toggleWatch} /></React.Suspense>}{/* ★ 한투 (2/2) */}
         {(tab === "market" || tab === "review") && <PracticeEntry />}{/* ★ 연습 (2/2) */}
       </main>
 

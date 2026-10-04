@@ -20,6 +20,7 @@ Alpha Terminal v4 — 지표 스냅샷 파이프라인
   public/data/market.json    지수·섹터·시장판단
   public/data/bars/<티커>.json  차트용 시계열 (누른 종목만 로드, 1개 약 16KB)
 """
+import html as _htmllib
 import json, os, sys, time, math, urllib.request
 from datetime import datetime, timezone, timedelta
 
@@ -394,6 +395,7 @@ def build_stock(ticker, cd, meta, name, market, sector):
     #   야후 meta 의 회사명으로 채웁니다. 추가 요청 0회 (이미 받아둔 응답).
     if not name or name == ticker:
         name = meta.get("longName") or meta.get("shortName") or ticker
+    name = _htmllib.unescape(name) if isinstance(name, str) else name      # 135. "&amp;" → "&"
     c = [x["c"] for x in cd]; v = [x["v"] for x in cd]
     px = c[-1]
     ma200 = sma(c, 200)
