@@ -18,7 +18,24 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-export const APP_VERSION = "v13.4.0";
+export const APP_VERSION = "v13.5.0";
+
+/* ★ 연습 (1/2) — 고르기 연습 입구. 빼려면: 이 블록 + 아래 "★ 연습 (2/2)" 한 줄 + src/Practice.jsx + public/data/practice.json 삭제 */
+const Practice = React.lazy(() => import("./Practice.jsx"));
+function PracticeEntry() {
+  const [open, setOpen] = useState(false);
+  const close = useCallback(() => setOpen(false), []);
+  return (<>
+    <button onClick={() => setOpen(true)} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", marginTop: 14,
+      padding: "12px 14px", minHeight: 48, borderRadius: 12, background: "#0F1420", border: "1px solid rgba(255,255,255,.09)", color: "#E5E7EB", cursor: "pointer", font: "inherit" }}>
+      <span style={{ fontSize: 20 }}>🎯</span>
+      <span style={{ flex: 1, minWidth: 0 }}><b style={{ fontSize: 14 }}>고르기 연습</b>
+        <span style={{ display: "block", fontSize: 12, color: "#9CA3AF" }}>과거 실제 신호 250문제 · 셋 중 하나 골라 보기</span></span>
+      <span style={{ color: "#9CA3AF" }}>›</span>
+    </button>
+    {open && <React.Suspense fallback={null}><Practice onClose={close} /></React.Suspense>}
+  </>);
+}
 
 /* ══════════════ 디자인 토큰 ══════════════ */
 const C = {
@@ -1144,6 +1161,7 @@ export default function App() {
         {tab === "review" && <ReviewTab {...shared} uni={uni} snap={snap} onShowRules={() => setRulesOpen(true)} />}
         {tab === "pool" && <PoolTab {...shared} snap={snap} uni={uni} />}
         {tab === "track" && <TrackTab {...shared} stocks={items} />}
+        {(tab === "market" || tab === "review") && <PracticeEntry />}{/* ★ 연습 (2/2) */}
       </main>
 
       {/* ═══ 하단 탭바 — 엄지가 닿는 곳 ═══ */}
