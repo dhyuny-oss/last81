@@ -117,7 +117,7 @@ export default function KisPanel({ held = [], stocks = {}, picks = [], watch = [
     <div style={box}>{head}
       <div style={{ color: K.dim, marginTop: 6, lineHeight: 1.6 }}>
         {info.off ? "서버 연결 함수(/api/kis)를 찾지 못했습니다."
-          : !info.configured ? <>아직 연결 전입니다. Vercel → Settings → Environment Variables 에 <span style={{ fontFamily: MONO, color: K.text }}>KIS_APP_KEY · KIS_APP_SECRET · KIS_ACCOUNT · KIS_ENV · KIS_PIN</span> 을 넣고 다시 배포하면 여기서 조회됩니다.</>
+          : !info.configured ? <>아직 연결 전입니다. Vercel → Settings → Environment Variables 에 <span style={{ fontFamily: MONO, color: K.text }}>KIS_DEMO_APP_KEY · KIS_DEMO_APP_SECRET · KIS_DEMO_ACCOUNT · KIS_ENV · KIS_PIN</span> 을 넣고 다시 배포하면 여기서 조회됩니다.</>
           : "Vercel 환경변수 KIS_PIN(내가 정하는 비밀번호)을 넣어야 열립니다."}
       </div>
     </div>);

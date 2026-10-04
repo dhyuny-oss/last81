@@ -11,9 +11,9 @@
  *   4) Vercel 환경변수 KIS_* 삭제 + 한투 앱에서 Open API 해지
  *
  * ▣ Vercel 환경변수 (Settings → Environment Variables · 채팅/깃허브에 적지 마세요)
- *   KIS_APP_KEY      앱 키
- *   KIS_APP_SECRET   앱 시크릿
- *   KIS_ACCOUNT      계좌번호 8자리 + 상품코드 2자리 (예: 12345678-01 · 하이픈 있어도 없어도 됨)
+ *   KIS_DEMO_APP_KEY / KIS_DEMO_APP_SECRET / KIS_DEMO_ACCOUNT   모의투자용 (KIS_ENV=demo 일 때 사용)
+ *   KIS_APP_KEY / KIS_APP_SECRET / KIS_ACCOUNT(또는 KIS_ACCOUNT_NO)  실전용 (KIS_ENV=real 일 때만 · 기존 시세 수집과 같은 키)
+ *   계좌번호는 8자리 + 상품코드 2자리 (예: 12345678-01 · 하이픈 있어도 없어도 됨)
  *   KIS_ENV          demo(모의·기본값) 또는 real(실전)
  *   KIS_PIN          내가 정하는 비밀번호. 앱에서 한 번 입력. 실전 조회와 모든 주문에 필수입니다.
  *   KIS_MAX_USD      (선택) 주문 1건 금액 상한, 기본 5000 달러
@@ -45,8 +45,10 @@ const US_EX = ["NASD", "NYSE", "AMEX"];
 
 function cfg() {
   const env = String(process.env.KIS_ENV || "demo").trim().toLowerCase() === "real" ? "real" : "demo";
-  const acct = String(process.env.KIS_ACCOUNT || "").replace(/\D/g, "");
-  return { env, key: (process.env.KIS_APP_KEY || "").trim(), sec: (process.env.KIS_APP_SECRET || "").trim(),
+  const demo = env === "demo";   // 모의는 KIS_DEMO_* 전용 이름 — 기존 실전 키(KIS_APP_KEY 등)와 섞이지 않게
+  const acct = String((demo ? process.env.KIS_DEMO_ACCOUNT : (process.env.KIS_ACCOUNT || process.env.KIS_ACCOUNT_NO)) || "").replace(/\D/g, "");
+  return { env, key: String((demo ? process.env.KIS_DEMO_APP_KEY : process.env.KIS_APP_KEY) || "").trim(),
+           sec: String((demo ? process.env.KIS_DEMO_APP_SECRET : process.env.KIS_APP_SECRET) || "").trim(),
            cano: acct.slice(0, 8), prod: acct.slice(8, 10) || "01", acctOk: acct.length === 8 || acct.length === 10,
            pin: (process.env.KIS_PIN || "").trim(), maxUsd: num(process.env.KIS_MAX_USD) || 5000,
            hts: (process.env.KIS_HTS_ID || "").trim() };
@@ -231,7 +233,7 @@ export default async function handler(req, res) {
   if (req.method === "GET") return res.status(200).json({ ok: true, configured, env: c.env, pin: !!c.pin, pinMissing: !c.pin, canOrder: c.env === "demo" && !!c.pin,
                                                           maxUsd: c.maxUsd, hts: !!c.hts });
   if (req.method !== "POST") return res.status(405).json({ ok: false, msg: "GET 또는 POST 만 됩니다" });
-  if (!configured) return res.status(200).json({ ok: false, code: "setup", msg: "Vercel 환경변수(KIS_APP_KEY · KIS_APP_SECRET · KIS_ACCOUNT)가 아직 없습니다" });
+  if (!configured) return res.status(200).json({ ok: false, code: "setup", msg: "Vercel 환경변수(KIS_DEMO_APP_KEY · KIS_DEMO_APP_SECRET · KIS_DEMO_ACCOUNT)가 아직 없습니다" });
   if (!c.pin) return res.status(200).json({ ok: false, code: "setup", msg: "KIS_PIN 환경변수(내가 정하는 비밀번호)를 넣어야 열립니다" });
   if (!pinOk(c, req.headers["x-kis-pin"])) { await sleep(700); return res.status(200).json({ ok: false, code: "pin", msg: "비밀번호가 맞지 않습니다" }); }
   const body = typeof req.body === "string" ? (() => { try { return JSON.parse(req.body); } catch { return {}; } })() : (req.body || {});
