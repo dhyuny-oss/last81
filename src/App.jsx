@@ -18,7 +18,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-export const APP_VERSION = "v13.3.1";
+export const APP_VERSION = "v13.4.0";
 
 /* ══════════════ 디자인 토큰 ══════════════ */
 const C = {
@@ -1260,7 +1260,7 @@ const myRules = (sz) => [
   [`절반 → 1회차 +3% 확인 후 나머지 절반 · +6% 넘게 올랐으면 추격 금지`,
    `종목당 한도 🇰🇷 ${sz ? money(sz.limKr, "kr") : "—"} · 🇺🇸 ${sz ? money(sz.limUs, "us") : "—"} · 고가 종목은 1주 한 번에`],
   ["매도는 '매도!' 하나 — 트레일링선 아래 마감. 그날 처리한다", "−3% 손절·고점 −5%·2주 타임컷은 검증에서 성과를 깎아 쓰지 않는다. 매도를 미루면 매수 타이밍 차이보다 비싸다"],
-  ["🇰🇷는 쉬어도 된다 · 🇺🇸는 22:30 개장에 주문", "원화 노출은 부동산으로 충분. 한국을 한다면 09:30 이후에만"],
+  [`🇰🇷는 쉬어도 된다 · 🇺🇸는 ${usDST(Date.now()) ? "22:30" : "23:30"} 개장에 주문`, "원화 노출은 부동산으로 충분. 한국을 한다면 09:30 이후에만"],
   ["이벤트 매매 금지 · 몰빵 금지 · 적자 추격 금지 · 급락 탭은 소액만", "같은 업종에 두 칸 이상 넣지 않는다. 급락은 참고용(주도주 보유를 못 이김)"],
 ];
 function RulesPopup({ onClose, sizer }) {
@@ -1292,7 +1292,7 @@ function RulesPopup({ onClose, sizer }) {
             </button>);
         })}
         <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 10, lineHeight: 1.7 }}>
-          2번 한도는 내 종목 탭 설정을 그대로 씁니다. 다섯 개 모두 2008–26 검증과 이 대화에서 확정한 규칙입니다.
+          2번 한도는 내 종목 탭 설정을 그대로 씁니다. 다섯 개 모두 2008–26 검증으로 확정한 규칙입니다.
         </div>
         <button onClick={onClose} disabled={!all}
           style={{ ...btn(all ? C.emerald : C.dim), width: "100%", marginTop: 12, opacity: all ? 1 : .5, minHeight: 44 }}>
@@ -1395,7 +1395,8 @@ function MarketTab({ market, setTab, onShowRules, list, pos, stocks, sizer, open
   const revMin = getRevMin();
   const buyAll = list.filter(x => x.action === "buy" && (x.tvr ?? 0) >= 40);
   const buyL = buyAll.filter(x => passRevOf(x, revMin));
-  const buyN = buyL.length, buyCut = buyAll.length - buyL.length;
+  const heldT = new Set((pos || []).map(p => p.t));
+  const buyN = buyL.filter(x => !heldT.has(x.t)).length, buyCut = buyAll.length - buyL.length;   // 132. 보유 종목은 '새 신호' 수에서 뺌 (찾기 탭과 같은 수)
   const buyKr = buyL.filter(x => x.m === "kr").length;
   // 109. 오늘 실제로 살 수 있는 수 = 추천(찾기 탭 '오늘 살 것'과 같은 함수) 중 빈 칸만큼 · 투자금 0원인 시장은 0
   const todo3 = (() => {
@@ -1425,7 +1426,7 @@ function MarketTab({ market, setTab, onShowRules, list, pos, stocks, sizer, open
           <span>🇰🇷 {money(sizer.plan.kr, "kr")}</span><span>대기 {money(sizer.plan.cash, "kr")}</span>
         </div>)}
       {/* 원칙 — 한 줄. 누르면 팝업 */}
-      <button onClick={onShowRules} style={{ ...btn(C.gold), width: "100%", marginTop: 8, textAlign: "left", display: "flex", gap: 8 }}>
+      <button onClick={onShowRules} style={{ ...btn(C.gold), width: "100%", marginTop: 8, textAlign: "left", display: "flex", alignItems: "center", gap: 8 }}>
         <span>📌 이번 주 원칙 5개</span><span style={{ marginLeft: "auto", fontWeight: 400, color: C.dim }}>확인함 ✓ · 다시 보기 ›</span>
       </button>
 
@@ -1452,7 +1453,6 @@ function MarketTab({ market, setTab, onShowRules, list, pos, stocks, sizer, open
             </div>);
         })}
       </Card>
-      <MyHoldings pos={pos} stocks={stocks} sizer={sizer} setTab={setTab} openStock={openStock} />
       {/* 오늘 할 일 — 이 순서대로 탭을 넘기면 됩니다 */}
       <Sec>오늘 할 일</Sec>
       <Card style={{ padding: "4px 12px" }}>
@@ -1475,9 +1475,10 @@ function MarketTab({ market, setTab, onShowRules, list, pos, stocks, sizer, open
             <span style={{ color: C.muted }}>›</span>
           </button>))}
       </Card>
+      <MyHoldings pos={pos} stocks={stocks} sizer={sizer} setTab={setTab} openStock={openStock} />
 
       {/* 거래시간 — 접어 두고 한 줄만 */}
-      <button onClick={() => setHoursOpen(v => !v)} style={{ ...btn(C.dim), width: "100%", marginTop: 8, textAlign: "left", display: "flex", gap: 8 }}>
+      <button onClick={() => setHoursOpen(v => !v)} style={{ ...btn(C.dim), width: "100%", marginTop: 8, textAlign: "left", display: "flex", alignItems: "center", gap: 8 }}>
         <span>🕒 {nowSeg ? `지금 ${nowSeg[0]}` : "지금 휴장"}</span>
         <span style={{ marginLeft: "auto", fontWeight: 400, color: C.muted }}>내 시각 07:30 · 21:30 {hoursOpen ? "▴" : "▾"}</span>
       </button>
@@ -1495,7 +1496,7 @@ function MarketTab({ market, setTab, onShowRules, list, pos, stocks, sizer, open
         <div style={{ marginTop: 10, padding: "7px 10px", borderRadius: 9, background: "rgba(245,158,11,.10)", border: `1px solid ${C.gold}55`, fontSize: FS.xs, color: C.dim }}>
           <b style={{ color: C.gold }}>⚠ 금리 경계</b> — 미 10년물 {Number(risk["^TNX"].c).toFixed(2)}% · 1달 +{Number(risk["^TNX"].d21p).toFixed(2)}%p · 정보용(매매 규칙 아님) · 아래 펼쳐서 자세히
         </div>)}
-      <button onClick={() => setDetailOpen(v => !v)} style={{ ...btn(C.dim), width: "100%", marginTop: 10, display: "flex" }}>
+      <button onClick={() => setDetailOpen(v => !v)} style={{ ...btn(C.dim), width: "100%", marginTop: 10, display: "flex", alignItems: "center" }}>
         <span>시장 자세히 — 지수 · 위험 지표 · 섹터 · 업종 PER</span><span style={{ marginLeft: "auto", fontWeight: 400, color: C.muted }}>{detailOpen ? "접기 ▴" : "펼치기 ▾"}</span>
       </button>
       {detailOpen && <>
@@ -2080,12 +2081,13 @@ function TodayPicks({ today, stocks, sizer, openStock, pos, staleInfo, market, a
       </div>);
   };
   const rm = cfg.revMin; const cand = loc.candidates.filter(r => rm <= 0 || r.m === "kr" || r.growth == null || r.growth >= rm);
-  const nUs = cand.filter(r => r.m === "us").length;
+  const candNew = cand.filter(r => !r.held);                 // 132. 보유 제외 — 찾기 탭 '매수! N' 과 같은 수
+  const nUs = candNew.filter(r => r.m === "us").length;
   return (
     <Card style={{ marginTop: 10, borderColor: `${C.emerald}55`, padding: "10px 12px" }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
         <span style={{ fontSize: FS.md, fontWeight: 800 }}>오늘 살 것</span>
-        <span style={{ fontSize: FS.xs, color: C.muted }}>{md(today?.asOf) || "—"} 종가 기준 · 매수! 🇺🇸 {nUs} · 🇰🇷 {cand.length - nUs} 중에서</span>
+        <span style={{ fontSize: FS.xs, color: C.muted }}>{md(today?.asOf) || "—"} 종가 기준 · 매수! 🇺🇸 {nUs} · 🇰🇷 {candNew.length - nUs} 중에서</span>
       </div>
       <StaleWarn info={staleInfo} />
       {differs && <div style={{ fontSize: 10.5, color: C.gold, marginTop: 6, lineHeight: 1.5 }}>
@@ -2120,6 +2122,7 @@ function FindTab({ list, openStock, watch, toggleWatch, market, sizer, pos, sigl
   const toggleSeen = (t) => setSeenMap(o => ({ ...o, [wk]: { ...(o[wk] || {}), [t]: !(o[wk] || {})[t] } }));
   const heldSet = useMemo(() => new Set((pos || []).map(p => p.t)), [pos]);
   const passRev = (s) => passRevOf(s, revMin);
+  const isBuy = (s) => s.action === "buy" && passRev(s) && !heldSet.has(s.t);   // 132. 매수! 목록 = 새로 살 수 있는 것만 (보유 제외)
   const pool = useMemo(() => {
     let r = list.filter(s => (s.tvr ?? 0) >= 40);
     if (mkt !== "all") r = r.filter(s => s.m === mkt);
@@ -2127,7 +2130,7 @@ function FindTab({ list, openStock, watch, toggleWatch, market, sizer, pos, sigl
   }, [list, mkt]);
   const rows = useMemo(() => {
     let r = pool;
-    if (filt === "buy") r = r.filter(s => s.action === "buy" && passRev(s));
+    if (filt === "buy") r = r.filter(isBuy);
     else if (filt === "pre") r = r.filter(s => s.pre);
     const W = { pull: 3, strong: 3, trend: 2 };
     const key = { str: s => ((s.action === "buy" && s.why !== "trend") ? 0 : 1) * 1000 - (s.str ?? -1),   // 강도순 (검증된 순서)
@@ -2137,12 +2140,13 @@ function FindTab({ list, openStock, watch, toggleWatch, market, sizer, pos, sigl
                   sec: s => { const r = (market?.sectors || []).find(x => x.tk === s.sec); return (r ? r.rank : 99) * 1000 - (s.rs ?? 0); } }[sortBy];
     const sorted = [...r].sort((a, b) => key(a) - key(b));
     return [...sorted.filter(s => !seenSet[s.t]), ...sorted.filter(s => seenSet[s.t])];   // 확인한 것은 맨 아래
-  }, [pool, filt, sortBy, market, revMin, seenSet, ageMap]);
-  const nNew = pool.filter(s => s.action === "buy" && passRev(s) && (ageMap[s.t] ?? 99) <= 1).length;
-  const nBuy = pool.filter(s => s.action === "buy" && passRev(s)).length;
+  }, [pool, filt, sortBy, market, revMin, seenSet, ageMap, heldSet]);
+  const nNew = pool.filter(s => isBuy(s) && (ageMap[s.t] ?? 99) <= 1).length;
+  const nBuy = pool.filter(isBuy).length;
+  const nHeldBuy = pool.filter(s => s.action === "buy" && passRev(s) && heldSet.has(s.t)).length;
   const nCut = pool.filter(s => s.action === "buy" && !passRev(s)).length;
   const nPre = pool.filter(s => s.pre).length;
-  const nKr = pool.filter(s => s.action === "buy" && s.m === "kr").length;
+  const nKr = pool.filter(s => isBuy(s) && s.m === "kr").length;
   return (
     <>
       <TodayPicks today={today} stocks={stocks} sizer={sizer} openStock={openStock} pos={pos} staleInfo={staleInfo} market={market} ageMap={ageMap} sinceMap={sinceMap} genDay={genDay} />
@@ -2156,7 +2160,7 @@ function FindTab({ list, openStock, watch, toggleWatch, market, sizer, pos, sigl
             items={[[0, "매출 필터 끔"], [5, "매출 +5%↑"], [10, "매출 +10%↑"], [20, "매출 +20%↑"]]} />
         </div>
         <div style={{ fontSize: FS.xs, color: C.muted, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-          <span>{nNew > 0 && <b style={{ color: C.gold }}>🆕 최근 종가에 새로 {nNew} · </b>}🇰🇷 눌림 {nKr} · 🇺🇸 강세·추세 {nBuy - nKr}{nCut > 0 && <span style={{ color: C.gold }}> · ✂ 매출 부진 {nCut} 숨김</span>}</span>
+          <span>{nNew > 0 && <b style={{ color: C.gold }}>🆕 최근 종가에 새로 {nNew} · </b>}🇰🇷 눌림 {nKr} · 🇺🇸 강세·추세 {nBuy - nKr}{nCut > 0 && <span style={{ color: C.gold }}> · ✂ 매출 부진 {nCut} 숨김</span>}{nHeldBuy > 0 && <span> · 보유 {nHeldBuy} 제외</span>}</span>
           {Object.values(seenSet).some(Boolean) && (
             <button onClick={() => setSeenMap(o => ({ ...o, [wk]: {} }))} style={{ ...linkBtn, fontSize: FS.xs, minHeight: 32 }}>
               ↺ 확인 {Object.values(seenSet).filter(Boolean).length} 모두 해제</button>)}
@@ -2168,7 +2172,7 @@ function FindTab({ list, openStock, watch, toggleWatch, market, sizer, pos, sigl
           <b style={{ color: C.cyan }}>예비 후보 = 관찰용, 매수! 아님.</b> 검증(2008–26)에서 '강해질 것 같은' 진입 5종은 모두 현행을 못 이겼습니다(미국 −8~−14%p).
           ☆로 담아 두면 매수!로 바뀌는 날 알림이 옵니다. <b>rising</b> = 추세 유지·RS 55~70·1달 시장대비 + / <b>turn</b> = 느린ST 초록 전환 3일 이내
         </div>)}
-      <button onClick={() => setShowAll(v => !v)} style={{ ...btn(C.dim), width: "100%", marginTop: 8, display: "flex" }}>
+      <button onClick={() => setShowAll(v => !v)} style={{ ...btn(C.dim), width: "100%", marginTop: 8, display: "flex", alignItems: "center" }}>
         <span>{filt === "pre" ? `예비 목록 ${rows.length}개` : filt === "buy" ? `매수! 목록 ${rows.length}개` : `전체 목록 ${rows.length}개`}</span><span style={{ marginLeft: "auto", fontWeight: 400, color: C.muted }}>{showAll ? "접기 ▴" : "펼치기 ▾"}</span>
       </button>
       {showAll && <>
@@ -2435,7 +2439,7 @@ function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, setPos, 
     ...(s.m === "kr"
       ? [["RSI 45 회복 (눌림)", !!s.pull, `RSI ${s.rsi?.toFixed(0) ?? "—"}${s.pull ? " · 오늘 회복" : ""}`]]
       : [["RSI 60 이상 (강세)", (s.rsi ?? 0) >= 60, `RSI ${s.rsi?.toFixed(0) ?? "—"}`]]),
-    ["또는 추세 확인 (ST 3개 초록 + 구름 위)", !!s.trend3, `ST ${s.st ?? "—"}/3 · 구름 ${s.cloud === 1 ? "위" : s.cloud === 0 ? "안" : "아래"}`],
+    ["↳ 또는 추세 확인 (ST 3개 초록 + 구름 위)", !!s.trend3, `ST ${s.st ?? "—"}/3 · 구름 ${s.cloud === 1 ? "위" : s.cloud === 0 ? "안" : "아래"}`],
   ] : [];
   const allOk = s.action === "buy";
 
@@ -2498,8 +2502,13 @@ function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, setPos, 
               ) : <div style={{ fontSize: FS.xs, color: C.muted }}>🇰🇷 PER 은 자료원(야후)에 없어 네이버 증권에서 확인합니다</div>}
               <div style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>PER = 주가 ÷ 최근 12개월 주당순이익 · 예상 PER = 주가 ÷ 앞으로 12개월 예상 이익 · 참고용(이 값으로 거르지 않음)</div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-                <a href={tvUrl(s)} target="_blank" rel="noopener" style={link}>📈 트레이딩뷰에서 열기 (확대·선긋기)</a>
-                <a href={infoUrl(s)} target="_blank" rel="noopener" style={link}>↗ 네이버 증권에서 보기</a>
+                <a href={tvUrl(s)} target="_blank" rel="noopener" style={link}>📈 트레이딩뷰</a>
+                <a href={`https://finance.yahoo.com/quote/${encodeURIComponent(ysym(s))}`} target="_blank" rel="noopener" style={link}>야후</a>
+                {s.m === "us" && <a href={`https://finviz.com/quote.ashx?t=${encodeURIComponent(String(s.t).replace(".", "-"))}`} target="_blank" rel="noopener" style={link}>핀비즈</a>}
+                <a href={infoUrl(s)} target="_blank" rel="noopener" style={link}>네이버</a>
+              </div>
+              <div style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>
+                트레이딩뷰 = 차트 확대·선긋기 · 야후 = 실적·재무(앱 PER 의 출처){s.m === "us" ? " · 핀비즈 = 지표 한눈에" : ""} · 네이버 = 한글 정보
               </div>
             </div>);
         })()}
@@ -2538,6 +2547,7 @@ function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, setPos, 
           {held ? "내 종목에서 보기" : isEtf ? `＋ ${price(regPx, regM)} 에 보유 등록${veh?.code ? ` (${veh.code})` : ""}`
             : sh > 0 ? `＋ 1회차 매수 등록 · ${price(regPx, regM)}`
             : Math.floor(sizer.limit(regM) / regPx) >= 1 ? `＋ 1주 매수 등록 · ${price(regPx, regM)}`
+            : !(sizer.limit(regM) > 0) ? `＋ 1주 매수 등록 · ${price(regPx, regM)}`
             : `＋ 1주 등록 (한도 초과 — 칸 2개 쓰는 셈) · ${price(regPx, regM)}`}</button>
         {!held && isStock && slotInfo(pos, regM).free <= 0 && <div style={{ fontSize: FS.xs, color: C.gold, marginTop: 6, textAlign: "center", fontWeight: 700 }}>
           ⛔ 빈 칸 없음 (보유 {slotInfo(pos, regM).held} · {slotInfo(pos, regM).n}칸) — 오늘은 새로 사지 않는 날입니다</div>}
@@ -2548,7 +2558,7 @@ function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, setPos, 
       <Card style={{ marginTop: 8, padding: "10px 12px" }}>
         <div onClick={() => setCheckOpen(v => !v)} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
           <span style={{ fontSize: FS.md, fontWeight: 800 }}>{isEtf ? "보유 조건" : "매수 체크리스트"}</span>
-          {!isEtf && <span style={{ fontSize: FS.xs, color: C.muted }}>✓ {checks.filter(c => c[1]).length}/{checks.length} · {checkOpen ? "접기 ▴" : "자세히 ▾"}</span>}
+          {!isEtf && <span style={{ fontSize: FS.xs, color: C.muted }}>{allOk ? `조건 충족 (${WHY[s.why] || "매수"})` : `기본 ${checks.slice(0, 3).filter(c => c[1]).length}/3`} · {checkOpen ? "접기 ▴" : "자세히 ▾"}</span>}
           <span style={{ marginLeft: "auto", fontSize: FS.sm, fontWeight: 800, color: isEtf ? (s.stSlow === 1 ? C.emerald : C.gold) : allOk ? C.emerald : C.muted }}>
             {isEtf ? (s.stSlow === 1 ? "보유 가능" : "대기") : allOk ? "매수!" : (s.action === "sell" && held) ? "매도!" : "관망"}</span>
         </div>
@@ -3215,7 +3225,8 @@ function SignalReview({ siglog, stocks, market, openStock }) {
     const s = stocks[x.t]; const now = s?.c ?? (x.r?.now != null ? x.p * (1 + x.r.now / 100) : null);
     const ex = x.x;
     const rule = ex ? (ex.p / x.p - 1) * 100 : (now ? (now / x.p - 1) * 100 : null);   // 이탈 = 규칙 손익 · 유지 = 지금까지
-    const after = ex && now ? (now / ex.p - 1) * 100 : null;                              // 판 뒤 흐름
+    // 130. 판 뒤 흐름 — 판 날의 종가가 아직 마지막 종가면(하루도 안 지남) 비교할 값이 없으므로 비웁니다
+    const after = ex && now && s?.asOf && ex.d < s.asOf ? (now / ex.p - 1) * 100 : null;
     const dropped = !ex && s && s.action !== "buy";                                          // 목록에서 빠졌지만 매도 신호는 아님
     return { ...x, n: s?.n || x.n, m: x.m, now, ex, rule, after, dropped, cur: s };
   });
@@ -3267,7 +3278,7 @@ function SignalReview({ siglog, stocks, market, openStock }) {
         {list.length > limit && <button onClick={() => setLimit(l => l + 15)} style={{ ...btn(C.dim), width: "100%", marginTop: 6 }}>더 보기 ({limit} / {list.length})</button>}
         <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 8, lineHeight: 1.6 }}>
           규칙 손익 = 매수! 날 종가에 사서, 처음 종가가 트레일링선 아래로 마감한 날 종가에 판 결과 (유지 중이면 지금까지).
-          판 뒤 = 그 뒤 지금까지 · <b style={{ color: C.emerald }}>✓</b> 더 떨어짐(판 게 맞음) · <b style={{ color: C.red }}>✗</b> 다시 오름.
+          판 뒤 = 그 뒤 지금까지(판 날 다음 종가부터 · 그 전에는 —) · <b style={{ color: C.emerald }}>✓</b> 더 떨어짐(판 게 맞음) · <b style={{ color: C.red }}>✗</b> 다시 오름.
           최고 = 신호 뒤 가장 높았던 종가. "목록 빠짐" = 매수! 조건은 사라졌지만 매도 신호는 아님(보유 중이면 계속 보유).
         </div>
       </Card>
@@ -3655,6 +3666,9 @@ function PoolTab({ snap, uni, list, openStock, watch, pos, extras, setExtras, tr
       {uni && (
         <Card style={{ marginTop: 8 }}>
           <div style={{ fontSize: FS.md, fontWeight: 800 }}>지난 교체 <span style={{ fontSize: FS.xs, color: C.muted, fontWeight: 400 }}>{uni.date} · {uni.prevTotal} → {uni.total}</span></div>
+          {h.mode !== "focus" && uni.total != null && list.length !== uni.total && (
+            <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 3 }}>
+              들어온 {uni.total} − 오늘 제외 {Object.values(h.dropped || {}).reduce((a, b) => a + b, 0)}{Object.keys(h.dropped || {}).length ? `(${Object.entries(h.dropped).map(([k, v]) => `${k} ${v}`).join(" · ")})` : ""} − 수집 실패 {snap?.meta?.counts?.failed ?? 0} = 지금 {list.length}종목</div>)}
           {uni.added?.length > 0 && <div style={{ fontSize: FS.sm, marginTop: 6 }}><b style={{ color: C.emerald }}>＋{uni.added.length}</b> <span style={{ color: C.dim }}>{uni.added.slice(0, 20).map(x => x.n).join(", ")}{uni.added.length > 20 ? " …" : ""}</span></div>}
           {uni.removed?.length > 0 && <div style={{ fontSize: FS.sm, marginTop: 4 }}><b style={{ color: C.red }}>−{uni.removed.length}</b> <span style={{ color: C.dim }}>{uni.removed.slice(0, 20).map(x => x.n).join(", ")}{uni.removed.length > 20 ? " …" : ""}</span></div>}
           {!uni.added?.length && !uni.removed?.length && <div style={{ fontSize: FS.sm, color: C.muted, marginTop: 4 }}>변경 없음</div>}
