@@ -13,6 +13,7 @@
   🇺🇸 S&P500 전부 + (시총 $25B 이상 · 당일 거래대금 $50M 이상)  ≈ 645종목 — 밈주식·코인채굴·테마 ETF·소형주가 빠짐
   공통: 보유·관심·앱에서 추가·tickers_extra 는 보호 (기준과 무관하게 유지), 앱에서 '빼기' 한 종목은 제외
 """
+import html as _htmllib
 import io, json, re, zipfile, urllib.request
 
 KR_TOP_TV     = 150           # 거래대금 상위
@@ -112,7 +113,7 @@ def sp500():
     try:
         html = _get("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies").decode("utf-8", "replace")
         rows = re.findall(r'<a[^>]+>([A-Z.]{1,6})</a></td>\s*<td[^>]*><a[^>]+>([^<]+)</a></td>\s*<td[^>]*>([^<]+)</td>', html)
-        return {t.replace(".", "-"): (n.strip(), s.strip()) for t, n, s in rows}
+        return {t.replace(".", "-"): (_htmllib.unescape(n).strip(), _htmllib.unescape(s).strip()) for t, n, s in rows}   # 135. 위키 이름의 &amp; → &
     except Exception as e:
         print(f"  ⚠️ S&P500 목록 실패: {e}"); return {}
 
