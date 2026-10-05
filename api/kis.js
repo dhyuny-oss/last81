@@ -15,15 +15,18 @@
  *   KIS_APP_KEY / KIS_APP_SECRET / KIS_ACCOUNT(또는 KIS_ACCOUNT_NO)  실전용 (KIS_ENV=real 일 때만 · 기존 시세 수집과 같은 키)
  *   계좌번호는 8자리 + 상품코드 2자리 (예: 12345678-01 · 하이픈 있어도 없어도 됨)
  *   KIS_ENV          demo(모의·기본값) 또는 real(실전)
+ *   KIS_REAL_ORDER   (실전 주문 스위치) on 이라고 넣어야만 실전 주문이 열립니다. 없으면 실전은 조회만.
+ *   KIS_MAX_DAY_USD  (선택) 하루 매수 합계 상한 — 기본 모의 20000 · 실전 4000 달러
  *   KIS_PIN          내가 정하는 비밀번호. 앱에서 한 번 입력. 실전 조회와 모든 주문에 필수입니다.
- *   KIS_MAX_USD      (선택) 주문 1건 금액 상한, 기본 5000 달러
+ *   KIS_MAX_USD      (선택) 주문 1건 금액 상한 — 기본 모의 5000 · 실전 1500 달러
  *   KIS_HTS_ID       (선택) 한투 HTS 아이디 — 있어야 "관심 그룹 불러오기"가 됩니다
  *
  * ▣ 쓰는 법  POST /api/kis  { what, tok, ... } + 헤더 x-kis-pin   (GET 은 설정 상태만)
  *   what="balance"              보유 종목                          → rows, sum
- *   what="orders"               최근 주문·미체결 (모의만)           → orders
- *   what="order"                모의 주문 { side, t, ex, qty, px, rid, confirm:true }
- *   what="cancel"               모의 주문 취소 { odno, t, ex, qty }
+ *   what="orders"               최근 주문·미체결                    → orders, dayBuy(오늘 매수 합계)
+ *   what="order"                주문 { side, t, ex, qty, px, rid, confirm:true }   (모의 · 실전은 KIS_REAL_ORDER=on 일 때만)
+ *   what="cancel"               주문 취소 { odno, t, ex, qty }
+ *   what="quote"                지금 가격 { list:[{t, ex}], idx:true }  → quotes{t:{ex,last,base,rate}}, idx{QQQ,SPY}
  *   what="groups" / "group"     한투 관심 그룹 목록 / 그룹 안 종목 { code }   (국내 중심 · 한투 → 앱 한 방향)
  *   모든 응답에 새 접속 토큰 꾸러미 tok 가 들어옵니다.
  *
@@ -34,6 +37,8 @@
  *   토큰 POST /oauth2/tokenP
  *   잔고 GET inquire-balance (TTTS3012R / VTTS3012R) · 주문 POST order (모의 매수 VTTT1002U · 매도 VTTT1001U)
  *   취소 POST order-rvsecncl (VTTT1004U) · 주문내역 GET inquire-ccnl (VTTS3035R)
+ *   실전: 매수 TTTT1002U · 매도 TTTT1006U · 취소 TTTT1004U · 주문내역 TTTS3035R
+ *   현재가 GET /uapi/overseas-price/v1/quotations/price (HHDFS00000300 · 거래소 NAS/NYS/AMS)
  *   관심 그룹 GET intstock-grouplist (HHKCM113004C7) · 그룹 종목 GET intstock-stocklist-by-group (HHKCM113004C6)
  */
 import crypto from "node:crypto";
@@ -50,7 +55,9 @@ function cfg() {
   return { env, key: String((demo ? process.env.KIS_DEMO_APP_KEY : process.env.KIS_APP_KEY) || "").trim(),
            sec: String((demo ? process.env.KIS_DEMO_APP_SECRET : process.env.KIS_APP_SECRET) || "").trim(),
            cano: acct.slice(0, 8), prod: acct.slice(8, 10) || "01", acctOk: acct.length === 8 || acct.length === 10,
-           pin: (process.env.KIS_PIN || "").trim(), maxUsd: num(process.env.KIS_MAX_USD) || 5000,
+           pin: (process.env.KIS_PIN || "").trim(), maxUsd: num(process.env.KIS_MAX_USD) || (demo ? 5000 : 1500),
+           maxDay: num(process.env.KIS_MAX_DAY_USD) || (demo ? 20000 : 4000),
+           realOrder: String(process.env.KIS_REAL_ORDER || "").trim().toLowerCase() === "on",
            hts: (process.env.KIS_HTS_ID || "").trim() };
 }
 
@@ -142,13 +149,14 @@ async function usBalance(c, ctx, only) {
   return { rows: list, sum: { n: list.length, cost, val, pl: val - cost, plPct: cost > 0 ? (val / cost - 1) * 100 : 0 } };
 }
 
-/* ── 주문 내역 (모의만 · 공식 샘플의 모의 조회는 전체 조회만 가능해서 받은 뒤 걸러냅니다) ── */
+/* ── 주문 내역 (공식 샘플: 모의는 전체 조회만 가능 → 빈 값 · 실전은 전체가 "%") ── */
 const ymd = (ms) => { const d = new Date(ms); return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`; };
 async function recentOrders(c, ctx) {
   const now = Date.now() - 5 * 3600 * 1000;               // 미국 현지 날짜(대략)
-  const x = await kis(c, ctx, "GET", "/uapi/overseas-stock/v1/trading/inquire-ccnl", "VTTS3035R", {
-    CANO: c.cano, ACNT_PRDT_CD: c.prod, PDNO: "", ORD_STRT_DT: ymd(now - 6 * 86400000), ORD_END_DT: ymd(now), SLL_BUY_DVSN: "00",
-    CCLD_NCCS_DVSN: "00", OVRS_EXCG_CD: "", SORT_SQN: "DS", ORD_DT: "", ORD_GNO_BRNO: "", ODNO: "", CTX_AREA_NK200: "", CTX_AREA_FK200: "" });
+  const all = c.env === "real" ? "%" : "";
+  const x = await kis(c, ctx, "GET", "/uapi/overseas-stock/v1/trading/inquire-ccnl", c.env === "real" ? "TTTS3035R" : "VTTS3035R", {
+    CANO: c.cano, ACNT_PRDT_CD: c.prod, PDNO: all, ORD_STRT_DT: ymd(now - 6 * 86400000), ORD_END_DT: ymd(Date.now() + 9 * 3600000), SLL_BUY_DVSN: "00",
+    CCLD_NCCS_DVSN: "00", OVRS_EXCG_CD: all, SORT_SQN: "DS", ORD_DT: "", ORD_GNO_BRNO: "", ODNO: "", CTX_AREA_NK200: "", CTX_AREA_FK200: "" });
   const out = Array.isArray(x.j.output) ? x.j.output : x.j.output ? [x.j.output] : [];
   return out.map((o) => ({
     odno: String(o.odno || "").trim(), orgn: String(o.orgn_odno || "").trim(), dt: o.ord_dt || "", tm: o.ord_tmd || "",
@@ -158,11 +166,41 @@ async function recentOrders(c, ctx) {
     kind: String(o.rvse_cncl_dvsn_name || "").trim() })).filter((o) => o.odno).sort((a, b) => (b.dt + b.tm).localeCompare(a.dt + a.tm));
 }
 
-/* ── 모의 주문·취소 ── */
+/* 오늘 미국 장(한 번의 장은 한국 날짜 이틀에 걸침)에 낸 매수 합계 — 체결분은 체결가, 대기분은 주문가. 취소·거부는 0 */
+const sess = (ms) => ymd(ms);                           // 세계표준시 날짜 = 한국 22:30~05:00(미국 장 한 번)이 같은 날로 묶임
+const sessOfOrder = (o) => { const m = /^(\d{4})(\d\d)(\d\d)$/.exec(o.dt || ""), t = /^(\d\d)(\d\d)/.exec(o.tm || "");
+  return m ? ymd(Date.UTC(+m[1], +m[2] - 1, +m[3], t ? +t[1] : 12, t ? +t[2] : 0) - 9 * 3600000) : ""; };
+const dayBuyOf = (orders) => { const today = sess(Date.now());
+  return orders.filter((o) => o.side === "buy" && !o.orgn && sessOfOrder(o) === today).reduce((s, o) => s + o.filled * (o.fpx || o.px) + o.open * o.px, 0); };
+
+/* ── 지금 가격 (거래소를 모르면 나스닥 → 뉴욕 → 아멕스 순으로 찾아봄) ── */
+const EXCD = { NASD: "NAS", NYSE: "NYS", AMEX: "AMS" };
+async function quoteOne(c, ctx, t, hint, gap) {
+  const order = [hint, ...US_EX].filter((e, i, a) => US_EX.includes(e) && a.indexOf(e) === i);
+  for (let i = 0; i < order.length; i++) {
+    if (gap.n++ > 0) await sleep(gapOf(c));
+    const x = await kis(c, ctx, "GET", "/uapi/overseas-price/v1/quotations/price", "HHDFS00000300", { AUTH: "", EXCD: EXCD[order[i]], SYMB: t });
+    const o = x.j.output || {}, last = num(o.last);
+    if (last > 0) { const base = num(o.base); return { ex: order[i], last, base, rate: base > 0 ? (last / base - 1) * 100 : num(o.rate) }; }
+  }
+  return null;
+}
+async function quotes(c, ctx, b) {
+  const list = (Array.isArray(b.list) ? b.list : []).slice(0, 8).map((q) => ({ t: String(q?.t || "").toUpperCase().trim(), ex: String(q?.ex || "").toUpperCase() }))
+    .filter((q) => /^[A-Z][A-Z0-9.\-]{0,9}$/.test(q.t));
+  const gap = { n: 0 }, out = {}, idx = {};
+  if (b.idx) for (const [t, ex] of [["QQQ", "NASD"], ["SPY", "AMEX"]]) { try { idx[t] = await quoteOne(c, ctx, t, ex, gap); } catch { idx[t] = null; } }
+  for (const q of list) { try { out[q.t] = await quoteOne(c, ctx, q.t, q.ex, gap); } catch (e) { out[q.t] = null; } }
+  return { quotes: out, idx };
+}
+
+/* ── 주문·취소 (모의 · 실전은 KIS_REAL_ORDER=on 일 때만) ── */
 const RID = new Map();                                  // 같은 요청 번호 재전송 막기 (서버가 살아 있는 동안)
-function demoOnly(c) { if (c.env !== "demo") throw new Error("주문은 모의투자(KIS_ENV=demo)에서만 열려 있습니다. 실전 주문은 아직 막혀 있습니다"); }
+const canOrder = (c) => c.env === "demo" || c.realOrder;
+function orderGate(c) { if (!canOrder(c)) throw new Error("실전 주문은 잠겨 있습니다 — Vercel 환경변수 KIS_REAL_ORDER=on 을 넣어야 열립니다 (지금은 조회만)"); }
+const TR = (c, k) => ({ buy: ["VTTT1002U", "TTTT1002U"], sell: ["VTTT1001U", "TTTT1006U"], cancel: ["VTTT1004U", "TTTT1004U"] })[k][c.env === "real" ? 1 : 0];
 async function placeOrder(c, ctx, b) {
-  demoOnly(c);
+  orderGate(c);
   const side = b.side === "sell" ? "sell" : b.side === "buy" ? "buy" : "";
   const t = String(b.t || "").toUpperCase().trim(), ex = String(b.ex || "").toUpperCase();
   const qty = Math.floor(num(b.qty)), px = Math.round(num(b.px) * 100) / 100;
@@ -170,7 +208,7 @@ async function placeOrder(c, ctx, b) {
   if (!/^[A-Z][A-Z0-9.\-]{0,9}$/.test(t)) throw new Error("종목 코드가 올바르지 않습니다");
   if (!US_EX.includes(ex)) throw new Error("거래소는 NASD · NYSE · AMEX 중 하나여야 합니다");
   if (!(qty >= 1 && qty <= 100000)) throw new Error("수량은 1주 이상이어야 합니다");
-  if (!(px > 0 && px < 100000)) throw new Error("지정가를 입력해 주세요 (모의투자는 지정가만 됩니다)");
+  if (!(px > 0 && px < 100000)) throw new Error("지정가를 입력해 주세요 (지정가 주문만 됩니다)");
   if (qty * px > c.maxUsd) throw new Error(`주문 1건 상한 $${c.maxUsd.toLocaleString("en-US")} 를 넘습니다 (${qty}주 × $${px} = $${(qty * px).toFixed(0)})`);
   if (b.confirm !== true) throw new Error("확인 단계를 거치지 않은 주문입니다");
   const rid = String(b.rid || "");
@@ -178,7 +216,20 @@ async function placeOrder(c, ctx, b) {
   if (RID.has(rid)) throw new Error("방금 보낸 같은 주문입니다 — 아래 주문 내역을 확인해 주세요");
   RID.set(rid, Date.now()); for (const [k, v] of RID) if (Date.now() - v > 3600000) RID.delete(k);
   // 중복·초과 방지: 같은 종목·방향·수량·가격의 미체결이 이미 있으면 막음 / 매도는 가진 수량 이내로
-  const open = (await recentOrders(c, ctx)).filter((o) => o.open > 0 && !o.orgn);
+  const fail = (m) => { RID.delete(rid); throw new Error(m); };
+  const hist = await recentOrders(c, ctx);
+  const open = hist.filter((o) => o.open > 0 && !o.orgn);
+  if (side === "buy") {                                   // 하루 매수 합계 상한
+    const used = dayBuyOf(hist);
+    if (used + qty * px > c.maxDay) fail(`하루 매수 상한 $${c.maxDay.toLocaleString("en-US")} 를 넘습니다 (오늘 이미 $${used.toFixed(0)} + 이번 $${(qty * px).toFixed(0)})`);
+  }
+  // 지정가가 지금 가격에서 너무 벗어나면 막음 (잘못 누름 · 폭등 추격 · 헐값 매도 방지)
+  await sleep(gapOf(c));
+  let q = null; try { q = await quoteOne(c, ctx, t, ex, { n: 0 }); } catch { q = null; }
+  if (!q) { if (c.env === "real") fail("지금 가격을 확인하지 못해 실전 주문을 보내지 않았습니다 — 잠시 뒤 다시 눌러 주세요"); }
+  else if (q.ex !== ex) fail(`${t} 은(는) ${{ NASD: "나스닥", NYSE: "뉴욕", AMEX: "아멕스" }[q.ex]} 종목입니다 — 거래소를 바꿔 주세요`);
+  else if (side === "buy" && px > q.last * 1.03) fail(`지정가 $${px} 가 지금 가격 $${q.last} 보다 3% 넘게 높습니다`);
+  else if (side === "sell" && px < q.last * 0.97) fail(`지정가 $${px} 가 지금 가격 $${q.last} 보다 3% 넘게 낮습니다`);
   if (open.some((o) => o.t === t && o.side === side && o.qty === qty && o.px === px)) { RID.delete(rid); throw new Error("같은 종목·수량·가격의 미체결 주문이 이미 있습니다"); }
   if (side === "sell") {
     await sleep(gapOf(c));
@@ -187,18 +238,18 @@ async function placeOrder(c, ctx, b) {
     if (!have || have.qty - pending < qty) { RID.delete(rid); throw new Error(`팔 수 있는 수량이 부족합니다 (보유 ${have ? have.qty : 0}주 · 매도 대기 ${pending}주)`); }
   }
   await sleep(gapOf(c));
-  const x = await kis(c, ctx, "POST", "/uapi/overseas-stock/v1/trading/order", side === "buy" ? "VTTT1002U" : "VTTT1001U", {
+  const x = await kis(c, ctx, "POST", "/uapi/overseas-stock/v1/trading/order", TR(c, side), {
     CANO: c.cano, ACNT_PRDT_CD: c.prod, OVRS_EXCG_CD: ex, PDNO: t, ORD_QTY: String(qty), OVRS_ORD_UNPR: px.toFixed(2),
     CTAC_TLNO: "", MGCO_APTM_ODNO: "", SLL_TYPE: side === "sell" ? "00" : "", ORD_SVR_DVSN_CD: "0", ORD_DVSN: "00" });
   const o = x.j.output || {};
   return { placed: { side, t, ex, qty, px, odno: String(o.ODNO || o.odno || ""), msg: x.j.msg1 || "" } };
 }
 async function cancelOrder(c, ctx, b) {
-  demoOnly(c);
+  orderGate(c);
   const t = String(b.t || "").toUpperCase().trim(), ex = String(b.ex || "").toUpperCase(), odno = String(b.odno || "").trim(), qty = Math.floor(num(b.qty));
   if (!/^\d{1,12}$/.test(odno)) throw new Error("원주문번호가 올바르지 않습니다");
   if (!/^[A-Z][A-Z0-9.\-]{0,9}$/.test(t) || !US_EX.includes(ex) || !(qty >= 1)) throw new Error("취소할 주문 정보가 올바르지 않습니다");
-  const x = await kis(c, ctx, "POST", "/uapi/overseas-stock/v1/trading/order-rvsecncl", "VTTT1004U", {
+  const x = await kis(c, ctx, "POST", "/uapi/overseas-stock/v1/trading/order-rvsecncl", TR(c, "cancel"), {
     CANO: c.cano, ACNT_PRDT_CD: c.prod, OVRS_EXCG_CD: ex, PDNO: t, ORGN_ODNO: odno, RVSE_CNCL_DVSN_CD: "02",
     ORD_QTY: String(qty), OVRS_ORD_UNPR: "0", MGCO_APTM_ODNO: "", ORD_SVR_DVSN_CD: "0" });
   return { cancelled: { odno, t, msg: x.j.msg1 || "" } };
@@ -230,21 +281,22 @@ export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
   const c = cfg();
   const configured = !!(c.key && c.sec && c.acctOk);
-  if (req.method === "GET") return res.status(200).json({ ok: true, configured, env: c.env, pin: !!c.pin, pinMissing: !c.pin, canOrder: c.env === "demo" && !!c.pin,
-                                                          maxUsd: c.maxUsd, hts: !!c.hts });
+  if (req.method === "GET") return res.status(200).json({ ok: true, configured, env: c.env, pin: !!c.pin, pinMissing: !c.pin, canOrder: canOrder(c) && !!c.pin,
+                                                          maxUsd: c.maxUsd, maxDay: c.maxDay, hts: !!c.hts });
   if (req.method !== "POST") return res.status(405).json({ ok: false, msg: "GET 또는 POST 만 됩니다" });
-  if (!configured) return res.status(200).json({ ok: false, code: "setup", msg: "Vercel 환경변수(KIS_DEMO_APP_KEY · KIS_DEMO_APP_SECRET · KIS_DEMO_ACCOUNT)가 아직 없습니다" });
+  if (!configured) return res.status(200).json({ ok: false, code: "setup", msg: c.env === "real" ? "Vercel 환경변수(KIS_APP_KEY · KIS_APP_SECRET · KIS_ACCOUNT)가 아직 없습니다" : "Vercel 환경변수(KIS_DEMO_APP_KEY · KIS_DEMO_APP_SECRET · KIS_DEMO_ACCOUNT)가 아직 없습니다" });
   if (!c.pin) return res.status(200).json({ ok: false, code: "setup", msg: "KIS_PIN 환경변수(내가 정하는 비밀번호)를 넣어야 열립니다" });
   if (!pinOk(c, req.headers["x-kis-pin"])) { await sleep(700); return res.status(200).json({ ok: false, code: "pin", msg: "비밀번호가 맞지 않습니다" }); }
   const body = typeof req.body === "string" ? (() => { try { return JSON.parse(req.body); } catch { return {}; } })() : (req.body || {});
-  const ACTIONS = ["balance", "orders", "order", "cancel", "groups", "group"];
+  const ACTIONS = ["balance", "orders", "order", "cancel", "quote", "groups", "group"];
   if (!ACTIONS.includes(body.what)) return res.status(400).json({ ok: false, msg: `what 은 ${ACTIONS.join(" · ")} 중 하나여야 합니다` });
   const ctx = { tok: null, reissued: false };
   try {
     ctx.tok = await getToken(c, body.tok, false);
     let out = {};
     if (body.what === "balance") out = await usBalance(c, ctx);
-    else if (body.what === "orders") { demoOnly(c); out = { orders: await recentOrders(c, ctx) }; }
+    else if (body.what === "orders") { const orders = await recentOrders(c, ctx); out = { orders, dayBuy: dayBuyOf(orders) }; }
+    else if (body.what === "quote") out = await quotes(c, ctx, body);
     else if (body.what === "order") out = await placeOrder(c, ctx, body);
     else if (body.what === "cancel") out = await cancelOrder(c, ctx, body);
     else if (body.what === "groups") out = await favGroups(c, ctx);
