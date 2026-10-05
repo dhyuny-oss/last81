@@ -18,12 +18,12 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-export const APP_VERSION = "v13.7.0";
+export const APP_VERSION = "v13.8.0";
 
 /** 135. 수집 데이터에 남아 있던 "&amp;" 를 "&" 로 (예: Procter &amp; Gamble). 파이프라인이 고친 뒤에는 할 일이 없어 그냥 지나갑니다 */
 const getJson = (url) => fetch(url).then(r => r.ok ? r.text().then(t => JSON.parse(t.includes("&amp;") ? t.replace(/&amp;/g, "&") : t)) : null);
 
-/* ★ 한투 (1/2) — 한투 계좌 조회 카드(보기 전용). 빼려면: 이 두 줄 + 아래 "★ 한투 (2/2)" 한 줄 + src/Kis.jsx + api/kis.js + Vercel 환경변수 KIS_* 삭제 */
+/* ★ 한투 (1/2) — 한투 계좌 카드(조회 · 매수 제안 · 주문). 빼려면: 이 두 줄 + 아래 "★ 한투 (2/2)" 한 줄 + src/Kis.jsx + api/kis.js + Vercel 환경변수 KIS_* 삭제 */
 const KisPanel = React.lazy(() => import("./Kis.jsx"));
 
 /* ★ 연습 (1/2) — 고르기 연습 입구. 빼려면: 이 블록 + 아래 "★ 연습 (2/2)" 한 줄 + src/Practice.jsx + public/data/practice.json 삭제 */
@@ -1167,7 +1167,7 @@ export default function App() {
         {tab === "review" && <ReviewTab {...shared} uni={uni} snap={snap} onShowRules={() => setRulesOpen(true)} />}
         {tab === "pool" && <PoolTab {...shared} snap={snap} uni={uni} />}
         {tab === "track" && <TrackTab {...shared} stocks={items} />}
-        {tab === "track" && <React.Suspense fallback={null}><KisPanel held={pos.map(p => p.t)} stocks={stocks} picks={today?.pickUs || []} watch={watch} toggleWatch={toggleWatch} /></React.Suspense>}{/* ★ 한투 (2/2) */}
+        {tab === "track" && <React.Suspense fallback={null}><KisPanel held={pos.map(p => p.t)} stocks={stocks} picks={today?.pickUs || []} watch={watch} toggleWatch={toggleWatch} asOf={today?.asOf || ""} usOpen={() => marketState().usRegular} fx={market?.fx?.usdkrw || null} /></React.Suspense>}{/* ★ 한투 (2/2) */}
         {(tab === "market" || tab === "review") && <PracticeEntry />}{/* ★ 연습 (2/2) */}
       </main>
 
