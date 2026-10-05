@@ -113,13 +113,14 @@ async function kis(c, ctx, method, path, trId, data, trCont = "") {
     return { status: r.status, cont: r.headers.get("tr_cont") || "", j };
   };
   let x = await once();
+  for (let n = 0; n < 3 && /EGW00201/.test(`${x.j?.msg_cd || ""} ${x.j?.msg1 || ""}`); n++) { await sleep(1100 + n * 600); x = await once(); }   // "초당 거래건수 초과" → 잠깐 쉬고 다시 (최대 3번)
   if (/EGW00123|EGW00121|기간이 만료된 token|유효하지 않은 token/.test(`${x.j?.msg_cd || ""} ${x.j?.msg1 || ""}`) && !ctx.reissued) {
     ctx.reissued = true; ctx.tok = await getToken(c, null, true); x = await once();
   }
   if (x.j?.rt_cd !== "0") throw new Error(`한투 응답 오류 — ${x.j?.msg1 || `HTTP ${x.status}`}${x.j?.msg_cd ? ` (${x.j.msg_cd})` : ""}`);
   return x;
 }
-const gapOf = (c) => (c.env === "real" ? 80 : 550);      // 초당 호출 제한 (모의가 더 빡빡함)
+const gapOf = (c) => (c.env === "real" ? 120 : 800);      // 초당 호출 제한 (모의가 더 빡빡함)
 
 /* ── 보유 종목 (조회) ── */
 async function usBalance(c, ctx, only) {
