@@ -51,5 +51,10 @@
       "path": "/api/cron/kr-2",
       "schedule": "0 8 * * 1-5"
     }
-  ]
+  ],
+  "functions": {
+    "api/kis.js": {
+      "maxDuration": 30
+    }
+  }
 }
