@@ -38,7 +38,7 @@ const quiet = { ...btn, border: `1px solid ${K.border}`, color: K.dim, fontWeigh
 const inp = { minHeight: 40, padding: "6px 10px", borderRadius: 10, border: `1px solid ${K.border}`, background: "#0A0E1A", color: K.text, font: "inherit", minWidth: 0 };
 const SIG = { buy: ["매수!", K.up], sell: ["매도!", K.down], hold: ["보유", K.cyan], watch: ["관망", K.dim] };
 
-export default function KisPanel({ held = [], stocks = {}, picks = [], watch = [], toggleWatch, asOf = "", usOpen = false, fx = null }) {
+export default function KisPanel({ held = [], stocks = {}, picks = [], watch = [], toggleWatch, asOf = "", usOpen = false, fx = null, pickNote = "" }) {
   const [info, setInfo] = useState(null);
   const [data, setData] = useState(null);             // 잔고
   const [orders, setOrders] = useState(null);         // 주문 내역
@@ -222,6 +222,12 @@ export default function KisPanel({ held = [], stocks = {}, picks = [], watch = [
           <div style={{ color: K.dim, fontSize: 11.5 }}>앱 규칙은 종가가 손절선 아래로 마감하면 매도입니다. 위 표의 "매도"를 누르면 주문 칸에 채워집니다.</div>
         </div>)}
 
+      {info.canOrder && data && picks.length === 0 && pickNote && (
+        <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${K.border}` }}>
+          <b style={{ fontSize: 13 }}>오늘 매수 제안</b>
+          <div style={{ color: K.gold, fontSize: 12, marginTop: 6, lineHeight: 1.5 }}>{pickNote} — 오늘 탭과 같은 기준입니다. 그래도 넣으려면 아래 주문 칸을 쓰세요.</div>
+        </div>)}
+
       {info.canOrder && data && picks.length > 0 && (
         <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${K.border}` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -235,6 +241,7 @@ export default function KisPanel({ held = [], stocks = {}, picks = [], watch = [
             {fx && Number(budget) > 0 && <span style={{ color: K.dim }}>≈ {Math.round(Number(budget) * fx / 10000).toLocaleString("ko-KR")}만 원</span>}
             <span style={{ color: K.dim }}>· 오늘 매수 {usd(dayBuy)} / 하루 상한 {usd(info.maxDay)}</span>
           </div>
+          {pickNote && <div style={{ color: K.dim, fontSize: 11.5, marginTop: 6 }}>{pickNote}</div>}
           {!live ? <div style={{ color: K.dim, marginTop: 8 }}>"가격 다시 보기"를 누르면 지금 가격으로 제안을 만듭니다.</div> : (<>
             <div style={{ marginTop: 8, fontSize: 12, lineHeight: 1.5, color: mkt.halt ? K.down : mkt.hot ? K.gold : K.dim }}>
               시장 지금 {["QQQ", "SPY"].map((k) => `${k === "QQQ" ? "나스닥100" : "S&P500"} ${live.idx[k] ? pct(live.idx[k].rate) : "확인 안 됨"}`).join(" · ")}
