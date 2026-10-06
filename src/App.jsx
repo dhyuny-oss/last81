@@ -18,7 +18,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-export const APP_VERSION = "v13.8.1";
+export const APP_VERSION = "v13.8.2";
 
 /** 135. 수집 데이터에 남아 있던 "&amp;" 를 "&" 로 (예: Procter &amp; Gamble). 파이프라인이 고친 뒤에는 할 일이 없어 그냥 지나갑니다 */
 const getJson = (url) => fetch(url).then(r => r.ok ? r.text().then(t => JSON.parse(t.includes("&amp;") ? t.replace(/&amp;/g, "&") : t)) : null);
@@ -621,13 +621,17 @@ const benchName = (s) => s?.m === "kr" ? "코스피" : (NASDAQ.has(s?.ex) ? "나
 const REV_KEY = "v9.revMin";
 const getRevMin = () => { try { const v = localStorage.getItem(REV_KEY); return v == null ? 10 : Number(v); } catch { return 10; } };
 /* ★ 한투 (보조) — 한투 카드의 "오늘 살 것"을 오늘 탭과 똑같이 고름 (이 기기의 보유·칸 수·매출 필터 기준). 빼려면 이 함수도 삭제 */
-const kisPicks = (stocks, pos, genDay) => {
-  if (!stocks || !Object.keys(stocks).length) return [];
+const kisPicks = (stocks, pos, genDay, fx) => {
+  if (!stocks || !Object.keys(stocks).length) return { list: [], note: "" };
   const plan = loadPlan();
   const dayOf = (p) => String(p.date || trOf(p)[0]?.d || "");
   const bought = new Set((pos || []).filter(p => (p.role || "swing") === "swing" && genDay && dayOf(p) >= genDay).map(p => String(p.t).toUpperCase()));
   const heldBefore = new Set((pos || []).map(p => String(p.t).toUpperCase()).filter(t => !bought.has(t)));
-  return pickToday(stocks, { revMin: getRevMin(), slotsUs: plan.slotsUs || 5, slotsKr: plan.slotsKr || 3 }, heldBefore).pickUs.filter(r => !bought.has(r.t));
+  const all = pickToday(stocks, { revMin: getRevMin(), slotsUs: plan.slotsUs || 5, slotsKr: plan.slotsKr || 3 }, heldBefore).pickUs.filter(r => !bought.has(r.t));
+  const sl = slotInfo(pos, "us"), pa = planAmounts(plan, fx);
+  if (!pa || !(pa.us > 0)) return { list: [], note: "오늘 탭 기준: 미국 투자금이 0이라 살 것이 없습니다" };      // 오늘 탭과 같은 판정 — 빈 칸 수만큼만 '살 것'
+  const list = all.slice(0, sl.free);
+  return { list, note: sl.free === 0 ? `오늘 탭 기준: 칸이 다 차서(보유 ${sl.held}/${sl.n}칸) 살 것이 없습니다` : all.length > list.length ? `오늘 탭 기준: 빈 칸 ${sl.free}개만큼만 · 대기 ${all.length - list.length}개는 빼고 보여 줍니다` : all.length === 0 ? "오늘 탭 기준: 조건에 맞는 종목이 없습니다" : "" };
 };
 const growthOf = (s) => s?.fin ? (s.fin.growth ?? s.fin.qyoy ?? s.fin.ttm ?? s.fin.rev ?? null) : null;   // 최근 분기 → 4분기 → 연간
 const passRevOf = (s, revMin) => { const g = growthOf(s); return revMin <= 0 || s.m === "kr" || g == null || g >= revMin; };
@@ -1176,7 +1180,7 @@ export default function App() {
         {tab === "review" && <ReviewTab {...shared} uni={uni} snap={snap} onShowRules={() => setRulesOpen(true)} />}
         {tab === "pool" && <PoolTab {...shared} snap={snap} uni={uni} />}
         {tab === "track" && <TrackTab {...shared} stocks={items} />}
-        {tab === "track" && <React.Suspense fallback={null}><KisPanel held={pos.map(p => p.t)} stocks={stocks} picks={kisPicks(stocks, pos, genDay)} watch={watch} toggleWatch={toggleWatch} asOf={today?.asOf || ""} usOpen={() => marketState().usRegular} fx={market?.fx?.usdkrw || null} /></React.Suspense>}{/* ★ 한투 (2/2) */}
+        {tab === "track" && <React.Suspense fallback={null}><KisPanel held={pos.map(p => p.t)} stocks={stocks} {...(({ list, note }) => ({ picks: list, pickNote: note }))(kisPicks(stocks, pos, genDay, market?.fx?.usdkrw || null))} watch={watch} toggleWatch={toggleWatch} asOf={today?.asOf || ""} usOpen={() => marketState().usRegular} fx={market?.fx?.usdkrw || null} /></React.Suspense>}{/* ★ 한투 (2/2) */}
         {(tab === "market" || tab === "review") && <PracticeEntry />}{/* ★ 연습 (2/2) */}
       </main>
 
