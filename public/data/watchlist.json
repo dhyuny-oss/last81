@@ -142,7 +142,7 @@
       "inv": 3214.285714285714
     }
   ],
-  "updatedAt": "2026-10-09T02:40:35.722Z",
+  "updatedAt": "2026-10-09T12:13:11.791Z",
   "settings": {
     "revMin": 10,
     "slotsUs": 7,
@@ -151,26 +151,12 @@
     "dcMode": "st",
     "dcSemi": false,
     "usAmt": 45000,
-    "krAmt": 0
+    "krAmt": 10000000
   },
   "excludes": [],
   "backup": {
-    "at": "2026-10-09T02:40:35.722Z",
-    "positions": [
-      {
-        "t": "MPC",
-        "avg": 432.36,
-        "tr": [
-          {
-            "d": "2026-10-07",
-            "px": 432.36,
-            "amt": 3214.285714285714
-          }
-        ],
-        "role": "swing",
-        "date": "2026-10-07"
-      }
-    ],
+    "at": "2026-10-09T12:13:11.791Z",
+    "positions": [],
     "watch": [
       "ABBV",
       "ETN",
