@@ -38,6 +38,10 @@ const slot = (m, n) => { const h = pos.filter((p) => (p.role || "swing") === "sw
 ok(`빈 칸 🇺🇸 서버 ${JSON.stringify(today.slots?.us)} = 계산 ${JSON.stringify(slot("us", cfg.slotsUs))}`, eq(today.slots?.us, slot("us", cfg.slotsUs)), "", stale);
 ok(`빈 칸 🇰🇷 서버 ${JSON.stringify(today.slots?.kr)} = 계산 ${JSON.stringify(slot("kr", cfg.slotsKr))}`, eq(today.slots?.kr, slot("kr", cfg.slotsKr)), "", stale);
 
+let plog = null; try { plog = J("picks_log.json"); } catch { plog = null; }
+const lastPick = Array.isArray(plog) ? plog[plog.length - 1] : null;
+ok("추천 기록(picks_log)의 마지막 날 = today.json", !!lastPick && lastPick.d === today.asOf && ids(lastPick.us) === ids(today.pickUs) && ids(lastPick.kr) === ids(today.pickKr),
+  lastPick ? `기록 ${lastPick.d} [${ids(lastPick.us)}] / today ${today.asOf} [${ids(today.pickUs)}]` : "picks_log.json 없음 — 다음 데이터 갱신 때 생깁니다", !lastPick);
 console.log("── 3. 가격·손절선·신호: today.json = snapshot.json ──");
 const diffs = [];
 for (const r of [...(today.pickUs || []), ...(today.pickKr || []), ...(today.held || []), ...(today.candidates || [])]) {

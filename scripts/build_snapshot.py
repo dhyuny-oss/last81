@@ -1161,6 +1161,27 @@ def update_signal_log(stocks, series, idx_series):
 REV_MIN = 10        # 앱 '매출 필터' 기본값 — 앱이 settings.revMin 을 보내면 그 값을 씁니다 (61)
 LINE_MAX_LOSS = 17  # 트레일링선까지(닿으면 잃는 폭) 17% 넘으면 오늘 후보에서 제외 — 예전 '선까지 20%'(c/선−1)와 같은 기준 (62)
 
+PICKS_LOG = f"{OUT_DIR}/picks_log.json"
+def write_picks_log(t, keep=400):
+    """today.json 한 장을 picks_log.json 에 날짜별 한 줄로 더합니다 (같은 날짜는 덮어씀 · 최근 keep 일)"""
+    if not t or not t.get("asOf"): return
+    try:
+        log = json.load(open(PICKS_LOG, encoding="utf-8"))
+        if not isinstance(log, list): log = []
+    except Exception:
+        log = []
+    row = {"d": t["asOf"]}
+    for m, key in (("us", "pickUs"), ("kr", "pickKr")):
+        free = ((t.get("slots") or {}).get(m) or {}).get("free")
+        amt = ((t.get("size") or {}).get(m) or {}).get("amt")
+        nbuy = 0 if amt is not None and amt <= 0 else (free if free is not None else len(t.get(key) or []))
+        row[m] = [{"t": r["t"], "n": r.get("n"), "i": i + 1, "buy": i < nbuy, "c": r.get("c"), "line": r.get("stLine")}
+                  for i, r in enumerate(t.get(key) or [])]
+    log = [x for x in log if x.get("d") != row["d"]] + [row]
+    log.sort(key=lambda x: x["d"])
+    _write(PICKS_LOG, log[-keep:])
+    print(f"  📝 picks_log.json: {len(log[-keep:])}일 · 오늘 🇺🇸 살 것 {sum(1 for x in row['us'] if x['buy'])}/{len(row['us'])} · 🇰🇷 {sum(1 for x in row['kr'] if x['buy'])}/{len(row['kr'])}")
+
 def build_today(stocks, market):
     idx = market.get("indices") or {}
     secrank = {x["tk"]: (x["rank"], x["label"]) for x in (market.get("sectors") or [])}
@@ -1745,6 +1766,11 @@ def main():
         print(f"  📝 today.json: 후보 {len(market['today']['candidates'])} · 🇺🇸 추천 {len(market['today']['pickUs'])} · 🇰🇷 {len(market['today']['pickKr'])} · 제외 {len(market['today']['excluded'])}")
     except Exception as e:
         print("  ⚠️ today.json 실패:", e)
+    # 152. 추천 기록 — 날마다 '오늘 살 것'(빈 칸 수만큼 = buy)과 대기 순번을 쌓아 둡니다. 앱의 복기·차트 표시가 읽습니다.
+    try:
+        write_picks_log(market["today"])
+    except Exception as e:
+        print("  ⚠️ picks_log.json 실패:", e)
 
     print("\n🏦 DC(퇴직연금) ETF 신호")
     etfs, dc = build_dc(market["sectors"], series)

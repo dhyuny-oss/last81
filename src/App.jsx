@@ -15,10 +15,10 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { pickToday } from "./picks.js";
 import {
   ComposedChart, Line, Area, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, ReferenceLine,
+  Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot,
 } from "recharts";
 
-export const APP_VERSION = "v13.9.0";
+export const APP_VERSION = "v13.10.0";
 
 /** 135. 수집 데이터에 남아 있던 "&amp;" 를 "&" 로 (예: Procter &amp; Gamble). 파이프라인이 고친 뒤에는 할 일이 없어 그냥 지나갑니다 */
 const getJson = (url) => fetch(url).then(r => r.ok ? r.text().then(t => JSON.parse(t.includes("&amp;") ? t.replace(/&amp;/g, "&") : t)) : null);
@@ -793,7 +793,8 @@ export default function App() {
   }, [snap, market]);   // 데이터가 오기 전엔 헤더가 없어서, 온 뒤에 다시 붙입니다
   const [uni, setUni] = useState(null);   // 주간 종목풀 점검 기록 (작은 파일, 한 번만 읽습니다)
   const [siglog, setSiglog] = useState(null);   // 실전 장부 — 최근 신호 모아보기·성과 측정
-  const [today, setToday] = useState(null);     // 파이프라인이 확정한 오늘 후보 (앱·텔레그램·AI 도구가 같은 것을 봄)
+  const [today, setToday] = useState(null);
+  const [picksLog, setPicksLog] = useState(null);  // 152. 날마다의 '오늘 살 것' 기록 (복기·차트 표시)     // 파이프라인이 확정한 오늘 후보 (앱·텔레그램·AI 도구가 같은 것을 봄)
   const [cfgTick, setCfgTick] = useState(0);
   const [notes, setNotes] = useState(() => loadJSON(NOTE_KEY, {}));
   const setNote = useCallback((t, patch) => setNotes(o => {
@@ -806,6 +807,7 @@ export default function App() {
   const [syncState, setSyncState] = useState(() => ({ at: localStorage.getItem("v7.sync.at"), ok: true }));
   useEffect(() => {
     getJson("/data/today.json?t=" + Date.now()).then(setToday).catch(() => {});
+    getJson("/data/picks_log.json?t=" + Date.now()).then(j => setPicksLog(Array.isArray(j) ? j : [])).catch(() => setPicksLog([]));   // 152
   }, []);
   useEffect(() => {
     fetch("/data/signals_log.json?t=" + Date.now()).then(r => r.ok ? r.json() : null).then(setSiglog).catch(() => {});
@@ -1066,7 +1068,7 @@ export default function App() {
         okKr: mf.kr.ok, okUs: mf.us.ok, lag: fr.tone !== "fresh" && fr.tone !== "closed" } : null;       // 75. 주문 전에 보여줄 '최신 아님' 정보
   const genDay = String(snap?.meta?.generatedKST || "").slice(0, 10);       // 109. 이 데이터가 만들어진 날 (한국 날짜) — '오늘 산 종목' 판정
   const shared = { stocks, list, etfs, items, openStock, watch, toggleWatch, market, setTab, setSel, pos, setPos, syncState, staleInfo, notes, setNote, genDay,
-                   seen, sizer, bumpSizer, extras, setExtras, trades, setTrades, siglog, today };
+                   seen, sizer, bumpSizer, extras, setExtras, trades, setTrades, siglog, today, picksLog };
   const nTrack = pos.length + watch.length;
   const warn = fr.tone === "stale" || fr.tone === "old" || fr.tone === "bad";
 
@@ -1962,6 +1964,7 @@ const relOf = (s, market) => {
 };
 /** 최근 신호 모아보기 — 5거래일치 매수! 기록과 그 뒤 성과 (실전 장부 signals_log 기준) */
 function RecentSignals({ siglog, stocks, openStock, market }) {
+  const mOf = (x) => idxRet(market, x.m, x.d, null);
   const [open, setOpen] = useState(false);
   if (!siglog?.length) return null;
   const days = [...new Set(siglog.map(x => x.d))].sort().slice(-5);
@@ -1970,17 +1973,21 @@ function RecentSignals({ siglog, stocks, openStock, market }) {
     .sort((a, b) => ({ pull: 0, strong: 0, buy: 1 }[a.k] ?? 2) - ({ pull: 0, strong: 0, buy: 1 }[b.k] ?? 2))
     .filter(x => { const key = x.d + x.t; if (seenDT.has(key)) return false; seenDT.add(key); return true; })   // 같은 날 같은 종목 한 줄
     .map(x => { const s = stocks[x.t]; const now = s?.c ?? null;
-      return { ...x, now, ret: now && x.p ? (now / x.p - 1) * 100 : null, n: s?.n || x.n }; })
+      return { ...x, now, ret: now && x.p ? (now / x.p - 1) * 100 : null, n: s?.n || x.n, mret: mOf(x) }; })
     .sort((a, b) => b.d.localeCompare(a.d) || (b.ret ?? -99) - (a.ret ?? -99));
   const done = rows.filter(r => r.ret != null);
   const avg = done.length ? done.reduce((a, r) => a + r.ret, 0) / done.length : null;
   const win = done.length ? done.filter(r => r.ret > 0).length / done.length * 100 : null;
+  const dm = done.filter(r => r.mret != null);                                              // 151. 같은 기간 시장
+  const mavg = dm.length ? dm.reduce((a, r) => a + r.mret, 0) / dm.length : null;
+  const beat = dm.length ? dm.reduce((a, r) => a + (r.ret - r.mret), 0) / dm.length : null;
   const K = { pull: "눌림", strong: "강세", buy: "추세" };
   return (
     <Card style={{ marginTop: 8, padding: "10px 12px" }}>
       <button onClick={() => setOpen(v => !v)} style={{ background: "none", border: "none", padding: "6px 0", minHeight: 36, width: "100%", textAlign: "left", cursor: "pointer", color: C.text, display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ fontSize: FS.md, fontWeight: 800 }}>최근 5거래일 매수! 기록</span>
-        <span style={{ fontSize: FS.xs, color: C.muted }}>{rows.length}건{avg != null && <> · 평균 <b style={{ color: col(avg) }}>{pct(avg, 1)}</b> · 승률 {win.toFixed(0)}%</>}</span>
+        <span style={{ fontSize: FS.xs, color: C.muted }}>{rows.length}건{avg != null && <> · 평균 <b style={{ color: col(avg) }}>{pct(avg, 1)}</b> · 승률 {win.toFixed(0)}%</>}
+          {beat != null && <> · 시장 {pct(mavg, 1)} → <b style={{ color: col(beat) }}>{beat >= 0 ? "+" : "−"}{Math.abs(beat).toFixed(1)}%p</b></>}</span>
         <span style={{ marginLeft: "auto", color: C.muted }}>{open ? "▴" : "▾"}</span>
       </button>
       {open && (<div style={{ marginTop: 6 }}>
@@ -2296,7 +2303,7 @@ const SortSelect = ({ value, onChange, items }) => (
 );
 
 /* ══════════════ 5. 차트 ══════════════ */
-function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, setPos, setTab, sizer, staleInfo, notes, setNote }) {
+function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, setPos, setTab, sizer, staleInfo, notes, setNote, trades, picksLog }) {
   const [checkOpen, setCheckOpen] = useSticky("v13.chart.check", false);   // 81. 체크리스트 접기
   // 국내 상장 매수용 ETF 를 열면 판단 기준인 미국 원본 차트를 보여줍니다
   const sel = (sel0 && stocks[sel0]?.vehOf) || sel0;
@@ -2307,7 +2314,7 @@ function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, setPos, 
   const cache = useRef({});
   const [span, setSpan] = useState(126);                       // 기본 6개월
   const [opt, setOpt] = useState(() => {
-    const D = { ichi: true, st: true, ma: true, idx: true };
+    const D = { ichi: true, st: true, ma: true, idx: true, mk: true };
     try { return { ...D, ...JSON.parse(localStorage.getItem("v4.chart") || "{}") }; }
     catch { return D; }
   });
@@ -2420,6 +2427,20 @@ function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, setPos, 
     return { rows, idxPts, idxRel, ...niceAxis(Math.max(0, lo - pad), hi + pad) };
   }, [bars, span, idxMap]);
   const data = view?.rows || null;
+  /* 152. 차트 표시 — ▲ '오늘 살 것'에 든 날 · ● 내가 산 날 · ✕ 내가 판 날 (그날 또는 그 전 마지막 거래일 종가 위치) */
+  const marks = (() => {
+    if (!data?.length || !s || !opt.mk) return [];
+    const off = s.m === "kr" ? 9 * 3600000 : 0;
+    const days = data.map(r => new Date(r._t * 1000 + off).toISOString().slice(0, 10));
+    const at = (d) => { if (!d || d < days[0]) return -1; let k = -1; for (let i = 0; i < days.length; i++) { if (days[i] <= d) k = i; else break; } return k; };
+    const out = [], seenK = new Set(), add = (d, kind, label) => { const i = at(String(d || "").slice(0, 10)); if (i < 0 || data[i].c == null) return;
+      const key = kind + i; if (seenK.has(key)) return; seenK.add(key); out.push({ x: data[i].d, y: data[i].c, kind, label }); };
+    pickedDays(picksLog, s.t, s.m).filter(p => p.buy).forEach(p => add(p.d, "pick", "추천"));
+    (pos || []).filter(p => String(p.t).toUpperCase() === s.t).forEach(p => trOf(p).forEach((t, k) => add(t.d, "buy", `${k + 1}회차`)));
+    (trades || []).filter(t => String(t.t).toUpperCase() === s.t).forEach(t => { add(t.in, "buy", "매수"); add(t.out, "sell", "매도"); });
+    return out;
+  })();
+  const MK = { pick: [C.emerald, "▲"], buy: [C.gold, "●"], sell: [C.red, "✕"] };
   const [hov, setHov] = useState(null);       // 손가락으로 짚은 봉 (없으면 마지막 봉)
   useEffect(() => { setHov(null); }, [sel, span]);
   const live = useLive(s ? [s] : []);      // 105. 지금 가격 (훅이라 조기 return 앞)
@@ -2635,7 +2656,7 @@ function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, setPos, 
         <span style={{ fontSize: FS.xs, color: C.muted, flexShrink: 0 }}>기간</span>
         <Seg value={span} onChange={setSpan} items={[[63, "3M"], [126, "6M"], [200, "전체"]]} />
         <span style={{ fontSize: FS.xs, color: C.muted, flexShrink: 0, marginLeft: 4 }}>표시</span>
-        {[["st", "ST"], ["ichi", "구름"], ["ma", "이평"], ["idx", idxLabel]].map(([k, l]) =>
+        {[["st", "ST"], ["ichi", "구름"], ["ma", "이평"], ["idx", idxLabel], ["mk", "매매"]].map(([k, l]) =>
           <Toggle key={k} on={opt[k]} onClick={() => setOpt(o => ({ ...o, [k]: !o[k] }))}>{l}</Toggle>)}
       </FilterBar>
 
@@ -2650,6 +2671,10 @@ function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, setPos, 
               {opt.ma && <LegendDot c={C.orange}>20일</LegendDot>}
               {opt.ma && <LegendDot c={C.violet}>200일</LegendDot>}
               {opt.idx && view?.idxPts > 1 && <LegendDot c={C.cyan}>{idxLabel}</LegendDot>}
+              {opt.mk && marks.length > 0 && <span style={{ color: C.dim }}>
+                {marks.some(k => k.kind === "pick") && <span style={{ color: C.emerald }}>▲추천 </span>}
+                {marks.some(k => k.kind === "buy") && <span style={{ color: C.gold }}>●삼 </span>}
+                {marks.some(k => k.kind === "sell") && <span style={{ color: C.red }}>✕팖</span>}</span>}
               {opt.idx && view?.idxRel != null && (
                 <span style={{ fontWeight: 700, color: view.idxRel >= 0 ? C.emerald : C.red }}>
                   지수 대비 {view.idxRel >= 0 ? "+" : ""}{view.idxRel.toFixed(1)}%</span>)}
@@ -2676,6 +2701,9 @@ function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, setPos, 
                     name={`${idxLabel} (같은 출발점)`} stroke={C.cyan} strokeWidth={1.4} strokeOpacity={0.85}
                     dot={false} connectNulls isAnimationActive={false} />}
                   <Line yAxisId="p" type="monotone" dataKey="c" name="종가" stroke="#FFFFFF" strokeWidth={2} dot={false} isAnimationActive={false} />
+                  {marks.map((k, i) => (
+                    <ReferenceDot key={"mk" + i} yAxisId="p" x={k.x} y={k.y} r={k.kind === "pick" ? 0 : 4} fill={MK[k.kind][0]} stroke="#0B0F1A" strokeWidth={1.5} isFront ifOverflow="extendDomain"
+                      label={{ value: k.kind === "pick" ? "▲" : k.kind === "sell" ? "✕" : "", position: k.kind === "pick" ? "bottom" : "top", fill: MK[k.kind][0], fontSize: k.kind === "pick" ? 13 : 12, fontWeight: 800 }} />))}
                   {opt.st && [0, 1, 2].flatMap(k => [
                     <Line key={`u${k}`} yAxisId="p" type="monotone" dataKey={`st${k + 1}Up`} name={`ST${k + 1} 상승`}
                       stroke={C.emerald} strokeWidth={2.1 - k * 0.45} strokeOpacity={1 - k * 0.22}
@@ -3254,8 +3282,21 @@ function WeeklyPick({ stocks, market, sizer, openStock, setTab, pos, today }) {
       </div>)}
     </Card>);
 }
+/** 151. 같은 기간 시장 수익률 — market.idxbars(미국 S&P500 · 한국 코스피, 최근 200거래일 종가)에서 날짜로 찾음.
+ *  from·to 는 'YYYY-MM-DD'. 그 날짜 이하의 마지막 종가를 씁니다. 범위를 벗어나면 null */
+function idxRet(market, m, from, to) {
+  const rows = market?.idxbars?.[m]?.rows; if (!rows?.length || !from) return null;
+  const dOf = (r) => new Date(r[0] * 1000 + (m === "kr" ? 9 * 3600000 : 0)).toISOString().slice(0, 10);
+  const at = (d) => { let v = null; for (const r of rows) { if (dOf(r) <= d) v = r[1]; else break; } return v; };
+  if (dOf(rows[0]) > from) return null;
+  const a = at(from), b = to ? at(to) : rows[rows.length - 1][1];
+  return a && b ? (b / a - 1) * 100 : null;
+}
+/** 152. 이 종목이 '오늘 살 것' 목록에 들었던 날들 — [{d, i(순번), buy(살 것이었나)}] */
+const pickedDays = (picksLog, t, m) => (picksLog || []).flatMap(row => (row[m] || []).filter(x => x.t === t).map(x => ({ d: row.d, i: x.i, buy: !!x.buy })));
+
 /** 57. 지난 신호 복기 — 매수! 가 떴던 종목이 그 뒤 어떻게 됐나. 규칙대로 팔았으면 얼마였고, 판 뒤에는 어떻게 됐나 */
-function SignalReview({ siglog, stocks, market, openStock }) {
+function SignalReview({ siglog, stocks, market, openStock, picksLog }) {
   const [weeks, setWeeks] = useState(8);
   const [filter, setFilter] = useState("exit");
   const [limit, setLimit] = useState(15);
@@ -3269,8 +3310,14 @@ function SignalReview({ siglog, stocks, market, openStock }) {
     // 130. 판 뒤 흐름 — 판 날의 종가가 아직 마지막 종가면(하루도 안 지남) 비교할 값이 없으므로 비웁니다
     const after = ex && now && s?.asOf && ex.d < s.asOf ? (now / ex.p - 1) * 100 : null;
     const dropped = !ex && s && s.action !== "buy";                                          // 목록에서 빠졌지만 매도 신호는 아님
-    return { ...x, n: s?.n || x.n, m: x.m, now, ex, rule, after, dropped, cur: s };
+    const mret = idxRet(market, x.m, x.d, ex?.d || null);                                   // 151. 같은 기간 시장
+    const pk = pickedDays(picksLog, x.t, x.m).filter(p => p.d >= x.d && (!ex || p.d <= ex.d)); // 152. 그 사이 '오늘 살 것'에 들었나
+    return { ...x, n: s?.n || x.n, m: x.m, now, ex, rule, after, dropped, cur: s, mret, ex2: rule != null && mret != null ? rule - mret : null,
+             picked: pk.find(p => p.buy) || pk[0] || null };
   });
+  const first = siglog.reduce((a, x) => (!a || x.d < a ? x.d : a), null);                 // 150. 기록이 시작된 날
+  const short = first && since < first;
+  const xs = (a) => { const v = a.filter(r => r.ex2 != null); return v.length ? v.reduce((x, r) => x + r.ex2, 0) / v.length : null; };
   const exited = rows.filter(r => r.ex);
   const holding = rows.filter(r => !r.ex);
   const saved = exited.filter(r => r.after != null && r.after < 0).length;
@@ -3283,14 +3330,17 @@ function SignalReview({ siglog, stocks, market, openStock }) {
     <>
       <Sec right={<Seg value={weeks} onChange={setWeeks} items={[[4, "4주"], [8, "8주"], [26, "6달"]]} />}>지난 신호 복기</Sec>
       <Card style={{ padding: "8px 12px" }}>
+        {short && <div style={{ fontSize: FS.xs, color: C.gold, marginBottom: 6, lineHeight: 1.5 }}>
+          기록이 {dlabel(first)}부터라 {weeks === 4 ? "지금은 4주·8주·6달이 모두 같습니다" : `${weeks === 8 ? "8주를" : "6달을"} 골라도 ${dlabel(first)} 이후만 보입니다`} — 기록이 쌓이면 달라집니다.</div>}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", textAlign: "center" }}>
-          {[["이탈 (매도!)", `${exited.length}건`, avg(exited) != null ? `규칙 손익 ${pct(avg(exited), 1)}` : "—", col(avg(exited))],
-            ["판 뒤 더 떨어짐", withAfter ? `${Math.round(saved / withAfter * 100)}%` : "—", withAfter ? `${saved}/${withAfter}건 · 선이 지켜 줌` : "아직 없음", C.emerald],
-            ["유지 중", `${holding.length}건`, avg(holding) != null ? `지금까지 ${pct(avg(holding), 1)}` : "—", col(avg(holding))]].map(([l, v, sub, c], i) => (
+          {[["이탈 (매도!)", `${exited.length}건`, avg(exited) != null ? `규칙 손익 ${pct(avg(exited), 1)}` : "—", col(avg(exited)), xs(exited)],
+            ["판 뒤 더 떨어짐", withAfter ? `${Math.round(saved / withAfter * 100)}%` : "—", withAfter ? `${saved}/${withAfter}건 · 선이 지켜 줌` : "아직 없음", C.emerald, undefined],
+            ["유지 중", `${holding.length}건`, avg(holding) != null ? `지금까지 ${pct(avg(holding), 1)}` : "—", col(avg(holding)), xs(holding)]].map(([l, v, sub, c, x], i) => (
             <div key={l} style={{ borderLeft: i ? `1px solid ${C.border}` : "none", padding: "0 4px", minWidth: 0 }}>
               <div style={{ fontSize: 10.5, color: C.dim, ...ONE }}>{l}</div>
               <div style={{ fontSize: 16, fontWeight: 800, fontFamily: MONO }}>{v}</div>
               <div style={{ fontSize: 10.5, color: c, ...ONE }}>{sub}</div>
+              {x !== undefined && <div style={{ fontSize: 10.5, color: x == null ? C.muted : col(x), ...ONE }}>{x == null ? "시장 비교 —" : `시장보다 ${x >= 0 ? "+" : "−"}${Math.abs(x).toFixed(1)}%p`}</div>}
             </div>))}
         </div>
         <div style={{ marginTop: 8 }}>
@@ -3307,11 +3357,14 @@ function SignalReview({ siglog, stocks, market, openStock }) {
                 <b style={r.m === "kr" ? {} : { fontFamily: MONO }}>{r.m === "kr" ? r.n : r.t}</b>
                 <span style={{ fontSize: 10.5, color: C.muted }}> {K[r.k]}</span>
                 {r.dropped && <span style={{ fontSize: 10.5, color: C.gold }}> 목록 빠짐</span>}
+                {r.picked && <span style={{ fontSize: 10.5, color: r.picked.buy ? C.emerald : C.dim }}> {r.picked.buy ? "★ 살 것" : `대기 ${r.picked.i}번`} {dlabel(r.picked.d)}</span>}
               </div>
               <div style={{ fontSize: 10.5, color: C.muted, fontFamily: MONO, ...ONE }}>
                 {dlabel(r.d)} {price(r.p, r.m)}{r.ex ? ` → ${dlabel(r.ex.d)} ${price(r.ex.p, r.m)}` : " → 유지 중"}</div>
             </div>
-            <span style={{ fontSize: FS.sm, fontFamily: MONO, fontWeight: 700, textAlign: "right", color: col(r.rule) }}>{r.rule == null ? "—" : pct(r.rule, 1)}</span>
+            <span style={{ textAlign: "right", minWidth: 0 }}>
+              <span style={{ fontSize: FS.sm, fontFamily: MONO, fontWeight: 700, color: col(r.rule), display: "block" }}>{r.rule == null ? "—" : pct(r.rule, 1)}</span>
+              {r.mret != null && <span style={{ fontSize: 10, fontFamily: MONO, color: C.muted, display: "block", ...ONE }}>시장 {pct(r.mret, 1)}</span>}</span>
             <span style={{ fontSize: FS.xs, fontFamily: MONO, textAlign: "right", color: r.after == null ? C.muted : r.after < 0 ? C.emerald : C.red }}>
               {r.after == null ? "—" : `${r.after < 0 ? "✓" : "✗"}${pct(r.after, 0)}`}</span>
             <span style={{ fontSize: FS.xs, fontFamily: MONO, textAlign: "right", color: C.dim }}>{r.peak == null ? "—" : pct(r.peak, 0)}</span>
@@ -3320,13 +3373,15 @@ function SignalReview({ siglog, stocks, market, openStock }) {
         <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 8, lineHeight: 1.6 }}>
           규칙 손익 = 매수! 날 종가에 사서, 처음 종가가 트레일링선 아래로 마감한 날 종가에 판 결과 (유지 중이면 지금까지).
           판 뒤 = 그 뒤 지금까지(판 날 다음 종가부터 · 그 전에는 —) · <b style={{ color: C.emerald }}>✓</b> 더 떨어짐(판 게 맞음) · <b style={{ color: C.red }}>✗</b> 다시 오름.
-          최고 = 신호 뒤 가장 높았던 종가. "목록 빠짐" = 매수! 조건은 사라졌지만 매도 신호는 아님(보유 중이면 계속 보유).
+          최고 = 신호 뒤 가장 높았던 종가. "목록 빠짐" = 매수! 조건은 사라졌지만 매도 신호는 아님(보유 중이면 계속 보유).<br />
+          시장 = 같은 기간 🇺🇸 S&P500 · 🇰🇷 코스피. "시장보다 ±%p" = 신호마다 (규칙 손익 − 시장)의 평균 — 플러스면 시장보다 나았다는 뜻.
+          ★ 살 것 / 대기 n번 = 그 사이 '오늘 살 것' 목록에 들었던 날 (10/9부터 기록).
         </div>
       </Card>
     </>);
 }
 
-function ReviewTab({ market, uni, snap, trades, setTrades, pos, stocks, setTab, openStock, sizer, today, siglog, syncState, onShowRules }) {
+function ReviewTab({ market, uni, snap, trades, setTrades, pos, stocks, setTab, openStock, sizer, today, siglog, syncState, onShowRules, picksLog }) {
   const wk = weekKey();
   const [done, setDone] = useState(() => loadJSON("v8.review", {}));
   const [memo, setMemo] = useState(() => localStorage.getItem("v8.review.memo") || "");
@@ -3402,7 +3457,7 @@ function ReviewTab({ market, uni, snap, trades, setTrades, pos, stocks, setTab, 
       </Card>
 
       <RecentSignals siglog={siglog} stocks={stocks} openStock={openStock} market={market} />
-      <SignalReview siglog={siglog} stocks={stocks} market={market} openStock={openStock} />
+      <SignalReview siglog={siglog} stocks={stocks} market={market} openStock={openStock} picksLog={picksLog} />
 
       <TradeLog trades={trades} setTrades={setTrades} />
       <SettingsHub sizer={sizer} setTab={setTab} syncState={syncState} onShowRules={onShowRules} />
