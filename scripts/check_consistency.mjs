@@ -83,5 +83,16 @@ ok("미국 개장 22:30/23:30 · 마감 05:00/06:00 (앱·감시 2곳)", /dst \?
 ok("한투 카드는 오늘 탭과 같은 선정 함수 사용", /kisPicks\(stocks, pos, genDay/.test(app_) && !/picks=\{today\?\.pickUs/.test(app_));
 ok("한투 지정가 여유(+0.5%)가 서버 거절선(3%)보다 작음", (n(/slip: ([\d.]+)/, kisUi) ?? 99) < 3 && /q\.last \* 1\.03/.test(kisJs));
 
+// 자동 수집이 새로 쓰는 파일은 저장(커밋) 목록에 있어야 함 — 빠지면 저장 단계가 통째로 실패 (2026-10-10 picks_log.json 사고)
+{ const bs = T("scripts/build_snapshot.py"), yml = T(".github/workflows/daily.yml");
+  const consts = Object.fromEntries([...bs.matchAll(/^(\w+) = f"\{OUT_DIR\}\/([\w.]+\.json)"/gm)].map((m) => [m[1], m[2]]));
+  const written = new Set([...bs.matchAll(/_write\(f"\{OUT_DIR\}\/([\w.]+\.json)"/g)].map((m) => m[1]));
+  for (const [k, f] of Object.entries(consts)) if (new RegExp(`_write\\(${k}\\b`).test(bs) || new RegExp(`open\\(${k}, "w"`).test(bs)) written.add(f);
+  const listed = new Set((/for f in ([^;]+); do/.exec(yml)?.[1] || "").trim().split(/\s+/));
+  const miss = [...written].filter((f) => !listed.has(f));
+  ok(`자동 수집이 쓰는 파일 ${written.size}개가 모두 저장 목록에 있음`, miss.length === 0, `빠짐: ${miss.join(", ")} → .github/workflows/daily.yml 의 for f in 목록에 넣어야 저장 단계가 실패하지 않습니다`);
+  ok("저장 전 pull 이 바뀐 파일 때문에 멈추지 않음(--autostash)", /git pull --rebase --autostash origin main/.test(yml));
+}
+
 console.log(`\n${bad ? `❌ 다른 곳 ${bad}개` : "✅ 꼭 같아야 하는 값은 모두 같음"}${warn ? ` · ⚠ 갱신 대기 ${warn}개` : ""}`);
 process.exit(bad ? 1 : 0);
