@@ -181,3 +181,27 @@ jobs:
             git pull --rebase --autostash origin main
             git push
           )
+
+      # 153. 실패하면 바로 텔레그램으로 알림 — 2026-10-10 저장 실패를 사흘 뒤에야 알았던 일 방지
+      - name: 실패 알림
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_NAME: ${{ github.workflow }}
+        run: |
+          python3 - <<'PY'
+          import os, json, urllib.request, datetime
+          tok, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
+          if not (tok and chat):
+              raise SystemExit("텔레그램 비밀키 없음 — 알림 생략")
+          now = (datetime.datetime.utcnow() + datetime.timedelta(hours=9)).strftime("%m/%d %H:%M")
+          text = (f"⚠️ <b>자동 수집 실패</b> · {now}\n{os.environ.get('RUN_NAME','')}\n"
+                  "앱 데이터가 갱신·저장되지 않았을 수 있습니다. 앱에서 🔄 갱신을 눌러 보고, 계속되면 로그를 확인하세요.\n"
+                  f"<a href=\"{os.environ.get('RUN_URL','')}\">실행 로그 열기</a>")
+          req = urllib.request.Request(f"https://api.telegram.org/bot{tok}/sendMessage",
+              data=json.dumps({"chat_id": chat, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}).encode(),
+              headers={"Content-Type": "application/json"})
+          print(urllib.request.urlopen(req, timeout=20).status)
+          PY
