@@ -18,7 +18,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot,
 } from "recharts";
 
-export const APP_VERSION = "v13.10.0";
+export const APP_VERSION = "v13.10.1";
 
 /** 135. 수집 데이터에 남아 있던 "&amp;" 를 "&" 로 (예: Procter &amp; Gamble). 파이프라인이 고친 뒤에는 할 일이 없어 그냥 지나갑니다 */
 const getJson = (url) => fetch(url).then(r => r.ok ? r.text().then(t => JSON.parse(t.includes("&amp;") ? t.replace(/&amp;/g, "&") : t)) : null);
@@ -207,6 +207,9 @@ function marketFresh(asOfBy, nowMs = Date.now()) {
     if (!have) return { ok: false, txt: "—" };
     if (!exp || have === exp) return { ok: true, txt: `${md(have)} 종가 ✅ 최신`, have, exp };
     if (have > exp) return { ok: false, txt: `${md(have)} 장중 값 ⚠ 종가 아님`, have, exp, intraday: true };
+    // 154. 장이 끝난 뒤 자동 수집이 돌기까지(🇰🇷 ~16:30 · 🇺🇸 ~06:40)는 '늦음'이 아니라 '곧 들어옴' — 🇰🇷 17:30 · 🇺🇸 07:30(서머타임) 까지 기다림
+    const expG = expectedClose(m, nowMs - (m === "kr" ? 105 : 140) * 60000);
+    if (have >= (expG || "")) return { ok: true, pending: true, txt: `${md(have)} 종가 · ${md(exp)} 종가는 ${m === "kr" ? "17시" : "7시"}쯤까지 들어옴`, have, exp };
     return { ok: false, txt: `${md(have)} 종가 ⚠ ${md(exp)} 종가가 아직 안 들어옴`, have, exp };
   };
   return { kr: one("kr"), us: one("us") };
@@ -425,7 +428,7 @@ const EXPLAIN = {
     ["매출 +16% 분기↑ · 흑자", "최근 분기 매출의 전년 동기 대비 (SEC 공시, ↑ = 직전 분기보다 성장 가속). 없으면 4분기 합계 → 연간. 미국만. 검증 불가라 조건이 아닌 취향 필터 — 한국·재무 없는 종목은 통과"],
     ["예비", "관찰용. rising = 추세 유지·RS 55~70·1달 시장대비 + / turn = 느린ST 초록 전환 3일 이내. 검증에서 현행을 못 이겨 매수!로 쓰지 않음"],
     ["○ 확인함", "누르면 회색으로 맨 아래. 그 주 동안 유지"],
-    ["🆕 9/24 종가 · 9/24~ N일째", "매수! 조건이 처음 켜진 종가 날짜와 그 뒤 며칠째인지 (실전 장부 기준 · 그 시장 거래일로 셈). 미국 종가는 한국 아침에 들어오므로 달력 날짜보다 하루 앞설 수 있음. 20일 넘으면 표시 없음"],
+    ["🆕 9/24 종가 · 9/24 첫 신호", "매수! 조건이 처음 켜진 종가 날짜 (실전 장부 기준). 그 뒤 중간에 꺼졌다 다시 켜졌을 수도 있어서 '며칠째'로 세지 않습니다. 미국 종가는 한국 아침에 들어오므로 달력 날짜보다 하루 앞설 수 있음. 20거래일 넘으면 표시 없음"],
     ["📅 실적 D-3", "다음 실적 발표까지 남은 날 (그 시장 현지 날짜 · 14일 안일 때만). (예상) = 회사가 아직 확정 안 한 날짜. 발표 전후엔 하루에 크게 움직일 수 있어 새로 살 때 참고 — 매수·매도 규칙은 그대로"],
   ],
   dip: [
@@ -580,7 +583,8 @@ const LiveTag = ({ s, q, short = false }) => {
   return (
     <span style={{ fontSize: 10.5, color: L.below ? C.gold : C.dim, fontWeight: L.below ? 700 : 400, whiteSpace: short ? "nowrap" : "normal" }}>
       지금 <b style={{ fontFamily: MONO, color: C.text }}>{price(L.p, s.m)}</b>{L.ch != null && <b style={{ fontFamily: MONO, color: col(L.ch) }}> {pct(L.ch, 1)}</b>}
-      {!short && <> · {L.hm} {L.open ? "장중" : "마감"}{s.m === "kr" ? "(약 20분 지연)" : ""}</>}
+      {short && <span style={{ color: C.muted }}> · {L.hm}</span>}
+      {!short && <> · {L.hm} {L.open ? "장중" : "마감"}{s.m === "kr" ? "(약 20분 지연)" : ""} · 전일 종가 대비</>}
       {L.below && (short ? " ⚠선 아래" : " · ⚠ 지금 선 아래 — 매도는 마감 가격으로 판정")}
     </span>);
 };
@@ -2036,9 +2040,13 @@ function sigAgeMap(siglog) {
   }
   return { age, since };
 }
+/** 154. 시장별 종가 기준일 — 종목 데이터에서 가장 많은 날짜 (미국·한국 날짜가 다를 수 있어서 나눠 보여 줌) */
+const asOfOf = (stocks, m) => { const c = {}; for (const v of Object.values(stocks || {})) if (v?.m === m && v.asOf) c[v.asOf] = (c[v.asOf] || 0) + 1;
+  return Object.entries(c).sort((a, b) => b[1] - a[1])[0]?.[0] || null; };
 /** 87. 🆕 표시 — '오늘'이 아니라 종가 날짜로 (미국 종가는 한국 아침에 들어와 달력 날짜와 하루 어긋남) */
-const newTxt = (age, since) => !since ? (age <= 1 ? "🆕 새로" : `${age}일째`)
-  : age <= 1 ? `🆕 ${md(since)} 종가` : age <= 3 ? `🆕 ${md(since)}~ ${age}일째` : `${md(since)}~ ${age}일째`;
+// 154. "9/23~ 14일째"는 계속 이어진 것처럼 읽혀서(중간에 신호가 꺼졌다 켜졌을 수 있음) '첫 신호 날짜'로만 씁니다
+const newTxt = (age, since) => !since ? (age <= 1 ? "🆕 새로" : `${age}거래일 전 첫 신호`)
+  : age <= 1 ? `🆕 ${md(since)} 종가` : age <= 3 ? `🆕 ${md(since)} 첫 신호` : `${md(since)} 첫 신호`;
 const NewTag = ({ age, since }) => age == null ? null : (
   <span style={{ fontSize: 10.5, fontWeight: 800, color: age <= 1 ? C.gold : C.muted, flexShrink: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                  background: age <= 1 ? "rgba(245,158,11,.15)" : "transparent", borderRadius: 4, padding: age <= 1 ? "0 4px" : 0 }}>
@@ -2081,7 +2089,9 @@ function TodayPicks({ today, stocks, sizer, openStock, pos, staleInfo, market, a
           <span style={{ fontSize: FS.xs, color: C.muted, fontFamily: MONO, width: 14, textAlign: "right", flexShrink: 0 }}>{i + 1}</span>
           <div style={{ flex: 1, minWidth: 0, fontSize: 15, ...ONE }}>{r.m === "kr" ? <><b>{r.n}</b><span style={{ fontSize: 10.5, color: C.muted, fontFamily: MONO }}> {r.t}</span></>
             : <><b style={{ fontFamily: MONO }}>{r.t}</b><span style={{ fontSize: FS.xs, color: C.dim }}> {shortName(r.n)}</span></>}</div>
-          <b style={{ fontSize: 14, fontFamily: MONO, flexShrink: 0 }}>{price(r.c, r.m)}</b>
+          <span style={{ flexShrink: 0, textAlign: "right", lineHeight: 1.1 }}>
+            <b style={{ fontSize: 14, fontFamily: MONO, display: "block" }}>{price(r.c, r.m)}</b>
+            <span style={{ fontSize: 9.5, color: C.muted }}>{md(s.asOf || today?.asOf)} 종가</span></span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", margin: "5px 0 0 20px" }}>
           {state === "done" ? <Tag c={C.emerald} bg="rgba(48,209,88,.14)">✓ 오늘 삼</Tag>
@@ -2135,7 +2145,8 @@ function TodayPicks({ today, stocks, sizer, openStock, pos, staleInfo, market, a
     <Card style={{ marginTop: 10, borderColor: `${C.emerald}55`, padding: "10px 12px" }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
         <span style={{ fontSize: FS.md, fontWeight: 800 }}>오늘 살 것</span>
-        <span style={{ fontSize: FS.xs, color: C.muted }}>{md(today?.asOf) || "—"} 종가 기준 · 매수! 🇺🇸 {nUs} · 🇰🇷 {candNew.length - nUs} 중에서</span>
+        <span style={{ fontSize: FS.xs, color: C.muted }}>{(() => { const a = asOfOf(stocks, "us"), b = asOfOf(stocks, "kr");
+          return a && b && a !== b ? `🇺🇸 ${md(a)} · 🇰🇷 ${md(b)}` : md(a || b || today?.asOf) || "—"; })()} 종가 기준 · 매수! 🇺🇸 {nUs} · 🇰🇷 {candNew.length - nUs} 중에서</span>
       </div>
       <StaleWarn info={staleInfo} />
       {differs && <div style={{ fontSize: 10.5, color: C.gold, marginTop: 6, lineHeight: 1.5 }}>
