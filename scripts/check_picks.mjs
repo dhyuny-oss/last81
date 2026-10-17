@@ -12,6 +12,7 @@ const wlRaw = readFileSync(`${D}/watchlist.json`, "utf-8");
 const wl = JSON.parse(wlRaw);
 const held = new Set((wl.positions || []).map(p => String(p.t || "").toUpperCase()));
 const secRank = Object.fromEntries((market.sectors || []).map(x => [x.tk, [x.rank, x.label]]));
+const krGate = !!(market.judge?.kr?.gate && market.judge.kr.verdict === "risk");      // 176
 
 const cases = [
   { revMin: 10, slotsUs: 7, slotsKr: 5 }, { revMin: 0, slotsUs: 5, slotsKr: 3 },
@@ -29,7 +30,7 @@ s = json.load(open("${D}/snapshot.json")); m = json.load(open("${D}/market.json"
 t = B.build_today(s["stocks"], m)
 print(json.dumps({"us": [r["t"] for r in t["pickUs"]], "kr": [r["t"] for r in t["pickKr"]]}))
 `], { encoding: "utf-8" }).trim().split("\n").pop());
-    const js = pickToday(snap.stocks, cfg, held, { secRank });
+    const js = pickToday(snap.stocks, { ...cfg, krGate }, held, { secRank });
     const a = { us: js.pickUs.map(r => r.t), kr: js.pickKr.map(r => r.t) };
     const same = JSON.stringify(a) === JSON.stringify(py);
     if (!same) bad++;

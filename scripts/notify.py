@@ -320,11 +320,16 @@ def build(snap, mkt, state, now):
         _cfg = (wl.get("settings") or {})
         _note, _open = [], {}
         _held = {str(q.get("t", "")).upper() for q in (wl.get("positions") or [])}
-        for _m, _f, _n in (("us", "🇺🇸", int(_cfg.get("slotsUs") or 5)), ("kr", "🇰🇷", int(_cfg.get("slotsKr") or 3))):
+        for _m, _f, _n in (("us", "🇺🇸", int(_cfg.get("slotsUs") or 7)), ("kr", "🇰🇷", int(_cfg.get("slotsKr") or 5))):
             _h = sum(1 for q in (wl.get("positions") or []) if (q.get("role") or "swing") == "swing" and (str(q.get("t", "")).isdigit() == (_m == "kr")))
             _amt = _cfg.get("usAmt" if _m == "us" else "krAmt")
             _note.append(f"{_f} 투자금 0" if _amt == 0 else (f"{_f} <b>칸이 다 참</b>({_h}/{_n})" if _h >= _n else f"{_f} 빈 칸 {_n - _h}/{_n}"))
             _open[_m] = (_amt != 0) and _h < _n
+        # 176. 한국 시장 '위험'이면 한국은 새로 사지 않음 (앱 '오늘 살 것'·today.json 과 같은 규칙)
+        _jk = ((mkt or {}).get("judge") or {}).get("kr") or {}
+        if _jk.get("gate") and _jk.get("verdict") == "risk" and _open.get("kr"):
+            _open["kr"] = False
+            _note = [x if not x.startswith("🇰🇷") else "🇰🇷 <b>시장 위험 — 새로 사지 않음</b>" for x in _note]
         L.append("   " + " · ".join(_note) + " — <i>빈 칸만큼만 삽니다</i>")
         # 114. 이미 가진 종목은 빼고, 살 수 없는 시장(칸이 참 · 투자금 0)은 목록을 접습니다 (앱 '오늘 살 것'과 같게)
         rows = [s for s in entry if str(s["t"]).upper() not in _held and _open.get(s["m"])]
@@ -522,7 +527,7 @@ def build_weekly(snap, mkt, now):
           if drop: L.append("   <i>제외: " + ", ".join(drop[:8]) + "</i>")
       krb = [d for d in stocks.values() if d.get("action") == "buy" and d.get("m") == "kr" and (d.get("tvr") or 0) >= 40]
       if krb:
-          L.append("   🇰🇷 " + ", ".join(f"{d['n']}({WHY.get(d.get('why'),'')})" for d in sorted(krb, key=rk)[:4]) + (" — 시장 위험이면 쉬어도 됨" if (mkt.get("judge") or {}).get("kr", {}).get("verdict") == "risk" else ""))
+          L.append("   🇰🇷 " + ", ".join(f"{d['n']}({WHY.get(d.get('why'),'')})" for d in sorted(krb, key=rk)[:4]) + (" — 시장 위험: 새로 사지 않음" if (mkt.get("judge") or {}).get("kr", {}).get("verdict") == "risk" else ""))
     # 5 DC
     dc = mkt.get("dc") or {}
     dual = dc.get("dual") or {}
