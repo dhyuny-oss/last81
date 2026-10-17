@@ -40,6 +40,10 @@ MIN_BARS  = 130          # 이보다 적으면 지표 일부 생략
 BREADTH_DAYS = 756       # 폭 백분위 기준 기간 (3년)
 BREADTH_GATE = 40        # 한국: 폭 백분위가 이 아래면 위험
 
+try:                                    # 172. 업종 고침표 — scripts/universe.py 한 곳에서
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); from universe import SECTOR_FIX as _SECTOR_FIX
+except Exception:
+    _SECTOR_FIX = {"BRK-B": "Financials", "BRK-A": "Financials", "LNG": "Energy"}
 # ── 섹터 ETF (감마 통합: 12종) ────────────────────────────────
 # GICS 업종명(위키피디아) → 섹터 ETF. 종목의 업종이 섹터 순위 몇 위인지 연결하는 표입니다.
 GICS_TO_ETF = {
@@ -475,6 +479,16 @@ def _f(x):
 # ══════════════════════════════════════════════════════════════
 # 시장 · 섹터
 # ══════════════════════════════════════════════════════════════
+def _run200(c):
+    """156. 지수가 200일선 위/아래에 며칠째 있는지 — 양수 = 위 n일째, 음수 = 아래 n일째"""
+    if len(c) < 201: return None
+    cs = [0.0]
+    for v in c: cs.append(cs[-1] + v)
+    side = lambda i: c[i] >= (cs[i + 1] - cs[i - 199]) / 200
+    last, n, i = side(len(c) - 1), 0, len(c) - 1
+    while i >= 199 and side(i) == last: n += 1; i -= 1
+    return n if last else -n
+
 def decide_judge(idx, breadth):
     """시장 판단.
        한국 : 폭(200일선 위 종목 비율)의 3년 백분위가 기준 아래면 위험.
@@ -495,11 +509,11 @@ def decide_judge(idx, breadth):
                  (i.get("d21") is not None and i["d21"] <= -15))
         if mkt == "kr" and bp is not None:
             if bp < BREADTH_GATE:
-                v, why = "risk", f"오르는 종목이 말랐습니다 (폭 {bv:.0f}% · 3년 하위 {bp:.0f}%)"
+                v, why = "risk", f"200일선 위 종목이 적습니다 (폭 {bv:.0f}% · 3년 하위 {bp:.0f}%)"
             elif crash:
                 v, why = "warn", f"폭은 괜찮지만 지수가 급락했습니다 (폭 3년 상위 {100-bp:.0f}%)"
             else:
-                v, why = "safe", f"오르는 종목이 넉넉합니다 (폭 {bv:.0f}% · 3년 상위 {100-bp:.0f}%)"
+                v, why = "safe", f"200일선 위 종목이 넉넉합니다 (폭 {bv:.0f}% · 3년 상위 {100-bp:.0f}%)"
         else:
             # 폭 계산 전이거나 미국 — 200일선은 '참고'로만 표시
             m = i.get("ma200p")
@@ -509,7 +523,7 @@ def decide_judge(idx, breadth):
             else:         v, why = "safe", "지수 200일선 위 · 급락 없음"
         judge[mkt] = {"verdict": v, "why": why, "index": tk, "gate": gate,
                       "breadth": bv, "breadthPct": bp,
-                      "note": ("폭 백분위 기준 — 검증 통과" if gate else
+                      "note": ("폭 백분위 기준 — 한국 새로 사기에 사용 (검증 연 11.4% → 24.1%)" if gate else
                                "미국은 검증을 통과한 시장 타이밍 지표가 없어 참고용입니다")}
     return judge
 
@@ -572,7 +586,7 @@ def build_market():
         c=[x["c"] for x in cd]; ma200=sma(c,200)
         idx[tk] = {"label":label,"market":mkt,"c":_r(c[-1],2),
                    "d1":_r(chg(cd,1)),"d3":_r(chg(cd,3)),"d5":_r(chg(cd,5)),"d21":_r(chg(cd,21)),
-                   "ma200p": _r((c[-1]/ma200-1)*100) if ma200 else None,
+                   "ma200p": _r((c[-1]/ma200-1)*100) if ma200 else None, "run200": _run200(c),
                    "asOf": datetime.fromtimestamp(cd[-1]["t"],timezone.utc).strftime("%Y-%m-%d"), **({"est": est} if est else {})}
         # 벤치마크 지수만 봉을 남깁니다 (차트 오버레이용, 종목 파일과 같은 200봉)
         if BENCH.get(mkt) == tk:
@@ -863,7 +877,7 @@ def attach_earnings(stocks, universe_all=None, market=None):
     if market is not None and val:
         import statistics as _st
         grp = {}
-        sec_of = lambda t: (stocks.get(t) or {}).get("s") or ((universe_all or {}).get(t) or {}).get("sector") or ""
+        sec_of = lambda t: _SECTOR_FIX.get(t) or (stocks.get(t) or {}).get("s") or ((universe_all or {}).get(t) or {}).get("sector") or ""
         for t, x in val.items():
             k = GICS_TO_ETF.get(sec_of(t))
             if not k: continue
@@ -1146,15 +1160,18 @@ def update_signal_log(stocks, series, idx_series):
     print(f"  📒 실전 장부: 기록 {len(log)}건 (+{added}) · 20일 성적 확정 {done} · 대기 {pending}")
     # 57. 복기 요약 — 이탈한 신호의 규칙 손익과 '판 뒤 더 떨어졌나'
     exited = [x for x in log if x.get("x") and x.get("p")]
-    last_px = {}
+    # 162. 앱 점검 탭과 같은 계산 — '판 뒤'는 판 날 다음 종가가 있는 신호만 (오늘 판 것은 아직 비교할 값이 없어 뺌)
+    last_px, last_dt = {}, {}
     for x in exited:
-        ser = series.get(x["t"])
-        if ser: last_px[x["t"]] = ser[-1][1]
-        elif (x.get("r") or {}).get("now") is not None: last_px[x["t"]] = x["p"] * (1 + x["r"]["now"] / 100)
-    good = [x for x in exited if last_px.get(x["t"]) and last_px[x["t"]] < x["x"]["p"]]
+        ser = series.get(x["t"]); rows = ser.get("rows") if isinstance(ser, dict) else ser
+        if rows:
+            last_px[x["t"]] = rows[-1][1]
+            last_dt[x["t"]] = datetime.fromtimestamp(rows[-1][0], timezone.utc).strftime("%Y-%m-%d")
+    judged = [x for x in exited if x["t"] in last_dt and (x["x"].get("d") or "") < last_dt[x["t"]]]
+    good = [x for x in judged if last_px[x["t"]] < x["x"]["p"]]
     review = {"exited": len(exited), "holding": sum(1 for x in log if not x.get("x")),
               "ruleAvg": _r(sum((x["x"]["p"] / x["p"] - 1) * 100 for x in exited) / len(exited), 2) if exited else None,
-              "savedPct": _r(len(good) / max(1, sum(1 for x in exited if last_px.get(x["t"]))) * 100, 0) if exited else None}
+              "savedPct": _r(len(good) / len(judged) * 100, 0) if judged else None, "savedN": len(good), "judgedN": len(judged)}
     return {"summary": summ, "n": len(log), "pending": pending, "since": min((x["d"] for x in log), default=None), "review": review,
             "drift": drift, "kinds": ["pull", "buy", "strong"]}
 
@@ -1191,7 +1208,10 @@ def build_today(stocks, market):
         wl = {}
     held = {str(p.get("t", "")).upper() for p in (wl.get("positions") or [])}
     cfg = wl.get("settings") or {}
-    rev_min = float(cfg.get("revMin", REV_MIN)); slots_us = int(cfg.get("slotsUs") or 5); slots_kr = int(cfg.get("slotsKr") or 3)
+    rev_min = float(cfg.get("revMin", REV_MIN)); slots_us = int(cfg.get("slotsUs") or 7); slots_kr = int(cfg.get("slotsKr") or 5)   # 168. 기본 = 권장 7·5 (src/picks.js SLOTS_DEFAULT)
+    # 176. 한국 시장 '위험'(폭 3년 하위 40% 아래)이면 한국은 새로 사지 않음 — 2010–26 검증 연 11.4% → 24.1% (주 1회 폭 · 보유는 그대로)
+    _jk = (market.get("judge") or {}).get("kr") or {}
+    kr_gate = bool(_jk.get("gate") and _jk.get("verdict") == "risk")
     # 98. 1회차 금액 — 앱 💰 투자금(직투 금액 ÷ 칸 수의 절반). 앱이 금액을 보낸 적이 없으면 넣지 않음
     size = {}
     for _m, _amt, _n in (("us", cfg.get("usAmt"), slots_us), ("kr", cfg.get("krAmt"), slots_kr)):
@@ -1239,13 +1259,21 @@ def build_today(stocks, market):
     rank = lambda r: ((1 if r["why"] == "trend" else 0) * 1000 - (r.get("str") or 0), r["t"])
     cands = sorted(buys, key=rank)
     excluded, pick_us, pick_kr, used = [], [], [], set()
+    # 161. 이미 보유한 미국 종목의 업종도 '사용 중' — 원칙 5 "같은 업종에 두 칸 이상 넣지 않는다" (앱 src/picks.js 와 같은 규칙)
+    held_sec = {}
+    for p in (wl.get("positions") or []):
+        _d = stocks.get(str(p.get("t", "")).upper())
+        if _d and _d.get("m") == "us" and _d.get("sec") and _d["sec"] not in held_sec: held_sec[_d["sec"]] = _d["t"]
     for r in cands:
         why = reasons(r)
         if why: excluded.append({"t": r["t"], "n": r["n"], "m": r["m"], "why": why}); continue
         if r["m"] == "us":
             key = r["sec"] or f"?{r['t']}"
+            if key in held_sec: excluded.append({"t": r["t"], "n": r["n"], "m": "us", "why": [f"같은 업종 보유 중({held_sec[key]})"]}); continue
             if key in used: excluded.append({"t": r["t"], "n": r["n"], "m": "us", "why": ["같은 업종 이미 선택"]}); continue
             if len(pick_us) < slots_us: pick_us.append(r); used.add(key)
+        elif kr_gate:
+            excluded.append({"t": r["t"], "n": r["n"], "m": "kr", "why": ["시장 위험 — 한국 새로 사지 않음"]})
         elif len(pick_kr) < slots_kr:
             pick_kr.append(r)
     # 109. 빈 칸 = 칸 수 − 지금 들고 있는 단기 종목 수. 0 이면 새로 사지 않음 (앱·텔레그램·AI 도구가 같은 숫자를 봄)
@@ -1275,7 +1303,8 @@ def build_today(stocks, market):
     return {"asOf": max((d.get("asOf") or "" for d in stocks.values()), default=None),
             "rules": {"buy": "action=buy", "rev": f"🇺🇸 매출 +{rev_min:.0f}%↑ (최근 분기 전년 동기 대비 → 없으면 4분기 합계 → 연간) · 적자 제외",
                       "order": "강세·눌림 먼저 → 강도 점수(RS 백분위와 200일선 거리 백분위의 평균) 높은 순",
-                      "sector": f"🇺🇸 같은 업종은 하나(위험 관리용 · 미검증) · 최대 {slots_us} · 🇰🇷 최대 {slots_kr}",
+                      "sector": f"🇺🇸 같은 업종은 하나 — 보유 종목 업종 포함(위험 관리용 · 미검증) · 최대 {slots_us} · 🇰🇷 최대 {slots_kr}",
+                      "krGate": "🇰🇷 시장 '위험'(폭 3년 하위 40% 아래 · 주 1회 계산)이면 새로 사지 않음 · 보유는 트레일링선대로" + (" — 지금 작동 중" if kr_gate else ""),
                       "tranche": "1회차 = 한도 절반 → +3~6% 마감 & 느린ST 초록이면 나머지 절반 · 매도 = 종가 < 트레일링선"},
             "market": {m: (market.get("judge") or {}).get(m, {}).get("verdict") for m in ("us", "kr")},
             "sectors": [{"tk": x["tk"], "label": x["label"], "rank": x["rank"], "score": x.get("score")} for x in (market.get("sectors") or [])[:6]],
@@ -1432,7 +1461,7 @@ def main():
         prev_snap = json.load(open(f"{OUT_DIR}/snapshot.json", encoding="utf-8"))
         prev_mkt = json.load(open(f"{OUT_DIR}/market.json", encoding="utf-8"))
         ref = prev_mkt.get("ref") or {}
-        full_n = (prev_snap.get("meta", {}).get("health") or {}).get("fullUniverse") or len(universe)
+        # 175. 전체 수 = 이번 명단 그대로 (예전엔 지난 값을 계속 이어 써서 교체 뒤에도 옛 숫자가 남았음)
     except Exception:
         prev_snap = None
     universe_all = dict(universe)        # 110. 업종 PER 은 감시 모드에서도 종목풀 전체로 계산
@@ -1701,6 +1730,7 @@ def main():
         else:
             d["dip"] = None
         # 업종 → 섹터 ETF
+        if d["m"] == "us" and d.get("t") in _SECTOR_FIX: d["s"] = _SECTOR_FIX[d["t"]]     # 172. 나스닥 분류 ≠ GICS (종목풀 교체 전에도 바로 반영)
         d["sec"] = GICS_TO_ETF.get(d.get("s") or "", None) if d["m"] == "us" else None
         # ★ 예비 후보 (관찰용, 매수! 아님) — 검증(2026-09): '강해질 것 같은' 트리거는 현행을 못 이김.
         #   그래도 다음 매수! 가 나올 자리를 미리 보기 위해 두 가지만 표시합니다.

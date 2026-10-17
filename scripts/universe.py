@@ -123,6 +123,13 @@ NASDAQ_TO_GICS = {   # 나스닥 스크리너 업종 → GICS 이름 (섹터 ETF
     "Industrials": "Industrials", "Energy": "Energy", "Utilities": "Utilities", "Real Estate": "Real Estate",
     "Basic Materials": "Materials", "Telecommunications": "Communication Services",
 }
+# 172. 나스닥 분류가 GICS 와 다른 경우 — 가스 수송·LNG 는 나스닥이 'Utilities' 로 두지만 GICS 는 에너지.
+#      버크셔는 위키 표에서 빠지는 일이 있어 업종이 비었음. 같은 업종 규칙·섹터 순위가 틀리지 않게 고칩니다.
+SECTOR_FIX = {"BRK-B": "Financials", "BRK-A": "Financials", "LNG": "Energy"}
+def _gics_of(t, x):
+    if t in SECTOR_FIX: return SECTOR_FIX[t]
+    if x.get("sector") == "Utilities" and "Oil/Gas" in (x.get("industry") or ""): return "Energy"
+    return NASDAQ_TO_GICS.get(x.get("sector", ""), "")
 
 def us_screener():
     """{티커: {name, mcap, tv, sector}} — 나스닥 공개 스크리너 (ETF 없음). 실패하면 {}"""
@@ -135,7 +142,7 @@ def us_screener():
             def f(k):
                 try: return float(str(x.get(k) or 0).replace("$", "").replace(",", ""))
                 except ValueError: return 0.0
-            out[t] = {"name": x.get("name", ""), "mcap": f("marketCap"), "tv": f("lastsale") * f("volume"), "sector": x.get("sector", "")}
+            out[t] = {"name": x.get("name", ""), "mcap": f("marketCap"), "tv": f("lastsale") * f("volume"), "sector": x.get("sector", ""), "industry": x.get("industry", "")}
         return out
     except Exception as e:
         print(f"  ⚠️ 나스닥 스크리너 실패: {e}"); return {}
@@ -144,13 +151,16 @@ def build_us_pool(sp, scr):
     """S&P500 전부 + (시총 $25B↑ · 거래대금 $50M↑). 반환 (pool, 사유별 제외 수)"""
     pool, reasons = {}, {}
     for t, (name, gics) in sp.items():
-        pool[t] = {"label": name[:30], "sector": gics, "market": "us", "mcap": (scr.get(t) or {}).get("mcap")}
+        pool[t] = {"label": name[:30], "sector": SECTOR_FIX.get(t, gics) or _gics_of(t, scr.get(t) or {}), "market": "us", "mcap": (scr.get(t) or {}).get("mcap")}
     for t, x in scr.items():
         if t in pool: continue
+        # 177. 주식이 아닌 것(회사채·후순위채·우선주·워런트·유닛) — 예: 'Southern Company 2025 Series … Notes' 가 종목풀에 들어왔음
+        if re.search(r"\b(Notes|Debentures?|Subordinated|Preferred (Stock|Shares?))\b|\b20\d\d Series\b|\b(Warrants?|Units?|Rights?)\s*$", x.get("name", ""), re.I):
+            reasons["채권·우선주 등"] = reasons.get("채권·우선주 등", 0) + 1; continue
         if x["mcap"] < US_MIN_MCAP: reasons["시총 $25B 미만"] = reasons.get("시총 $25B 미만", 0) + 1; continue
         if x["tv"] < US_MIN_TV: reasons["거래대금 $50M 미만"] = reasons.get("거래대금 $50M 미만", 0) + 1; continue
         pool[t] = {"label": re.sub(r"\s+(Common Stock|Class [A-C].*|American Depositary.*|Ordinary Shares.*)$", "", x["name"])[:30],
-                   "sector": NASDAQ_TO_GICS.get(x["sector"], ""), "market": "us", "mcap": x["mcap"]}
+                   "sector": _gics_of(t, x), "market": "us", "mcap": x["mcap"]}
     return pool, reasons
 
 if __name__ == "__main__":

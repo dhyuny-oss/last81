@@ -154,6 +154,10 @@ export default function Practice({ onClose }) {
   const all3 = avg(done.map((i) => avg(R[i].rows.map((r) => r.ret))));
   const same = done.filter((i) => R[i].rows[st.picks[i]].rule).length;
   const wins = done.filter((i) => R[i].rows[st.picks[i]].ret > 0).length;
+  // 158. 1등 맞히기 — 앱 규칙도 3번에 1번꼴이라 '평균 수익'으로 실력을 봅니다
+  const isBest = (rows, r) => r.ret >= Math.max(...rows.map((x) => x.ret));
+  const bestHits = done.filter((i) => isBest(R[i].rows, R[i].rows[st.picks[i]])).length;
+  const ruleBest = R.length ? Math.round(R.filter((o) => isBest(o.rows, o.rows.find((r) => r.rule))).length / R.length * 100) : null;
   const f = (v) => (v == null ? "—" : pct(v));
   const seg = (on) => ({ font: "inherit", fontSize: 13, fontWeight: on ? 700 : 500, minHeight: 36, padding: "4px 12px", borderRadius: 99, cursor: "pointer",
                          background: on ? K.pick : "transparent", color: on ? K.gold : K.dim, border: `1px solid ${on ? K.gold : K.line}` });
@@ -162,8 +166,8 @@ export default function Practice({ onClose }) {
   if (o && picked != null) {
     const me = o.rows[picked], best = o.rows.reduce((a, b) => (b.ret > a.ret ? b : a)), ru = o.rows.find((r) => r.rule);
     verdict = me === best ? "셋 중 가장 좋은 종목을 골랐습니다."
-      : me.rule ? `앱 규칙과 같은 선택입니다. 이번 판 1등은 ${best.n}(${pct(best.ret)})였습니다.`
-      : `이번 판 1등은 ${best.n}(${pct(best.ret)})였습니다. 앱 규칙은 ${ru.n}(${pct(ru.ret)})를 골랐습니다.`;
+      : me.rule ? `앱 규칙과 같은 선택입니다. 이번 판 1등은 ${best.n}(${pct(best.ret)})였습니다 — 1등 맞히기는 규칙도 3번에 1번꼴입니다.`
+      : `이번 판 1등은 ${best.n}(${pct(best.ret)})였습니다. 앱 규칙은 ${ru.n}(${pct(ru.ret)})를 골랐습니다 — 한 판보다 평균을 보세요.`;
   }
   const hist = [...done].reverse();
 
@@ -202,8 +206,12 @@ export default function Practice({ onClose }) {
 
           <div className="pp-board">
             {[["내 평균 수익", f(mine), mine == null ? K.dim : col(mine)], ["앱 규칙 평균", f(rule), rule == null ? K.dim : col(rule)],
-              ["셋 다 샀다면", f(all3), all3 == null ? K.dim : col(all3)], ["규칙과 같은 선택", done.length ? `${same} / ${done.length}` : "—", K.fg]].map(([k, v, c]) => (
+              ["무작위로 골랐다면", f(all3), all3 == null ? K.dim : col(all3)], ["1등 맞힘", done.length ? `${bestHits} / ${done.length}` : "—", K.fg]].map(([k, v, c]) => (
               <div key={k}><small style={{ display: "block", color: K.dim, fontSize: 12 }}>{k}</small><b style={{ fontFamily: MONO, fontSize: 18, color: c }}>{v}</b></div>))}
+          </div>
+          <div style={{ fontSize: 12.5, color: K.dim, marginTop: -6, lineHeight: 1.6 }}>
+            <b style={{ color: K.fg }}>점수는 '평균 수익'으로 봅니다.</b> 셋 중 1등 맞히기는 앱 규칙도 {ruleBest != null ? `${ruleBest}%` : "3번에 1번꼴"}(무작위 33%)라 자주 틀리는 게 정상입니다.
+            내 평균이 '무작위로 골랐다면'보다 높으면 고르는 눈이 있는 것이고, '앱 규칙 평균'보다 높으면 규칙보다 나은 것입니다{done.length ? ` · 규칙과 같은 선택 ${same} / ${done.length}` : ""}.
           </div>
 
           {o ? (<>

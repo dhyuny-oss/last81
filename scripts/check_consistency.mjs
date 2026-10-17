@@ -29,10 +29,19 @@ ok(`today.json 보유(${heldToday.length}) = watchlist 보유(${heldWl.length})`
 ok("보유 변경 뒤 추천이 다시 만들어졌는가", !stale, `watchlist ${wl.updatedAt} > 데이터 ${snap.meta?.generatedAt} — 그 사이 텔레그램·서버 추천은 옛 보유 기준`, true);
 
 console.log("── 2. 오늘 살 것: 서버(today.json) = 앱 규칙(picks.js) = market.json 사본 ──");
-const cfg = { revMin: Number((wl.settings || {}).revMin ?? 10), slotsUs: Number((wl.settings || {}).slotsUs || 5), slotsKr: Number((wl.settings || {}).slotsKr || 3) };
+const krGate = !!(market.judge?.kr?.gate && market.judge.kr.verdict === "risk");
+const oldServer = !(today.rules && "krGate" in today.rules);       // 새 규칙(161·176) 전에 만든 today.json — 다음 갱신 때 같아짐
+const cfg = { revMin: Number((wl.settings || {}).revMin ?? 10), slotsUs: Number((wl.settings || {}).slotsUs || 7), slotsKr: Number((wl.settings || {}).slotsKr || 5), krGate };
 const app = pickToday(stocks, cfg, new Set(heldWl));
-ok(`🇺🇸 추천  서버 [${ids(today.pickUs)}] = 앱 [${ids(app.pickUs)}]`, ids(today.pickUs) === ids(app.pickUs), "", stale);
-ok(`🇰🇷 추천  서버 [${ids(today.pickKr)}] = 앱 [${ids(app.pickKr)}]`, ids(today.pickKr) === ids(app.pickKr), "", stale);
+// 176. 한국 시장 위험이면 서버·앱 모두 한국 추천 0
+ok(`🇰🇷 시장 ${market.judge?.kr?.verdict || "—"} → 한국 추천 ${krGate ? "0이어야 함" : "허용"} (서버 ${(today.pickKr || []).length} · 앱 ${app.pickKr.length})`,
+   !krGate || ((today.pickKr || []).length === 0 && app.pickKr.length === 0), oldServer ? "서버 today.json 이 새 규칙 전에 만들어짐 — 다음 갱신 때 같아집니다" : "", stale || oldServer);
+// 161. 미국 추천에 '이미 보유한 업종'이 없어야 함 (원칙 5)
+const heldSecs = new Set(heldWl.map((t) => stocks[t]).filter((d) => d && d.m === "us" && d.sec).map((d) => d.sec));
+const clash = (today.pickUs || []).filter((r) => heldSecs.has(r.sec)).map((r) => `${r.t}(${r.sec})`);
+ok("🇺🇸 추천에 보유 종목과 같은 업종 없음", clash.length === 0, clash.join(","), stale);
+ok(`🇺🇸 추천  서버 [${ids(today.pickUs)}] = 앱 [${ids(app.pickUs)}]`, ids(today.pickUs) === ids(app.pickUs), "", stale || oldServer);
+ok(`🇰🇷 추천  서버 [${ids(today.pickKr)}] = 앱 [${ids(app.pickKr)}]`, ids(today.pickKr) === ids(app.pickKr), "", stale || oldServer);
 ok("market.json 안의 today = today.json", eq(market.today, today));
 const slot = (m, n) => { const h = pos.filter((p) => (p.role || "swing") === "swing" && (/^\d+$/.test(String(p.t)) === (m === "kr"))).length; return { n, held: h, free: Math.max(0, n - h) }; };
 ok(`빈 칸 🇺🇸 서버 ${JSON.stringify(today.slots?.us)} = 계산 ${JSON.stringify(slot("us", cfg.slotsUs))}`, eq(today.slots?.us, slot("us", cfg.slotsUs)), "", stale);
@@ -74,8 +83,13 @@ for (const i of [0, 1]) {
 const py = T("scripts/build_snapshot.py"), app_ = T("src/App.jsx"), picksJs = T("src/picks.js"), notify = T("scripts/notify.py");
 const n = (re, txt) => { const m = re.exec(txt); return m ? Number(m[1]) : null; };
 ok("매출 필터 기본값 10 (서버·앱 규칙·앱 설정)", n(/^REV_MIN = (\d+)/m, py) === 10 && n(/revMin = (\d+)/, picksJs) === 10 && n(/getRevMin[^\n]*v == null \? (\d+)/, app_) === 10);
-ok("칸 수 기본값 🇺🇸5 · 🇰🇷3 (서버·알림·앱)", /slotsUs"\) or 5\)/.test(py) && /slotsKr"\) or 3\)/.test(py) && /slotsUs"\) or 5\)/.test(notify) && /slotsKr"\) or 3\)/.test(notify)
-  && !/plan\.slotsUs \|\| (?!5\b)\d/.test(app_) && !/plan\.slotsKr \|\| (?!3\b)\d/.test(app_));
+ok("칸 수 기본값 🇺🇸7 · 🇰🇷5 (서버·알림·서버 저장·앱 규칙) — 168", /slotsUs"\) or 7\)/.test(py) && /slotsKr"\) or 5\)/.test(py) && /slotsUs"\) or 7\)/.test(notify) && /slotsKr"\) or 5\)/.test(notify)
+  && /SLOTS_DEFAULT = \{ us: 7, kr: 5 \}/.test(picksJs) && !/plan\.slotsUs \|\| \d/.test(app_) && !/plan\.slotsKr \|\| \d/.test(app_)
+  && /num\(st\.slotsUs, 1, 20, 7\)/.test(T("api/watchlist.js")) && /num\(st\.slotsKr, 1, 20, 5\)/.test(T("api/watchlist.js")));
+ok("한국 시장 게이트를 서버·앱·알림이 같은 판정으로 씀 — 176", /kr_gate = bool\(_jk\.get\("gate"\) and _jk\.get\("verdict"\) == "risk"\)/.test(py)
+  && /krGateOf = \(market\) => !!\(market\?\.judge\?\.kr\?\.gate && market\.judge\.kr\.verdict === "risk"\)/.test(app_) && /_jk\.get\("gate"\) and _jk\.get\("verdict"\) == "risk"/.test(notify));
+ok("화면에 '판정은 DC에만 사용'·근거 없는 16.9% 같은 옛 문구 없음 — 160", !/DC 판단에만 사용|ETF 배분\(DC\)에만|\+16\.9%·최대낙폭 −28%/.test(app_));
+ok("폭 계산 날짜(breadthAsOf)가 데이터에 있음 — 171", !!market.breadthAsOf, "", true);
 ok("거래대금 순위 하한 40 (서버·앱 규칙)", /tvr \?\? 0\) >= 40/.test(picksJs) && /tvr"\)? or 0\) >= 40|tvr.*>= 40/.test(py));
 const kisJs = T("api/kis.js"), kisUi = T("src/Kis.jsx");
 ok("미국 개장 22:30/23:30 · 마감 05:00/06:00 (앱·감시 2곳)", /dst \? 1350 : 1410/.test(app_) && /dst \? 300 : 360/.test(app_)
