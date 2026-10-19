@@ -46,7 +46,7 @@ const quiet = { ...btn, border: `1px solid ${K.border}`, color: K.dim, fontWeigh
 const inp = { minHeight: 40, padding: "6px 10px", borderRadius: 10, border: `1px solid ${K.border}`, background: "#0A0E1A", color: K.text, font: "inherit", minWidth: 0 };
 const SIG = { buy: ["매수!", K.up], sell: ["매도!", K.down], hold: ["보유", K.cyan], watch: ["관망", K.dim] };
 
-export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], watch = [], toggleWatch, asOf = "", usOpen = false, fx = null, pickNote: noteUs = "", kr = null, krOpen = false }) {
+export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], watch = [], toggleWatch, asOf = "", usOpen = false, fx = null, pickNote: noteUs = "", kr = null, krOpen = false, onSync = null }) {
   const [mk, setMkRaw] = useState(() => (ls.get(MK) === "kr" ? "kr" : "us"));   // 🇺🇸 / 🇰🇷 전환
   const KR = mk === "kr";
   const [info, setInfo] = useState(null);
@@ -139,6 +139,20 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
 
   const mine = useMemo(() => new Set(held.filter((t) => isUs(t) !== KR)), [held, KR]);
   /* 143. 비밀번호가 저장돼 있으면 열 때 · 시장을 바꿀 때 자동으로 불러옴 (토큰은 하루 한 번만 새로 받으니 알림톡도 하루 한 번) */
+  // 184. 잔고·주문을 받을 때마다 앱(내 종목 '체결 반영')에 알려 줌 — 주문을 보내거나 취소한 뒤에도
+  useEffect(() => { if (onSync && (data || orders)) onSync({ mk, env: data?.env || info?.env || "demo", rows: data?.rows || [], orders: orders || [], at: Date.now() }); },
+    [data, orders]);                                     // eslint-disable-line react-hooks/exhaustive-deps
+  // 184. 내 종목 카드의 '한투로 매도/2회차' → 주문 칸을 채우고 그 자리로 이동
+  const pending = useRef(null);
+  useEffect(() => {
+    const on = (e) => { const d = e.detail || {}; if (!d.t) return;
+      if ((d.mk || "us") !== mk) { pending.current = d; setMk(d.mk || "us"); return; }
+      pick(d.t, d.side || "buy", d.qty != null ? { qty: d.qty } : {});
+      setTimeout(() => document.getElementById("kis-order")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50); };
+    window.addEventListener("kis-prefill", on); return () => window.removeEventListener("kis-prefill", on);
+  });
+  useEffect(() => { const d = pending.current; if (d && d.mk === mk) { pending.current = null; pick(d.t, d.side || "buy", d.qty != null ? { qty: d.qty } : {});
+    setTimeout(() => document.getElementById("kis-order")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50); } }, [mk]);   // eslint-disable-line react-hooks/exhaustive-deps
   const autoKey = useRef("");
   useEffect(() => {
     if (!info?.configured || info.pinMissing || !pin || needPin || busy) return;
@@ -212,7 +226,7 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
     <div style={box}>
       {head}
       <div style={{ marginTop: 6, color: K.dim, fontSize: 11.5, lineHeight: 1.5 }}>
-        여기 보유는 앱의 <b style={{ color: K.text }}>내 종목(메리츠)과 따로</b> 표시됩니다. 투입금·빈 칸·텔레그램 합계에 섞이지 않습니다.
+        한투에서 체결된 거래는 <b style={{ color: K.text }}>내 종목 맨 위 '체결 반영'</b>에서 한 번 눌러 넣습니다(모의는 '모의' 표시). 누르기 전에는 투입금·빈 칸·텔레그램 합계에 섞이지 않습니다.
       </div>
       {(needPin || !pin) && (
         <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
@@ -306,7 +320,7 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
         </div>)}
 
       {info.canOrder && (
-        <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${K.border}` }}>
+        <div id="kis-order" style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${K.border}` }}>
           <b style={{ fontSize: 13 }}>{demo ? "모의 주문" : "실전 주문"}</b> <span style={{ color: K.dim, fontSize: 11.5 }}>{KR ? "🇰🇷 " : "🇺🇸 "}지정가만 · 1건 상한 {M(cap1)} · 하루 매수 상한 {M(capDay)} · 보내기 전에 한 번 더 확인</span>
           {picks.length > 0 && (
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>

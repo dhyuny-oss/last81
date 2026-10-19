@@ -9,10 +9,7 @@ export default defineConfig({
     target: 'es2020',
     rollupOptions: {
       input: {
-        // 알파 (기존 — 변경 없음)
-        main: resolve(__dirname, 'index.html'),
-        // 베타 (신규)
-        beta: resolve(__dirname, 'beta.html'),
+        main: resolve(__dirname, 'index.html'),   // 185. 베타(/beta) 페이지는 지웠습니다 — 재무 데이터 수집은 알파가 그대로 씀
       },
     },
   },
