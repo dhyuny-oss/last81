@@ -274,21 +274,18 @@ def build(snap, mkt, state, now):
     # ── 2. DC(퇴직연금) — 미국 S&P500 35% + 코스피200 35% + 안전자산 30% ──
     #   각 몫은 느린 슈퍼트렌드(12,3) 초록일 때만 보유. 색이 바뀐 날은 🔔 로 따로 알립니다.
     # 99. 앱 DC 탭에서 고른 규칙 하나로만 알립니다 (예전엔 듀얼을 골라도 매일 느린ST 상태를 보내 화면과 반대로 보였음)
-    dc_mode = ((wl or {}).get("settings") or {}).get("dcMode", "st")
-    dual_d = dc.get("dual") or {}
-    if dc_mode == "dual" and dual_d.get("cands"):
+    # 182. 듀얼 모멘텀 → '3지수 그냥 보유'로 바뀜. 예전에 듀얼을 고른 사람은 3지수 보유로 봅니다.
+    dc_hold3 = ((wl or {}).get("settings") or {}).get("dcMode", "st") in ("hold", "dual")
+    h3 = dc.get("hold3") or {}
+    if dc_hold3 and h3.get("items"):
         L.append("")
-        L.append("🏦 <b>DC 규칙 · 듀얼 모멘텀</b> <i>(매월 1거래일 상위 2개 반반 · 점수 마이너스면 안전자산)</i>")
-        hold = dual_d.get("hold") or []
-        for c in dual_d["cands"]:
-            on = c.get("sig") in hold
-            L.append(f"   {'🟢 보유' if on else '⚪ 제외'} <b>{c.get('label')}</b> 점수 {c.get('score', 0):+.1f}%")
-        L.append("   <i>교체는 매월 1거래일에만 · 그 사이 오르내림으로는 사고팔지 않습니다</i>")
+        L.append("🏦 <b>DC 규칙 · 3지수 보유</b> <i>(나스닥100·S&P500·코스피200 각 23% + 안전자산 30%)</i>")
+        L.append("   <i>1년에 한 번(1월 첫 거래일) 비중만 맞춥니다 · 그 사이 오르내림으로는 사고팔지 않습니다</i>")
     if dc.get("core"):
-        if dc_mode != "dual":
+        if not dc_hold3:
             L.append("")
             L.append("🏦 <b>DC 규칙</b> <i>(느린ST 초록=보유 · 빨강=안전자산)</i>")
-        _dcL = L if dc_mode != "dual" else []          # 듀얼이면 느린ST 줄은 보내지 않고 상태만 기록
+        _dcL = L if not dc_hold3 else []          # 3지수 보유면 느린ST 줄은 보내지 않고 상태만 기록
         for c in dc["core"]:
             d = etfs.get(c.get("sig")) or {}
             st = c.get("state")
@@ -349,7 +346,7 @@ def build(snap, mkt, state, now):
             L.append(f"   … 외 {len(rows)-MAX_ROWS}종목")
         if rows and _hid:
             L.append(f"   <i>보유 중이거나 칸이 없는 시장의 {_hid}종목은 뺐습니다</i>")
-        L.append("<i>눌림 🇰🇷 = 추세 안 RSI 45 회복 · 강세 🇺🇸 = 추세 안 RSI 60↑ · 추세 = ST 3개 초록+구름 위 · 매도! = 트레일링선 아래 마감</i>")
+        L.append("<i>강세 = 추세 안 RSI 60↑ · 눌림 🇰🇷 = 추세 안 RSI 45 회복 · 추세 = ST 3개 초록+구름 위 · 매도! = 트레일링선 아래 마감</i>")
     else:
         L.append("🔍 <b>매수! 없음</b> — 오늘은 살 것이 없습니다")
 
@@ -361,19 +358,19 @@ def build(snap, mkt, state, now):
             L.append(f"🆕 관찰 <b>{s['n']}</b> 고점대비 {pct(s.get('w52p'),0)} · "
                      f"{yrs(s.get('hltY'))}년건강 {int((s.get('hlt') or 0)*100)}% · 20일선 회복")
 
-    # ── 4.9 매월 1거래일: DC 이번 달 보유 목표 (앱 💰 투자금의 DC 금액 · 듀얼 모멘텀 모드일 때) ──
+    # ── 4.9 1월 첫 거래일: DC 비중 맞춤 목표 (앱 💰 투자금의 DC 금액 · 3지수 보유 모드일 때 · 182) ──
     try:
         cfg = (wl.get("settings") or {})
-        dual = ((mkt.get("dc") or {}).get("dual") or {})
-        if cfg.get("dcMode") == "dual" and cfg.get("dcAmt") and dual.get("cands") and _first_trading_day(now):
-            total = float(cfg["dcAmt"]); hold = [c for c in dual["cands"] if c["sig"] in (dual.get("hold") or [])]
+        h3 = ((mkt.get("dc") or {}).get("hold3") or {})
+        if cfg.get("dcMode") in ("hold", "dual") and cfg.get("dcAmt") and h3.get("items") and now.month == 1 and _first_trading_day(now):
+            total = float(cfg["dcAmt"]); hold = h3["items"]
             semi = cfg.get("dcSemi") and ((mkt.get("dc") or {}).get("semi") or {}).get("state") == "hold"
             share = 0.10 if semi else 0.0; riskw = 0.70 - share
-            L.append(""); L.append(f"🏦 <b>DC 이번 달 보유 목표</b> (총 {money(total, 'kr')} · 매월 1거래일)")
+            L.append(""); L.append(f"🏦 <b>DC 1년에 한 번 비중 맞춤</b> (총 {money(total, 'kr')} · 오늘 이 금액대로 맞추면 됩니다)")
             for c in hold:
-                L.append(f"   {c.get('buy', {}).get('code', '—')} {c.get('buy', {}).get('name') or c['label']} · {money(total * riskw / 2, 'kr')}")
+                L.append(f"   {(c.get('buy') or {}).get('code', '—')} {(c.get('buy') or {}).get('name') or c['label']} · {money(total * riskw / 3, 'kr')}")
             if semi: L.append(f"   {((mkt.get('dc') or {}).get('semi') or {}).get('buy', {}).get('code', '')} 반도체 고정 칸 · {money(total * share, 'kr')}")
-            safe = 1 - riskw * len(hold) / 2 - share
+            safe = 1 - riskw - share
             L.append(f"   안전자산(TDF·채권혼합·예금) · {money(total * safe, 'kr')}")
     except Exception as e:
         print("  ⚠️ DC 목표 안내 실패:", e)
@@ -530,13 +527,11 @@ def build_weekly(snap, mkt, now):
           L.append("   🇰🇷 " + ", ".join(f"{d['n']}({WHY.get(d.get('why'),'')})" for d in sorted(krb, key=rk)[:4]) + (" — 시장 위험: 새로 사지 않음" if (mkt.get("judge") or {}).get("kr", {}).get("verdict") == "risk" else ""))
     # 5 DC
     dc = mkt.get("dc") or {}
-    dual = dc.get("dual") or {}
-    if dual.get("cands"):
-        _mine = ((wl or {}).get("settings") or {}).get("dcMode", "st")
-        L.append("5️⃣ DC 듀얼 모멘텀" + (" (내 규칙)" if _mine == "dual" else " (참고)") + ": "
-                 + " · ".join(f"{c['label']} {c['score']:+.1f}%{' ●' if c['sig'] in (dual.get('hold') or []) else ''}" for c in dual["cands"]))
+    _h3 = ((wl or {}).get("settings") or {}).get("dcMode", "st") in ("hold", "dual")
+    if _h3 and (dc.get("hold3") or {}).get("items"):
+        L.append("5️⃣ DC 3지수 보유 (내 규칙): 나스닥100·S&P500·코스피200 각 23% — 1월 첫 거래일에만 비중 맞춤")
     for c in (dc.get("core") or []):
-        L.append(f"   느린ST 규칙{' (내 규칙)' if ((wl or {}).get('settings') or {}).get('dcMode', 'st') != 'dual' else ' (참고)'} {c.get('label')}: {'보유' if c.get('state')=='hold' else '대기'}")
+        L.append(f"   느린ST 규칙{' (참고)' if _h3 else ' (내 규칙)'} {c.get('label')}: {'보유' if c.get('state')=='hold' else '대기'}")
     h = meta.get("health") or {}
     L.append(f"<i>🩺 {h.get('kept','?')}종목 · {meta.get('generatedKST','')} · 전략 결정은 앱 점검 탭 5번에 한 줄</i>")
     L.append(f'<a href="{APP_URL}">점검 탭 열기 →</a>')
