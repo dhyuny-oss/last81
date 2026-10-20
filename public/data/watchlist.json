@@ -142,20 +142,20 @@
       "inv": 3214.285714285714
     }
   ],
-  "updatedAt": "2026-10-19T09:39:31.847Z",
+  "updatedAt": "2026-10-20T23:11:25.601Z",
   "settings": {
     "revMin": 10,
     "slotsUs": 7,
     "slotsKr": 5,
     "dcAmt": 100000000,
     "dcMode": "st",
-    "dcSemi": false,
+    "dcSemi": true,
     "usAmt": 45000,
     "krAmt": 10000000
   },
   "excludes": [],
   "backup": {
-    "at": "2026-10-19T09:39:31.847Z",
+    "at": "2026-10-20T23:11:25.601Z",
     "positions": [],
     "watch": [
       "ABBV",
