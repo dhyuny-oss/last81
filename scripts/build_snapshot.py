@@ -24,7 +24,7 @@ import html as _htmllib
 import json, os, sys, time, math, urllib.request
 from datetime import datetime, timezone, timedelta
 
-VERSION = "7.12.1"
+VERSION = "7.13.0"
 UA        = {"User-Agent": "Mozilla/5.0"}
 OUT_DIR   = "public/data"
 KST       = timezone(timedelta(hours=9))
@@ -976,12 +976,6 @@ def _state(d):
     if d is None or d.get("stSlow") is None: return "unknown"
     return "hold" if d["stSlow"] == 1 else "wait"
 
-def market_fx():
-    try:
-        return json.load(open(f"{OUT_DIR}/market.json", encoding="utf-8")).get("fx", {}).get("usdkrw")
-    except Exception:
-        return None
-
 def build_dc(secs, series):
     """반환: (etfs, dc) — etfs 는 차트·추적에서 종목처럼 쓰는 지표 묶음"""
     etfs, rank = {}, {s["tk"]: s for s in secs}
@@ -1028,35 +1022,23 @@ def build_dc(secs, series):
                      key=lambda t: -(etfs[t]["score"] if etfs[t]["score"] is not None else -9999))
     kr_sect = sorted(kr_rows, key=lambda t: -(etfs[t]["score"] if etfs[t]["score"] is not None else -9999))
     spy, k200 = etfs.get("SPY"), etfs.get(DC_KR[0])
-    # ★ 듀얼 모멘텀 균형형 (검증: DC 70/30 기준 연 +12.5%·MDD −20%·샤프 0.92 vs 현행 +7.2%·−10%·1.04)
-    #   후보 3개(나스닥100·S&P500·코스피200)의 3·6·12개월 평균 수익률 상위 2개를 반반. 매월 1거래일 교체.
-    #   ※ 느린ST 필터와 섞으면 성과가 크게 떨어져(19.7→9.5%) 섞지 않습니다 — 현행 규칙과 '택일'.
-    fx = market_fx()
-    def krw_score(d):      # 3·6·12개월 평균 수익률 (원본 캔들 기준)
-        cd = DC_CD.get(d["t"]) if d else None
-        if not cd or len(cd) < 253: return None
-        c = [x["c"] for x in cd]
-        vals = [c[-1] / c[-1-n] - 1 for n in (63, 126, 252)]
-        return _r(sum(vals) / 3 * 100, 2)
-    cands = []
-    for key, d, veh in (("QQQ", etfs.get("QQQ"), (etfs.get("QQQ") or {}).get("veh")),
-                        ("SPY", spy, (spy or {}).get("veh")),
-                        (DC_KR[0], k200, {"code": DC_KR[0], "name": DC_KR[1]})):
-        sc = krw_score(d)
-        if sc is None: continue
-        # 미국 ETF 는 달러 수익 + 환율 변화 근사 (fx 시계열이 없으면 달러 수익 그대로)
-        cands.append({"sig": key, "label": {"QQQ": "나스닥100", "SPY": "S&P500"}.get(key, "코스피200"),
-                      "score": sc, "buy": veh, "slow": (d or {}).get("stSlow")})
-    cands.sort(key=lambda x: -x["score"])
-    top2 = [c["sig"] for c in cands[:2] if c["score"] > 0]
+    # ★ 182. 3지수 그냥 보유 (듀얼 모멘텀을 대신하는 '수익 쪽' 선택지)
+    #   나스닥100·S&P500·코스피200 각 23.3% + 안전자산 30% · 1년에 한 번(1월 첫 거래일) 비중을 원래대로 맞춤 · 환노출 상품.
+    #   검증 2008-03~2026-10 원화·비용 0.1%: 연 +12.7% · 최대낙폭 −21% · 샤프 1.07 · 1년 매매 1번
+    #     vs 듀얼 모멘텀 +11.9% · −21% · 0.96 · 1년 6번 / 느린ST(기본) +6.3% · −12% · 0.91
+    #   3년씩 잘라 보면 62번 중 42번 듀얼보다 나음. 비중 맞춤을 매달·분기·매년 어느 쪽으로 해도 12.4~12.7%로 같음.
+    #   ※ 나스닥을 빼면(S&P+코스피) 11.0%로 듀얼보다 낮음 — 나스닥 몫이 핵심.
+    hold3 = {"items": [{"sig": "QQQ", "label": "나스닥100", "buy": (etfs.get("QQQ") or {}).get("veh")},
+                       {"sig": "SPY", "label": "S&P500", "buy": (spy or {}).get("veh")},
+                       {"sig": DC_KR[0], "label": "코스피200", "buy": {"code": DC_KR[0], "name": DC_KR[1]}}],
+             "w": 0.70 / 3, "asOf": (spy or {}).get("asOf"),
+             "rule": "나스닥100·S&P500·코스피200 각 23.3% + 안전자산 30%. 1년에 한 번(1월 첫 거래일)만 비중을 원래대로 맞춤. 그 사이엔 사고팔지 않음.",
+             "evidence": {"cagr": 12.7, "mdd": -21, "sharpe": 1.07, "period": "2008–26 원화·DC 70/30", "dual_cagr": 11.9}}
     smh = etfs.get("SMH")
-    dual = {"cands": cands, "hold": top2, "asOf": (spy or {}).get("asOf"),
-            "rule": "매월 1거래일: 나스닥100·S&P500·코스피200 중 3·6·12개월 평균 상위 2개를 반반. 점수가 마이너스면 그 몫은 안전자산.",
-            "evidence": {"cagr": 12.5, "mdd": -20, "sharpe": 0.92, "period": "2010–26 원화·DC 70/30"}}
     semi = {"sig": "SMH", "buy": (smh or {}).get("veh"), "state": _state(smh), "share": 0.10,
             "rule": "위험자산 70% 중 10%를 반도체 ETF 고정 칸으로. 느린ST 초록일 때만 보유, 빨강이면 안전자산. 재량 베팅 대신 칸으로 묶습니다."} if smh else None
     dc = {
-        "dual": dual, "semi": semi,
+        "hold3": hold3, "semi": semi,
         "weights": DC_WEIGHTS,
         "core": [
             {"key": "us", "sig": "SPY", "buy": (spy or {}).get("veh"), "state": _state(spy),
@@ -1299,7 +1281,7 @@ def build_today(stocks, market):
                          "tranche2": t2, "halted": bool(d.get("halted") or d.get("status")), "earn": d.get("earn"), "earnE": d.get("earnE")})
     dips = [row(d) | {"w52p": d.get("w52p"), "hlt": d.get("hlt")} for d in stocks.values() if d.get("dip") == "watch" and d["m"] == "us"]
     dips.sort(key=lambda r: r.get("w52p") or 0)
-    dual = (market.get("dc") or {}).get("dual") or {}
+    h3 = (market.get("dc") or {}).get("hold3") or {}
     return {"asOf": max((d.get("asOf") or "" for d in stocks.values()), default=None),
             "rules": {"buy": "action=buy", "rev": f"🇺🇸 매출 +{rev_min:.0f}%↑ (최근 분기 전년 동기 대비 → 없으면 4분기 합계 → 연간) · 적자 제외",
                       "order": "강세·눌림 먼저 → 강도 점수(RS 백분위와 200일선 거리 백분위의 평균) 높은 순",
@@ -1309,7 +1291,7 @@ def build_today(stocks, market):
             "market": {m: (market.get("judge") or {}).get(m, {}).get("verdict") for m in ("us", "kr")},
             "sectors": [{"tk": x["tk"], "label": x["label"], "rank": x["rank"], "score": x.get("score")} for x in (market.get("sectors") or [])[:6]],
             "candidates": cands, "pickUs": pick_us, "pickKr": pick_kr, "size": size, "slots": slots, "excluded": excluded[:30], "held": heldrows,
-            "dips": dips[:8], "dc": {"hold": dual.get("hold"), "cands": dual.get("cands")}}
+            "dips": dips[:8], "dc": {"hold3": [x["label"] for x in (h3.get("items") or [])]}}
 
 def _shift_days(iso, n):
     try:
@@ -1695,8 +1677,11 @@ def main():
     # ══════════════════════════════════════════════════════════
     # ★ 행동 판정 — 여기서 한 번만 정합니다. 앱 4개 화면·텔레그램·장중 감시는 이 값을 읽기만 합니다.
     #   action: buy(매수!) / watch(관망) / sell(매도!)   ※ hold(보유)는 '들고 있는지'를 아는 앱 쪽에서 붙입니다
-    #   why   : pull(눌림·한국) / strong(강세·미국) / trend(추세) — 왜 매수인지
+    #   why   : pull(눌림·한국) / strong(강세·한국·미국) / trend(추세) — 왜 매수인지
     #   검증(2008–26): 한국은 RSI 45 회복(눌림)이 모든 구간 +, 미국은 RSI 60 이상(강세)이 세 구간 모두 보유를 이김.
+    #   180 (2026-10): 한국에도 강세 추가 — 눌림이 드물어 빈 칸을 약한 추세가 채우던 것을 강세가 대신.
+    #     2010–26 한국 5칸·폭 게이트: 후보 순서·기준값(57~63)을 흔든 28번 중 26번이 지금보다 나음 (중앙값 연 19.7% → 24.7%).
+    #     강세 신호 하나하나의 120일 지수대비 +7.4%p (눌림 +8.1, 추세 +2.7) · 기준 55~65 어디서나 +6~8%p.
     #   매도는 느린 슈퍼트렌드(12,3) 빨강 하나. −3%·고점−5%·2주 타임컷은 검증에서 성과를 깎아 쓰지 않습니다.
     # ══════════════════════════════════════════════════════════
     fin_flags(stocks)
@@ -1707,14 +1692,14 @@ def main():
         rs_ok = (d.get("rs") or 0) >= 70
         up = bool(d.get("upTrend") and d.get("stSlow") == 1 and rs_ok)
         d["pull"]   = bool(up and d.get("rsi45"))                                            # 한국형
-        d["strong"] = bool(up and (d.get("rsi") or 0) >= 60 and d["m"] == "us")              # 미국형
+        d["strong"] = bool(up and (d.get("rsi") or 0) >= 60)                                # 강세 (한국·미국, 180)
         d["trend3"] = bool(d.get("st") == 3 and d.get("cloud") == 1 and rs_ok)                # 추세 확인형
         d["sig"] = "buy" if d["trend3"] else ("exit" if d.get("stSlow") == 0 else "keep")    # (구버전 호환)
         if d.get("stSlow") == 0:
             d["action"], d["why"] = "sell", "st"
         elif d["m"] == "kr" and d["pull"]:
             d["action"], d["why"] = "buy", "pull"
-        elif d["m"] == "us" and d["strong"]:
+        elif d["strong"]:
             d["action"], d["why"] = "buy", "strong"
         elif d["trend3"]:
             d["action"], d["why"] = "buy", "trend"
