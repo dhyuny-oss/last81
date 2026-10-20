@@ -1,6 +1,14 @@
 {
   "stocks": {},
-  "positions": [],
+  "positions": [
+    {
+      "t": "360750",
+      "avg": 25385,
+      "tr": [],
+      "role": "etf",
+      "date": "2026-10-21"
+    }
+  ],
   "watch": [
     "ABBV",
     "ETN",
@@ -142,7 +150,7 @@
       "inv": 3214.285714285714
     }
   ],
-  "updatedAt": "2026-10-20T23:11:33.257Z",
+  "updatedAt": "2026-10-20T23:11:43.861Z",
   "settings": {
     "revMin": 10,
     "slotsUs": 7,
@@ -155,7 +163,7 @@
   },
   "excludes": [],
   "backup": {
-    "at": "2026-10-20T23:11:33.257Z",
+    "at": "2026-10-20T23:11:43.861Z",
     "positions": [],
     "watch": [
       "ABBV",
