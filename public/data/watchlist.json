@@ -9,18 +9,7 @@
       "date": "2026-10-21"
     }
   ],
-  "watch": [
-    "ABBV",
-    "ETN",
-    "SHOP",
-    "ADI",
-    "MU",
-    "MDB",
-    "QCOM",
-    "MPWR",
-    "MTD",
-    "NTRA"
-  ],
+  "watch": [],
   "extras": [],
   "trades": [
     {
@@ -150,7 +139,7 @@
       "inv": 3214.285714285714
     }
   ],
-  "updatedAt": "2026-10-21T09:34:35.393Z",
+  "updatedAt": "2026-10-21T09:34:45.566Z",
   "settings": {
     "revMin": 10,
     "slotsUs": 7,
@@ -163,7 +152,7 @@
   },
   "excludes": [],
   "backup": {
-    "at": "2026-10-21T09:34:35.393Z",
+    "at": "2026-10-21T09:34:45.566Z",
     "positions": [
       {
         "t": "360750",
