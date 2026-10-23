@@ -139,9 +139,9 @@
       "inv": 3214.285714285714
     }
   ],
-  "updatedAt": "2026-10-21T09:34:45.566Z",
+  "updatedAt": "2026-10-23T08:39:55.936Z",
   "settings": {
-    "revMin": 10,
+    "revMin": 20,
     "slotsUs": 7,
     "slotsKr": 5,
     "dcAmt": 100000000,
@@ -152,7 +152,7 @@
   },
   "excludes": [],
   "backup": {
-    "at": "2026-10-21T09:34:45.566Z",
+    "at": "2026-10-23T08:39:55.936Z",
     "positions": [
       {
         "t": "360750",
@@ -162,18 +162,7 @@
         "date": "2026-10-21"
       }
     ],
-    "watch": [
-      "ABBV",
-      "ETN",
-      "SHOP",
-      "ADI",
-      "MU",
-      "MDB",
-      "QCOM",
-      "MPWR",
-      "MTD",
-      "NTRA"
-    ],
+    "watch": [],
     "notes": {}
   },
   "notes": {}
