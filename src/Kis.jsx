@@ -143,15 +143,25 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
   useEffect(() => { if (onSync && (data || orders)) onSync({ mk, env: data?.env || info?.env || "demo", rows: data?.rows || [], orders: orders || [], at: Date.now() }); },
     [data, orders]);                                     // eslint-disable-line react-hooks/exhaustive-deps
   // 184. 내 종목 카드의 '한투로 매도/2회차' → 주문 칸을 채우고 그 자리로 이동
+  // 189. 매도!(open) — 다음 개장 때 팔리도록 기준 종가보다 2.5% 낮은 지정가 (서버 거절선 3% 안쪽). 지정가가 시장 가격보다 낮으면 개장 가격으로 체결됩니다
+  const prefillNow = (d) => {
+    const s = stocks[d.t]; const extra = d.qty != null ? { qty: d.qty } : {};
+    if (d.open && d.side === "sell" && s?.c > 0) {
+      const raw = s.c * 0.975;
+      extra.px = KR ? Math.max(tickKr(raw), Math.ceil(raw / tickKr(raw)) * tickKr(raw)) : Math.ceil(raw * 100) / 100;
+    }
+    pick(d.t, d.side || "buy", extra);
+    if (d.open && d.side === "sell") setOk(`개장 매도: 기준 종가 ${KR ? won(s?.c) : usd(s?.c, 2)}보다 2.5% 낮은 지정가로 채웠습니다. 시장 가격이 이보다 높으면 개장 가격에 팔립니다(갭 하락이 2.5%보다 크면 대기로 남음). ${KR ? "장 시작 전(08:30~)에 넣어 두면 09:00 시가에 체결됩니다." : "미국은 한투 주문 가능 시간에 넣어 주세요 — 장이 닫혀 있으면 한투가 거절할 수 있습니다."}`);
+  };
   const pending = useRef(null);
   useEffect(() => {
     const on = (e) => { const d = e.detail || {}; if (!d.t) return;
       if ((d.mk || "us") !== mk) { pending.current = d; setMk(d.mk || "us"); return; }
-      pick(d.t, d.side || "buy", d.qty != null ? { qty: d.qty } : {});
+      prefillNow(d);
       setTimeout(() => document.getElementById("kis-order")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50); };
     window.addEventListener("kis-prefill", on); return () => window.removeEventListener("kis-prefill", on);
   });
-  useEffect(() => { const d = pending.current; if (d && d.mk === mk) { pending.current = null; pick(d.t, d.side || "buy", d.qty != null ? { qty: d.qty } : {});
+  useEffect(() => { const d = pending.current; if (d && d.mk === mk) { pending.current = null; prefillNow(d);
     setTimeout(() => document.getElementById("kis-order")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50); } }, [mk]);   // eslint-disable-line react-hooks/exhaustive-deps
   const autoKey = useRef("");
   useEffect(() => {

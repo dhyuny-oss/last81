@@ -126,6 +126,8 @@ NASDAQ_TO_GICS = {   # 나스닥 스크리너 업종 → GICS 이름 (섹터 ETF
 # 172. 나스닥 분류가 GICS 와 다른 경우 — 가스 수송·LNG 는 나스닥이 'Utilities' 로 두지만 GICS 는 에너지.
 #      버크셔는 위키 표에서 빠지는 일이 있어 업종이 비었음. 같은 업종 규칙·섹터 순위가 틀리지 않게 고칩니다.
 SECTOR_FIX = {"BRK-B": "Financials", "BRK-A": "Financials", "LNG": "Energy"}
+# 191. 같은 회사의 다른 주식 종류 — 하나만 남깁니다 (BRK-A 는 1주가 수십만 달러라 살 수 없음 · GOOG 는 GOOGL 과 같은 회사)
+SAME_CO_DROP = {"BRK-A": "BRK-B", "GOOG": "GOOGL"}
 def _gics_of(t, x):
     if t in SECTOR_FIX: return SECTOR_FIX[t]
     if x.get("sector") == "Utilities" and "Oil/Gas" in (x.get("industry") or ""): return "Energy"
@@ -151,9 +153,11 @@ def build_us_pool(sp, scr):
     """S&P500 전부 + (시총 $25B↑ · 거래대금 $50M↑). 반환 (pool, 사유별 제외 수)"""
     pool, reasons = {}, {}
     for t, (name, gics) in sp.items():
+        if t in SAME_CO_DROP: reasons["같은 회사 다른 주식"] = reasons.get("같은 회사 다른 주식", 0) + 1; continue
         pool[t] = {"label": name[:30], "sector": SECTOR_FIX.get(t, gics) or _gics_of(t, scr.get(t) or {}), "market": "us", "mcap": (scr.get(t) or {}).get("mcap")}
     for t, x in scr.items():
         if t in pool: continue
+        if t in SAME_CO_DROP: continue
         # 177. 주식이 아닌 것(회사채·후순위채·우선주·워런트·유닛) — 예: 'Southern Company 2025 Series … Notes' 가 종목풀에 들어왔음
         if re.search(r"\b(Notes|Debentures?|Subordinated|Preferred (Stock|Shares?))\b|\b20\d\d Series\b|\b(Warrants?|Units?|Rights?)\s*$", x.get("name", ""), re.I):
             reasons["채권·우선주 등"] = reasons.get("채권·우선주 등", 0) + 1; continue

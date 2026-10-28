@@ -24,7 +24,7 @@ import html as _htmllib
 import json, os, sys, time, math, urllib.request
 from datetime import datetime, timezone, timedelta
 
-VERSION = "7.13.0"
+VERSION = "7.14.0"
 UA        = {"User-Agent": "Mozilla/5.0"}
 OUT_DIR   = "public/data"
 KST       = timezone(timedelta(hours=9))
@@ -557,6 +557,7 @@ def build_breadth(hist):
 
 
 SEC_CD = {}   # build_market 이 받은 섹터·KODEX200 캔들 (DC 계산에 재사용)
+IDX_CD = {}   # 187. build_market 이 받은 지수 캔들 — 오늘 탭 지수 줄을 누르면 여는 차트용
 DC_CD  = {}   # DC 후보 ETF 원본 캔들 (듀얼 모멘텀 12개월 점수용)
 
 def build_market():
@@ -583,6 +584,7 @@ def build_market():
                     print(f"  ⚠️ 코스피 지수가 {last} 에 멈춰 있어 KODEX 200 으로 {len(after)}일 이어 붙임")
             except Exception as e:
                 print(f"  ⚠️ 코스피 대체 실패: {str(e)[:60]}")
+        IDX_CD[tk] = (cd, label, mkt)
         c=[x["c"] for x in cd]; ma200=sma(c,200)
         idx[tk] = {"label":label,"market":mkt,"c":_r(c[-1],2),
                    "d1":_r(chg(cd,1)),"d3":_r(chg(cd,3)),"d5":_r(chg(cd,5)),"d21":_r(chg(cd,21)),
@@ -823,6 +825,8 @@ def attach_earnings(stocks, universe_all=None, market=None):
     for t, v in (universe_all or {}).items():                     # 업종 PER 용 — 스냅샷에 없는 🇺🇸 종목도 조회
         if v.get("market") == "us" and t not in stocks: ysym.setdefault(t.replace(".", "-"), t)
     fresh, ok, val = {}, False, {}
+    past = dict(cache.get("p") or {})        # 199. 지난 실적 발표일 (발표가 지나면 여기로 — 발표 뒤 주가 반응 계산용, 종목당 최근 4번)
+    xdiv = {}                                # 199. 다음 배당락일
     pos = lambda x: round(float(x), 1) if isinstance(x, (int, float)) and 0 < x < 5000 else None
     try:
         jar = _cj.CookieJar()
@@ -838,7 +842,7 @@ def attach_earnings(stocks, universe_all=None, market=None):
         for i in range(0, len(keys), 150):
             b = keys[i:i + 150]
             u = ("https://query2.finance.yahoo.com/v7/finance/quote?symbols=" + ",".join(b) + f"&crumb={crumb}"
-                 "&fields=earningsTimestampStart,earningsTimestamp,isEarningsDateEstimate,trailingPE,forwardPE")
+                 "&fields=earningsTimestampStart,earningsTimestamp,isEarningsDateEstimate,trailingPE,forwardPE,exDividendDate")
             r = json.load(op.open(u, timeout=20))
             for q in (r.get("quoteResponse") or {}).get("result") or []:
                 t = ysym.get(q.get("symbol"))
@@ -850,11 +854,24 @@ def attach_earnings(stocks, universe_all=None, market=None):
                 if ts and ts > now - 86400:                       # 이미 지난 발표는 버림
                     day = datetime.fromtimestamp(ts, TZ[stocks[t]["m"]]).strftime("%Y-%m-%d")
                     fresh[t] = [day, 1 if q.get("isEarningsDateEstimate") else 0]
+                for _k in ("earningsTimestamp", "earningsTimestampStart"):   # 199. 막 지난 발표일은 기록해 둠
+                    _ts = q.get(_k)
+                    if _ts and now - 120 * 86400 < _ts <= now and not q.get("isEarningsDateEstimate"):
+                        _day = datetime.fromtimestamp(_ts, TZ[stocks[t]["m"]]).strftime("%Y-%m-%d")
+                        if _day not in (past.get(t) or []): past[t] = sorted((past.get(t) or []) + [_day])[-4:]
+                _xd = q.get("exDividendDate")
+                if _xd and _xd > now - 86400:
+                    xdiv[t] = datetime.fromtimestamp(_xd, TZ[stocks[t]["m"]]).strftime("%Y-%m-%d")
             ok = True
             time.sleep(0.3)
     except Exception as e:
         print(f"  📅 실적 발표일: 받기 실패 ({str(e)[:60]}) — 지난번 값 사용")
     base = fresh if ok else (cache.get("e") or {})
+    if not ok: xdiv = cache.get("x") or {}
+    for t, d in stocks.items():                                    # 199. 배당락일 · 지난 발표일
+        today_local = datetime.now(TZ[d["m"]]).strftime("%Y-%m-%d")
+        if xdiv.get(t) and xdiv[t] >= today_local: d["exDiv"] = xdiv[t]
+        if past.get(t): d["earnPast"] = past[t][-1]
     n = 0
     for t, d in stocks.items():
         x = base.get(t)
@@ -893,8 +910,23 @@ def attach_earnings(stocks, universe_all=None, market=None):
     if ok:
         keep = {t: v for t, v in (cache.get("e") or {}).items() if t not in stocks}   # 감시 모드에서 안 본 종목은 지난 값 유지
         keep.update(fresh)
-        _write(EARN_CACHE, {"d": datetime.now(timezone.utc).strftime("%Y-%m-%d"), "e": keep, "v": val})
+        _write(EARN_CACHE, {"d": datetime.now(timezone.utc).strftime("%Y-%m-%d"), "e": keep, "v": val, "p": past, "x": xdiv})
     print(f"  📅 실적 발표일: {n}종목 · PER {npe}종목")
+
+def attach_earn_rx(stocks, series):
+    """199. 지난 실적 발표 뒤 주가 반응 — 발표 전날 종가 → 발표 다음 거래일 종가 (장 전·장 뒤 발표 모두 포함하는 이틀 구간)"""
+    n = 0
+    for t, d in stocks.items():
+        p = d.get("earnPast"); rows = series.get(t)
+        if not p or not rows: continue
+        off = 9 * 3600 if d["m"] == "kr" else 0
+        days = [datetime.fromtimestamp(r[0] + off, timezone.utc).strftime("%Y-%m-%d") for r in rows]
+        i = next((k for k, x in enumerate(days) if x >= p), None)
+        if i is None or i == 0 or i + 1 >= len(rows): continue
+        before, after = rows[i - 1][1], rows[i + 1][1] if days[i] == p else rows[i][1]
+        if before and after:
+            d["earnRx"] = _r((after / before - 1) * 100, 1); n += 1
+    if n: print(f"  📅 지난 실적 발표 뒤 반응: {n}종목")
 
 def attach_quarterly(stocks, refresh=False):
     """51. 분기 매출 성장 (SEC 공시) — 최근 분기 전년 동기 대비가 기본, 없으면 4분기 합계, 그것도 없으면 연간.
@@ -1077,6 +1109,8 @@ def update_signal_log(stocks, series, idx_series):
                     "fin": {"rev": f.get("rev"), "qyoy": f.get("qyoy"), "growth": f.get("growth"), "prof": f.get("prof")} if f else None,   # 6개월 뒤 성장주 신호 성적 비교용
                     "sec": d.get("sec"), "both": bool(d.get("strong") and d.get("trend3"))})
         added += 1
+    # 193. 규칙 확정 전(2026-09) 버전이 남긴 '미국 눌림' 기록은 지금 규칙에 없는 신호라 지웁니다 (점검 탭 표에 '눌림 🇺🇸'로 보였음)
+    log = [x for x in log if not (x.get("m") == "us" and x.get("k") == "pull")]
     # 옛 기록의 같은 날·같은 종목 중복은 하나로 합칩니다 (강세·추세 둘 다 기록되던 버전)
     seen_dt, dedup = set(), []
     for x in sorted(log, key=lambda x: (x["d"], x["t"], {"pull": 0, "strong": 0, "buy": 1}.get(x["k"], 2))):
@@ -1290,6 +1324,7 @@ def build_today(stocks, market):
                       "tranche": "1회차 = 한도 절반 → +3~6% 마감 & 느린ST 초록이면 나머지 절반 · 매도 = 종가 < 트레일링선"},
             "market": {m: (market.get("judge") or {}).get(m, {}).get("verdict") for m in ("us", "kr")},
             "sectors": [{"tk": x["tk"], "label": x["label"], "rank": x["rank"], "score": x.get("score")} for x in (market.get("sectors") or [])[:6]],
+            "cfg": {"revMin": rev_min, "slotsUs": slots_us, "slotsKr": slots_kr, "krGate": kr_gate},   # 197. 그림자 기록이 같은 설정으로 고르게
             "candidates": cands, "pickUs": pick_us, "pickKr": pick_kr, "size": size, "slots": slots, "excluded": excluded[:30], "held": heldrows,
             "dips": dips[:8], "dc": {"hold3": [x["label"] for x in (h3.get("items") or [])]}}
 
@@ -1403,6 +1438,13 @@ def main():
     except Exception:
         _prot = set()
     PROT = set(_prot) | {str(t).upper() for t in extra_added}      # 기준과 무관하게 유지하는 종목
+    # 191. 같은 회사의 다른 주식 종류(BRK-A·GOOG)는 매일 빼 둡니다 — 주간 교체 전에도 바로 적용 · 보유·관심이면 그대로
+    try:
+        from universe import SAME_CO_DROP as _SAME
+    except Exception:
+        _SAME = {"BRK-A": "BRK-B", "GOOG": "GOOGL"}
+    _dup = [t for t in _SAME if t in universe and t not in PROT and universe.pop(t, None) is not None]
+    if _dup: print(f"  ➖ 같은 회사 다른 주식 {len(_dup)}개 제외: {', '.join(_dup)}")
 
     # ★ 한국 공식 명단 검사 (한투 공개 마스터, 매일) — 주중에 새로 거래정지·관리·경고로 지정될 수 있어 매번 확인합니다
     #   · 이름은 공식 한글명으로 교정 (손 명단의 코드·이름 오류가 앱에 그대로 뜨던 문제)
@@ -1688,6 +1730,7 @@ def main():
     attach_quarterly(stocks, refresh=not focus)
     attach_targets(stocks, PROT)
     attach_earnings(stocks, universe_all, market)
+    attach_earn_rx(stocks, series)
     for d in stocks.values():
         rs_ok = (d.get("rs") or 0) >= 70
         up = bool(d.get("upTrend") and d.get("stSlow") == 1 and rs_ok)
@@ -1790,6 +1833,20 @@ def main():
     print("\n🏦 DC(퇴직연금) ETF 신호")
     etfs, dc = build_dc(market["sectors"], series)
     market["dc"] = dc
+    # 187. 지수 차트 — 종목·ETF 와 같은 차트 화면으로 열리게 지수도 같은 모양으로 내보냅니다 (매수 대상 아님: idx 표시)
+    #      파일 이름에 ^ 가 들어가지 않게 읽기 쉬운 이름으로 (SPX · NASDAQ · KOSPI)
+    IDX_KEY = {"^GSPC": ("SPX", "S&P500 지수"), "^IXIC": ("NASDAQ", "나스닥 종합지수"), "^KS11": ("KOSPI", "코스피 지수")}
+    for _tk, (_cd, _label, _mkt) in IDX_CD.items():
+        if _tk not in IDX_KEY: continue
+        try:
+            _key, _nm = IDX_KEY[_tk]
+            _d = build_stock(_key, _cd, {}, _nm, _mkt, "지수")
+            if not _d: continue
+            _d.update({"etf": True, "idx": True, "src": _tk})
+            etfs[_key] = _d
+            series[_key] = build_series(_cd, min(BARS_KEEP, len(_cd)), 2)
+        except Exception as e:
+            print(f"  ⚠️ 지수 차트 {_tk} 실패: {str(e)[:60]}")
 
     now = datetime.now(timezone.utc)
     meta = {"version":VERSION, "generatedAt":now.isoformat(),
@@ -1823,6 +1880,12 @@ def main():
         _write(f"{bars_dir}/{tk}.json",
                {"v":VERSION,"t":tk,"cols":COLS,"rows":rows})
     bsz = sum(os.path.getsize(f"{bars_dir}/{t}.json") for t in series)
+    # 197. 규칙 스스로 점검 — 데이터 이상 · 대안 그림자 기록 · 3주 보고 (보고만 · 규칙은 안 바꿈)
+    try:
+        import self_check
+        self_check.run(OUT_DIR, stocks, series, market, health)
+    except Exception as e:
+        print("  ⚠️ 규칙 점검 실패:", str(e)[:120])
 
     print(f"\n{'='*64}")
     print(f"  ✅ 완료 {time.time()-t0:.0f}초 · 종목 {len(stocks)} · 실패 {len(fails)}")
