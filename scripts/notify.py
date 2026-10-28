@@ -22,7 +22,7 @@ COOLDOWN_DAYS 안에는 '신규' 로 치지 않습니다.
 환경변수: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
           REPORT_MODE = full(기본) | brief   ※ brief 는 신규 신호가 있을 때만 발송
 """
-import json, os, html as _htmllib, urllib.request, urllib.parse
+import json, os, sys, html as _htmllib, urllib.request, urllib.parse
 from datetime import datetime, timezone, timedelta
 
 KST      = timezone(timedelta(hours=9))
@@ -392,7 +392,7 @@ def build(snap, mkt, state, now):
     ts = now.timestamp()
     for s in entry: state[f"entry:{s['t']}"] = {"ts": ts, "n": s["n"]}
     for s in over:  state[f"over:{s['t']}"]  = {"ts": ts, "n": s["n"]}
-    for k in [k for k, v in state.items() if v.get("ts", 0) < ts - 86400 * 30]:
+    for k in [k for k, v in state.items() if isinstance(v, dict) and v.get("ts", 0) < ts - 86400 * 30]:   # 197. 점검 기록(chkAn·chkRep)은 글자라 건너뜀
         del state[k]                                    # 30일 지난 기록은 정리
 
     return "\n".join(L), len(new_entry) + len(new_over)
@@ -561,6 +561,23 @@ def main():
     if os.environ.get("WEEKLY") == "1":          # 토요일 전체 스캔 뒤 주간 리포트 (daily.yml 이 넣어 줍니다)
         text = build_weekly(snap, mkt, now)
         print(text); send(text)
+
+    # 197. 규칙 점검 — 데이터 이상은 내용이 바뀔 때만 · 3주 보고는 보고 날(토) 한 번만
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import self_check as _sc
+        chk = load(f"{DATA}/self_check.json")
+        if chk:
+            an = _sc.anomaly_text(chk)
+            key = "|".join(a["msg"] for a in chk.get("anomalies") or [] if a["lvl"] in ("err", "warn"))
+            if an and state.get("chkAn") != key and send(an): state["chkAn"] = key
+            if not an: state.pop("chkAn", None)
+            rd = (chk.get("report") or {}).get("date")
+            if chk.get("due") and rd and state.get("chkRep") != rd and send(_sc.report_text(chk)): state["chkRep"] = rd
+            with open(STATE, "w", encoding="utf-8") as f:
+                json.dump(state, f, ensure_ascii=False, separators=(",", ":"))
+    except Exception as e:
+        print("  ⚠️ 규칙 점검 알림 실패:", str(e)[:120])
 
     text, n_new = build(snap, mkt, state, now)
     if text is None:
