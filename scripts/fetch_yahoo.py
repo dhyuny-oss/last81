@@ -1643,6 +1643,7 @@ def main():
             _ex = {str(t).upper() for t in (json.load(open("public/data/watchlist.json", encoding="utf-8")).get("excludes") or [])} - _prot
         except Exception:
             _ex = set()
+        _ex |= set(getattr(U, "DUP_CLASS", {})) - _prot      # 191. GOOG·BRK-A — 같은 회사 다른 주식
         for t in _ex: pool.pop(t, None)
 
         watchlist = load_watchlist()

@@ -94,6 +94,9 @@ ok("거래대금 순위 하한 40 (서버·앱 규칙)", /tvr \?\? 0\) >= 40/.te
 const kisJs = T("api/kis.js"), kisUi = T("src/Kis.jsx");
 ok("미국 개장 22:30/23:30 · 마감 05:00/06:00 (앱·감시 2곳)", /dst \? 1350 : 1410/.test(app_) && /dst \? 300 : 360/.test(app_)
   && [T("scripts/watch_alert.py"), T("api/watch.py")].every((t) => /\(22 \* 60 \+ 30, 5 \* 60\) if dst else \(23 \* 60 \+ 30, 6 \* 60\)/.test(t)));
+{ const a = T("api/kis.js"), k = T("src/Kis.jsx");      // 189. 예약 접수 시간 — 서버와 앱이 같은 기준
+  const W = ["22 * 60 + 20", "23 * 60 + 20", "16 * 60 + 30", "16 * 60 + 45", "15 * 60 + 40", "7 * 60 + 30", "23 * 60 + 40"];
+  ok("한투 예약(다음 개장 때 매도) 접수 시간이 서버·앱 같음 — 189", W.every((w) => a.includes(w) && k.includes(w))); }
 ok("한투 카드는 오늘 탭과 같은 선정 함수 사용", /kisPicks\(stocks, pos, genDay/.test(app_) && !/picks=\{today\?\.pickUs/.test(app_));
 ok("한투 지정가 여유(+0.5%)가 서버 거절선(3%)보다 작음", (n(/slip: ([\d.]+)/, kisUi) ?? 99) < 3 && /q\.last \* 1\.03/.test(kisJs));
 

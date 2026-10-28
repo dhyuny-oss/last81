@@ -44,6 +44,22 @@ const rid = () => { try { return crypto.randomUUID(); } catch { return "r" + Dat
 const btn = { font: "inherit", fontSize: 13, fontWeight: 700, minHeight: 40, padding: "6px 14px", borderRadius: 10, cursor: "pointer", background: "transparent", color: K.text, border: `1px solid ${K.gold}` };
 const quiet = { ...btn, border: `1px solid ${K.border}`, color: K.dim, fontWeight: 500 };
 const inp = { minHeight: 40, padding: "6px 10px", borderRadius: 10, border: `1px solid ${K.border}`, background: "#0A0E1A", color: K.text, font: "inherit", minWidth: 0 };
+/* 189. 다음 개장 때 매도 (한투 예약주문) — 접수 시간 (서버 api/kis.js 와 같은 기준) */
+const kstMin = () => { const d = new Date(Date.now() + 9 * 3600000); return d.getUTCHours() * 60 + d.getUTCMinutes(); };
+const usDst = () => { try { return /EDT/.test(new Date().toLocaleString("en-US", { timeZone: "America/New_York", timeZoneName: "short" })); } catch { return false; } };
+function resvWhy(mk, demo) {
+  const m = kstMin();
+  if (mk === "kr") {
+    if (demo) return "모의투자에는 국내 예약주문이 없음 — 9시 장이 열리면 '주문 확인'(지정가)으로";
+    if (m >= 23 * 60 + 40 || m < 10) return "한투 서버 정리 시간(23:40~00:10)";
+    if (m > 7 * 60 + 30 && m < 15 * 60 + 40) return "예약은 15:40~다음 날 07:30 — 장 중이면 '주문 확인'(지정가)으로";
+    return "";
+  }
+  const end = usDst() ? 22 * 60 + 20 : 23 * 60 + 20;
+  if (m >= 16 * 60 + 30 && m < 16 * 60 + 45) return "한투 정산 시간(16:30~16:45)";
+  if (m < 10 * 60 || m > end) return `예약은 한국 10:00~${usDst() ? "22:20" : "23:20"} — 미국 장 중이면 '주문 확인'(지정가)으로`;
+  return "";
+}
 const SIG = { buy: ["매수!", K.up], sell: ["매도!", K.down], hold: ["보유", K.cyan], watch: ["관망", K.dim] };
 
 export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], watch = [], toggleWatch, asOf = "", usOpen = false, fx = null, pickNote: noteUs = "", kr = null, krOpen = false, onSync = null }) {
@@ -120,9 +136,16 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
     : !(Number(form.qty) >= 1) ? "수량은 1주 이상" : !(Number(form.px) > 0) ? "지정가를 넣어 주세요"
     : KR && Number(form.px) % tickKr(Number(form.px)) !== 0 ? `호가 단위 ${tickKr(Number(form.px)).toLocaleString("ko-KR")}원에 맞춰 주세요`
     : amount > cap1 ? `1건 상한 ${M(cap1)} 초과` : "";
+  const rsvWhy = resvWhy(mk, (data?.env || info?.env) !== "real");
+  const openResv = (t, ex, qty) => { if (!rsvWhy && t && qty >= 1) setConfirm({ kind: "resv", side: "sell", t: String(t).trim().toUpperCase(), ex: KR ? "KRX" : ex, qty: Math.floor(qty), px: 0, rid: rid() }); };
   const openConfirm = () => { if (!formErr) setConfirm({ ...form, ex: KR ? "KRX" : form.ex, t: form.t.trim().toUpperCase(), qty: Math.floor(Number(form.qty)), px: KR ? Math.round(Number(form.px)) : Math.round(Number(form.px) * 100) / 100, rid: rid() }); };
   const send = () => run("order", async () => {
     const c = confirm; setConfirm(null);
+    if (c.kind === "resv") {
+      const j = await call({ what: "resv", t: c.t, ex: c.ex, qty: c.qty, rid: c.rid, confirm: true });
+      if (!j.ok) return setMsg(j.msg || "예약이 거절되었습니다");
+      return setOk(`${demo ? "모의" : "실전"} 예약 매도를 접수했습니다 — ${c.t} ${c.qty}주 · ${j.resv?.how || "다음 개장 때"}${j.resv?.no ? ` · 예약번호 ${j.resv.no}` : ""}. 확인·취소는 한투 앱의 '예약주문' 화면에서 (여기 주문 내역에는 장이 열려 전송된 뒤에 보입니다)`);
+    }
     const j = await call({ what: "order", side: c.side, t: c.t, ex: c.ex, qty: c.qty, px: c.px, rid: c.rid, confirm: true });
     if (!j.ok) return setMsg(j.msg || "주문이 거절되었습니다");
     setOk(`${demo ? "모의" : "실전"} ${c.side === "buy" ? "매수" : "매도"} 주문을 보냈습니다 — ${c.t} ${c.qty}주 × ${M(c.px, 2)}${j.placed?.odno ? ` · 주문번호 ${j.placed.odno}` : ""} (체결은 주문 내역에서 확인)`);
@@ -268,7 +291,12 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
       {sellNow.length > 0 && (
         <div role="alert" style={{ marginTop: 10, padding: "8px 10px", borderRadius: 10, border: `1px solid ${K.down}`, color: K.text, lineHeight: 1.5 }}>
           <b style={{ color: K.down }}>매도 신호</b> <span style={{ fontFamily: MONO }}>{sellNow.map((r) => r.t).join(" · ")}</span>
-          <div style={{ color: K.dim, fontSize: 11.5 }}>앱 규칙은 종가가 손절선 아래로 마감하면 매도입니다. 위 표의 "매도"를 누르면 주문 칸에 채워집니다.</div>
+          <div style={{ color: K.dim, fontSize: 11.5 }}>앱 규칙: 종가가 트레일링선 아래로 마감 → <b style={{ color: K.text }}>다음 날 시작가에 매도</b>. 아래 버튼은 한투 예약주문으로 그 시각에 맞춰 내 줍니다.</div>
+          {info.canOrder && <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+            {sellNow.map((r) => <button key={r.t} type="button" disabled={!!rsvWhy || !!busy} onClick={() => openResv(r.t, r.ex, r.ord || r.qty)}
+              style={{ ...btn, minHeight: 36, fontSize: 12, borderColor: K.down, opacity: rsvWhy || busy ? .45 : 1 }}>{KR ? (r.n || r.t) : r.t} {r.ord || r.qty}주 다음 개장 때 매도</button>)}
+          </div>}
+          {info.canOrder && rsvWhy && <div style={{ color: K.gold, fontSize: 11.5, marginTop: 4 }}>지금은 예약 불가 — {rsvWhy}</div>}
         </div>)}
 
       {info.canOrder && data && picks.length === 0 && pickNote && (
@@ -336,8 +364,12 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
             <button type="button" onClick={openConfirm} disabled={!!formErr || !!busy} style={{ ...btn, opacity: formErr || busy ? .5 : 1 }}>주문 확인</button>
+            {form.side === "sell" && <button type="button" onClick={() => openResv(form.t, form.ex, Number(form.qty))} disabled={!!rsvWhy || !!busy || !(Number(form.qty) >= 1) || !form.t.trim()}
+              title={rsvWhy || "한투 예약주문 — 다음 장 시작 때 전송"} style={{ ...btn, borderColor: K.down, opacity: rsvWhy || busy ? .45 : 1 }}>다음 개장 때 매도</button>}
             <span style={{ color: formErr ? K.dim : K.text, fontSize: 12, fontFamily: formErr ? "inherit" : MONO }}>{formErr || `${KR && stocks[form.t.trim()]?.n ? stocks[form.t.trim()].n + " · " : ""}${form.qty}주 × ${M(form.px, 2)} = ${M(amount, 2)}`}</span>
           </div>
+          {form.side === "sell" && <div style={{ color: K.dim, fontSize: 11, marginTop: 4, lineHeight: 1.5 }}>
+            다음 개장 때 매도 = 한투 예약주문. {KR ? "🇰🇷 실전만 · 15:40~다음 날 07:30 접수 → 9시 시작가(시장가)" : `🇺🇸 한국 10:00~${usDst() ? "22:20" : "23:20"} 접수 → 미국 장 시작 때 ${demo ? "지정가(마지막 가격 −2.5% · 모의는 지정가만)" : "시장가(MOO)"}`}{rsvWhy ? ` · 지금은 불가: ${rsvWhy}` : ""}</div>}
         </div>)}
 
       {orders && (
@@ -387,14 +419,21 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
         <div role="dialog" aria-modal="true" aria-label="주문 확인" onClick={() => setConfirm(null)}
           style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 360, background: K.panel2, border: `2px solid ${demo ? K.gold : K.down}`, borderRadius: 14, padding: 18, color: K.text }}>
+            {confirm.kind === "resv" ? <>
+            <div style={{ fontSize: 12, color: demo ? K.gold : K.down, fontWeight: 700 }}>{demo ? "모의투자 · 예약 매도" : "⚠ 실전 · 실제 돈 · 예약 매도"}</div>
+            <div style={{ fontSize: 20, fontWeight: 700, marginTop: 6 }}><span style={{ color: K.down }}>다음 개장 때 매도</span> {KR && stocks[confirm.t]?.n ? `${stocks[confirm.t].n} ` : ""}{confirm.t}</div>
+            <div style={{ fontFamily: MONO, fontSize: 15, marginTop: 6 }}>{confirm.qty}주 · {KR ? "다음 영업일 9시 시작가 (시장가)" : demo ? "미국 장 시작 때 지정가 = 마지막 가격 −2.5%" : "미국 장 시작가 (MOO 시장가)"}</div>
+            <div style={{ color: K.dim, fontSize: 12, marginTop: 4, lineHeight: 1.5 }}>규칙대로 '종가가 선 아래 → 다음 날 시작가 매도'입니다. 예약은 한투 앱 '예약주문' 화면에서 장 시작 전까지 취소할 수 있습니다.{!KR && demo ? " 시작가가 지정가보다 낮으면 안 팔릴 수 있으니 장 시작 뒤 확인하세요." : ""}</div>
+            </> : <>
             <div style={{ fontSize: 12, color: demo ? K.gold : K.down, fontWeight: 700 }}>{demo ? "모의투자 · 지정가" : "⚠ 실전 · 실제 돈 · 지정가"}</div>
             <div style={{ fontSize: 20, fontWeight: 700, marginTop: 6 }}><span style={{ color: confirm.side === "buy" ? K.up : K.down }}>{confirm.side === "buy" ? "매수" : "매도"}</span> {KR && stocks[confirm.t]?.n ? `${stocks[confirm.t].n} ` : ""}{confirm.t}</div>
             <div style={{ fontFamily: MONO, fontSize: 15, marginTop: 6 }}>{confirm.qty}주 × {M(confirm.px, 2)} = <b>{M(confirm.qty * confirm.px, 2)}</b>{!KR && fx ? <span style={{ color: K.dim, fontSize: 12 }}> (약 {Math.round(confirm.qty * confirm.px * fx / 10000).toLocaleString("ko-KR")}만 원)</span> : null}</div>
             {confirm.note && <div style={{ color: K.dim, fontSize: 12, marginTop: 4 }}>{confirm.note}</div>}
             <div style={{ color: K.dim, fontSize: 12, marginTop: 4 }}>{EXN[confirm.ex]} · {demo ? "가짜 돈입니다." : "실제 계좌에서 실제 돈으로 주문됩니다."} 같은 주문이 두 번 나가지 않게 한 번만 전송됩니다.</div>
+            </>}
             <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
               <button type="button" onClick={() => setConfirm(null)} style={{ ...quiet, flex: 1 }}>돌아가기</button>
-              <button type="button" onClick={send} style={{ ...btn, flex: 1, background: K.gold, color: "#111", border: `1px solid ${K.gold}` }}>주문 보내기</button>
+              <button type="button" onClick={send} style={{ ...btn, flex: 1, background: K.gold, color: "#111", border: `1px solid ${K.gold}` }}>{confirm.kind === "resv" ? "예약 보내기" : "주문 보내기"}</button>
             </div>
           </div>
         </div>)}

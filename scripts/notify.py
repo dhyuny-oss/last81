@@ -562,6 +562,30 @@ def main():
         text = build_weekly(snap, mkt, now)
         print(text); send(text)
 
+    # 197. 규칙 성적표(3주마다 새로 나올 때 한 번) · 데이터 이상(하루 한 번)
+    try:
+        sc = mkt.get("selfcheck") or {}
+        mem = state.get("_selfcheck") or {}
+        rep = sc.get("report")
+        changed = False
+        if rep and mem.get("rep") != rep.get("at"):
+            import selfcheck as SC
+            safe = dict(rep, items=[dict(x, t=_htmllib.escape(str(x["t"]), quote=False), v=_htmllib.escape(str(x["v"]), quote=False)) for x in rep.get("items") or []])
+            t = SC.report_text(safe); print(t)
+            if send(t): mem["rep"] = rep.get("at"); changed = True
+        an = sc.get("anoms") or []
+        key = now.strftime("%Y-%m-%d") + "|" + "|".join(an)
+        if an and mem.get("anom", "")[:10] != now.strftime("%Y-%m-%d"):      # 하루 한 번
+            t = "⚠️ <b>데이터 이상</b>\n" + "\n".join("· " + _htmllib.escape(x, quote=False) for x in an[:6]) + "\n<i>앱 점검 탭 '규칙 성적표'에도 표시 · 하루 한 번만 알림</i>"
+            print(t)
+            if send(t): mem["anom"] = key; changed = True
+        if changed:
+            mem["ts"] = now.timestamp(); state["_selfcheck"] = mem
+            with open(STATE, "w", encoding="utf-8") as f:
+                json.dump(state, f, ensure_ascii=False, separators=(",", ":"))
+    except Exception as e:
+        print("⚠️ 규칙 성적표 알림 실패:", e)
+
     text, n_new = build(snap, mkt, state, now)
     if text is None:
         print("ℹ️ brief 모드 · 신규 신호 없음 — 발송 안 함")

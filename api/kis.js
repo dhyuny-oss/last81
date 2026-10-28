@@ -27,6 +27,11 @@
  *   what="orders"               최근 주문·미체결                    → orders, dayBuy(오늘 매수 합계)
  *   what="order"                주문 { side, t, ex, qty, px, rid, confirm:true }   (모의 · 실전은 KIS_REAL_ORDER=on 일 때만)
  *   what="cancel"               주문 취소 { odno, t, ex, qty }
+ *   what="resv"                 189. 다음 개장 때 매도 (예약) { t, ex, qty, rid, confirm:true }
+ *                               🇺🇸 예약 매도 TTTT3016U/VTTT3016U — 실전은 장 시작 시장가(MOO) · 모의는 지정가(마지막 가격 −2.5%)
+ *                                   접수: 한국 10:00~23:20 (미국 서머타임엔 22:20) · 16:30~16:45 제외 → 미국 장 시작 때 전송
+ *                               🇰🇷 예약 매도 CTSC0008U — 실전만(모의 없음) · 시장가 → 다음 영업일 장 시작 동시호가
+ *                                   접수: 15:40~다음 날 07:30 · 23:40~00:10 제외
  *   what="quote"                지금 가격 { list:[{t, ex}], idx:true }  → quotes{t:{ex,last,base,rate}}, idx{QQQ,SPY}
  *   what="groups" / "group"     한투 관심 그룹 목록 / 그룹 안 종목 { code }   (국내 중심 · 한투 → 앱 한 방향)
  *   mk="kr" 을 함께 보내면 🇰🇷 국내 주식으로 같은 일을 합니다 (balance · orders · order · cancel · quote)
@@ -262,6 +267,59 @@ async function cancelOrder(c, ctx, b) {
   return { cancelled: { odno, t, msg: x.j.msg1 || "" } };
 }
 
+/* ── 189. 다음 개장 때 매도 (예약 주문) ── 규칙: 종가가 선 아래 → 다음 날 시작가에 매도 */
+const kstMin = () => { const d = new Date(Date.now() + 9 * 3600000); return d.getUTCHours() * 60 + d.getUTCMinutes(); };
+const usDst = () => { try { return /EDT/.test(new Date().toLocaleString("en-US", { timeZone: "America/New_York", timeZoneName: "short" })); } catch { return false; } };
+function resvWindow(mk) {
+  const m = kstMin();
+  if (mk === "kr") {
+    if (m >= 23 * 60 + 40 || m < 10) return "한투 서버 정리 시간(23:40~00:10)입니다 — 잠시 뒤 다시";
+    if (m > 7 * 60 + 30 && m < 15 * 60 + 40) return "국내 예약은 15:40~다음 날 07:30에 받습니다 — 지금은 장 중이면 일반 '매도'(지정가)로";
+    return "";
+  }
+  const end = usDst() ? 22 * 60 + 20 : 23 * 60 + 20;
+  if (m >= 16 * 60 + 30 && m < 16 * 60 + 45) return "한투 정산 시간(16:30~16:45)입니다 — 15분 뒤 다시";
+  if (m < 10 * 60 || m > end) return `미국 예약은 한국 10:00~${usDst() ? "22:20" : "23:20"}에 받습니다 — 미국 장 중이면 일반 '매도'(지정가)로`;
+  return "";
+}
+async function resvSell(c, ctx, b, KR) {
+  orderGate(c);
+  const t = String(b.t || "").toUpperCase().trim(), ex = KR ? "KRX" : String(b.ex || "").toUpperCase(), qty = Math.floor(num(b.qty));
+  if (KR ? !KR_CODE.test(t) : !/^[A-Z][A-Z0-9.\-]{0,9}$/.test(t)) throw new Error("종목 코드가 올바르지 않습니다");
+  if (!KR && !US_EX.includes(ex)) throw new Error("거래소는 NASD · NYSE · AMEX 중 하나여야 합니다");
+  if (!(qty >= 1 && qty <= 1000000)) throw new Error("수량은 1주 이상이어야 합니다");
+  if (KR && c.env !== "real") throw new Error("한투 모의투자에는 국내 예약주문이 없습니다 — 내일 9시 장이 열리면 일반 '매도'(지정가)로 넣어 주세요");
+  const w = resvWindow(KR ? "kr" : "us"); if (w) throw new Error(w);
+  if (b.confirm !== true) throw new Error("확인 단계를 거치지 않은 주문입니다");
+  const rid = String(b.rid || "");
+  if (!/^[A-Za-z0-9\-]{8,64}$/.test(rid)) throw new Error("주문 번호표(rid)가 없습니다");
+  if (RID.has(rid)) throw new Error("방금 보낸 같은 예약입니다 — 한투 앱의 예약주문 화면을 확인해 주세요");
+  RID.set(rid, Date.now());
+  const fail = (m) => { RID.delete(rid); throw new Error(m); };
+  const have = KR ? (await krBalance(c, ctx)).rows.find((r) => r.t === t) : (await usBalance(c, ctx, ex)).rows.find((r) => r.t === t);
+  if (!have || (have.ord || have.qty) < qty) fail(`팔 수 있는 수량이 부족합니다 (보유 ${have ? have.qty : 0}주 · 주문 가능 ${have ? (have.ord || have.qty) : 0}주)`);
+  await sleep(gapOf(c));
+  if (KR) {
+    const x = await kis(c, ctx, "POST", "/uapi/domestic-stock/v1/trading/order-resv", "CTSC0008U", {
+      CANO: c.cano, ACNT_PRDT_CD: c.prod, PDNO: t, ORD_QTY: String(qty), ORD_UNPR: "0", SLL_BUY_DVSN_CD: "01", ORD_DVSN_CD: "01",
+      ORD_OBJT_CBLC_DVSN_CD: "10", LOAN_DT: "", RSVN_ORD_END_DT: "", LDNG_DT: "" });
+    const o = x.j.output || {};
+    return { resv: { t, ex, qty, how: "다음 영업일 장 시작 시장가", no: String(o.RSVN_ORD_SEQ || o.rsvn_ord_seq || ""), msg: x.j.msg1 || "" } };
+  }
+  let px = 0, how = "미국 장 시작 시장가(MOO)";
+  if (c.env !== "real") {                                // 모의는 지정가만 — 마지막 가격 −2.5% (시작가가 이보다 낮으면 안 팔릴 수 있음)
+    let q = null; try { q = await quoteOne(c, ctx, t, ex, { n: 0 }); } catch { q = null; }
+    if (!q) fail("지금 가격을 확인하지 못했습니다 — 잠시 뒤 다시 눌러 주세요");
+    px = Math.floor(q.last * 0.975 * 100) / 100; how = `미국 장 시작 때 지정가 $${px.toFixed(2)} (마지막 가격 −2.5%)`;
+    await sleep(gapOf(c));
+  }
+  const x = await kis(c, ctx, "POST", "/uapi/overseas-stock/v1/trading/order-resv", c.env === "real" ? "TTTT3016U" : "VTTT3016U", {
+    CANO: c.cano, ACNT_PRDT_CD: c.prod, PDNO: t, OVRS_EXCG_CD: ex, FT_ORD_QTY: String(qty), FT_ORD_UNPR3: px ? px.toFixed(2) : "0",
+    ORD_SVR_DVSN_CD: "0", ORD_DVSN: c.env === "real" ? "31" : "00" });
+  const o = x.j.output || {};
+  return { resv: { t, ex, qty, px, how, no: String(o.OVRS_RSVN_ODNO || o.ODNO || o.odno || ""), msg: x.j.msg1 || "" } };
+}
+
 /* ════════ 🇰🇷 국내 주식 ════════ */
 const KR_CODE = /^[0-9A-Z]{6}$/;
 /** 호가 단위 (2023-01 이후 코스피·코스닥 공통) */
@@ -405,19 +463,21 @@ export default async function handler(req, res) {
   const c = cfg();
   const configured = !!(c.key && c.sec && c.acctOk);
   if (req.method === "GET") return res.status(200).json({ ok: true, configured, env: c.env, pin: !!c.pin, pinMissing: !c.pin, canOrder: canOrder(c) && !!c.pin,
+                                                          resv: { us: resvWindow("us"), kr: c.env === "real" ? resvWindow("kr") : "모의투자에는 국내 예약주문이 없습니다" },
                                                           maxUsd: c.maxUsd, maxDay: c.maxDay, maxKrw: c.maxKrw, maxDayKrw: c.maxDayKrw, hts: !!c.hts });
   if (req.method !== "POST") return res.status(405).json({ ok: false, msg: "GET 또는 POST 만 됩니다" });
   if (!configured) return res.status(200).json({ ok: false, code: "setup", msg: c.env === "real" ? "Vercel 환경변수(KIS_APP_KEY · KIS_APP_SECRET · KIS_ACCOUNT)가 아직 없습니다" : "Vercel 환경변수(KIS_DEMO_APP_KEY · KIS_DEMO_APP_SECRET · KIS_DEMO_ACCOUNT)가 아직 없습니다" });
   if (!c.pin) return res.status(200).json({ ok: false, code: "setup", msg: "KIS_PIN 환경변수(내가 정하는 비밀번호)를 넣어야 열립니다" });
   if (!pinOk(c, req.headers["x-kis-pin"])) { await sleep(700); return res.status(200).json({ ok: false, code: "pin", msg: "비밀번호가 맞지 않습니다" }); }
   const body = typeof req.body === "string" ? (() => { try { return JSON.parse(req.body); } catch { return {}; } })() : (req.body || {});
-  const ACTIONS = ["balance", "orders", "order", "cancel", "quote", "groups", "group"];
+  const ACTIONS = ["balance", "orders", "order", "cancel", "quote", "groups", "group", "resv"];
   if (!ACTIONS.includes(body.what)) return res.status(400).json({ ok: false, msg: `what 은 ${ACTIONS.join(" · ")} 중 하나여야 합니다` });
   const ctx = { tok: null, reissued: false };
   try {
     ctx.tok = await getToken(c, body.tok, false);
     let out = {};
     const KR = body.mk === "kr";
+    if (body.what === "resv") { out = await resvSell(c, ctx, body, KR); return res.status(200).json({ ok: true, env: c.env, mk: KR ? "kr" : "us", at: Date.now(), ...out, tok: seal(c, ctx.tok) }); }
     if (KR && ["balance", "orders", "quote", "order", "cancel"].includes(body.what)) {
       if (body.what === "balance") out = await krBalance(c, ctx);
       else if (body.what === "orders") { const orders = await krOrders(c, ctx); out = { orders, dayBuy: dayBuyKr(orders) }; }

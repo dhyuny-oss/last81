@@ -24,7 +24,7 @@ import html as _htmllib
 import json, os, sys, time, math, urllib.request
 from datetime import datetime, timezone, timedelta
 
-VERSION = "7.13.0"
+VERSION = "7.14.0"
 UA        = {"User-Agent": "Mozilla/5.0"}
 OUT_DIR   = "public/data"
 KST       = timezone(timedelta(hours=9))
@@ -1055,6 +1055,40 @@ def build_dc(secs, series):
     return etfs, dc
 
 # ══════════════════════════════════════════════════════════════
+# 199. 지난 실적 발표와 주가 반응 — 오늘부터 쌓습니다 (과거 발표일 자료는 없음)
+#   발표일 D 의 '전 거래일 종가 → D 다음 거래일 종가' 등락. 장 전 발표·장 마감 후 발표를 모두 담는 이틀 창입니다.
+#   참고 표시용 — 매매 규칙에는 쓰지 않습니다.
+# ══════════════════════════════════════════════════════════════
+EARN_HIST = f"{OUT_DIR}/earn_hist.json"
+
+def update_earn_hist(stocks, series):
+    try:
+        eh = json.load(open(EARN_HIST, encoding="utf-8"))
+    except Exception:
+        eh = {}
+    hist, pend = eh.get("hist") or {}, eh.get("pend") or {}
+    today = max((d.get("asOf") or "") for d in stocks.values()) if stocks else ""
+    added = 0
+    for t, ed in list(pend.items()):
+        ser = series.get(t); rows = ser.get("rows") if isinstance(ser, dict) else ser
+        if rows:
+            rr = [(datetime.fromtimestamp(r[0], timezone.utc).strftime("%Y-%m-%d"), r[1]) for r in rows if r[1]]
+            pre = [c for d_, c in rr if d_ < ed]
+            post = [c for d_, c in rr if d_ > ed]
+            if pre and post:
+                L = [x for x in hist.get(t, []) if x[0] != ed]
+                L.append([ed, _r((post[0] / pre[-1] - 1) * 100, 1)])
+                hist[t] = sorted(L)[-8:]; pend.pop(t); added += 1
+                continue
+        if today and ed < _shift_days(today, -20): pend.pop(t)     # 3주 넘게 시세가 없으면 포기
+    for t, d in stocks.items():
+        if d.get("earn") and not d.get("etf"): pend[t] = d["earn"]
+    for t, d in stocks.items():
+        if hist.get(t): d["earnPast"] = hist[t][-4:]
+    _write(EARN_HIST, {"note": "199. 실적 발표 전 거래일 종가 → 다음 거래일 종가 (%)", "hist": hist, "pend": pend})
+    print(f"  📅 지난 실적 반응: +{added}건 · 기록 {sum(len(v) for v in hist.values())} · 발표 대기 {len(pend)}")
+
+# ══════════════════════════════════════════════════════════════
 # 실전 검증 장부 — 신호가 난 날과 가격을 적어 두고, 그 뒤 실제로 어떻게 됐는지 매일 다시 셉니다.
 #   백테스트(생존편향 있음)와 별개로 '앱이 실제로 낸 신호'의 성적입니다. 이게 진짜 검증입니다.
 # ══════════════════════════════════════════════════════════════
@@ -1073,6 +1107,7 @@ def update_signal_log(stocks, series, idx_series):
         if d.get("action") != "buy" or not d.get("asOf") or not d.get("c") or t in have: continue
         f = d.get("fin") or {}
         k = {"pull": "pull", "strong": "strong", "trend": "buy"}.get(d.get("why"), "buy")   # 앱·알림과 같은 근거 하나
+        if k == "pull" and d["m"] == "us": continue   # 193. 미국 눌림은 규칙에 없음 — 기록하지 않음
         log.append({"d": d["asOf"], "t": t, "n": d.get("n"), "m": d["m"], "k": k, "p": d["c"],
                     "fin": {"rev": f.get("rev"), "qyoy": f.get("qyoy"), "growth": f.get("growth"), "prof": f.get("prof")} if f else None,   # 6개월 뒤 성장주 신호 성적 비교용
                     "sec": d.get("sec"), "both": bool(d.get("strong") and d.get("trend3"))})
@@ -1083,6 +1118,8 @@ def update_signal_log(stocks, series, idx_series):
         if (x["d"], x["t"]) in seen_dt: continue
         seen_dt.add((x["d"], x["t"])); dedup.append(x)
     log = dedup
+    # 193. 미국 눌림은 규칙에 없음(180부터 한국만) — 옛 버전이 남긴 미국 눌림 기록은 성적에 섞이지 않게 지웁니다
+    log = [x for x in log if not (x.get("m") == "us" and x.get("k") == "pull")]
     cutoff = _shift_days(today, -LOG_KEEP_DAYS) if today else ""
     log = [x for x in log if x["d"] >= cutoff]
     # 이후 성과 계산 — 신호일 종가 → 5·10·20거래일 뒤, 그리고 지금까지
@@ -1161,6 +1198,8 @@ REV_MIN = 10        # 앱 '매출 필터' 기본값 — 앱이 settings.revMin �
 LINE_MAX_LOSS = 17  # 트레일링선까지(닿으면 잃는 폭) 17% 넘으면 오늘 후보에서 제외 — 예전 '선까지 20%'(c/선−1)와 같은 기준 (62)
 
 PICKS_LOG = f"{OUT_DIR}/picks_log.json"
+SHADOW_LOG = f"{OUT_DIR}/shadow_log.json"     # 197. 그림자 비교 기록
+SELFCHECK = f"{OUT_DIR}/selfcheck.json"       # 197. 성적표 · 데이터 이상
 def write_picks_log(t, keep=400):
     """today.json 한 장을 picks_log.json 에 날짜별 한 줄로 더합니다 (같은 날짜는 덮어씀 · 최근 keep 일)"""
     if not t or not t.get("asOf"): return
@@ -1264,6 +1303,28 @@ def build_today(stocks, market):
         _h = sum(1 for p in (wl.get("positions") or []) if (p.get("role") or "swing") == "swing"
                  and (str(p.get("t", "")).isdigit() == (_m == "kr")))
         slots[_m] = {"n": _n, "held": _h, "free": max(0, _n - _h)}
+    # 197. 그림자 비교 — 규칙은 그대로 두고 '다른 규칙이었다면 오늘 빈 칸에 뭘 넣었나'만 적습니다 (scripts/selfcheck.py 가 20거래일 뒤 채점)
+    #   sec3 = 🇺🇸 같은 업종 최대 3개(196) · new = 강도 대신 '최근 신호 먼저'
+    held_cnt = {}
+    for p in (wl.get("positions") or []):
+        _d = stocks.get(str(p.get("t", "")).upper())
+        if _d and _d.get("m") == "us" and _d.get("sec"): held_cnt[_d["sec"]] = held_cnt.get(_d["sec"], 0) + 1
+    def _choose(order, m, cap):
+        out, cnt = [], dict(held_cnt)
+        if slots[m]["free"] <= 0: return []
+        for r in order:
+            if r["m"] != m or reasons(r): continue
+            if m == "kr" and kr_gate: continue
+            if m == "us":
+                key = r["sec"] or f"?{r['t']}"
+                if cnt.get(key, 0) >= cap: continue
+                cnt[key] = cnt.get(key, 0) + 1
+            out.append(r)
+            if len(out) >= slots[m]["free"]: break
+        return [{"t": r["t"], "c": r["c"]} for r in out]
+    newest = sorted(buys, key=lambda r: (r["age"] if r.get("age") else 9999, -(r.get("str") or 0), r["t"]))
+    shadow = {"us": {"act": _choose(cands, "us", 1), "sec3": _choose(cands, "us", 3), "new": _choose(newest, "us", 1)},
+              "kr": {"act": _choose(cands, "kr", 99), "new": _choose(newest, "kr", 99)}}
     for r in pick_us + pick_kr:                     # 98. 1회차 몇 주 (앱 '오늘 살 것'과 같은 계산)
         h = (size.get(r["m"]) or {}).get("half")
         r["sh"] = int(h // r["c"]) if (h and r.get("c")) else None
@@ -1291,7 +1352,7 @@ def build_today(stocks, market):
             "market": {m: (market.get("judge") or {}).get(m, {}).get("verdict") for m in ("us", "kr")},
             "sectors": [{"tk": x["tk"], "label": x["label"], "rank": x["rank"], "score": x.get("score")} for x in (market.get("sectors") or [])[:6]],
             "candidates": cands, "pickUs": pick_us, "pickKr": pick_kr, "size": size, "slots": slots, "excluded": excluded[:30], "held": heldrows,
-            "dips": dips[:8], "dc": {"hold3": [x["label"] for x in (h3.get("items") or [])]}}
+            "dips": dips[:8], "dc": {"hold3": [x["label"] for x in (h3.get("items") or [])]}, "shadow": shadow}
 
 def _shift_days(iso, n):
     try:
@@ -1403,6 +1464,13 @@ def main():
     except Exception:
         _prot = set()
     PROT = set(_prot) | {str(t).upper() for t in extra_added}      # 기준과 무관하게 유지하는 종목
+    # 191. 같은 회사의 다른 주식(GOOG·BRK-A) — 보유·관심이 아니면 하나만 남깁니다
+    try:
+        from universe import DUP_CLASS as _DUP
+    except Exception:
+        _DUP = {"GOOG": "GOOGL", "BRK-A": "BRK-B"}
+    _dup_gone = [t for t in _DUP if t not in PROT and universe.pop(t, None) is not None]
+    if _dup_gone: print(f"  ➖ 같은 회사 다른 주식 {', '.join(_dup_gone)} 제외 (남김: {', '.join(_DUP[t] for t in _dup_gone)})")
 
     # ★ 한국 공식 명단 검사 (한투 공개 마스터, 매일) — 주중에 새로 거래정지·관리·경고로 지정될 수 있어 매번 확인합니다
     #   · 이름은 공식 한글명으로 교정 (손 명단의 코드·이름 오류가 앱에 그대로 뜨던 문제)
@@ -1688,6 +1756,10 @@ def main():
     attach_quarterly(stocks, refresh=not focus)
     attach_targets(stocks, PROT)
     attach_earnings(stocks, universe_all, market)
+    try:
+        update_earn_hist(stocks, series)
+    except Exception as e:
+        print("  ⚠️ 지난 실적 반응 기록 실패:", e)
     for d in stocks.values():
         rs_ok = (d.get("rs") or 0) >= 70
         up = bool(d.get("upTrend") and d.get("stSlow") == 1 and rs_ok)
@@ -1775,8 +1847,10 @@ def main():
     #   AI 도구는 이것만 읽으면 되고, 텔레그램 5칸 추천·앱 선정과 같은 규칙이라 서로 어긋나지 않습니다.
     #   규칙: action=buy · 미국 매출 +10%↑(재무 있으면) · 적자 제외 · 트레일링선까지 20% 이하 · 보유 제외 · 업종 하나씩 · 🇺🇸 5 · 🇰🇷 3
     # ══════════════════════════════════════════════════════════
+    _shadow = None
     try:
         market["today"] = build_today(stocks, market)
+        _shadow = market["today"].pop("shadow", None)          # 197. 그림자 비교는 따로 (today.json 은 그대로)
         _write(f"{OUT_DIR}/today.json", market["today"])
         print(f"  📝 today.json: 후보 {len(market['today']['candidates'])} · 🇺🇸 추천 {len(market['today']['pickUs'])} · 🇰🇷 {len(market['today']['pickKr'])} · 제외 {len(market['today']['excluded'])}")
     except Exception as e:
@@ -1790,6 +1864,35 @@ def main():
     print("\n🏦 DC(퇴직연금) ETF 신호")
     etfs, dc = build_dc(market["sectors"], series)
     market["dc"] = dc
+
+    # 197. 규칙 스스로 점검 — 그림자 비교 기록 · 데이터 이상 · 3주마다 성적표 (규칙은 바꾸지 않음)
+    try:
+        import selfcheck as SC
+        try: _sl = json.load(open(SHADOW_LOG, encoding="utf-8"))
+        except Exception: _sl = []
+        _asof = (market.get("today") or {}).get("asOf")
+        _sl, _sadd = SC.update_shadow_log(_sl, _shadow, _asof, series)
+        _write(SHADOW_LOG, _sl)
+        try: _sc = json.load(open(SELFCHECK, encoding="utf-8"))
+        except Exception: _sc = {}
+        try: _wl = json.load(open(f"{OUT_DIR}/watchlist.json", encoding="utf-8"))
+        except Exception: _wl = {}
+        _cfg = _wl.get("settings") or {}
+        _anoms = SC.anomalies(stocks, etfs, health, _wl.get("positions") or [])
+        _ssum = SC.shadow_summary(_sl)
+        _sat = (not focus) and datetime.now(KST).weekday() == 5
+        if SC.due(_sc.get("report"), _sat):
+            _adh = SC.adherence(stocks, _wl.get("positions") or [], {"us": int(_cfg.get("slotsUs") or 7), "kr": int(_cfg.get("slotsKr") or 5)})
+            _rep = SC.build_report(market.get("live"), _ssum, _adh, _anoms, _asof)
+            _sc["history"] = ([{"at": _rep["at"], "head": _rep["head"]}] + (_sc.get("history") or []))[:12]
+            _sc["report"] = _rep
+            print(f"  🧪 규칙 성적표 새로 만듦: {_rep['head']}")
+        _sc["anoms"] = _anoms; _sc["anomAt"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M"); _sc["shadow"] = _ssum
+        _write(SELFCHECK, _sc)
+        market["selfcheck"] = _sc
+        print(f"  🧪 그림자 기록 +{_sadd} (총 {len(_sl)}) · 데이터 이상 {len(_anoms)}" + (f": {' · '.join(_anoms[:3])}" if _anoms else ""))
+    except Exception as e:
+        print("  ⚠️ 규칙 점검 실패:", e)
 
     now = datetime.now(timezone.utc)
     meta = {"version":VERSION, "generatedAt":now.isoformat(),
