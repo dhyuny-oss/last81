@@ -19,7 +19,7 @@ async def run(p,name,positions,plan):
         elif w_=="quote": base.update(quotes={q["t"]:{"ex":q["ex"] or "NASD","last":100,"base":100,"rate":0} for q in bd["list"]},idx={"QQQ":{"rate":0.1},"SPY":{"rate":0.1}})
         await route.fulfill(status=200,content_type="application/json",body=json.dumps(base))
     await ctx.route("**/api/**",lambda r:r.fulfill(status=200,content_type="application/json",body='{"ok":false}'))
-    await ctx.route("**/api/kis",kis)
+    await ctx.route("**/api/broker",kis)
     await ctx.add_init_script("(()=>{const d=new Date(Date.now()+9*3600000);const dow=d.getUTCDay();const sat=new Date(d);sat.setUTCDate(d.getUTCDate()-((dow+1)%%7));localStorage.setItem('v7.rules.wk',sat.toISOString().slice(0,10));localStorage.setItem('v7.kis.pin','1234');localStorage.setItem('v4.pos',%s);localStorage.setItem('v11.plan',%s);localStorage.setItem('v9.revMin','10');})()"%(json.dumps(json.dumps(positions)),json.dumps(json.dumps(plan))))
     pg=await ctx.new_page(); errs=[]; pg.on("pageerror",lambda e: errs.append(str(e)))
     await pg.goto("http://localhost:4228/"); await pg.wait_for_timeout(3500)
