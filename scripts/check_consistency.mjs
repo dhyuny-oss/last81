@@ -95,7 +95,7 @@ const kisJs = T("api/_lib/kis.js") + T("api/_lib/meritz.js"), kisUi = T("src/Kis
 ok("미국 개장 22:30/23:30 · 마감 05:00/06:00 (앱·감시 2곳)", /dst \? 1350 : 1410/.test(app_) && /dst \? 300 : 360/.test(app_)
   && [T("scripts/watch_alert.py"), T("api/watch.py")].every((t) => /\(22 \* 60 \+ 30, 5 \* 60\) if dst else \(23 \* 60 \+ 30, 6 \* 60\)/.test(t)));
 ok("한투 카드는 오늘 탭과 같은 선정 함수 사용", /kisPicks\(stocks, pos, genDay/.test(app_) && !/picks=\{today\?\.pickUs/.test(app_));
-ok("한투 지정가 여유(+0.5%)가 서버 거절선(3%)보다 작음", (n(/slip: ([\d.]+)/, kisUi) ?? 99) < 3 && /q\.last \* 1\.03/.test(kisJs));
+ok("계좌 지정가 여유(+0.5%)가 서버 매수 거절선(메리츠 1.5%)보다 작음", (n(/slip: ([\d.]+)/, kisUi) ?? 99) < 1.5 && /q\.last \* 1\.015/.test(T("api/_lib/meritz.js")));
 
 // 자동 수집이 새로 쓰는 파일은 저장(커밋) 목록에 있어야 함 — 빠지면 저장 단계가 통째로 실패 (2026-10-10 picks_log.json 사고)
 { const bs = T("scripts/build_snapshot.py"), yml = T(".github/workflows/daily.yml");

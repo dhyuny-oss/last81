@@ -13,7 +13,7 @@
  *
  * ▣ 안전장치 (한투 실전과 같은 수준)
  *   지정가만 · 비밀번호 · 확인 단계(confirm:true) · 같은 주문 번호표(rid) 재전송 차단 · 1건/하루 상한
- *   지정가가 지금 가격에서 3% 넘게 벗어나면 거절 · 지금 가격을 못 보면 거절 · 같은 미체결이 있으면 거절
+ *   매수 지정가가 지금 가격 +1.5% 넘으면 · 매도 지정가가 −3% 아래면 거절 · 정규장 밖 매수 거절(218) · 지금 가격을 못 보면 거절 · 같은 미체결이 있으면 거절
  *   매도는 가진 수량(− 매도 대기) 안에서만 · 메리츠가 "경고"로 돌려주면 접수 안 된 것 → 화면에서 내용 확인 뒤 다시 보냄
  *   주문 전송이 시간 초과로 끊기면 다시 보내지 않고 "주문 내역을 먼저 확인"하라고 알림 (두 번 나가는 것 방지)
  *
@@ -271,6 +271,15 @@ function accepted(j, overseas) {
   }
   return String(d.oder_no || "").trim();
 }
+/** 지금 정규장인가 (주말만 거름 — 휴장일은 증권사가 거절) */
+function regularNow(KR) {
+  const z = KR ? "Asia/Seoul" : "America/New_York";
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: z, weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date()).map((x) => [x.type, x.value]));
+  if (p.weekday === "Sat" || p.weekday === "Sun") return false;
+  const m = +p.hour * 60 + +p.minute;
+  return KR ? m >= 540 && m < 930 : m >= 570 && m < 960;
+}
+
 async function placeOrder(c, ctx, b, KR) {
   gate(c);
   const side = b.side === "sell" ? "sell" : b.side === "buy" ? "buy" : "";
@@ -286,6 +295,8 @@ async function placeOrder(c, ctx, b, KR) {
   const cap1 = KR ? c.maxKrw : c.maxUsd, capDay = KR ? c.maxDayKrw : c.maxDay;
   if (qty * px > cap1) throw new Error(`주문 1건 상한 ${M(cap1)} 을 넘습니다 (${qty}주 × ${M(px)} = ${M(qty * px)})`);
   if (b.confirm !== true) throw new Error("확인 단계를 거치지 않은 주문입니다");
+  // 218. 정규장 밖 매수는 보내지 않음 — 장 밖 주문이 어떻게 처리될지(다음 장 이월·거절)가 확인되지 않음. 장 밖은 예약주문으로 따로
+  if (side === "buy" && !regularNow(KR)) throw new Error(KR ? "한국 정규장(09:00~15:30)에만 매수를 보냅니다" : "미국 정규장(한국 시각 22:30/23:30 ~ 05:00/06:00)에만 매수를 보냅니다");
   const rid = String(b.rid || "");
   if (!/^[A-Za-z0-9\-]{8,64}$/.test(rid)) throw new Error("주문 번호표(rid)가 없습니다");
   if (RID.has(rid)) throw new Error("방금 보낸 같은 주문입니다 — 아래 주문 내역을 확인해 주세요");
@@ -301,7 +312,7 @@ async function placeOrder(c, ctx, b, KR) {
   let q = null; try { q = KR ? await krQuoteOne(c, ctx, t) : await usQuoteOne(c, ctx, t, ex, { n: 0 }); } catch { q = null; }
   if (!q) fail("지금 가격을 확인하지 못해 주문을 보내지 않았습니다 — 잠시 뒤 다시 눌러 주세요");
   if (!KR && q.ex !== ex) fail(`${t} 은(는) ${{ NASD: "나스닥", NYSE: "뉴욕", AMEX: "아멕스" }[q.ex]} 종목입니다 — 거래소를 바꿔 주세요`);
-  if (side === "buy" && px > q.last * 1.03) fail(`지정가 ${M(px)} 가 지금 가격 ${M(q.last)} 보다 3% 넘게 높습니다`);
+  if (side === "buy" && px > q.last * 1.015) fail(`지정가 ${M(px)} 가 지금 가격 ${M(q.last)} 보다 1.5% 넘게 높습니다 — 가격을 다시 보고 넣어 주세요`);   // 218. 매수는 좁게
   if (side === "sell" && px < q.last * 0.97) fail(`지정가 ${M(px)} 가 지금 가격 ${M(q.last)} 보다 3% 넘게 낮습니다`);
   if (side === "sell") {
     await sleep(GAP);

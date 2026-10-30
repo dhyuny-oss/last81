@@ -21,6 +21,7 @@
  *        asOf = 오늘 살 것의 기준 날짜({us, kr} 또는 문자열) · half = 앱 1회차 금액 {us, kr} · usOpen = 미국 정규장 여부 · fx = 원/달러
  */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { openOrder } from "./order.js";      // 210. 주문은 모두 같은 주문 창(src/OrderSheet.jsx)으로
 
 const K = { panel: "#0F1420", panel2: "#161B2E", border: "rgba(255,255,255,.09)", text: "#E5E7EB", dim: "#9CA3AF", gold: "#F59E0B", up: "#30D158", down: "#FF453A", cyan: "#06B6D4" };
 const MONO = "ui-monospace,SFMono-Regular,Menlo,monospace";
@@ -174,8 +175,9 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
   useEffect(() => { const d = pending.current; if (d && d.mk === mk) { pending.current = null; prefillNow(d);
     setTimeout(() => document.getElementById("kis-order")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50); } }, [mk]);   // eslint-disable-line react-hooks/exhaustive-deps
   // 차트 화면의 '계좌로 1회차 주문' → 이 카드가 뜬 뒤 주문 칸을 채움 (카드가 없을 때 눌러도 놓치지 않게)
-  useEffect(() => { const d = window.__kisPending; if (!d || !info?.canOrder) return; window.__kisPending = null;
-    window.dispatchEvent(new CustomEvent("kis-prefill", { detail: d })); }, [info]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // 주문 창에서 주문을 보내면 주문 내역을 다시 불러옴
+  useEffect(() => { const f = () => { if (data || orders) setTimeout(() => reloadOrders(), 900); };
+    window.addEventListener("broker-changed", f); return () => window.removeEventListener("broker-changed", f); });
   const autoKey = useRef("");
   useEffect(() => {
     if (!info?.configured || info.pinMissing || !pin || needPin || busy) return;
@@ -252,6 +254,29 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
   return (
     <div style={box}>
       {head}
+      {/* 217. 시장 급락 — 크게 · 맨 위 */}
+      {live && mkt.halt && (
+        <div role="alert" style={{ marginTop: 10, padding: "10px 12px", borderRadius: 10, background: "rgba(255,69,58,.14)", border: `2px solid ${K.down}` }}>
+          <b style={{ color: K.down, fontSize: 15 }}>⚠ 시장 급락 중 — 매수 보류</b>
+          <div style={{ marginTop: 3 }}>{IDX[mk].map(([k, l]) => `${l} ${live.idx[k] ? pct(live.idx[k].rate) : "—"}`).join(" · ")} (기준 {GUARD.mktDown}%)</div>
+          <div style={{ color: K.dim, fontSize: 11.5, marginTop: 2 }}>매수 제안은 잠겼습니다. 그래도 사려면 주문 창에서 빨간 확인을 거쳐야 합니다 · 매도는 그대로</div>
+        </div>)}
+      {/* 218. 오래 체결 안 된 주문 — 잊지 않게 맨 위로 */}
+      {(() => {
+        const ageMin = (o) => { const d = String(o.dt || "").replace(/\D/g, ""), t = String(o.tm || "").replace(/\D/g, "").padEnd(6, "0");
+          if (d.length !== 8) return null; const ms = Date.UTC(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6, 8), +t.slice(0, 2) - 9, +t.slice(2, 4)); return (Date.now() - ms) / 60000; };
+        const old = (orders || []).filter((o) => o.open > 0 && !o.orgn).map((o) => ({ o, a: ageMin(o) })).filter((x) => x.a != null && x.a >= 30);
+        return old.length ? (
+          <div role="alert" style={{ marginTop: 10, padding: "10px 12px", borderRadius: 10, background: "rgba(245,158,11,.10)", border: `1px solid ${K.gold}` }}>
+            <b style={{ color: K.gold }}>체결 안 된 주문 {old.length}건 — 30분 넘게 대기 중</b>
+            {old.map(({ o, a }) => (
+              <div key={o.odno} style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+                <span style={{ fontFamily: MONO }}>{o.side === "buy" ? "매수" : "매도"} {KR ? (o.n || o.t) : o.t} {o.open}주 @ {M(o.px, 2)} · {Math.round(a)}분째</span>
+                <button type="button" onClick={() => cancel(o)} disabled={!!busy} style={{ ...quiet, minHeight: 32, padding: "2px 10px", fontSize: 12 }}>취소</button>
+                <button type="button" onClick={() => openOrder({ t: o.t, side: o.side, qty: o.open, m: mk })} style={{ ...quiet, minHeight: 32, padding: "2px 10px", fontSize: 12 }}>새 가격으로 다시</button>
+              </div>))}
+            <div style={{ color: K.dim, fontSize: 11.5, marginTop: 4 }}>지정가에 안 닿은 주문입니다. 그대로 두면 장이 끝날 때 사라집니다 · '새 가격으로 다시'는 이 주문을 먼저 취소한 뒤 쓰세요</div>
+          </div>) : null; })()}
       <div style={{ marginTop: 6, color: K.dim, fontSize: 11.5, lineHeight: 1.5 }}>
         {BK}에서 체결된 거래는 <b style={{ color: K.text }}>내 종목 맨 위 '체결 반영'</b>에서 한 번 눌러 넣습니다{demo ? "(모의는 '모의' 표시)" : ""}. 누르기 전에는 투입금·빈 칸·텔레그램 합계에 섞이지 않습니다.
       </div>
@@ -285,7 +310,7 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
                   <td style={{ ...td, color: col(r.pl) }}>{pct(r.plPct)}</td>
                   <td style={{ ...td, fontFamily: "inherit" }}>{sg ? <span style={{ color: sg.c, fontWeight: 700 }}>{sg.txt}</span> : <span style={{ color: K.dim }}>—</span>}
                     {sg?.below && <div style={{ color: K.down, fontSize: 11 }}>선 {M(sg.line, 0)} 아래</div>}</td>
-                  <td style={{ ...td, textAlign: "left" }}>{info.canOrder && <button type="button" onClick={() => pick(r.t, "sell", { ex: r.ex, px: r.px, qty: r.ord })} style={{ ...quiet, minHeight: 32, padding: "2px 10px", fontSize: 12 }}>매도</button>}</td>
+                  <td style={{ ...td, textAlign: "left" }}>{info.canOrder && <button type="button" onClick={() => openOrder({ t: r.t, side: "sell", qty: r.ord || r.qty, held: r.ord || r.qty, m: mk })} style={{ ...quiet, minHeight: 32, padding: "2px 10px", fontSize: 12 }}>매도</button>}</td>
                 </tr>); })}
               </tbody>
             </table>
@@ -336,7 +361,7 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
                     {x.ok ? <span style={{ fontFamily: MONO }}>{x.qty}주 × {M(x.px, 2)} = {M(x.qty * x.px, 2)}{!KR && fx ? ` (약 ${Math.round(x.qty * x.px * fx / 10000).toLocaleString("ko-KR")}만 원)` : ""}</span> : x.why}
                   </div>
                 </div>
-                <button type="button" disabled={!x.ok || !!busy} aria-label={`${x.t} 사기`} onClick={() => setConfirm({ side: "buy", t: x.t, ex: x.q.ex, qty: x.qty, px: x.px, rid: rid(), note: `기준 종가 ${M(x.base, 2)} 대비 ${pct(x.ch)} · 손절선 ${x.line ? M(x.line, 2) : "—"}` })}
+                <button type="button" disabled={!x.ok || !!busy} aria-label={`${x.t} 사기`} onClick={() => openOrder({ t: x.t, side: "buy", qty: x.qty, px: x.px, m: mk })}
                   style={{ ...btn, opacity: x.ok && !busy ? 1 : .4, minWidth: 64 }}>사기</button>
               </div>))}
             <div style={{ color: K.dim, fontSize: 11, marginTop: 6, lineHeight: 1.5 }}>
@@ -347,25 +372,19 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
         </div>)}
 
       {info.canOrder && (
-        <div id="kis-order" style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${K.border}` }}>
-          <b style={{ fontSize: 13 }}>{demo ? "모의 주문" : "실전 주문"}</b> <span style={{ color: K.dim, fontSize: 11.5 }}>{KR ? "🇰🇷 " : "🇺🇸 "}지정가만 · 1건 상한 {M(cap1)} · 하루 매수 상한 {M(capDay)} · 보내기 전에 한 번 더 확인</span>
-          {picks.length > 0 && (
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-              <span style={{ color: K.dim, fontSize: 11.5, alignSelf: "center" }}>오늘 살 것</span>
-              {picks.slice(0, 8).map((p) => (<button key={p.t} type="button" onClick={() => pick(p.t, "buy")} style={{ ...quiet, minHeight: 32, padding: "2px 10px", fontSize: 12, fontFamily: KR ? "inherit" : MONO, color: form.t === p.t ? K.gold : K.dim }}>{KR ? (p.n || p.t) : p.t}</button>))}
-            </div>)}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(92px, 1fr))", gap: 8, marginTop: 8 }}>
-            <select value={form.side} onChange={(e) => setForm({ ...form, side: e.target.value })} aria-label="주문 매수 매도" style={inp}><option value="buy">매수</option><option value="sell">매도</option></select>
-            <input value={form.t} onChange={(e) => pick(e.target.value.toUpperCase().replace(KR ? /[^A-Z0-9]/g : /[^A-Z0-9.\-]/g, "").slice(0, KR ? 6 : 10), form.side)} placeholder={KR ? "종목 (예: 005930)" : "종목 (예: AMD)"} aria-label="주문 종목" style={inp} />
-            {!KR && <select value={form.ex} onChange={(e) => setForm({ ...form, ex: e.target.value })} aria-label="주문 거래소" style={inp}><option value="NASD">나스닥</option><option value="NYSE">뉴욕</option><option value="AMEX">아멕스</option></select>}
-            <input value={form.qty} inputMode="numeric" onChange={(e) => setForm({ ...form, qty: e.target.value.replace(/\D/g, "") })} placeholder="수량" aria-label="주문 수량" style={inp} />
-            <input value={form.px} inputMode="decimal" onChange={(e) => setForm({ ...form, px: e.target.value.replace(/[^0-9.]/g, "") })} placeholder={KR ? "지정가 원" : "지정가 $"} aria-label="주문 지정가" style={inp} />
+        <details id="kis-order" style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${K.border}` }}>
+          <summary style={{ cursor: "pointer", minHeight: 32, display: "flex", alignItems: "center", gap: 8 }}>
+            <b style={{ fontSize: 13 }}>직접 주문</b><span style={{ color: K.dim, fontSize: 11.5 }}>목록에 없는 종목 · 1건 상한 {M(cap1)} · 하루 매수 상한 {M(capDay)} ▾</span></summary>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto auto", gap: 8, marginTop: 8 }}>
+            <input value={form.t} onChange={(e) => setForm({ ...form, t: e.target.value.toUpperCase().replace(KR ? /[^A-Z0-9]/g : /[^A-Z0-9.\-]/g, "").slice(0, KR ? 6 : 10) })}
+              placeholder={KR ? "종목 (예: 005930)" : "종목 (예: AMD)"} aria-label="주문 종목" style={inp} />
+            {["buy", "sell"].map((sd) => (
+              <button key={sd} type="button" disabled={!(KR ? /^[0-9A-Z]{6}$/ : /^[A-Za-z][A-Za-z0-9.\-]{0,9}$/).test(form.t.trim())}
+                onClick={() => { const r = (data?.rows || []).find((x) => x.t === form.t.trim()); openOrder({ t: form.t.trim(), side: sd, m: mk, ...(sd === "sell" && r ? { qty: r.ord || r.qty, held: r.ord || r.qty } : {}) }); }}
+                style={{ ...btn, borderColor: sd === "buy" ? K.up : K.down, color: sd === "buy" ? K.up : K.down }}>{sd === "buy" ? "사기" : "팔기"}</button>))}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
-            <button type="button" onClick={openConfirm} disabled={!!formErr || !!busy} style={{ ...btn, opacity: formErr || busy ? .5 : 1 }}>주문 확인</button>
-            <span style={{ color: formErr ? K.dim : K.text, fontSize: 12, fontFamily: formErr ? "inherit" : MONO }}>{formErr || `${KR && stocks[form.t.trim()]?.n ? stocks[form.t.trim()].n + " · " : ""}${form.qty}주 × ${M(form.px, 2)} = ${M(amount, 2)}`}</span>
-          </div>
-        </div>)}
+          <div style={{ color: K.dim, fontSize: 11.5, marginTop: 6 }}>주문 창에서 지금 가격을 받아 수량·지정가를 정하고, 오늘 매수 제안과 같은 검사를 거친 뒤 보냅니다.</div>
+        </details>)}
 
       {orders && (
         <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${K.border}` }}>
