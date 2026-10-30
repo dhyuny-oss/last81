@@ -1203,7 +1203,7 @@ def write_picks_log(t, keep=400):
         if not isinstance(log, list): log = []
     except Exception:
         log = []
-    row = {"d": t["asOf"]}
+    row = {"d": t["asOf"], "du": t.get("asOfUs") or t["asOf"], "dk": t.get("asOfKr") or t["asOf"]}   # 211. 시장별 종가 날짜
     for m, key in (("us", "pickUs"), ("kr", "pickKr")):
         free = ((t.get("slots") or {}).get(m) or {}).get("free")
         amt = ((t.get("size") or {}).get(m) or {}).get("amt")
@@ -1317,6 +1317,9 @@ def build_today(stocks, market):
     dips.sort(key=lambda r: r.get("w52p") or 0)
     h3 = (market.get("dc") or {}).get("hold3") or {}
     return {"asOf": max((d.get("asOf") or "" for d in stocks.values()), default=None),
+            # 211. 시장마다 종가 날짜가 다름 (🇺🇸 은 한국 날짜보다 하루 늦음) — 추천 기록·화면 날짜는 이 값으로
+            "asOfUs": max((d.get("asOf") or "" for d in stocks.values() if d.get("m") == "us"), default=None),
+            "asOfKr": max((d.get("asOf") or "" for d in stocks.values() if d.get("m") == "kr"), default=None),
             "rules": {"buy": "action=buy", "rev": f"🇺🇸 매출 +{rev_min:.0f}%↑ (최근 분기 전년 동기 대비 → 없으면 4분기 합계 → 연간) · 적자 제외",
                       "order": "강세·눌림 먼저 → 강도 점수(RS 백분위와 200일선 거리 백분위의 평균) 높은 순",
                       "sector": f"🇺🇸 같은 업종은 하나 — 보유 종목 업종 포함(위험 관리용 · 미검증) · 최대 {slots_us} · 🇰🇷 최대 {slots_kr}",

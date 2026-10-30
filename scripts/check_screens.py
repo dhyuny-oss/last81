@@ -40,7 +40,7 @@ async def run(p,name,positions,plan):
     for tk in set(chips+buy+[r["t"] for r in td["pickUs"]]):
         if await pg.get_by_role("button",name=f"{tk} 사기").count(): cards.append(tk)
     note=re.search(r"오늘 탭 기준[^\n]*",t)
-    same= sorted(buy)==sorted(chips)==sorted(cards)
+    same= sorted(buy)==sorted(cards) and (not chips or sorted(chips)==sorted(buy))   # 210. 계좌 카드의 '오늘 살 것' 칩은 없어지고 매수 제안 '사기'만 남음
     print(f"{'✅' if same else '❌'} {name}: 첫 화면 {home.group(0) if home else '—'} | 찾기 탭 🇺🇸 [{head.group(1) if head else ''}] 살 것 {buy} | 한투 칩 {chips} · 제안 {sorted(cards)} | {note.group(0)[:40] if note else ''} | err {errs}")
     await b.close(); return same
 async def main():
