@@ -761,7 +761,7 @@ KR_SECT = [
     ("244580", "KODEX 바이오"), ("157490", "TIGER 소프트웨어"), ("140710", "KODEX 운송"),
     ("266410", "KODEX 필수소비재"), ("266390", "KODEX 경기소비재"),
 ]
-DC_WEIGHTS = {"us": 0.35, "kr": 0.35, "safe": 0.30}
+DC_WEIGHTS = {"nq": 0.2333, "us": 0.2333, "kr": 0.2333, "safe": 0.30}   # 230. 느린ST 규칙도 3지수 (예전 S&P 35 · 코스피 35)
 
 SEC_CACHE = f"{OUT_DIR}/sec_rev.json"
 TGT_CACHE = f"{OUT_DIR}/targets.json"
@@ -1060,29 +1060,35 @@ def build_dc(secs, series):
     #     vs 듀얼 모멘텀 +11.9% · −21% · 0.96 · 1년 6번 / 느린ST(기본) +6.3% · −12% · 0.91
     #   3년씩 잘라 보면 62번 중 42번 듀얼보다 나음. 비중 맞춤을 매달·분기·매년 어느 쪽으로 해도 12.4~12.7%로 같음.
     #   ※ 나스닥을 빼면(S&P+코스피) 11.0%로 듀얼보다 낮음 — 나스닥 몫이 핵심.
-    hold3 = {"items": [{"sig": "QQQ", "label": "나스닥100", "buy": (etfs.get("QQQ") or {}).get("veh")},
+    qqq = etfs.get("QQQ")
+    # ★ 230. 검증 다시 (2026-10-31 · 2008-03~2026-10 원화 · 비용 0.1% · 안전자산 연 3% · 위험 70/안전 30 · 매년 1월 비중 맞춤)
+    #   3지수 보유        연 +12.4% · 최대낙폭 −22.3% · 샤프 0.80 (샤프 = (연수익−3%)/변동성)
+    #   느린ST 3지수      연 +7.2%  · 최대낙폭 −13.3% · 샤프 0.58 · 몫마다 1년 약 8번 매매
+    #   느린ST S&P·코스피 연 +6.3%  · 최대낙폭 −15.8% · 샤프 0.46  → 3지수가 3년 구간 188개 중 145개에서 나음 · 비용 0.3%·분기 맞춤에도 같음
+    #   최대낙폭은 2026-10 코스피 급락(한 달 −17%)이 들어간 값 (그 전까지는 −8~9%)
+    EV = {"period": "2008-03~2026-10 원화 · 비용 0.1% · 안전자산 연 3%"}
+    hold3 = {"items": [{"sig": "QQQ", "label": "나스닥100", "buy": (qqq or {}).get("veh")},
                        {"sig": "SPY", "label": "S&P500", "buy": (spy or {}).get("veh")},
-                       {"sig": DC_KR[0], "label": "코스피200", "buy": {"code": DC_KR[0], "name": DC_KR[1]}}],
+                       {"sig": DC_KR[0], "label": "코스피200", "buy": {"code": DC_KR[0], "name": DC_KR[1], "c": (k200 or {}).get("c")}}],   # 226. 주수 계산용 가격
              "w": 0.70 / 3, "asOf": (spy or {}).get("asOf"),
              "rule": "나스닥100·S&P500·코스피200 각 23.3% + 안전자산 30%. 1년에 한 번(1월 첫 거래일)만 비중을 원래대로 맞춤. 그 사이엔 사고팔지 않음.",
-             "evidence": {"cagr": 12.7, "mdd": -21, "sharpe": 1.07, "period": "2008–26 원화·DC 70/30", "dual_cagr": 11.9}}
-    smh = etfs.get("SMH")
-    semi = {"sig": "SMH", "buy": (smh or {}).get("veh"), "state": _state(smh), "share": 0.10,
-            "rule": "위험자산 70% 중 10%를 반도체 ETF 고정 칸으로. 느린ST 초록일 때만 보유, 빨강이면 안전자산. 재량 베팅 대신 칸으로 묶습니다."} if smh else None
+             "evidence": {**EV, "cagr": 12.4, "mdd": -22.3, "sharpe": 0.80, "st_cagr": 7.2, "st_mdd": -13.3}}
+    # 225. 반도체 고정 칸은 뺐음 — 검증에서 느린ST로 켜고 끄면 3지수 보유보다 연 −0.5%p · 낙폭 거의 같음, 그냥 보유는 나스닥100과 겹치는 베팅
+    w3 = round(0.70 / 3, 4)
     dc = {
-        "hold3": hold3, "semi": semi,
+        "hold3": hold3, "semi": None,
         "weights": DC_WEIGHTS,
         "core": [
+            {"key": "nq", "sig": "QQQ", "buy": (qqq or {}).get("veh"), "state": _state(qqq), "label": "미국 나스닥100", "w": w3},
             {"key": "us", "sig": "SPY", "buy": (spy or {}).get("veh"), "state": _state(spy),
-             "label": "미국 S&P500", "w": DC_WEIGHTS["us"]},
+             "label": "미국 S&P500", "w": w3},
             {"key": "kr", "sig": DC_KR[0], "buy": {"code": DC_KR[0], "name": DC_KR[1], "synth": False,
                                                  "c": (k200 or {}).get("c")},
-             "state": _state(k200), "label": "한국 코스피200", "w": DC_WEIGHTS["kr"]},
+             "state": _state(k200), "label": "한국 코스피200", "w": w3},
         ],
         "usCore": us_core, "usSect": us_sect, "krSect": kr_sect,
-        "rule": "미국 S&P500 35% + 코스피200 35% + 안전자산 30%. 각 몫은 느린 슈퍼트렌드(12,3)가 초록일 때만 보유, 빨강이면 안전자산.",
-        "evidence": {"cagr": 7.0, "mdd": -10.3, "sharpe": 1.03, "bh_cagr": 8.5, "bh_mdd": -22.5, "bh_sharpe": 0.80,
-                     "period": "2007–2026 원화 · 비용 0.1% · 안전자산 연 3% 가정"},
+        "rule": "나스닥100·S&P500·코스피200 각 23.3% + 안전자산 30%. 각 몫은 느린 슈퍼트렌드(12,3)가 초록일 때만 보유, 빨강이면 안전자산.",
+        "evidence": {**EV, "cagr": 7.2, "mdd": -13.3, "sharpe": 0.58, "bh_cagr": 12.4, "bh_mdd": -22.3, "bh_sharpe": 0.80},
     }
     return etfs, dc
 
@@ -1266,6 +1272,8 @@ def build_today(stocks, market):
     def reasons(r):
         out = []
         if r["prof"] is False: out.append("적자")
+        # 224. 🇺🇸 재무 자료가 아직 없으면(새로 들어온 종목 — 분기 수집 전) 적자·매출 검사를 못 해 뺌 (앱 src/picks.js 와 같은 문구)
+        elif r["m"] == "us" and r["prof"] is None: out.append("재무 자료 없음 — 적자 여부 확인 전")
         if rev_min > 0 and r["m"] == "us" and r["growth"] is not None and r["growth"] < rev_min: out.append(f"매출 {r['growth']:+.0f}%")
         # (선까지 −17% 초과 제외는 없앰 — 검증에서 🇺🇸 2024–26 성과를 26.8% → 7.1% 로 깎았음. 선이 먼 종목이 곧 강하게 달리는 종목)
         if r["held"]: out.append("보유 중")

@@ -13,6 +13,7 @@
  * 여는 법: import { openOrder } from "./order.js";  openOrder({ t, side: "buy"|"sell", qty, m: "us"|"kr" })
  */
 import React, { useEffect, useMemo, useState } from "react";
+import { nextOpen } from "./order.js";
 
 const K = { panel: "#0F1420", panel2: "#161B2E", border: "rgba(255,255,255,.09)", text: "#E5E7EB", dim: "#9CA3AF", gold: "#F59E0B", up: "#30D158", down: "#FF453A", cyan: "#06B6D4" };
 const MONO = "ui-monospace,SFMono-Regular,Menlo,monospace";
@@ -108,6 +109,7 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
 
   // 189. 장이 닫혀 있을 때 매도 = 다음 개장 때 매도 예약 (🇺🇸 장 시작 시장가 MOO · 🇰🇷 다음 영업일 시작 시장가)
   const resvMode = side === "sell" && !sess.open;
+  const nxo = resvMode ? nextOpen(KR) : null;                                                   // 223. 언제 나가는지
   // 막음 (넘어갈 수 없음)
   const block = !info ? "불러오는 중…"
     : !info.configured ? "계좌가 연결되어 있지 않습니다"
@@ -135,7 +137,7 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
     if (ch != null && ch >= G.stUp) warns.push(`기준 종가보다 ${pct(ch)} — 이미 많이 올라 추격`);
     if (held && !req.tranche2) warns.push("이미 보유 중인 종목입니다 — 2회차인지 확인");
   } else {
-    if (s && s.action !== "sell") warns.push(`앱 신호는 매도!가 아닙니다 (지금: 보유 · 손절선 ${line ? M(line) : "—"}) — 규칙보다 일찍 파는 것`);
+    if (s && s.action !== "sell") warns.push(`앱 신호는 매도!가 아닙니다 (지금: ${s.action === "buy" ? "매수!" : "들고 있기"} · 손절선 ${line ? M(line) : "—"}) — 규칙보다 일찍 파는 것`);
   }
   const notes = [];
   if (sess.early) notes.push("개장 직후 5분 — 가격이 크게 흔들리는 시간입니다. 몇 분 뒤가 안전합니다");
@@ -153,6 +155,8 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
         if (!x) continue;
         const st = /거부|거절/.test(x.state || "") ? "거부" : x.filled >= x.qty && x.qty > 0 ? "체결" : x.filled > 0 ? "일부 체결" : x.open > 0 ? "접수 — 대기 중" : x.state || "확인 중";
         setDone((d) => d && { ...d, st, fpx: x.fpx || 0, filled: x.filled || 0 });
+        // 228. 다 체결되면 내 종목에 바로 반영 (내 종목 탭을 열기 전에도 오늘 탭 칸 수·'살 것'이 맞도록)
+        if (st === "체결" && info?.env === "real") { try { window.dispatchEvent(new CustomEvent("order-filled", { detail: { odno: x.odno, dt: x.dt, side: x.side, t: x.t, n: x.n, filled: x.filled, fpx: x.fpx, px: x.px, mk } })); } catch {} }
         if (st === "체결" || st === "거부") break;
       } catch { /* 다음에 */ }
     }
@@ -167,7 +171,7 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
         const j = await call({ what: "resv", t, qty: nQty, rid: rid(), confirm: true, ...(warnOk ? { warnOk: true } : {}) });
         if (!j.ok && j.code === "warn" && j.warn && !warnOk) { setWarnOk(j.warn); setBusy(""); return; }
         if (!j.ok) { setMsg(j.msg || "예약이 거절되었습니다"); setBusy(""); return; }
-        setDone({ resv: true, side, qty: nQty, no: j.reserved?.no || "", how: j.reserved?.how || "다음 개장 때", st: "예약 접수 — 장이 열리면 나감" });
+        setDone({ resv: true, side, qty: nQty, no: j.reserved?.no || "", how: nxo?.label ? `${nxo.label} 시장가` : (j.reserved?.how || "다음 개장 때"), st: "예약 접수 — 장이 열리면 나감" });
         try { window.dispatchEvent(new Event("broker-changed")); } catch {}
       } catch { setMsg("연결이 끊겼습니다 — 다시 보내기 전에 메리츠 앱 '예약주문' 화면을 먼저 확인하세요 (중복 예약 주의)"); }
       setBusy(""); return;
@@ -255,8 +259,8 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
         </div>
         {resvMode ? (
           <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 10, background: "rgba(6,182,212,.08)", border: `1px solid ${K.cyan}66`, fontSize: 12, lineHeight: 1.6 }}>
-            <b style={{ color: K.cyan }}>지금은 장이 닫혀 있어 '다음 개장 때 매도' 예약으로 보냅니다</b><br />
-            규칙(종가가 선 아래 → 다음 장 시작에 판다) 그대로 — {KR ? "다음 영업일 09:00 시작가" : "미국 장이 열리는 순간 시장가"}로 팝니다. 갭 하락이면 그만큼 낮게 팔릴 수 있습니다.
+            <b style={{ color: K.cyan }}>지금은 장이 닫혀 있어 예약으로 보냅니다 — {nxo?.label} 시장가로 매도</b><br />
+            규칙(종가가 선 아래 → 다음 장 시작에 판다) 그대로입니다. 갭 하락이면 그만큼 낮게 팔릴 수 있습니다.
             확인·취소는 {BK} 앱 '예약주문' 화면에서 합니다.
           </div>) : <>
         <div style={{ marginTop: 8, fontFamily: MONO, fontSize: 14 }}>
@@ -285,14 +289,14 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
           <div role="status" style={{ marginTop: 12, padding: "12px", borderRadius: 10, background: "rgba(48,209,88,.10)", border: `1px solid ${K.up}`, lineHeight: 1.6 }}>
             {done.resv ? <>
               <b style={{ color: K.up }}>✓ 매도 예약을 접수했습니다</b> — {t} {done.qty}주 · {done.how}{done.no ? ` · 예약번호 ${done.no}` : ""}
-              <div style={{ color: K.dim, fontSize: 12 }}>장이 열리면 주문이 나갑니다. 확인·취소는 메리츠 앱 '예약주문' 화면에서 합니다. 체결되면 내 종목 맨 위 '체결 반영'에 뜹니다.</div>
+              <div style={{ color: K.dim, fontSize: 12 }}>장이 열리면 주문이 나갑니다. 확인·취소는 {BK} 앱 '예약주문' 화면에서 합니다. 팔리면 다음에 내 종목 탭을 열 때 자동으로 정리됩니다.</div>
             </> : <>
               <b style={{ color: K.up }}>✓ {done.side === "buy" ? "매수" : "매도"} 주문을 보냈습니다</b> — {t} {done.qty}주 × {M(done.px)}{done.odno ? ` · 주문번호 ${done.odno}` : ""}
               {/* 221. 지금 상태 */}
               <div style={{ marginTop: 6, fontSize: 15, fontWeight: 800, color: done.st === "체결" ? K.up : done.st === "거부" ? K.down : K.gold }}>
                 상태: {done.st}{done.st === "체결" && done.fpx ? ` · 체결가 ${M(done.fpx)}` : ""}</div>
               <div style={{ color: K.dim, fontSize: 12 }}>
-                {done.st === "체결" ? "내 종목 맨 위 '체결 반영'을 누르면 실제 체결가로 내 종목에 들어갑니다."
+                {done.st === "체결" ? (info?.env === "real" ? "실제 체결가로 내 종목에 바로 반영했습니다." : "내 종목 맨 위 '체결 반영'에서 넣습니다(모의).")
                   : done.st === "거부" ? `${BK}가 거부했습니다 — ${BK} 앱에서 사유를 확인하세요.`
                   : `지정가에 안 닿으면 대기로 남았다가 장이 끝나면 사라집니다. 내 종목 → ${BK} 카드 '최근 주문'에서 취소할 수 있습니다.`}</div>
             </>}

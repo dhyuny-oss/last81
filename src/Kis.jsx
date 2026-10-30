@@ -47,9 +47,9 @@ const rid = () => { try { return crypto.randomUUID(); } catch { return "r" + Dat
 const btn = { font: "inherit", fontSize: 13, fontWeight: 700, minHeight: 40, padding: "6px 14px", borderRadius: 10, cursor: "pointer", background: "transparent", color: K.text, border: `1px solid ${K.gold}` };
 const quiet = { ...btn, border: `1px solid ${K.border}`, color: K.dim, fontWeight: 500 };
 const inp = { minHeight: 40, padding: "6px 10px", borderRadius: 10, border: `1px solid ${K.border}`, background: "#0A0E1A", color: K.text, font: "inherit", minWidth: 0 };
-const SIG = { buy: ["매수!", K.up], sell: ["매도!", K.down], hold: ["보유", K.cyan], watch: ["관망", K.dim] };
+const SIG = { buy: ["매수!", K.up], sell: ["매도!", K.down], hold: ["들고 있기", K.cyan], watch: ["관망", K.dim] };   // 229. "보유"는 '내 종목에 있다'로 읽혀서 → 앱 판정 "들고 있기"
 
-export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], watch = [], toggleWatch, asOf: asOfIn = "", half = null, usOpen = false, fx = null, pickNote: noteUs = "", kr = null, krOpen = false, onSync = null }) {
+export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], watch = [], toggleWatch, asOf: asOfIn = "", half = null, usOpen = false, fx = null, pickNote: noteUs = "", kr = null, krOpen = false, onSync = null, openStock = null }) {
   const [mk, setMkRaw] = useState(() => (ls.get(MK) === "kr" ? "kr" : "us"));   // 🇺🇸 / 🇰🇷 전환
   const KR = mk === "kr";
   const asOf = (asOfIn && typeof asOfIn === "object" ? asOfIn[mk] : asOfIn) || "";   // 시장마다 종가 날짜가 다름 (🇺🇸 은 하루 늦음)
@@ -281,7 +281,8 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
             <div style={{ color: K.dim, fontSize: 11.5, marginTop: 4 }}>지정가에 안 닿은 주문입니다. 그대로 두면 장이 끝날 때 사라집니다 · '새 가격으로 다시'는 이 주문을 먼저 취소한 뒤 쓰세요</div>
           </div>) : null; })()}
       <div style={{ marginTop: 6, color: K.dim, fontSize: 11.5, lineHeight: 1.5 }}>
-        {BK}에서 체결된 거래는 <b style={{ color: K.text }}>내 종목 맨 위 '체결 반영'</b>에서 한 번 눌러 넣습니다{demo ? "(모의는 '모의' 표시)" : ""}. 누르기 전에는 투입금·빈 칸·텔레그램 합계에 섞이지 않습니다.
+        {demo ? <>모의 체결은 내 종목 맨 위 '체결 반영'에서 한 번 눌러 넣습니다('모의' 표시).</>
+              : <>{BK}에서 체결된 매수·매도는 이 화면을 열 때 <b style={{ color: K.text }}>내 종목에 자동으로 반영</b>됩니다 (내 종목 = {BK} 잔고 기준). 반영하면 맨 위에 한 번 알려 드리고, 되돌릴 수 있습니다.</>}
       </div>
       {(needPin || !pin) && (
         <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
@@ -302,13 +303,20 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
           </div>
           <div style={{ overflowX: "auto", marginTop: 8 }}>
             <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12.5 }}>
-              <thead><tr style={{ color: K.dim }}>{["종목", `${BK} 시세`, "수익", "앱 신호", ""].map((h, i) => (
+              <thead><tr style={{ color: K.dim }}>{["종목", `${BK} 시세`, "수익", "앱 판정", ""].map((h, i) => (
                 <th key={i} style={{ padding: "5px 4px", borderBottom: `1px solid ${K.border}`, textAlign: i && i < 4 ? "right" : "left", fontWeight: 500, whiteSpace: "nowrap" }}>{h}</th>))}</tr></thead>
               <tbody>{data.rows.map((r) => { const td = { padding: "6px 4px", borderBottom: `1px solid ${K.border}`, textAlign: "right", fontFamily: MONO, whiteSpace: "nowrap", verticalAlign: "top" }; const sg = sigOf(r);
                 return (<tr key={r.t + r.ex}>
-                  <td style={{ ...td, textAlign: "left", whiteSpace: "normal" }}><b>{KR ? (r.n || stocks[r.t]?.n || r.t) : r.t}</b>
+                  <td style={{ ...td, textAlign: "left", whiteSpace: "normal" }}>
+                    {/* 227. 종목을 누르면 차트 */}
+                    {openStock && stocks[r.t]
+                      ? <button type="button" onClick={() => openStock(r.t)} style={{ font: "inherit", fontWeight: 800, color: K.text, background: "none", border: "none", padding: "2px 0", cursor: "pointer", textAlign: "left", minHeight: 28 }}>
+                          {KR ? (r.n || stocks[r.t]?.n || r.t) : r.t} <span style={{ color: K.dim, fontWeight: 400 }}>›</span></button>
+                      : <b>{KR ? (r.n || stocks[r.t]?.n || r.t) : r.t}</b>}
                     <div style={{ color: K.dim, fontFamily: "inherit", fontSize: 11 }}>{r.qty}주 · 평단 {M(r.avg, 2)}</div>
-                    {mine.has(r.t) && <div style={{ color: K.gold, fontFamily: "inherit", fontSize: 11 }}>내 종목에도 있음</div>}</td>
+                    {/* 229. 내 종목과 맞는지 */}
+                    {!demo && !mine.has(r.t) && <button type="button" onClick={() => { try { window.dispatchEvent(new CustomEvent("fill-open", { detail: { t: r.t } })); } catch {} }}
+                      style={{ font: "inherit", fontSize: 11, color: K.gold, background: "none", border: "none", padding: "2px 0", cursor: "pointer", textAlign: "left", minHeight: 26 }}>⚠ 내 종목에 없음 — 넣기 ›</button>}</td>
                   <td style={td}>{M(r.px, 2)}</td>
                   <td style={{ ...td, color: col(r.pl) }}>{pct(r.plPct)}</td>
                   <td style={{ ...td, fontFamily: "inherit" }}>{sg ? <span style={{ color: sg.c, fontWeight: 700 }}>{sg.txt}</span> : <span style={{ color: K.dim }}>—</span>}
@@ -332,9 +340,10 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
           <div style={{ color: K.gold, fontSize: 12, marginTop: 6, lineHeight: 1.5 }}>{pickNote} — 오늘 탭과 같은 기준입니다. 그래도 넣으려면 아래 주문 칸을 쓰세요.</div>
         </div>)}
 
-      {info.canOrder && data && picks.length > 0 && (
-        <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${K.border}` }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+      {info.canOrder && data && picks.length > 0 && (   /* 오늘 탭 5번과 같은 목록 — 거기서 '사기'로 사는 게 기본이라 여기선 접어 둠 */
+        <details style={{ marginTop: 14, paddingTop: 10, borderTop: `1px solid ${K.border}` }}>
+          <summary style={{ cursor: "pointer", minHeight: 36, display: "flex", alignItems: "center", color: K.dim, fontSize: 12.5 }}>▸ 오늘 매수 제안 {picks.length}개 · 오늘 탭 5번과 같은 목록 (보통은 거기서 '사기')</summary>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
             <b style={{ fontSize: 13 }}>오늘 매수 제안</b>
             <span style={{ color: K.dim, fontSize: 11.5 }}>{asOf ? `${asOf.slice(5).replace("-", "/")} 종가로 뽑음` : "전날 종가로 뽑음"} · 오늘 탭과 같은 목록 · 지정가 = 지금 가격 +{GUARD.slip}%{KR ? " (호가 단위로 올림)" : ""}</span>
             <button type="button" onClick={() => run("quote", loadQuotes)} disabled={!!busy} style={{ ...quiet, minHeight: 30, padding: "2px 10px", fontSize: 12 }}>{busy === "quote" ? "보는 중…" : "가격 다시 보기"}</button>
@@ -372,7 +381,7 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
               {" "}{BK} 시세가 늦게 올 수 있어, 지정가에 안 닿으면 대기로 남고 장이 끝나면 사라집니다.
             </div>
           </>)}
-        </div>)}
+        </details>)}
 
       {info.canOrder && (
         <details id="kis-order" style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${K.border}` }}>

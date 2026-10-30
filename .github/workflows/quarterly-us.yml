@@ -6,9 +6,8 @@ name: Beta Quarterly US (Full Pool)
 
 on:
   schedule:
-    # 매월 1일 KST 09:00 (UTC 00:00)
-    # 알파 quarterly보다 약간 늦게 — 알파 풀 갱신 후 베타가 그걸 사용
-    - cron: '30 0 1 * *'
+    # 224. 매주 일요일 KST 09:30 — 새로 들어온 종목도 1주 안에 재무(적자 여부)가 붙도록 (예전엔 매월 1일 → 한 달 가까이 '재무 없음')
+    - cron: '30 0 * * 0'
   workflow_dispatch:  # 수동 트리거도 가능
 
 jobs:

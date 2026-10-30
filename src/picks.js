@@ -5,13 +5,14 @@
  * 규칙을 바꿀 때는 두 곳을 함께 바꾸고, scripts/check_picks.mjs 로 두 결과가 같은지 확인합니다.
  *
  *   후보   : action = buy · 거래대금 백분위 40 이상
- *   빼기   : 적자 · 🇺🇸 매출 성장 < 매출 필터(값이 있을 때만) · 이미 보유
+ *   빼기   : 적자 · 🇺🇸 재무 자료 없음(224) · 🇺🇸 매출 성장 < 매출 필터(값이 있을 때만) · 이미 보유
  *   순서   : 강세·눌림 먼저 → 강도 점수 높은 순
  *   🇺🇸    : 같은 업종(섹터 ETF)은 하나 · 이미 보유한 종목의 업종도 '사용 중'(161 · 원칙 5) · 최대 slotsUs
  *   🇰🇷    : 최대 slotsKr · 시장 '위험'(폭 3년 하위 40% 아래, krGate)이면 새로 사지 않음(176 · 2010–26 검증 연 11.4% → 24.1%)
  */
 export const SLOTS_DEFAULT = { us: 7, kr: 5 };        // 168. 권장 칸 수 = 기본값 (앱·파이프라인·점검 스크립트 공통)
 export const KR_GATE_WHY = "시장 위험 — 한국 새로 사지 않음";
+export const NO_FIN_WHY = "재무 자료 없음 — 적자 여부 확인 전";
 export function pickToday(stocks, { revMin = 10, slotsUs = SLOTS_DEFAULT.us, slotsKr = SLOTS_DEFAULT.kr, krGate = false } = {}, held = new Set(), extra = {}) {
   const { secRank = {}, age = {}, since = {} } = extra;
   const lossOf = (d) => (d.stLine && d.c) ? Math.round((1 - d.stLine / d.c) * 1000) / 10 : null;
@@ -30,6 +31,8 @@ export function pickToday(stocks, { revMin = 10, slotsUs = SLOTS_DEFAULT.us, slo
   const reasons = (r) => {
     const out = [];
     if (r.prof === false) out.push("적자");
+    // 224. 🇺🇸 재무 자료가 아직 없으면(새로 들어온 종목 — 분기 수집 전) 적자·매출 검사를 할 수 없어 뺌. 예전엔 그냥 통과해 적자 회사(GH)가 1위로 나옴
+    else if (r.m === "us" && r.prof == null) out.push(NO_FIN_WHY);
     if (revMin > 0 && r.m === "us" && r.growth != null && r.growth < revMin) out.push(`매출 ${r.growth >= 0 ? "+" : ""}${r.growth.toFixed(0)}%`);
     if (r.held) out.push("보유 중");
     return out;

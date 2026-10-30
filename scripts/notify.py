@@ -273,7 +273,7 @@ def build(snap, mkt, state, now):
         L.append("")
         L.append(f"<i>{line}</i>")
 
-    # ── 2. DC(퇴직연금) — 미국 S&P500 35% + 코스피200 35% + 안전자산 30% ──
+    # ── 2. DC(퇴직연금) — 나스닥100 · S&P500 · 코스피200 각 23% + 안전자산 30% (230) ──
     #   각 몫은 느린 슈퍼트렌드(12,3) 초록일 때만 보유. 색이 바뀐 날은 🔔 로 따로 알립니다.
     # 99. 앱 DC 탭에서 고른 규칙 하나로만 알립니다 (예전엔 듀얼을 골라도 매일 느린ST 상태를 보내 화면과 반대로 보였음)
     # 182. 듀얼 모멘텀 → '3지수 그냥 보유'로 바뀜. 예전에 듀얼을 고른 사람은 3지수 보유로 봅니다.
@@ -366,8 +366,7 @@ def build(snap, mkt, state, now):
         h3 = ((mkt.get("dc") or {}).get("hold3") or {})
         if cfg.get("dcMode") in ("hold", "dual") and cfg.get("dcAmt") and h3.get("items") and now.month == 1 and _first_trading_day(now):
             total = float(cfg["dcAmt"]); hold = h3["items"]
-            semi = cfg.get("dcSemi") and ((mkt.get("dc") or {}).get("semi") or {}).get("state") == "hold"
-            share = 0.10 if semi else 0.0; riskw = 0.70 - share
+            semi = False; share = 0.0; riskw = 0.70          # 225. 반도체 고정 칸은 뺐음
             L.append(""); L.append(f"🏦 <b>DC 1년에 한 번 비중 맞춤</b> (총 {money(total, 'kr')} · 오늘 이 금액대로 맞추면 됩니다)")
             for c in hold:
                 L.append(f"   {(c.get('buy') or {}).get('code', '—')} {(c.get('buy') or {}).get('name') or c['label']} · {money(total * riskw / 3, 'kr')}")

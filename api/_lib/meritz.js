@@ -271,6 +271,25 @@ function accepted(j, overseas) {
   }
   return String(d.oder_no || "").trim();
 }
+/* 223. 휴장일 — 예약 날짜를 다음 개장일로 잡을 때만 씀 (src/App.jsx · scripts/watch_alert.py 와 같은 목록 + 2027 미국) */
+const HOL = {
+  kr: new Set(["2026-09-24", "2026-09-25", "2026-10-05", "2026-10-09", "2026-12-25", "2026-12-31", "2027-01-01"]),
+  us: new Set(["2026-11-26", "2026-12-25", "2027-01-01", "2027-01-18", "2027-02-15", "2027-03-26", "2027-05-31", "2027-06-18", "2027-07-05", "2027-09-06", "2027-11-25", "2027-12-24"]),
+};
+/** 다음 정규장이 열리는 날 (YYYYMMDD) — 🇺🇸 은 뉴욕 날짜 = 한국에서 그날 밤 개장하는 날짜. 지금 장 시작 전이면 오늘 */
+export function nextOpenDay(KR, now = Date.now()) {
+  const z = KR ? "Asia/Seoul" : "America/New_York", open = KR ? 540 : 570;
+  const at = (ms) => Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: z, year: "numeric", month: "2-digit", day: "2-digit", weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+    .formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
+  const p0 = at(now);
+  const before = +p0.hour * 60 + +p0.minute < open;
+  for (let i = before ? 0 : 1; i < 15; i++) {
+    const p = at(now + i * 86400000), d = `${p.year}-${p.month}-${p.day}`;
+    if (p.weekday === "Sat" || p.weekday === "Sun" || HOL[KR ? "kr" : "us"].has(d)) continue;
+    return d.replace(/-/g, "");
+  }
+  return todayKst();
+}
 /** 지금 정규장인가 (주말만 거름 — 휴장일은 증권사가 거절) */
 function regularNow(KR) {
   const z = KR ? "Asia/Seoul" : "America/New_York";
@@ -353,7 +372,7 @@ async function cancelOrder(c, ctx, b, KR) {
 }
 
 /* ── 189. 다음 개장 때 매도 (예약주문) — 규칙: 종가가 선 아래 → 다음 장 시작에 판다 ──
- *   🇺🇸 POST /trading/v1/overseas/reserved-orders/sell · MOO(장개시 시장가 "6") · 일반예약("1") · 시작=종료=오늘(한국 날짜)
+ *   🇺🇸 POST /trading/v1/overseas/reserved-orders/sell · MOO(장개시 시장가 "6") · 일반예약("1") · 시작=종료=다음 개장일(223 · 주말이면 월요일)
  *      (공식 corrections.json: 일자를 비우면 접수는 되나 취소 불가 예약이 생김 → 항상 넣음)
  *   🇰🇷 POST /trading/v1/reserved-orders/sell · 시장가("05", 단가 0) · 일반예약("1") → 다음 영업일 장 시작 동시호가
  *   성공 코드 5620 = 예약 접수(체결 아님) — 같은 예약을 다시 보내면 중복 접수되므로 번호표(rid)로 막고, 이미 같은 매도 예약이 있으면 거절
@@ -393,19 +412,19 @@ async function placeResv(c, ctx, b, KR) {
   const already = (await resvList(c, ctx, KR)).filter((o) => o.t === t && o.side === "sell").reduce((s, o) => s + o.qty, 0);
   if (already + qty > can) fail(already ? `이미 ${t} 매도 예약 ${already}주가 있습니다 (보유 ${can}주) — 메리츠 앱 예약주문 화면에서 확인해 주세요` : `팔 수 있는 수량이 부족합니다 (보유 ${can}주)`);
   await sleep(GAP);
-  const today = todayKst();
+  const day = nextOpenDay(KR);              // 223. 주말·휴장일에 넣어도 다음 개장일 날짜로 (오늘 날짜면 토요일 예약이 월요일에 안 걸릴 수 있음)
   let j;
   try {
     j = KR
       ? await mz(c, ctx, "POST", "/trading/v1/reserved-orders/sell", { iscd: t, adod_type_code: "01", odqt: String(qty), oder_unpr: "0", oder_cls_code: "05", oder_rsev_cls_code: "1", warn_cnfr_yn: b.warnOk === true ? "Y" : "N" }, { what: "국내 예약 매도" })
       : await mz(c, ctx, "POST", "/trading/v1/overseas/reserved-orders/sell", { ovrs_stck_symb_iscd: t, ovrs_exch_vndr_idno: VNDR[have.ex] || "0537", rsev_aspr_tpcd: "6", odqt: String(qty),
-          ovrs_stck_oder_prc: "0", oder_rsev_cls_code: "1", oder_rsev_hour_clcd: "0", oder_sta_date: today, oder_fin_date: today, warn_cnfr_yn: b.warnOk === true ? "Y" : "N" }, { what: "해외 예약 매도" });
+          ovrs_stck_oder_prc: "0", oder_rsev_cls_code: "1", oder_rsev_hour_clcd: "0", oder_sta_date: day, oder_fin_date: day, warn_cnfr_yn: b.warnOk === true ? "Y" : "N" }, { what: "해외 예약 매도" });
   } catch (e) { if (!e.unsure) RID.delete(rid); throw e; }
   const d = rowsOf(j)[0] || j || {};
   const w = String(d.warn_cls_code ?? "0").trim();
   if (w && w !== "0") { RID.delete(rid); const e = new Error(`메리츠 경고로 예약이 접수되지 않았습니다 — ${String(d.warn_msg || d.msg_cntt || "").trim() || `경고 코드 ${w}`}`);
     e.warn = (KR ? "134679acdfg" : "13").includes(w) ? String(d.warn_msg || d.msg_cntt || "").trim() || `경고 코드 ${w}` : ""; throw e; }
-  return { reserved: { t, qty, how: KR ? "다음 영업일 장 시작 시장가" : "미국 장 시작 시장가(MOO)", no: String(d.oder_rsev_mst_no || d.pros_srno || ""), msg: String(j.rsp_msg || "").trim() } };
+  return { reserved: { t, qty, on: day, how: KR ? "다음 영업일 장 시작 시장가" : "미국 장 시작 시장가(MOO)", no: String(d.oder_rsev_mst_no || d.pros_srno || ""), msg: String(j.rsp_msg || "").trim() } };
 }
 
 function pinOk(c, given) {
