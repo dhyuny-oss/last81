@@ -54,20 +54,20 @@
       "inv": 185.31
     }
   ],
-  "updatedAt": "2026-10-30T17:52:49.855Z",
+  "updatedAt": "2026-10-30T17:54:34.583Z",
   "settings": {
     "revMin": 20,
     "slotsUs": 7,
     "slotsKr": 5,
     "dcAmt": 100000000,
-    "dcMode": "st",
+    "dcMode": "hold",
     "dcSemi": false,
     "usAmt": 45000,
     "krAmt": 10000000
   },
   "excludes": [],
   "backup": {
-    "at": "2026-10-30T17:52:49.855Z",
+    "at": "2026-10-30T17:54:34.583Z",
     "positions": [
       {
         "t": "VEEV",
@@ -94,19 +94,6 @@
         ],
         "role": "swing",
         "date": "2026-10-29"
-      },
-      {
-        "t": "GH",
-        "avg": 185.31,
-        "tr": [
-          {
-            "d": "2026-10-30",
-            "px": 185.31,
-            "amt": 185.31
-          }
-        ],
-        "role": "swing",
-        "date": "2026-10-30"
       }
     ],
     "watch": [],
