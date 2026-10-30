@@ -64,6 +64,7 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
   const [confirm, setConfirm] = useState(null);       // { ...order, rid }
   const [groups, setGroups] = useState(null), [fav, setFav] = useState(null);
   const [live, setLive] = useState(null);             // 지금 가격 { quotes, idx, at }
+  const [resv, setResv] = useState(null);             // 189. 예약 주문 (메리츠)
   const [budgetUs, setBudgetUs] = useState(() => ls.get(BUD) || "");
   const [budgetKr, setBudgetKr] = useState(() => ls.get(BUD_KR) || "");
   const budgetRaw = KR ? budgetKr : budgetUs;
@@ -103,13 +104,15 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
     await new Promise((r) => setTimeout(r, 700));      // 모의 호출 간격(초당 제한)을 위해 잠깐 쉬고 주문 내역
     const o = await call({ what: "orders" });
     if (o.ok) { setOrders(o.orders); setDayBuy(o.dayBuy || 0); } else setMsg(o.msg || "주문 내역을 불러오지 못했습니다");
+    if (info?.canOrder && info?.broker === "meritz") { await new Promise((r) => setTimeout(r, 300)); const rv = await call({ what: "resvList" }); setResv(rv.ok ? rv.resv || [] : null); }   // 189. 예약 매도
     if (info?.canOrder && picks.length > 0) { await new Promise((r) => setTimeout(r, 700)); await loadQuotes(); }
   });
   const loadQuotes = async () => {
     const j = await call({ what: "quote", idx: true, list: picks.slice(0, 8).map((p) => ({ t: p.t, ex: KR ? "KRX" : EX[stocks[p.t]?.ex] || "" })) });
     if (j.ok) setLive({ quotes: j.quotes || {}, idx: j.idx || {}, at: Date.now() }); else setMsg(j.msg || "지금 가격을 불러오지 못했습니다");
   };
-  const reloadOrders = async () => { const o = await call({ what: "orders" }); if (o.ok) { setOrders(o.orders); setDayBuy(o.dayBuy || 0); } else setMsg(o.msg || ""); };
+  const reloadOrders = async () => { const o = await call({ what: "orders" }); if (o.ok) { setOrders(o.orders); setDayBuy(o.dayBuy || 0); } else setMsg(o.msg || "");
+    if (info?.canOrder && info?.broker === "meritz") { const rv = await call({ what: "resvList" }); if (rv.ok) setResv(rv.resv || []); } };
 
   const pick = (t, side, extra = {}) => {                // 종목 채우기: 지금 가격·거래소 자동
     const s = stocks[t];
@@ -320,7 +323,7 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
       {sellNow.length > 0 && (
         <div role="alert" style={{ marginTop: 10, padding: "8px 10px", borderRadius: 10, border: `1px solid ${K.down}`, color: K.text, lineHeight: 1.5 }}>
           <b style={{ color: K.down }}>매도 신호</b> <span style={{ fontFamily: MONO }}>{sellNow.map((r) => r.t).join(" · ")}</span>
-          <div style={{ color: K.dim, fontSize: 11.5 }}>앱 규칙은 종가가 손절선 아래로 마감하면 매도입니다. 위 표의 "매도"를 누르면 주문 칸에 채워집니다.</div>
+          <div style={{ color: K.dim, fontSize: 11.5 }}>앱 규칙은 종가가 손절선 아래로 마감하면 다음 장 시작에 매도입니다. 위 표의 "매도"를 누르면 — 장이 닫혀 있으면 '다음 개장 때 매도' 예약, 장 중이면 바로 매도 주문 창이 열립니다.</div>
         </div>)}
 
       {info.canOrder && data && picks.length === 0 && pickNote && (
@@ -386,6 +389,12 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
           <div style={{ color: K.dim, fontSize: 11.5, marginTop: 6 }}>주문 창에서 지금 가격을 받아 수량·지정가를 정하고, 오늘 매수 제안과 같은 검사를 거친 뒤 보냅니다.</div>
         </details>)}
 
+      {resv && resv.length > 0 && (
+        <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${K.border}` }}>
+          <b style={{ fontSize: 13 }}>예약 주문 (다음 개장 때)</b> <span style={{ color: K.dim, fontSize: 11.5 }}>확인·취소는 {BK} 앱 '예약주문' 화면</span>
+          {resv.map((o, i) => <div key={i} style={{ marginTop: 5, fontFamily: MONO, fontSize: 12.5 }}>
+            <span style={{ color: o.side === "sell" ? K.down : K.up, fontFamily: "inherit" }}>{o.side === "sell" ? "매도" : "매수"}</span> {KR ? (o.n || o.t) : o.t} {o.qty}주 · {o.kind}{o.px > 0 ? ` ${M(o.px, 2)}` : ""}{o.d ? ` · ${o.d.slice(4, 6)}/${o.d.slice(6, 8)}` : ""}</div>)}
+        </div>)}
       {orders && (
         <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${K.border}` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}><b style={{ fontSize: 13 }}>최근 주문 (7일)</b>

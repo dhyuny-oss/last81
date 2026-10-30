@@ -106,11 +106,14 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
   const stale = qAt && Date.now() - qAt > 120000;
   const halfAmt = Number(half?.[mk]) || 0;
 
+  // 189. 장이 닫혀 있을 때 매도 = 다음 개장 때 매도 예약 (🇺🇸 장 시작 시장가 MOO · 🇰🇷 다음 영업일 시작 시장가)
+  const resvMode = side === "sell" && !sess.open;
   // 막음 (넘어갈 수 없음)
   const block = !info ? "불러오는 중…"
     : !info.configured ? "계좌가 연결되어 있지 않습니다"
     : !info.canOrder ? "주문이 꺼져 있습니다 (조회 전용)"
     : !pin || needPin ? "앱 비밀번호를 넣어 주세요"
+    : resvMode ? (!(nQty >= 1) ? "수량은 1주 이상" : heldQty && nQty > heldQty ? `보유 ${heldQty}주보다 많습니다` : "")
     : !(last > 0) ? (busy ? "지금 가격 받는 중…" : "지금 가격을 확인하지 못했습니다 — 다시 보기")
     : side === "buy" && !sess.open ? (KR ? "한국 정규장(09:00~15:30)에만 매수합니다" : "미국 정규장에만 매수합니다 — 장 밖 주문은 보내지 않음")
     : !(nQty >= 1) ? "수량은 1주 이상"
@@ -140,16 +143,43 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
   const needAck = warns.length > 0;
   const canSend = !block && !busy && (!needAck || ack);
 
+  /** 221. 보낸 뒤 상태 확인 — 2·5·10초 뒤 주문 내역에서 이 주문번호를 찾아 접수/체결/거부를 보여 줌 */
+  const watch = async (odno) => {
+    for (const wait of [2000, 3000, 5000]) {
+      await new Promise((r) => setTimeout(r, wait));
+      try {
+        const o = await call({ what: "orders" });
+        const x = (o.orders || []).find((y) => y.odno === odno) || (o.orders || []).find((y) => y.t === t && !y.orgn);
+        if (!x) continue;
+        const st = /거부|거절/.test(x.state || "") ? "거부" : x.filled >= x.qty && x.qty > 0 ? "체결" : x.filled > 0 ? "일부 체결" : x.open > 0 ? "접수 — 대기 중" : x.state || "확인 중";
+        setDone((d) => d && { ...d, st, fpx: x.fpx || 0, filled: x.filled || 0 });
+        if (st === "체결" || st === "거부") break;
+      } catch { /* 다음에 */ }
+    }
+    setDone((d) => d && { ...d, st: d.st || "확인 못 함 — 메리츠 카드 '최근 주문'에서 확인", checked: true });
+  };
   const send = async () => {
     if (!canSend) return;
+    if (t !== String(req.t || "").toUpperCase()) { setMsg("주문 창 종목이 바뀌었습니다 — 닫고 다시 열어 주세요"); return; }   // 222. 연 종목 = 보내는 종목
     setBusy("send"); setMsg("");
+    if (resvMode) {                                                                            // 189. 다음 개장 때 매도 예약
+      try {
+        const j = await call({ what: "resv", t, qty: nQty, rid: rid(), confirm: true, ...(warnOk ? { warnOk: true } : {}) });
+        if (!j.ok && j.code === "warn" && j.warn && !warnOk) { setWarnOk(j.warn); setBusy(""); return; }
+        if (!j.ok) { setMsg(j.msg || "예약이 거절되었습니다"); setBusy(""); return; }
+        setDone({ resv: true, side, qty: nQty, no: j.reserved?.no || "", how: j.reserved?.how || "다음 개장 때", st: "예약 접수 — 장이 열리면 나감" });
+        try { window.dispatchEvent(new Event("broker-changed")); } catch {}
+      } catch { setMsg("연결이 끊겼습니다 — 다시 보내기 전에 메리츠 앱 '예약주문' 화면을 먼저 확인하세요 (중복 예약 주의)"); }
+      setBusy(""); return;
+    }
     try {
       const body = { what: "order", side, t, ex: KR ? "KRX" : (q?.ex || EX[s?.ex] || "NASD"), qty: nQty, px: nPx, rid: rid(), confirm: true, ...(warnOk ? { warnOk: true } : {}) };
       const j = await call(body);
       if (!j.ok && j.code === "warn" && j.warn && !warnOk) { setWarnOk(j.warn); setBusy(""); return; }
       if (!j.ok) { setMsg(j.code === "unsure" ? `${j.msg || "응답을 못 받았습니다"} — 다시 보내기 전에 계좌 카드의 주문 내역을 먼저 확인하세요` : (j.msg || "주문이 거절되었습니다")); setBusy(""); return; }
-      setDone({ odno: j.placed?.odno || "", side, qty: nQty, px: nPx });
+      setDone({ odno: j.placed?.odno || "", side, qty: nQty, px: nPx, st: "접수 — 상태 확인 중…" });
       try { window.dispatchEvent(new Event("broker-changed")); } catch {}
+      watch(j.placed?.odno || "");
     } catch { setMsg("연결이 끊겼습니다 — 다시 보내기 전에 계좌 카드의 주문 내역을 먼저 확인하세요"); }
     setBusy("");
   };
@@ -208,24 +238,33 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
               <button type="button" onClick={() => step(1)} style={{ ...btn, padding: 0 }} aria-label="수량 늘리기">＋</button>
             </div>
           </label>
-          <label style={{ display: "grid", gap: 4, color: K.dim, fontSize: 12 }}>지정가 ({KR ? "원" : "$"})
-            <input value={px} inputMode="decimal" onChange={(e) => setPx(e.target.value.replace(/[^0-9.]/g, ""))} style={inp} aria-label="지정가" />
-          </label>
+          {resvMode
+            ? <div style={{ display: "grid", gap: 4, color: K.dim, fontSize: 12 }}>가격
+                <div style={{ ...inp, display: "flex", alignItems: "center", fontFamily: "inherit", fontSize: 13, color: K.text }}>{KR ? "다음 영업일 시작 시장가" : "장 시작 시장가 (MOO)"}</div></div>
+            : <label style={{ display: "grid", gap: 4, color: K.dim, fontSize: 12 }}>지정가 ({KR ? "원" : "$"})
+                <input value={px} inputMode="decimal" onChange={(e) => setPx(e.target.value.replace(/[^0-9.]/g, ""))} style={inp} aria-label="지정가" />
+              </label>}
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
           {side === "buy" && half1 && <button type="button" onClick={() => setQty(String(half1))} style={{ ...btn, minHeight: 32, padding: "0 10px", fontSize: 12 }}>1회차 {half1}주</button>}
           <button type="button" onClick={() => setQty("1")} style={{ ...btn, minHeight: 32, padding: "0 10px", fontSize: 12 }}>1주</button>
           {side === "sell" && heldQty && <button type="button" onClick={() => setQty(String(heldQty))} style={{ ...btn, minHeight: 32, padding: "0 10px", fontSize: 12 }}>보유 전부 {heldQty}주</button>}
-          {last > 0 && <button type="button" onClick={() => { const raw = side === "buy" ? last * (1 + G.slip / 100) : last * (1 - G.slip / 100);
+          {last > 0 && !resvMode && <button type="button" onClick={() => { const raw = side === "buy" ? last * (1 + G.slip / 100) : last * (1 - G.slip / 100);
               setPx(String(KR ? (side === "buy" ? upTick(raw) : downTick(raw)) : (side === "buy" ? Math.ceil(raw * 100) / 100 : Math.floor(raw * 100) / 100))); }}
             style={{ ...btn, minHeight: 32, padding: "0 10px", fontSize: 12 }}>지정가 = 지금 {side === "buy" ? "+" : "−"}{G.slip}%</button>}
         </div>
+        {resvMode ? (
+          <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 10, background: "rgba(6,182,212,.08)", border: `1px solid ${K.cyan}66`, fontSize: 12, lineHeight: 1.6 }}>
+            <b style={{ color: K.cyan }}>지금은 장이 닫혀 있어 '다음 개장 때 매도' 예약으로 보냅니다</b><br />
+            규칙(종가가 선 아래 → 다음 장 시작에 판다) 그대로 — {KR ? "다음 영업일 09:00 시작가" : "미국 장이 열리는 순간 시장가"}로 팝니다. 갭 하락이면 그만큼 낮게 팔릴 수 있습니다.
+            확인·취소는 {BK} 앱 '예약주문' 화면에서 합니다.
+          </div>) : <>
         <div style={{ marginTop: 8, fontFamily: MONO, fontSize: 14 }}>
           {nQty >= 1 && nPx > 0 ? <>= <b>{M(amount)}</b>{cap1 ? <span style={{ color: amount > cap1 ? K.down : K.dim, fontSize: 12, fontFamily: "inherit" }}> · 1건 상한 {M(cap1, 0)}</span> : null}</> : <span style={{ color: K.dim, fontFamily: "inherit" }}>수량과 지정가를 넣어 주세요</span>}
         </div>
         <div style={{ color: K.dim, fontSize: 11, marginTop: 2, lineHeight: 1.5 }}>
           지정가 = {side === "buy" ? "이 값보다 비싸게는 안 삼" : "이 값보다 싸게는 안 팖"}. 지금 가격이 더 {side === "buy" ? "싸면 그 값에" : "비싸면 그 값에"} 체결되고, 안 닿으면 대기로 남았다가 장이 끝나면 사라집니다.
-        </div>
+        </div></>}
 
         {/* 경고 · 안내 */}
         {needAck && !done && (
@@ -244,16 +283,32 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
         {/* 보내기 / 결과 */}
         {done ? (
           <div role="status" style={{ marginTop: 12, padding: "12px", borderRadius: 10, background: "rgba(48,209,88,.10)", border: `1px solid ${K.up}`, lineHeight: 1.6 }}>
-            <b style={{ color: K.up }}>✓ {done.side === "buy" ? "매수" : "매도"} 주문을 보냈습니다</b> — {t} {done.qty}주 × {M(done.px)}{done.odno ? ` · 주문번호 ${done.odno}` : ""}
-            <div style={{ color: K.dim, fontSize: 12 }}>체결되면 내 종목 맨 위 '체결 반영'에 뜹니다. 안 닿으면 대기로 남고, 내 종목 → {BK} 카드 '최근 주문'에서 취소할 수 있습니다.</div>
-            <button type="button" onClick={onClose} style={{ ...btn, width: "100%", marginTop: 10, borderColor: K.up }}>닫기</button>
+            {done.resv ? <>
+              <b style={{ color: K.up }}>✓ 매도 예약을 접수했습니다</b> — {t} {done.qty}주 · {done.how}{done.no ? ` · 예약번호 ${done.no}` : ""}
+              <div style={{ color: K.dim, fontSize: 12 }}>장이 열리면 주문이 나갑니다. 확인·취소는 메리츠 앱 '예약주문' 화면에서 합니다. 체결되면 내 종목 맨 위 '체결 반영'에 뜹니다.</div>
+            </> : <>
+              <b style={{ color: K.up }}>✓ {done.side === "buy" ? "매수" : "매도"} 주문을 보냈습니다</b> — {t} {done.qty}주 × {M(done.px)}{done.odno ? ` · 주문번호 ${done.odno}` : ""}
+              {/* 221. 지금 상태 */}
+              <div style={{ marginTop: 6, fontSize: 15, fontWeight: 800, color: done.st === "체결" ? K.up : done.st === "거부" ? K.down : K.gold }}>
+                상태: {done.st}{done.st === "체결" && done.fpx ? ` · 체결가 ${M(done.fpx)}` : ""}</div>
+              <div style={{ color: K.dim, fontSize: 12 }}>
+                {done.st === "체결" ? "내 종목 맨 위 '체결 반영'을 누르면 실제 체결가로 내 종목에 들어갑니다."
+                  : done.st === "거부" ? `${BK}가 거부했습니다 — ${BK} 앱에서 사유를 확인하세요.`
+                  : `지정가에 안 닿으면 대기로 남았다가 장이 끝나면 사라집니다. 내 종목 → ${BK} 카드 '최근 주문'에서 취소할 수 있습니다.`}</div>
+            </>}
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              {(done.st === "체결" || done.resv) && <button type="button" onClick={() => { try { window.dispatchEvent(new Event("go-track")); } catch {} onClose(); }} style={{ ...btn, flex: 1, borderColor: K.up }}>내 종목으로</button>}
+              <button type="button" onClick={onClose} style={{ ...btn, flex: 1, borderColor: K.up }}>닫기</button>
+            </div>
           </div>
         ) : (
           <>
             <div style={{ marginTop: 12, color: block ? K.gold : K.dim, fontSize: 12, minHeight: 18 }}>{block || (needAck && !ack ? "빨간 상자를 확인하고 체크하면 보낼 수 있습니다" : "")}</div>
             <button type="button" onClick={send} disabled={!canSend}
               style={{ ...btn, width: "100%", marginTop: 6, minHeight: 50, fontSize: 16, color: "#111", background: canSend ? (needAck ? K.down : sideC) : "rgba(255,255,255,.12)", borderColor: "transparent" }}>
-              {busy === "send" ? "보내는 중…" : warnOk ? "경고 확인 — 다시 보내기" : `${side === "buy" ? "매수" : "매도"} 주문 보내기${nQty >= 1 && nPx > 0 ? ` · ${nQty}주 ${M(amount, 0)}` : ""}`}</button>
+              {busy === "send" ? "보내는 중…" : warnOk ? "경고 확인 — 다시 보내기"
+                : resvMode ? `${KR ? (s?.n || t) : t} 다음 개장 때 매도 예약 · ${nQty || 0}주`
+                : `${KR ? (s?.n || t) : t} ${side === "buy" ? "매수" : "매도"} 보내기${nQty >= 1 && nPx > 0 ? ` · ${nQty}주 ${M(amount, 0)}` : ""}`}</button>
             <div style={{ color: K.dim, fontSize: 11, marginTop: 6, textAlign: "center" }}>{info?.env === "real" ? "실제 계좌에서 실제 돈으로 주문됩니다 · " : ""}같은 주문은 한 번만 전송됩니다</div>
           </>)}
       </div>
