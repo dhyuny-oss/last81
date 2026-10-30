@@ -193,7 +193,7 @@ def held_sells(stocks, wl, prev, today_s):
     old = (prev or {}).get("sellSince") or {}
     for p in (wl or {}).get("positions") or []:
         t = str(p.get("t", "")).upper(); d = stocks.get(t)
-        if not d or d.get("action") != "sell": continue
+        if not d or d.get("action") != "sell" or p.get("role") == "long": continue   # 장기는 매도 규칙 밖
         since[t] = old.get(t) or today_s
         n = (date.fromisoformat(today_s) - date.fromisoformat(since[t])).days
         out.append({"t": t, "n": d.get("n"), "m": d.get("m"), "since": since[t], "days": n})
@@ -216,7 +216,10 @@ def run(out_dir, stocks, series, market, health):
               "signals": signal_check(live),
               "saved": {"pct": rv.get("savedPct"), "n": rv.get("judgedN"), "ruleAvg": rv.get("ruleAvg")},
               "drift": live.get("drift"),
-              "shadow": sh, "sells": sells}
+              "shadow": sh, "sells": sells,
+              # 204. 매도! 상태에서 장기로 바꾼 종목 — 규칙을 피해 간 것인지 돌아보기용
+              "conv": [{"t": str(p.get("t", "")).upper(), "d": c.get("d"), "n": (stocks.get(str(p.get("t", "")).upper()) or {}).get("n")}
+                       for p in (wl or {}).get("positions") or [] if p.get("role") == "long" for c in (p.get("conv") or []) if c.get("sell")]}
     obj = {"at": now.strftime("%Y-%m-%d %H:%M"), "anomalies": an, "report": report, "due": due, "sellSince": since,
            "note": "보고·표시만 합니다 — 규칙은 사람이 확인하고 바꿉니다"}
     _write(f"{out_dir}/{OUT_FILE}", obj)
@@ -243,6 +246,7 @@ def report_text(o):
     L += ["", "<b>③ 처리 안 된 매도!</b>"]
     sells = r.get("sells") or []
     L += [f"· {x['n'] if x['m'] == 'kr' else x['t']} — 매도! {x['days']}일째" for x in sells] or ["· 없음"]
+    if r.get("conv"): L += ["⚠️ 매도! 상태에서 장기로 바꿈: " + " · ".join(f"{x['n'] if str(x['t']).isdigit() else x['t']} ({x['d']})" for x in r["conv"])]
     an = o.get("anomalies") or []
     if an: L += ["", "<b>데이터 이상</b>"] + [f"· {a['msg']}" for a in an]
     L += ["", f"다음 보고 {r.get('next')}"]

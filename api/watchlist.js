@@ -82,7 +82,9 @@ export default async function handler(req, res) {
         const avg = num(p.avg) || (tr.length ? (() => { const a = tr.reduce((x, t) => x + t.amt, 0), sh = tr.reduce((x, t) => x + (t.amt || 0) / t.px, 0); return sh > 0 ? a / sh : tr[0].px; })() : 0);
         return { t: String(p.t || "").slice(0, 12).toUpperCase(), avg: Math.round(avg * 10000) / 10000, tr,
                  role: ["swing", "long", "etf"].includes(p.role) ? p.role : "swing",
-                 date: String(p.date || (tr[0] && tr[0].d) || "").slice(0, 10) };
+                 date: String(p.date || (tr[0] && tr[0].d) || "").slice(0, 10),
+                 // 204. 단기↔장기 바꾼 기록 — 3주 점검이 '매도! 상태에서 장기로 바꿈'을 따로 셉니다
+                 ...(Array.isArray(p.conv) && p.conv.length ? { conv: p.conv.slice(-5).map(c => ({ d: String(c.d || "").slice(0, 10), to: c.to === "long" ? "long" : "swing", sell: !!c.sell })) } : {}) };
       }).filter(p => p.t);
       content.watch = watch.map(t => String(t).slice(0, 12)).filter(Boolean);
       if (req.body.settings && typeof req.body.settings === "object") {   // 61. 앱 설정 — 오늘 후보·텔레그램이 같은 값을 쓰도록

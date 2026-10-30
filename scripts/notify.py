@@ -177,7 +177,9 @@ def build(snap, mkt, state, now):
 
     # ── 1.4 내 보유·관심 — 이것만 따로 먼저 알립니다 (남의 종목보다 내 종목이 먼저) ──
     mine, etfs_all = [], snap.get("etfs", {})
-    look = lambda t: stocks.get(t) or etfs_all.get(t)
+    veh_all = {v["veh"]["code"]: {**v, "c": v["veh"].get("c"), "n": v["veh"].get("name") or v.get("n"), "m": "kr"}
+               for v in etfs_all.values() if (v.get("veh") or {}).get("code")}   # 200. DC용 국내 ETF(360750 등) = 미국 원본 신호로 봄
+    look = lambda t: stocks.get(t) or etfs_all.get(t) or veh_all.get(t)
     def tr_of(p):
         tr = p.get("tr") if isinstance(p.get("tr"), list) and p.get("tr") else [{"px": p.get("avg"), "amt": p.get("amt") or 0}]
         return [t for t in tr if t.get("px")]

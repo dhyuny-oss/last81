@@ -19,7 +19,7 @@ async def run(p,name,positions,plan):
         elif w_=="quote": base.update(quotes={q["t"]:{"ex":q["ex"] or "NASD","last":100,"base":100,"rate":0} for q in bd["list"]},idx={"QQQ":{"rate":0.1},"SPY":{"rate":0.1}})
         await route.fulfill(status=200,content_type="application/json",body=json.dumps(base))
     await ctx.route("**/api/**",lambda r:r.fulfill(status=200,content_type="application/json",body='{"ok":false}'))
-    await ctx.route("**/api/kis",kis)
+    await ctx.route("**/api/broker",kis)
     await ctx.add_init_script("(()=>{const d=new Date(Date.now()+9*3600000);const dow=d.getUTCDay();const sat=new Date(d);sat.setUTCDate(d.getUTCDate()-((dow+1)%%7));localStorage.setItem('v7.rules.wk',sat.toISOString().slice(0,10));localStorage.setItem('v7.kis.pin','1234');localStorage.setItem('v4.pos',%s);localStorage.setItem('v11.plan',%s);localStorage.setItem('v9.revMin','10');})()"%(json.dumps(json.dumps(positions)),json.dumps(json.dumps(plan))))
     pg=await ctx.new_page(); errs=[]; pg.on("pageerror",lambda e: errs.append(str(e)))
     await pg.goto("http://localhost:4228/"); await pg.wait_for_timeout(3500)
@@ -27,12 +27,14 @@ async def run(p,name,positions,plan):
     home=re.search(r"오늘 살 것 (\d+)개 \(🇺🇸 (\d+) · 🇰🇷 (\d+)\)",t)
     await pg.locator("nav button",has_text="찾기").first.click(); await pg.wait_for_timeout(1500)
     t=await pg.inner_text("body"); i=t.find("오늘 살 것"); k=t.find("🇰🇷 한국",i); us=t[i:k if k>0 else i+3000]
-    rows=re.findall(r"\n\d+\n([A-Z.]{1,6})[^\n]*\n[^\n]*\n(✓ 오늘 삼|대기 — 빈 칸 없음|[^\n]*)",us)
+    # 줄마다 종목 하나: 순번 → 티커 줄 → (가격·날짜·소개 등 몇 줄) → 상태 꼬리표. 다음 순번 전까지에서 꼬리표를 찾음
+    ms=list(re.finditer(r"\n\d+\n([A-Z.]{1,6})[^\n]*\n",us))
+    rows=[(m.group(1),"\n".join(us[m.end():(ms[k+1].start() if k+1<len(ms) else len(us))].split("\n")[:6])) for k,m in enumerate(ms)]
     buy=[r[0] for r in rows if "대기" not in r[1] and "오늘 삼" not in r[1]]
     head=re.search(r"(빈 칸 \d+ / \d+칸|칸이 다 참[^\n]*|투자금[^\n]*)",us)
     await pg.locator("nav button",has_text="내 종목").first.click(); await pg.wait_for_timeout(1500)
     await pg.get_by_role("button",name=re.compile("불러오기")).first.click(); await pg.wait_for_timeout(4000)
-    t=await pg.inner_text("body"); j=t.find("오늘 살 것",t.find("🏦 한투 계좌")); e=t.find("매수",j)
+    t=await pg.inner_text("body"); j=t.find("오늘 살 것",t.find("🏦 ")); e=t.find("매수",j)     # 계좌 카드(증권사 이름은 바뀔 수 있음)
     chips=re.findall(r"\b[A-Z]{1,5}\b",t[j+6:e]) if j>0 else []
     cards=[]
     for tk in set(chips+buy+[r["t"] for r in td["pickUs"]]):

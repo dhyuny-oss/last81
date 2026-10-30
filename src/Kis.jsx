@@ -18,7 +18,7 @@
  *
  * props: held = 앱 내 종목 티커(비교용·읽기만) · stocks = 앱 종목 지표 · picks = 오늘 살 것(빠른 선택)
  *        watch / toggleWatch = 앱 관심종목 (관심 불러오기에서만 씀)
- *        asOf = 오늘 살 것의 기준 날짜 · usOpen = 미국 정규장 여부 · fx = 원/달러
+ *        asOf = 오늘 살 것의 기준 날짜({us, kr} 또는 문자열) · half = 앱 1회차 금액 {us, kr} · usOpen = 미국 정규장 여부 · fx = 원/달러
  */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 
@@ -48,9 +48,10 @@ const quiet = { ...btn, border: `1px solid ${K.border}`, color: K.dim, fontWeigh
 const inp = { minHeight: 40, padding: "6px 10px", borderRadius: 10, border: `1px solid ${K.border}`, background: "#0A0E1A", color: K.text, font: "inherit", minWidth: 0 };
 const SIG = { buy: ["매수!", K.up], sell: ["매도!", K.down], hold: ["보유", K.cyan], watch: ["관망", K.dim] };
 
-export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], watch = [], toggleWatch, asOf = "", usOpen = false, fx = null, pickNote: noteUs = "", kr = null, krOpen = false, onSync = null }) {
+export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], watch = [], toggleWatch, asOf: asOfIn = "", half = null, usOpen = false, fx = null, pickNote: noteUs = "", kr = null, krOpen = false, onSync = null }) {
   const [mk, setMkRaw] = useState(() => (ls.get(MK) === "kr" ? "kr" : "us"));   // 🇺🇸 / 🇰🇷 전환
   const KR = mk === "kr";
+  const asOf = (asOfIn && typeof asOfIn === "object" ? asOfIn[mk] : asOfIn) || "";   // 시장마다 종가 날짜가 다름 (🇺🇸 은 하루 늦음)
   const [info, setInfo] = useState(null);
   const [data, setData] = useState(null);             // 잔고
   const [orders, setOrders] = useState(null);         // 주문 내역
@@ -62,9 +63,9 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
   const [confirm, setConfirm] = useState(null);       // { ...order, rid }
   const [groups, setGroups] = useState(null), [fav, setFav] = useState(null);
   const [live, setLive] = useState(null);             // 지금 가격 { quotes, idx, at }
-  const [budgetUs, setBudgetUs] = useState(() => ls.get(BUD) || "500");
-  const [budgetKr, setBudgetKr] = useState(() => ls.get(BUD_KR) || "1000000");
-  const budget = KR ? budgetKr : budgetUs;
+  const [budgetUs, setBudgetUs] = useState(() => ls.get(BUD) || "");
+  const [budgetKr, setBudgetKr] = useState(() => ls.get(BUD_KR) || "");
+  const budgetRaw = KR ? budgetKr : budgetUs;
   const setBudget = (v) => { if (KR) { setBudgetKr(v); ls.set(BUD_KR, v); } else { setBudgetUs(v); ls.set(BUD, v); } };
   const [dayBuy, setDayBuy] = useState(0);
   const [, tick] = useState(0);
@@ -119,6 +120,10 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
   const amount = (Number(form.qty) || 0) * (Number(form.px) || 0);
   const M = (v, d = 0) => (KR ? won(v) : usd(v, d));                // 금액 표시: 🇰🇷 원 · 🇺🇸 달러
   const cap1 = KR ? (info?.maxKrw || 5000000) : (info?.maxUsd || 5000), capDay = KR ? (info?.maxDayKrw || 20000000) : (info?.maxDay || 20000);
+  // 종목당 예산: 직접 넣은 값이 없으면 앱 1회차 금액(💰 투자금 ÷ 칸 ÷ 2) — 1건 상한을 넘지 않게
+  const halfM = Math.floor(Number(half?.[mk]) || 0);
+  const budgetAuto = halfM > 0 ? Math.min(halfM, cap1) : 0;
+  const budget = budgetRaw || (budgetAuto ? String(budgetAuto) : "");
   const formErr = !(KR ? /^[0-9A-Z]{6}$/ : /^[A-Za-z][A-Za-z0-9.\-]{0,9}$/).test(form.t.trim()) ? (KR ? "종목 코드 6자리를 넣어 주세요" : "종목 코드를 넣어 주세요")
     : !(Number(form.qty) >= 1) ? "수량은 1주 이상" : !(Number(form.px) > 0) ? "지정가를 넣어 주세요"
     : KR && Number(form.px) % tickKr(Number(form.px)) !== 0 ? `호가 단위 ${tickKr(Number(form.px)).toLocaleString("ko-KR")}원에 맞춰 주세요`
@@ -168,6 +173,9 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
   });
   useEffect(() => { const d = pending.current; if (d && d.mk === mk) { pending.current = null; prefillNow(d);
     setTimeout(() => document.getElementById("kis-order")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50); } }, [mk]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // 차트 화면의 '계좌로 1회차 주문' → 이 카드가 뜬 뒤 주문 칸을 채움 (카드가 없을 때 눌러도 놓치지 않게)
+  useEffect(() => { const d = window.__kisPending; if (!d || !info?.canOrder) return; window.__kisPending = null;
+    window.dispatchEvent(new CustomEvent("kis-prefill", { detail: d })); }, [info]);   // eslint-disable-line react-hooks/exhaustive-deps
   const autoKey = useRef("");
   useEffect(() => {
     if (!info?.configured || info.pinMissing || !pin || needPin || busy) return;
@@ -205,7 +213,8 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
       </div>
     </div>);
 
-  const sigOf = (r) => { const s = stocks[r.t]; if (!s) return null; const [txt, c] = SIG[s.action] || SIG.watch;
+  // 계좌에 있는 종목 = 보유 중 → 내 종목 카드와 같은 말(매도! / 보유). '매수!'는 새로 살 때 말이라 여기선 쓰지 않음
+  const sigOf = (r) => { const s = stocks[r.t]; if (!s) return null; const [txt, c] = s.action === "sell" ? SIG.sell : SIG.hold;
     return { txt, c, line: s.stLine, below: s.stLine && r.px && r.px < s.stLine }; };
 
   /* ── 매수 제안 계산 ── */
@@ -244,7 +253,7 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
     <div style={box}>
       {head}
       <div style={{ marginTop: 6, color: K.dim, fontSize: 11.5, lineHeight: 1.5 }}>
-        {BK}에서 체결된 거래는 <b style={{ color: K.text }}>내 종목 맨 위 '체결 반영'</b>에서 한 번 눌러 넣습니다(모의는 '모의' 표시). 누르기 전에는 투입금·빈 칸·텔레그램 합계에 섞이지 않습니다.
+        {BK}에서 체결된 거래는 <b style={{ color: K.text }}>내 종목 맨 위 '체결 반영'</b>에서 한 번 눌러 넣습니다{demo ? "(모의는 '모의' 표시)" : ""}. 누르기 전에는 투입금·빈 칸·텔레그램 합계에 섞이지 않습니다.
       </div>
       {(needPin || !pin) && (
         <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
@@ -265,7 +274,7 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
           </div>
           <div style={{ overflowX: "auto", marginTop: 8 }}>
             <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12.5 }}>
-              <thead><tr style={{ color: K.dim }}>{["종목", "지금", "수익", "앱 신호", ""].map((h, i) => (
+              <thead><tr style={{ color: K.dim }}>{["종목", `${BK} 시세`, "수익", "앱 신호", ""].map((h, i) => (
                 <th key={i} style={{ padding: "5px 4px", borderBottom: `1px solid ${K.border}`, textAlign: i && i < 4 ? "right" : "left", fontWeight: 500, whiteSpace: "nowrap" }}>{h}</th>))}</tr></thead>
               <tbody>{data.rows.map((r) => { const td = { padding: "6px 4px", borderBottom: `1px solid ${K.border}`, textAlign: "right", fontFamily: MONO, whiteSpace: "nowrap", verticalAlign: "top" }; const sg = sigOf(r);
                 return (<tr key={r.t + r.ex}>
@@ -303,8 +312,8 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
             <button type="button" onClick={() => run("quote", loadQuotes)} disabled={!!busy} style={{ ...quiet, minHeight: 30, padding: "2px 10px", fontSize: 12 }}>{busy === "quote" ? "보는 중…" : "가격 다시 보기"}</button>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap", fontSize: 12 }}>
-            <label htmlFor="kis-budget" style={{ color: K.dim }}>종목당 예산 {KR ? "원" : "$"}</label>
-            <input id="kis-budget" value={budget} inputMode="numeric" onChange={(e) => setBudget(e.target.value.replace(/\D/g, "").slice(0, KR ? 10 : 6))} style={{ ...inp, width: KR ? 120 : 96, minHeight: 34 }} />
+            <label htmlFor="kis-budget" style={{ color: K.dim }}>종목당 예산 {KR ? "원" : "$"}{!budgetRaw && budgetAuto ? " (비우면 앱 1회차 금액)" : ""}</label>
+            <input id="kis-budget" value={budgetRaw} placeholder={budgetAuto ? String(budgetAuto) : ""} inputMode="numeric" onChange={(e) => setBudget(e.target.value.replace(/\D/g, "").slice(0, KR ? 10 : 6))} style={{ ...inp, width: KR ? 120 : 96, minHeight: 34 }} />
             {!KR && fx && Number(budget) > 0 && <span style={{ color: K.dim }}>≈ {Math.round(Number(budget) * fx / 10000).toLocaleString("ko-KR")}만 원</span>}
             {KR && Number(budget) > 0 && <span style={{ color: K.dim }}>= {(Number(budget) / 10000).toLocaleString("ko-KR")}만 원</span>}
             <span style={{ color: K.dim }}>· 오늘 매수 {M(dayBuy)} / 하루 상한 {M(capDay)}</span>
@@ -332,7 +341,7 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
               </div>))}
             <div style={{ color: K.dim, fontSize: 11, marginTop: 6, lineHeight: 1.5 }}>
               보류 기준(미검증 안전장치): 시장 {GUARD.mktDown}% 이하 · 종목 {GUARD.stDown}% 이하 · 손절선 아래 · 종목 +{GUARD.stUp}% 이상(추격). 보류된 종목도 아래 주문 칸에서 직접 넣을 수는 있습니다.
-              {BK} 시세가 늦게 올 수 있어, 지정가에 안 닿으면 대기로 남고 장이 끝나면 사라집니다.
+              {" "}{BK} 시세가 늦게 올 수 있어, 지정가에 안 닿으면 대기로 남고 장이 끝나면 사라집니다.
             </div>
           </>)}
         </div>)}

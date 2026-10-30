@@ -91,7 +91,7 @@ ok("한국 시장 게이트를 서버·앱·알림이 같은 판정으로 씀 �
 ok("화면에 '판정은 DC에만 사용'·근거 없는 16.9% 같은 옛 문구 없음 — 160", !/DC 판단에만 사용|ETF 배분\(DC\)에만|\+16\.9%·최대낙폭 −28%/.test(app_));
 ok("폭 계산 날짜(breadthAsOf)가 데이터에 있음 — 171", !!market.breadthAsOf, "", true);
 ok("거래대금 순위 하한 40 (서버·앱 규칙)", /tvr \?\? 0\) >= 40/.test(picksJs) && /tvr"\)? or 0\) >= 40|tvr.*>= 40/.test(py));
-const kisJs = T("api/kis.js"), kisUi = T("src/Kis.jsx");
+const kisJs = T("api/_lib/kis.js") + T("api/_lib/meritz.js"), kisUi = T("src/Kis.jsx");
 ok("미국 개장 22:30/23:30 · 마감 05:00/06:00 (앱·감시 2곳)", /dst \? 1350 : 1410/.test(app_) && /dst \? 300 : 360/.test(app_)
   && [T("scripts/watch_alert.py"), T("api/watch.py")].every((t) => /\(22 \* 60 \+ 30, 5 \* 60\) if dst else \(23 \* 60 \+ 30, 6 \* 60\)/.test(t)));
 ok("한투 카드는 오늘 탭과 같은 선정 함수 사용", /kisPicks\(stocks, pos, genDay/.test(app_) && !/picks=\{today\?\.pickUs/.test(app_));
