@@ -8,7 +8,7 @@
  *   MERITZ_APP_KEY / MERITZ_APP_SECRET   메리츠 Open API 포털에서 발급 (계좌는 키에 묶여 있어 계좌번호 불필요)
  *   APP_PIN (또는 예전 이름 KIS_PIN)      내가 정하는 앱 비밀번호 — 조회·주문 모두 필요
  *   MERITZ_ORDER=on                      ★ 실주문 스위치. 없으면 조회만 됩니다 (끄면 즉시 주문 잠김)
- *   (선택) MERITZ_MAX_USD · MERITZ_MAX_DAY_USD     🇺🇸 1건 · 하루 매수 상한 — 기본 1,500 · 4,000 달러
+ *   (선택) MERITZ_MAX_USD · MERITZ_MAX_DAY_USD     🇺🇸 1건 · 하루 매수 상한 — 기본 3,500 · 10,000 달러 (1회차 한 건이 들어가게)
  *   (선택) MERITZ_MAX_KRW · MERITZ_MAX_DAY_KRW     🇰🇷 1건 · 하루 매수 상한 — 기본 200만 · 500만 원
  *
  * ▣ 안전장치 (한투 실전과 같은 수준)
@@ -50,7 +50,7 @@ export function cfg() {
     key: String(process.env.MERITZ_APP_KEY || "").trim(), sec: String(process.env.MERITZ_APP_SECRET || "").trim(),
     pin: String(process.env.APP_PIN || process.env.KIS_PIN || "").trim(),
     order: String(process.env.MERITZ_ORDER || "").trim().toLowerCase() === "on",
-    maxUsd: num(process.env.MERITZ_MAX_USD) || 1500, maxDay: num(process.env.MERITZ_MAX_DAY_USD) || 4000,
+    maxUsd: num(process.env.MERITZ_MAX_USD) || 3500, maxDay: num(process.env.MERITZ_MAX_DAY_USD) || 10000,
     maxKrw: num(process.env.MERITZ_MAX_KRW) || 2000000, maxDayKrw: num(process.env.MERITZ_MAX_DAY_KRW) || 5000000,
   };
 }

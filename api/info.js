@@ -36,7 +36,8 @@ function firstSentences(s, n = 2, max = 220) {
 }
 
 async function usAbout(t) {
-  const codes = [t, `${t}.O`, `${t}.K`];
+  // 201. 클래스주는 네이버에서 'BRKb'처럼 씀 (BRK-B · BRK.B → BRKb)
+  const codes = [...new Set([t, `${t}.O`, t.replace(/[-.]([A-Z])$/, (_, c) => c.toLowerCase()), `${t}.K`])];
   for (const c of codes) {
     const txt = await get(`https://api.stock.naver.com/stock/${encodeURIComponent(c)}/overview`);
     if (!txt) continue;
