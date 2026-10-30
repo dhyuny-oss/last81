@@ -38,7 +38,7 @@
     }
   ],
   "functions": {
-    "api/kis.js": {
+    "api/broker.js": {
       "maxDuration": 30
     }
   }

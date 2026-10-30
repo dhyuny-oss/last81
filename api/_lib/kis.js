@@ -1,14 +1,11 @@
 /**
- * /api/kis — 한국투자증권 Open API · 미국 주식 잔고 조회 + 모의투자 주문
+ * 한투 어댑터 — /api/broker 가 BROKER=kis 일 때만 씁니다 (기본은 메리츠 · api/broker.js 참고)
+ * 한국투자증권 Open API · 잔고 조회 + 주문
  * ════════════════════════════════════════════════════════════
  * 실전(real) 계좌에서는 "조회만" 됩니다. 주문·취소는 모의투자(demo)에서만 열립니다 (코드로 잠금).
  * 앱 본체·내 종목·텔레그램·수집 파이프라인 어디에도 영향을 주지 않습니다.
  *
- * ▣ 빼는 방법 (네 군데)
- *   1) src/App.jsx 에서 "★ 한투" 라고 적힌 두 곳 삭제
- *   2) src/Kis.jsx 삭제
- *   3) api/kis.js (이 파일) 삭제
- *   4) Vercel 환경변수 KIS_* 삭제 + 한투 앱에서 Open API 해지
+ * ▣ 한투 계좌를 영영 안 쓸 거면: 이 파일 + api/broker.js 의 kis 두 줄 삭제 (시세 수집용 KIS_APP_KEY 등은 지우지 마세요)
  *
  * ▣ Vercel 환경변수 (Settings → Environment Variables · 채팅/깃허브에 적지 마세요)
  *   KIS_DEMO_APP_KEY / KIS_DEMO_APP_SECRET / KIS_DEMO_ACCOUNT   모의투자용 (KIS_ENV=demo 일 때 사용)
@@ -22,7 +19,7 @@
  *   KIS_MAX_USD      (선택) 주문 1건 금액 상한 — 기본 모의 5000 · 실전 1500 달러
  *   KIS_HTS_ID       (선택) 한투 HTS 아이디 — 있어야 "관심 그룹 불러오기"가 됩니다
  *
- * ▣ 쓰는 법  POST /api/kis  { what, tok, ... } + 헤더 x-kis-pin   (GET 은 설정 상태만)
+ * ▣ 쓰는 법  POST /api/broker  { what, tok, ... } + 헤더 x-kis-pin   (GET 은 설정 상태만)
  *   what="balance"              보유 종목                          → rows, sum
  *   what="orders"               최근 주문·미체결                    → orders, dayBuy(오늘 매수 합계)
  *   what="order"                주문 { side, t, ex, qty, px, rid, confirm:true }   (모의 · 실전은 KIS_REAL_ORDER=on 일 때만)
@@ -59,7 +56,7 @@ function cfg() {
   return { env, key: String((demo ? process.env.KIS_DEMO_APP_KEY : process.env.KIS_APP_KEY) || "").trim(),
            sec: String((demo ? process.env.KIS_DEMO_APP_SECRET : process.env.KIS_APP_SECRET) || "").trim(),
            cano: acct.slice(0, 8), prod: acct.slice(8, 10) || "01", acctOk: acct.length === 8 || acct.length === 10,
-           pin: (process.env.KIS_PIN || "").trim(), maxUsd: num(process.env.KIS_MAX_USD) || (demo ? 5000 : 1500),
+           pin: (process.env.APP_PIN || process.env.KIS_PIN || "").trim(), maxUsd: num(process.env.KIS_MAX_USD) || (demo ? 5000 : 1500),
            maxDay: num(process.env.KIS_MAX_DAY_USD) || (demo ? 20000 : 4000),
            maxKrw: num(process.env.KIS_MAX_KRW) || (demo ? 5000000 : 2000000),            // 🇰🇷 주문 1건 상한(원)
            maxDayKrw: num(process.env.KIS_MAX_DAY_KRW) || (demo ? 20000000 : 5000000),    // 🇰🇷 하루 매수 합계 상한(원)

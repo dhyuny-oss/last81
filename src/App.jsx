@@ -24,7 +24,7 @@ export const APP_VERSION = "v13.14.0";
 /** 135. 수집 데이터에 남아 있던 "&amp;" 를 "&" 로 (예: Procter &amp; Gamble). 파이프라인이 고친 뒤에는 할 일이 없어 그냥 지나갑니다 */
 const getJson = (url) => fetch(url).then(r => r.ok ? r.text().then(t => JSON.parse(t.includes("&amp;") ? t.replace(/&amp;/g, "&") : t)) : null);
 
-/* ★ 한투 (1/2) — 한투 계좌 카드(조회 · 매수 제안 · 주문). 빼려면: 이 두 줄 + 아래 "★ 한투 (2/2)" 한 줄 + src/Kis.jsx + api/kis.js + Vercel 환경변수 KIS_* 삭제 */
+/* ★ 한투 (1/2) — 증권사 계좌 카드(조회 · 매수 제안 · 주문 · 기본 메리츠, BROKER 환경변수로 바꿈). 빼려면: 이 두 줄 + 아래 "★ 한투 (2/2)" 한 줄 + src/Kis.jsx + api/broker.js + api/_lib/ */
 const KisPanel = React.lazy(() => import("./Kis.jsx"));
 import { AboutCard, AboutLine, SchedLine, WeekSched, pastEarnTxt } from "./Info.jsx";
 
@@ -418,7 +418,7 @@ const EXPLAIN = {
     ["20일선 이격", "검증: '많이 달린 종목을 피하고 20일선 가까이서만 사기'는 미국에서 성과를 깎았음(연 32.6→24.0%). 매수!면 그냥 산다"],
     ["선까지 −N%", "지금 가격에서 트레일링선까지 떨어지면 잃는 폭. 앱 전체(찾기·차트·내 종목·텔레그램)가 같은 뜻으로 씀. '선 아래'면 이미 매도 구간"],
     ["3일·5일·1달", "누적 등락. 위 고정 바의 지수 숫자와 같은 열"],
-    ["살 것 / 1주 한 번에", "오늘 살 것에 든 종목. 한도의 절반으로 1주도 안 되면 '1주 한 번에'. 주수는 차트의 1회차 매수 등록·한투 주문에서 보여 줍니다"],
+    ["살 것 / 1주 한 번에", "오늘 살 것에 든 종목. 한도의 절반으로 1주도 안 되면 '1주 한 번에'. 주수는 차트의 1회차 매수 등록·계좌 주문에서 보여 줍니다"],
     ["하루 거래 $5.2B", "최근 20거래일 평균 하루 거래대금"],
     ["RSI 62(3일↑)", "RSI(14일) 값과 3일 전보다 올랐는지(↑)·내렸는지(↓). 참고용 — 검증에서 '상승 중'은 효과 없음"],
     ["RS 100", "같은 시장 종목 중 최근 6개월 수익률 순위(백분위). 100이 1등, 70 이상 = 주도주"],
@@ -1713,7 +1713,7 @@ function MarketTab({ market, setTab, onShowRules, list, pos, stocks, items, size
             </div>);
         })}
         <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-          <GoBtn to="track">한투로 주문 ›</GoBtn>
+          <GoBtn to="track">계좌로 주문 ›</GoBtn>
           <GoBtn to="find">찾기 탭에서 자세히 ›</GoBtn>
         </div>
       </Card>
@@ -2994,14 +2994,15 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
   const saveSet = (k, set) => { try { localStorage.setItem(k, JSON.stringify([...set].slice(-500))); } catch {} };
   const fillPlan = useMemo(() => ["us", "kr"].map(m => {
     const k = kisSync[m]; if (!k) return null;
-    return { m, env: k.env, ...planFills({ orders: k.orders, rows: k.rows, pos: pos.filter(p => mktOfT(p.t) === m), applied, ignored }) };
+    return { m, env: k.env, broker: k.broker, ...planFills({ orders: k.orders, rows: k.rows, pos: pos.filter(p => mktOfT(p.t) === m), applied, ignored }) };
   }).filter(Boolean), [kisSync, pos, applied, ignored]);
   useEffect(() => {      // 손으로 이미 기록한 체결은 조용히 '반영됨' 처리
     const d = fillPlan.flatMap(x => x.dup).filter(o => !applied.has(o));
     if (d.length) { const n = new Set([...applied, ...d]); setApplied(n); saveSet("v13.kis.applied", n); }
   }, [fillPlan]);        // eslint-disable-line react-hooks/exhaustive-deps
-  const kisQty = useMemo(() => { const o = {}; Object.values(kisSync).forEach(k => (k.rows || []).forEach(r => { o[String(r.t).toUpperCase().replace("/", "-")] = { qty: r.qty, env: k.env }; })); return o; }, [kisSync]);
+  const kisQty = useMemo(() => { const o = {}; Object.values(kisSync).forEach(k => (k.rows || []).forEach(r => { o[String(r.t).toUpperCase().replace("/", "-")] = { qty: r.qty, env: k.env, label: k.label }; })); return o; }, [kisSync]);
   const kisOn = (m) => !!kisSync[m];
+  const BK = Object.values(kisSync).find(k => k && k.label)?.label || "계좌";   // 연결된 증권사 이름 (카드가 알려 줌)
   const pendingN = fillPlan.reduce((a, x) => a + x.items.length + x.extra.length, 0);
   const [fillOpen, setFillOpen] = useState(false);
   const [fillOff, setFillOff] = useState({});          // key → true 면 반영하지 않음
@@ -3010,7 +3011,7 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
     const done = new Set(applied);
     fillPlan.forEach(x => {
       const pick = x.items.filter(i => i.kind !== "partial" && !fillOff[i.key]);
-      const r = applyFills(cur, pick, { src: x.env === "real" ? "kis" : "kis-demo", mOf: mktOfT, nameOf: t => stocks[t]?.n });
+      const r = applyFills(cur, pick, { src: x.env === "real" ? (x.broker || "kis") : "kis-demo", mOf: mktOfT, nameOf: t => stocks[t]?.n });
       cur = r.pos; tradesAdd = [...tradesAdd, ...r.trades];
       x.items.forEach(i => i.odnos.forEach(o => done.add(o)));      // 체크를 뺀 것·일부 매도도 목록에서 지움
     });
@@ -3018,7 +3019,7 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
     setApplied(done); saveSet("v13.kis.applied", done); setFillOpen(false); setFillOff({});
   };
   const addExtra = (x, e) => {
-    setPos(v => [...v, { id: Date.now(), t: e.t, role: "long", date: kstDay(), tr: [{ d: kstDay(), px: e.avg || 0, amt: (e.avg || 0) * e.qty }], src: x.env === "real" ? "kis" : "kis-demo" }]);
+    setPos(v => [...v, { id: Date.now(), t: e.t, role: "long", date: kstDay(), tr: [{ d: kstDay(), px: e.avg || 0, amt: (e.avg || 0) * e.qty }], src: x.env === "real" ? (x.broker || "kis") : "kis-demo" }]);
   };
   const ignoreExtra = (e) => { const n = new Set([...ignored, e.t]); setIgnored(n); saveSet("v13.kis.ignore", n); };
   // 189. 매도!는 '다음 개장 때 팔리게' — 종가보다 2.5% 낮은 지정가로 채움 (지정가가 시장가보다 낮으면 개장 가격에 체결)
@@ -3026,9 +3027,9 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
   const FillSheet = () => !fillOpen ? null : (
     <div onClick={(e) => { if (e.target === e.currentTarget) setFillOpen(false); }}
          style={{ position: "fixed", inset: 0, zIndex: 180, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-      <div role="dialog" aria-modal="true" aria-label="한투 체결 반영" style={{ background: C.panel, borderRadius: "14px 14px 0 0", width: "100%", maxWidth: 640, maxHeight: "86vh", overflowY: "auto", padding: "16px 14px 22px", borderTop: `2px solid ${C.gold}` }}>
-        <div style={{ fontSize: 16, fontWeight: 800, color: C.gold }}>한투 체결 반영</div>
-        <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 3, lineHeight: 1.6 }}>한투에서 체결된 거래를 체결가 그대로 내 종목에 적습니다. 반영하면 칸 수·투입금·성적이 바로 맞춰집니다. 체크를 뺀 것은 반영하지 않고 목록에서만 지웁니다.</div>
+      <div role="dialog" aria-modal="true" aria-label="체결 반영" style={{ background: C.panel, borderRadius: "14px 14px 0 0", width: "100%", maxWidth: 640, maxHeight: "86vh", overflowY: "auto", padding: "16px 14px 22px", borderTop: `2px solid ${C.gold}` }}>
+        <div style={{ fontSize: 16, fontWeight: 800, color: C.gold }}>{BK} 체결 반영</div>
+        <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 3, lineHeight: 1.6 }}>{BK}에서 체결된 거래를 체결가 그대로 내 종목에 적습니다. 반영하면 칸 수·투입금·성적이 바로 맞춰집니다. 체크를 뺀 것은 반영하지 않고 목록에서만 지웁니다.</div>
         {fillPlan.map(x => (
           <div key={x.m} style={{ marginTop: 10 }}>
             {(x.items.length > 0 || x.extra.length > 0) && <div style={{ fontSize: FS.sm, fontWeight: 700, marginBottom: 4 }}>{x.m === "us" ? "🇺🇸 미국" : "🇰🇷 한국"}
@@ -3045,7 +3046,7 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
             })}
             {x.extra.map(e => (
               <div key={e.t} style={{ padding: "9px 10px", marginBottom: 6, borderRadius: 10, background: "rgba(245,158,11,.08)", border: `1px solid ${C.gold}55`, fontSize: FS.sm }}>
-                <b style={{ color: C.gold }}>한투에만 있음</b> · <b style={{ fontFamily: MONO }}>{x.m === "kr" ? (e.n || e.t) : e.t}</b> {e.qty}주{e.avg ? ` · 평단 ${price(e.avg, x.m)}` : ""}
+                <b style={{ color: C.gold }}>{BK}에만 있음</b> · <b style={{ fontFamily: MONO }}>{x.m === "kr" ? (e.n || e.t) : e.t}</b> {e.qty}주{e.avg ? ` · 평단 ${price(e.avg, x.m)}` : ""}
                 <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 2 }}>앱 신호와 상관없이 산 종목이면 '장기'로 넣거나 무시하세요</div>
                 <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
                   <button onClick={() => addExtra(x, e)} style={{ ...btn(C.dim), flex: 1, minHeight: 38 }}>장기로 넣기</button>
@@ -3156,7 +3157,7 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
       {pendingN > 0 && (    /* 184. 한투 체결이 내 종목에 아직 없음 */
         <button onClick={() => setFillOpen(true)} style={{ display: "block", width: "100%", textAlign: "left", marginTop: 8, padding: "10px 12px", borderRadius: 12, cursor: "pointer",
                  background: "rgba(245,158,11,.10)", border: `1px solid ${C.gold}66`, color: C.text }}>
-          <div style={{ fontSize: FS.sm, fontWeight: 800, color: C.gold }}>한투 체결 {fillPlan.reduce((a, x) => a + x.items.length, 0)}건{fillPlan.some(x => x.extra.length) ? ` · 한투에만 있는 종목 ${fillPlan.reduce((a, x) => a + x.extra.length, 0)}` : ""} — 아직 내 종목에 없음</div>
+          <div style={{ fontSize: FS.sm, fontWeight: 800, color: C.gold }}>{BK} 체결 {fillPlan.reduce((a, x) => a + x.items.length, 0)}건{fillPlan.some(x => x.extra.length) ? ` · ${BK}에만 있는 종목 ${fillPlan.reduce((a, x) => a + x.extra.length, 0)}` : ""} — 아직 내 종목에 없음</div>
           <div style={{ fontSize: FS.xs, color: C.dim, marginTop: 2, ...ONE }}>{fillPlan.flatMap(x => x.items.map(i => `${x.m === "kr" ? (stocks[i.t]?.n || i.t) : i.t} ${i.side === "sell" ? "매도" : "매수"} ${i.qty}주`)).join(" · ")}</div>
           <div style={{ fontSize: FS.sm, color: C.gold, marginTop: 4, fontWeight: 700 }}>확인하고 반영하기 ›</div>
         </button>)}
@@ -3171,7 +3172,7 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
       {(() => {   // 184. 한투에 넣어 둔 매수 주문 중 아직 체결 안 된 것
         const w = fillPlan.filter(x => tmk === "all" || x.m === tmk).flatMap(x => x.waiting.filter(o => !pos.some(p => String(p.t).toUpperCase() === o.t)).map(o => ({ ...o, m: x.m })));
         return w.length ? <Card style={{ marginBottom: 8, borderColor: `${C.cyan}55`, padding: "8px 12px" }}>
-          <div style={{ fontSize: 10.5, fontWeight: 800, color: C.cyan }}>체결 대기 (한투)</div>
+          <div style={{ fontSize: 10.5, fontWeight: 800, color: C.cyan }}>체결 대기 ({BK})</div>
           {w.map(o => <div key={o.odno} style={{ fontSize: FS.sm, marginTop: 3 }}><b style={{ fontFamily: o.m === "us" ? MONO : "inherit" }}>{o.m === "kr" ? (stocks[o.t]?.n || o.t) : o.t}</b> 지정가 {o.open}주 @ {price(o.px, o.m)} <span style={{ color: C.muted, fontSize: FS.xs }}>· 체결되면 위에서 1회차로 반영할지 묻습니다</span></div>)}
         </Card> : null; })()}
       {form && (
@@ -3187,7 +3188,7 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
         ...pos.map(p => ({ s: stocks[p.t], tag: "보유" })),
         ...(() => { try { const P = pickToday(stocks, pickCfg(market, loadPlan()), new Set(pos.map(p => String(p.t).toUpperCase())));
                           return [...P.pickUs, ...(P.pickKr || [])].map(r => ({ s: stocks[r.t], tag: "오늘 살 것" })); } catch { return []; } })()]} />
-      {rows.length === 0 ? <Card><Empty>기록된 포지션이 없습니다 · 종목 화면에서 ‘1회차 매수 등록’ 또는 한투 체결 반영</Empty></Card> :
+      {rows.length === 0 ? <Card><Empty>기록된 포지션이 없습니다 · 종목 화면에서 ‘1회차 매수 등록’ 또는 계좌 체결 반영</Empty></Card> :
         rows.map(p => ({ p, s: look(p.t) })).map(o => {          // 184. 급한 순서: 매도! → 2회차 → 나머지
           const { p, s } = o; if (!s) return { ...o, rank: 0 };
           const nx = p.role === "swing" ? nextTrancheOf(p, s, sizer.limit(s.m)) : null;
@@ -3232,7 +3233,7 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
                 <div onClick={() => openStock(p.t)} style={{ flex: 1, minWidth: 0, cursor: "pointer", fontSize: 15, fontWeight: 700, ...ONE }}>
                   <Chip tone={rt}>{rl}</Chip> {s.m === "kr" ? <b>{s.n}</b> : <b style={{ fontFamily: MONO }}>{p.t}</b>} <span style={{ color: C.dim, fontWeight: 400, fontSize: FS.sm }}>{s.m === "kr" ? p.t : shortName(s.n)}</span></div>
                 {p.src === "kis-demo" && <Chip tone="w">모의</Chip>}
-                {kq && <span style={{ fontSize: 10.5, color: C.cyan, whiteSpace: "nowrap" }}>한투{kq.env !== "real" ? " 모의" : ""} {kq.qty}주</span>}
+                {kq && <span style={{ fontSize: 10.5, color: C.cyan, whiteSpace: "nowrap" }}>{kq.label || BK}{kq.env !== "real" ? " 모의" : ""} {kq.qty}주</span>}
                 <button onClick={() => closePos(p, s)} aria-label="매도 기록"
                   style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: 18, width: 32, height: 34, flexShrink: 0 }}>×</button>
               </div>
@@ -3245,7 +3246,7 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
               {N.act && (
                 <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                   {kisBtn && <button onClick={() => prefill(p.t, N.act === "sell" ? "sell" : "buy", N.act === "sell" ? shSell : Math.max(1, q2), N.act === "sell")}
-                    style={{ ...btn(N.act === "sell" ? C.red : C.emerald), flex: 1, minHeight: 44 }}>{N.act === "sell" ? `한투로 개장 매도 ${shSell}주` : "한투로 2회차 주문"}</button>}
+                    style={{ ...btn(N.act === "sell" ? C.red : C.emerald), flex: 1, minHeight: 44 }}>{N.act === "sell" ? `${BK}로 개장 매도 ${shSell}주` : `${BK}로 2회차 주문`}</button>}
                   <button onClick={() => N.act === "sell" ? closePos(p, s) : addTranche(p, s)} style={{ ...btn(C.dim), flex: 1, minHeight: 44 }}>
                     {N.act === "sell" ? (kisBtn ? "다른 곳에서 팔았음" : "팔았음 — 매도가 기록") : (kisBtn ? "다른 곳에서 샀음" : "샀음 — 2회차 기록")}</button>
                 </div>)}
