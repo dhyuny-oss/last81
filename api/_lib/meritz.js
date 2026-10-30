@@ -352,6 +352,62 @@ async function cancelOrder(c, ctx, b, KR) {
   return { cancelled: { odno, t, msg: String(j.rsp_msg || "").trim() } };
 }
 
+/* ── 189. 다음 개장 때 매도 (예약주문) — 규칙: 종가가 선 아래 → 다음 장 시작에 판다 ──
+ *   🇺🇸 POST /trading/v1/overseas/reserved-orders/sell · MOO(장개시 시장가 "6") · 일반예약("1") · 시작=종료=오늘(한국 날짜)
+ *      (공식 corrections.json: 일자를 비우면 접수는 되나 취소 불가 예약이 생김 → 항상 넣음)
+ *   🇰🇷 POST /trading/v1/reserved-orders/sell · 시장가("05", 단가 0) · 일반예약("1") → 다음 영업일 장 시작 동시호가
+ *   성공 코드 5620 = 예약 접수(체결 아님) — 같은 예약을 다시 보내면 중복 접수되므로 번호표(rid)로 막고, 이미 같은 매도 예약이 있으면 거절
+ *   예약 취소는 메리츠 앱 '예약주문' 화면에서 (앱은 접수·조회만) */
+async function resvList(c, ctx, KR) {
+  const fin = ymd(kstNow() + 7 * 86400000);
+  if (KR) {
+    const raw = await paged(c, ctx, "/trading/v1/reserved-orders", { oder_sta_date: ymd(kstNow() - 3 * 86400000), oder_fin_date: fin, iqry_cls_code: "1" }, "국내 예약 조회");
+    return raw.map((o) => ({ t: String(o.iscd || "").replace(/^A/, "").trim(), n: String(o.iscd_name || "").trim(), side: String(o.deal_cls_code) === "1" ? "sell" : "buy",
+      qty: num(o.odqt), px: num(o.oder_unpr), kind: String(o.oder_cls_code) === "05" ? "시장가" : "지정가", d: String(o.oder_sta_date || o.rsev_reg_date || ""), no: String(o.oder_rsev_mst_no || "") }))
+      .filter((o) => o.t);
+  }
+  const raw = await paged(c, ctx, "/trading/v1/overseas/reserved-orders", { iqry_sta_date: ymd(kstNow() - 3 * 86400000), iqry_fin_date: fin, seln_byov_clcd: "0", iqry_idnt_clcd: "2" }, "해외 예약 조회");
+  const TP = { 1: "지정가", 2: "시장가", 4: "장개시 지정가", 5: "장마감 지정가", 6: "장개시 시장가(MOO)", 7: "장마감 시장가" };
+  return raw.map((o) => ({ t: String(o.ovrs_stck_symb_iscd || o.iscd || "").split(".")[0].trim().toUpperCase(), n: String(o.kor_isnm || "").trim(),
+    side: String(o.seln_byov_clcd) === "1" ? "sell" : "buy", qty: num(o.odqt), px: num(o.ovrs_stck_oder_prc), kind: TP[String(o.rsev_aspr_tpcd)] || "예약",
+    d: String(o.oder_sta_date || o.rsev_acpt_date || ""), no: String(o.rsev_acpt_srno || ""), cancelled: String(o.rsev_cncl_yn || "") === "Y" }))
+    .filter((o) => o.t && !o.cancelled);
+}
+async function placeResv(c, ctx, b, KR) {
+  gate(c);
+  const t = String(b.t || "").toUpperCase().trim(), qty = Math.floor(num(b.qty));
+  if (KR ? !KR_CODE.test(t) : !US_T.test(t)) throw new Error("종목 코드가 올바르지 않습니다");
+  if (!(qty >= 1 && qty <= 100000)) throw new Error("수량은 1주 이상이어야 합니다");
+  if (b.confirm !== true) throw new Error("확인 단계를 거치지 않은 예약입니다");
+  if (regularNow(KR)) throw new Error("지금은 정규장입니다 — 예약 대신 바로 매도 주문을 넣어 주세요");
+  const rid = String(b.rid || "");
+  if (!/^[A-Za-z0-9\-]{8,64}$/.test(rid)) throw new Error("주문 번호표(rid)가 없습니다");
+  if (RID.has(rid)) throw new Error("방금 보낸 같은 예약입니다 — 예약 목록을 확인해 주세요");
+  RID.set(rid, Date.now());
+  const fail = (m) => { RID.delete(rid); throw new Error(m); };
+  const bal = KR ? await krBalance(c, ctx) : await usBalance(c, ctx);
+  const have = bal.rows.find((r) => r.t === t);
+  if (!have) fail(`${t} 을(를) 이 계좌에 가지고 있지 않습니다`);
+  const can = KR ? have.qty : Math.min(have.qty, have.ord || have.qty);
+  await sleep(GAP);
+  const already = (await resvList(c, ctx, KR)).filter((o) => o.t === t && o.side === "sell").reduce((s, o) => s + o.qty, 0);
+  if (already + qty > can) fail(already ? `이미 ${t} 매도 예약 ${already}주가 있습니다 (보유 ${can}주) — 메리츠 앱 예약주문 화면에서 확인해 주세요` : `팔 수 있는 수량이 부족합니다 (보유 ${can}주)`);
+  await sleep(GAP);
+  const today = todayKst();
+  let j;
+  try {
+    j = KR
+      ? await mz(c, ctx, "POST", "/trading/v1/reserved-orders/sell", { iscd: t, adod_type_code: "01", odqt: String(qty), oder_unpr: "0", oder_cls_code: "05", oder_rsev_cls_code: "1", warn_cnfr_yn: b.warnOk === true ? "Y" : "N" }, { what: "국내 예약 매도" })
+      : await mz(c, ctx, "POST", "/trading/v1/overseas/reserved-orders/sell", { ovrs_stck_symb_iscd: t, ovrs_exch_vndr_idno: VNDR[have.ex] || "0537", rsev_aspr_tpcd: "6", odqt: String(qty),
+          ovrs_stck_oder_prc: "0", oder_rsev_cls_code: "1", oder_rsev_hour_clcd: "0", oder_sta_date: today, oder_fin_date: today, warn_cnfr_yn: b.warnOk === true ? "Y" : "N" }, { what: "해외 예약 매도" });
+  } catch (e) { if (!e.unsure) RID.delete(rid); throw e; }
+  const d = rowsOf(j)[0] || j || {};
+  const w = String(d.warn_cls_code ?? "0").trim();
+  if (w && w !== "0") { RID.delete(rid); const e = new Error(`메리츠 경고로 예약이 접수되지 않았습니다 — ${String(d.warn_msg || d.msg_cntt || "").trim() || `경고 코드 ${w}`}`);
+    e.warn = (KR ? "134679acdfg" : "13").includes(w) ? String(d.warn_msg || d.msg_cntt || "").trim() || `경고 코드 ${w}` : ""; throw e; }
+  return { reserved: { t, qty, how: KR ? "다음 영업일 장 시작 시장가" : "미국 장 시작 시장가(MOO)", no: String(d.oder_rsev_mst_no || d.pros_srno || ""), msg: String(j.rsp_msg || "").trim() } };
+}
+
 function pinOk(c, given) {
   if (!c.pin) return false;
   const a = crypto.createHash("sha256").update(String(given || "")).digest(), b = crypto.createHash("sha256").update(c.pin).digest();
@@ -369,7 +425,7 @@ export default async function meritz(req, res) {
   if (!c.pin) return res.status(200).json({ ok: false, code: "setup", msg: "APP_PIN 환경변수(내가 정하는 비밀번호)를 넣어야 열립니다" });
   if (!pinOk(c, req.headers["x-kis-pin"])) { await sleep(700); return res.status(200).json({ ok: false, code: "pin", msg: "비밀번호가 맞지 않습니다" }); }
   const body = typeof req.body === "string" ? (() => { try { return JSON.parse(req.body); } catch { return {}; } })() : (req.body || {});
-  const ACTIONS = ["balance", "orders", "order", "cancel", "quote"];
+  const ACTIONS = ["balance", "orders", "order", "cancel", "quote", "resv", "resvList"];
   if (!ACTIONS.includes(body.what)) return res.status(400).json({ ok: false, msg: `what 은 ${ACTIONS.join(" · ")} 중 하나여야 합니다` });
   const KR = body.mk === "kr";
   const ctx = { tok: null, reissued: false };
@@ -380,6 +436,8 @@ export default async function meritz(req, res) {
     else if (body.what === "orders") { const orders = KR ? await krOrders(c, ctx) : await usOrders(c, ctx); out = { orders, dayBuy: KR ? dayBuyKr(orders) : dayBuyUs(orders) }; }
     else if (body.what === "quote") out = KR ? await krQuotes(c, ctx, body) : await usQuotes(c, ctx, body);
     else if (body.what === "order") out = await placeOrder(c, ctx, body, KR);
+    else if (body.what === "resv") out = await placeResv(c, ctx, body, KR);
+    else if (body.what === "resvList") out = { resv: await resvList(c, ctx, KR) };
     else out = await cancelOrder(c, ctx, body, KR);
     return res.status(200).json({ ok: true, broker: "meritz", env: "real", ...(KR ? { mk: "kr" } : {}), at: Date.now(), ...out, tok: seal(c, ctx.tok) });
   } catch (e) {

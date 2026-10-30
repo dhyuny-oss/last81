@@ -19,7 +19,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot,
 } from "recharts";
 
-export const APP_VERSION = "v13.16.0";
+export const APP_VERSION = "v13.17.0";
 
 /** 135. 수집 데이터에 남아 있던 "&amp;" 를 "&" 로 (예: Procter &amp; Gamble). 파이프라인이 고친 뒤에는 할 일이 없어 그냥 지나갑니다 */
 const getJson = (url) => fetch(url).then(r => r.ok ? r.text().then(t => JSON.parse(t.includes("&amp;") ? t.replace(/&amp;/g, "&") : t)) : null);
@@ -855,6 +855,11 @@ export default function App() {
   const [extras, setExtras] = useState(() => { try { return JSON.parse(localStorage.getItem("v7.extras") || "[]"); } catch { return []; } });
   const [trades, setTrades] = useState(() => { try { return JSON.parse(localStorage.getItem("v7.trades") || "[]"); } catch { return []; } });
   useEffect(() => { localStorage.setItem("v7.extras", JSON.stringify(extras)); }, [extras]);
+  // 219. 한 번만 — 10/30 기록만 해 둔 GH 를 지우며 생긴 가짜 매매 기록(같은 값에 사고팖 · 손익 0) 제거
+  useEffect(() => {
+    try { if (localStorage.getItem("v13.17.ghFix")) return; localStorage.setItem("v13.17.ghFix", "1"); } catch { return; }
+    setTrades(v => v.filter(x => !(x.t === "GH" && x.in === "2026-10-30" && Math.abs((x.buy || 0) - (x.sell || 0)) < 1e-6)));
+  }, []);
   // 214. 한 번만 — 10/29 메리츠 잔고를 넣으며 종목풀에 더했던 장기 종목 중 다 판 것은 빼서 매일 수집 시간을 아낌 (보유·관심이면 그대로)
   useEffect(() => {
     try { if (localStorage.getItem("v13.16.extrasClean")) return; localStorage.setItem("v13.16.extrasClean", "1"); } catch { return; }
@@ -866,7 +871,8 @@ export default function App() {
   const [pos, setPos] = useState(() => { try { return JSON.parse(localStorage.getItem("v4.pos") || "[]"); } catch { return []; } });
   const [kisSync, setKisSync] = useState({});
   const [orderReq, setOrderReq] = useState(null);   // 210. 주문 창 — openOrder() 가 어디서든 엶
-  useEffect(() => { const f = (e) => setOrderReq(e.detail ? { ...e.detail, k: Date.now() } : null); window.addEventListener("order-open", f); return () => window.removeEventListener("order-open", f); }, []);      // 184. 한투 잔고·주문 (시장별) — 내 종목 '체결 반영'이 읽음
+  useEffect(() => { const f = (e) => setOrderReq(e.detail ? { ...e.detail, k: Date.now() } : null); window.addEventListener("order-open", f); return () => window.removeEventListener("order-open", f); }, []);
+  useEffect(() => { const f = () => { setChartOpen(false); setTab("track"); }; window.addEventListener("go-track", f); return () => window.removeEventListener("go-track", f); }, []);   // 221. 주문 창 '내 종목으로'       // 184. 한투 잔고·주문 (시장별) — 내 종목 '체결 반영'이 읽음
   useEffect(() => { localStorage.setItem("v4.watch", JSON.stringify(watch)); }, [watch]);
   useEffect(() => { localStorage.setItem("v4.pos", JSON.stringify(pos)); }, [pos]);
 
@@ -3162,6 +3168,10 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
       <input type="number" inputMode="numeric" value={v} onChange={e => set(Number(e.target.value) || 0)} style={{ ...inp("100%"), flex: 1 }} />
       <span style={{ fontSize: FS.xs, color: C.muted, width: 56, textAlign: "right" }}>{money(v, m)}</span>
     </label>);
+  // 220. 잘못 등록 추정: 오늘 등록 + (계좌 잔고를 불러왔다면) 잔고에 없음
+  const mistakeOf = (p) => { const d0 = kstDay(), reg = String(p.date || trOf(p)[0]?.d || "") === d0;
+    const loaded = Object.values(kisSync).some(k => k && Array.isArray(k.rows) && k.mk === mktOfT(p.t));
+    return reg && (!loaded || !kisQty[String(p.t).toUpperCase()]); };
   const Sheet = () => !sheet ? null : (
     <div onClick={(e) => { if (e.target === e.currentTarget) setSheet(null); }}
          style={{ position: "fixed", inset: 0, zIndex: 180, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
@@ -3183,12 +3193,19 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
           </>; })()
         : <input type="number" inputMode="decimal" autoFocus value={sheet.px} onChange={e => setSheet(v => ({ ...v, px: e.target.value }))}
           style={{ ...inp("100%"), marginTop: 10, fontSize: 18, padding: "10px 12px" }} aria-label="매도가" />}
+        {/* 220. 오늘 등록했고 계좌 잔고에도 없으면 — 잘못 등록일 가능성이 큼: '기록 없이 지우기'를 먼저 */}
+        {sheet.kind === "sell" && mistakeOf(sheet.p) && (
+          <div style={{ marginTop: 10, padding: "10px 12px", borderRadius: 10, background: "rgba(245,158,11,.10)", border: `1px solid ${C.gold}` }}>
+            <div style={{ fontSize: FS.sm, fontWeight: 700, color: C.gold }}>오늘 등록했고 {BK} 잔고에도 없는 종목입니다</div>
+            <div style={{ fontSize: FS.xs, color: C.dim, marginTop: 2 }}>실제로 산 게 아니라면 매도 기록을 남기지 말고 지우세요 — 기록이 남으면 성적에 섞입니다</div>
+            <button onClick={() => doClose(sheet.p, sheet.s, 0, false)} style={{ ...btn(C.gold), width: "100%", minHeight: 44, marginTop: 8 }}>잘못 등록 — 기록 없이 지우기</button>
+          </div>)}
         <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
           {sheet.kind === "sell"
-            ? <button onClick={() => doClose(sheet.p, sheet.s, sheet.px, true)} style={{ ...btn(C.red), minHeight: 44 }}>매도 기록하고 내 종목에서 빼기</button>
+            ? <button onClick={() => doClose(sheet.p, sheet.s, sheet.px, true)} style={{ ...btn(mistakeOf(sheet.p) ? C.dim : C.red), minHeight: 44 }}>{mistakeOf(sheet.p) ? "실제로 팔았음 — 매도 기록하고 빼기" : "매도 기록하고 내 종목에서 빼기"}</button>
             : <button onClick={() => doAdd(sheet.p, sheet.s, sheet.px, sheet.qty, sheet.d)} style={{ ...btn(C.emerald), minHeight: 44 }}>2회차 기록</button>}
           <button onClick={() => setSheet(null)} style={{ ...btn(C.dim), minHeight: 40 }}>취소 (아무것도 바꾸지 않음)</button>
-          {sheet.kind === "sell" && (
+          {sheet.kind === "sell" && !mistakeOf(sheet.p) && (
             <button onClick={() => { if (confirm("매도 기록 없이 이 종목을 내 종목에서 지울까요? (잘못 등록한 경우)")) doClose(sheet.p, sheet.s, 0, false); }}
               style={{ ...linkBtn, fontSize: FS.xs, color: C.muted, minHeight: 32 }}>잘못 등록한 종목이면 — 기록 없이 지우기</button>)}
         </div>
