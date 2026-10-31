@@ -120,6 +120,10 @@ export default async function handler(req, res) {
         content.excludes = req.body.excludes.map(t => String(t).slice(0, 12).toUpperCase()).filter(Boolean).slice(0, 200);
       if (Array.isArray(req.body.extras))            // 급히 넣는 종목 (다음 수집 때 종목풀에 포함)
         content.extras = req.body.extras.map(t => String(t).slice(0, 12).toUpperCase()).filter(Boolean).slice(0, 50);
+      if (req.body.broker && typeof req.body.broker === "object") {   // 234. 메리츠 잔고 요약 — 텔레그램·오늘 후보가 '메리츠에 없는 기록'을 빼고 봄
+        const b = req.body.broker, rows = (a) => (Array.isArray(a) ? a : []).slice(0, 100).map(x => [String((x || [])[0] || "").slice(0, 12).toUpperCase(), Math.max(0, Number((x || [])[1]) || 0)]).filter(x => x[0]);
+        content.broker = { d: String(b.d || "").slice(0, 10), ...(b.us ? { us: rows(b.us) } : {}), ...(b.kr ? { kr: rows(b.kr) } : {}) };
+      }
       if (Array.isArray(req.body.trades))            // 매매 기록 백업 (기기 분실 대비)
         content.trades = req.body.trades.slice(-300);
       content.updatedAt = new Date().toISOString();

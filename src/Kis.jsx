@@ -282,7 +282,7 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
           </div>) : null; })()}
       <div style={{ marginTop: 6, color: K.dim, fontSize: 11.5, lineHeight: 1.5 }}>
         {demo ? <>모의 체결은 내 종목 맨 위 '체결 반영'에서 한 번 눌러 넣습니다('모의' 표시).</>
-              : <>{BK}에서 체결된 매수·매도는 이 화면을 열 때 <b style={{ color: K.text }}>내 종목에 자동으로 반영</b>됩니다 (내 종목 = {BK} 잔고 기준). 반영하면 맨 위에 한 번 알려 드리고, 되돌릴 수 있습니다.</>}
+              : <>{BK}에서 체결된 매수·매도는 이 화면을 열 때 내 종목 맨 위에 <b style={{ color: K.text }}>'이렇게 반영할게요'</b>로 먼저 보여 드립니다 (내 종목 = {BK} 잔고 기준 · 11/8부터는 자동 반영 · 주문 창에서 체결된 건 바로 반영).</>}
       </div>
       {(needPin || !pin) && (
         <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>

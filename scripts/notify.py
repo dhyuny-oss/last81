@@ -136,6 +136,24 @@ def pick_oversold(stocks):
 
 
 # ══════════════════════════════════════════════════════════════
+def broker_miss(wl, today=None):
+    """234. 메리츠 잔고 요약에 없는 단기 보유 (scripts/build_snapshot.py broker_miss 와 같은 규칙)"""
+    import datetime as _dt
+    b = (wl or {}).get("broker") or {}
+    try:
+        age = ((today or _dt.date.today()) - _dt.date.fromisoformat(str(b.get("d") or ""))).days
+    except Exception:
+        return set()
+    if age > 4: return set()
+    out = set()
+    for p in (wl.get("positions") or []):
+        t = str(p.get("t", "")).upper(); m = "kr" if t.isdigit() else "us"
+        if (p.get("role") or "swing") != "swing" or m not in b: continue
+        tr = p.get("tr") or []
+        d0 = str((tr[0].get("d") if tr else None) or p.get("date") or "")
+        if t not in {str(x[0]).upper() for x in b[m]} and d0 < str(b.get("d")): out.add(t)
+    return out
+
 def build(snap, mkt, state, now):
     stocks = snap.get("stocks", {})
     judge  = mkt.get("judge", {})
@@ -147,6 +165,8 @@ def build(snap, mkt, state, now):
         wl = json.load(open(f"{DATA}/watchlist.json", encoding="utf-8"))
     except Exception:
         wl = {}
+    _miss = broker_miss(wl)                  # 234. 메리츠에 없는 기록 — 경고만 하고 아래 계산에서는 뺌
+    if _miss: wl = {**wl, "positions": [p for p in (wl.get("positions") or []) if str(p.get("t", "")).upper() not in _miss]}
     etfs   = snap.get("etfs", {})
 
     entry = pick_entry(stocks, judge)
@@ -186,8 +206,9 @@ def build(snap, mkt, state, now):
     for p in (wl.get("positions") or []):
         d = look(p.get("t"))
         if not d:   # 들고 있는데 데이터가 없음 → 거래정지·상장폐지·티커 변경 가능. 조용히 넘기지 않습니다
+            _a0 = sum(t.get("amt") or 0 for t in tr_of(p))         # 238. 합계는 앱처럼 넣은 돈 그대로 (평가는 모름 → 원금으로)
             mine.append((True, f"   ⚠️ <b>{p.get('t')}</b> 데이터 없음 — 거래정지·상장폐지·티커 변경 확인 필요",
-                         "kr" if str(p.get("t", "")).isdigit() else "us", 0, 0, 0))
+                         "kr" if str(p.get("t", "")).isdigit() else "us", _a0, _a0, 0))
             continue
         tr = tr_of(p); amt = sum(t.get("amt") or 0 for t in tr); sh = sum((t.get("amt") or 0) / t["px"] for t in tr)
         avg = (amt / sh) if sh else (tr[0]["px"] if tr else None)
@@ -230,9 +251,11 @@ def build(snap, mkt, state, now):
         if not d: continue
         if d.get("action") == "buy":
             buys.append(f"   {act_txt(d)} <b>{d.get('n') or t}</b> {price(d.get('c'), d.get('m'))} · RS {int(d.get('rs') or 0)}")
-    if mine or buys:
+    if mine or buys or _miss:
         L.append("")
         L.append("📁 <b>내 종목</b>")
+        if _miss:
+            L.append(f"  ⚠️ <b>메리츠 잔고에 없는 기록 {len(_miss)}개</b> ({' · '.join(sorted(_miss))}) — 이미 팔았거나 잘못 들어간 기록입니다. 앱 내 종목 맨 위에서 정리해 주세요 · 아래 계산에서는 뺐습니다")
         for mk, flag in (("us", "🇺🇸"), ("kr", "🇰🇷")):          # 69. 🇺🇸 먼저 · 시장별 소계 (달러는 달러, 원은 원)
             ms = [x for x in mine if x[2] == mk]
             if not ms: continue
@@ -323,7 +346,7 @@ def build(snap, mkt, state, now):
         for _m, _f, _n in (("us", "🇺🇸", int(_cfg.get("slotsUs") or 7)), ("kr", "🇰🇷", int(_cfg.get("slotsKr") or 5))):
             _h = sum(1 for q in (wl.get("positions") or []) if (q.get("role") or "swing") == "swing" and (str(q.get("t", "")).isdigit() == (_m == "kr")))
             _amt = _cfg.get("usAmt" if _m == "us" else "krAmt")
-            _note.append(f"{_f} 투자금 0" if _amt == 0 else (f"{_f} <b>칸이 다 참</b>({_h}/{_n})" if _h >= _n else f"{_f} 빈 칸 {_n - _h}/{_n}"))
+            _note.append(f"{_f} 투자금 0" if _amt == 0 else (f"{_f} ⚠️ <b>칸보다 많이 보유</b>({_h}/{_n}) — 앱 기록 확인" if _h > _n else f"{_f} <b>칸이 다 참</b>({_h}/{_n})" if _h >= _n else f"{_f} 빈 칸 {_n - _h}/{_n}"))
             _open[_m] = (_amt != 0) and _h < _n
             _freeN[_m] = max(0, _n - _h)
         # 176. 한국 시장 '위험'이면 한국은 새로 사지 않음 (앱 '오늘 살 것'·today.json 과 같은 규칙)
@@ -368,7 +391,7 @@ def build(snap, mkt, state, now):
             L.append(f"   … 외 {len(rows)-MAX_ROWS}종목")
         if _wait:
             L.append("   <i>대기(칸이 비면 이 순서): " + " · ".join(str(s.get("t") if s.get("m") == "us" else s.get("n")) for s in _wait) + "</i>")
-        if _hid > 0:
+        if _hid > 0 and rows:                 # 238. 칸이 없어 목록을 접었을 때는 겹치는 말을 하지 않음
             L.append(f"   <i>그 밖의 매수! {_hid}개는 보유·같은 업종·적자·매출 부진 등으로 뺐습니다 — 앱 찾기 탭</i>")
         L.append("<i>강세 = 추세 안 RSI 60↑ · 눌림 🇰🇷 = 추세 안 RSI 45 회복 · 추세 = ST 3개 초록+구름 위 · 매도! = 트레일링선 아래 마감</i>")
     else:
@@ -464,6 +487,8 @@ def build_weekly(snap, mkt, now):
     # 2 내 종목
     try: wl = json.load(open(f"{DATA}/watchlist.json", encoding="utf-8"))
     except Exception: wl = {}
+    _mw = broker_miss(wl)                    # 234
+    if _mw: wl = {**wl, "positions": [p for p in (wl.get("positions") or []) if str(p.get("t", "")).upper() not in _mw]}
     ps = wl.get("positions") or []
     sells = [p for p in ps if p.get("role") != "long" and (stocks.get(p["t"]) or {}).get("action") == "sell"]
     near = []
@@ -482,7 +507,7 @@ def build_weekly(snap, mkt, now):
     else:
         L.append(f"3️⃣ 실전 성적: 기록 {live.get('n', 0)}건 · 20거래일 뒤부터 집계 (대기 {live.get('pending', 0)})")
     dr = live.get("drift")
-    if dr and dr.get("flag"): L.append("   🚨 <b>규칙 재검토</b>: " + " · ".join(dr["reasons"]))
+    if dr and dr.get("flag"): L.append("   📊 앱 실적: " + " · ".join(dr["reasons"]) + " — 지켜보는 중 (점검 탭 앱 실적)")
     # 4 이번 주 신호 수
     try: log = json.load(open(f"{DATA}/signals_log.json", encoding="utf-8"))
     except Exception: log = []

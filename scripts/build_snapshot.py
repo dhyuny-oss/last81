@@ -685,9 +685,15 @@ REBAL_MONTHS = (1, 4, 7, 10)
 def _q(d):  return f"{d.year}Q{(d.month-1)//3 + 1}"
 
 def _next_rebal(d):
+    """다음 비중 점검일 = 그 달 첫 '거래일' (239: 예전엔 1일이라 1/1 휴장일이 그대로 나왔음 · 주말·고정 공휴일을 건너뜀)"""
+    def first_trading(y, m):
+        x = datetime(y, m, 1, tzinfo=timezone.utc)
+        while x.weekday() >= 5 or x.strftime("%m-%d") in ("01-01", "03-01", "05-05", "06-06", "08-15", "10-03", "10-09", "12-25"):
+            x += timedelta(days=1)
+        return x
     for m in REBAL_MONTHS:
-        if m > d.month: return datetime(d.year, m, 1, tzinfo=timezone.utc)
-    return datetime(d.year + 1, REBAL_MONTHS[0], 1, tzinfo=timezone.utc)
+        if m > d.month: return first_trading(d.year, m)
+    return first_trading(d.year + 1, REBAL_MONTHS[0])
 
 def build_alloc_state(holds, defense, secs, kretf=None):
     now = datetime.now(timezone.utc)
@@ -1221,6 +1227,26 @@ def write_picks_log(t, keep=400):
     _write(PICKS_LOG, log[-keep:])
     print(f"  📝 picks_log.json: {len(log[-keep:])}일 · 오늘 🇺🇸 살 것 {sum(1 for x in row['us'] if x['buy'])}/{len(row['us'])} · 🇰🇷 {sum(1 for x in row['kr'] if x['buy'])}/{len(row['kr'])}")
 
+def broker_miss(wl, today=None):
+    """234. 메리츠 잔고(앱이 저장한 요약)에 없는 단기 보유 — 이미 팔았거나 잘못 들어간 기록. 잔고 요약이 4일 넘게 묵었으면 판단 안 함.
+       잔고를 본 날 이후에 산 종목(그 사이 체결)은 빼지 않음 (앱 src/App.jsx brokerMiss 와 같은 규칙)"""
+    import datetime as _dt
+    b = (wl or {}).get("broker") or {}
+    d = str(b.get("d") or "")
+    try:
+        age = ((today or _dt.date.today()) - _dt.date.fromisoformat(d)).days
+    except Exception:
+        return set()
+    if age > 4: return set()
+    out = set()
+    for p in (wl.get("positions") or []):
+        t = str(p.get("t", "")).upper(); m = "kr" if t.isdigit() else "us"
+        if (p.get("role") or "swing") != "swing" or m not in b: continue
+        tr = p.get("tr") or []
+        d0 = str((tr[0].get("d") if tr else None) or p.get("date") or "")
+        if t not in {str(x[0]).upper() for x in b[m]} and d0 < d: out.add(t)
+    return out
+
 def build_today(stocks, market):
     idx = market.get("indices") or {}
     secrank = {x["tk"]: (x["rank"], x["label"]) for x in (market.get("sectors") or [])}
@@ -1228,6 +1254,8 @@ def build_today(stocks, market):
         wl = json.load(open(f"{OUT_DIR}/watchlist.json", encoding="utf-8"))
     except Exception:
         wl = {}
+    _miss = broker_miss(wl)                 # 234. 메리츠에 없는 기록은 보유·칸 계산에서 뺌
+    if _miss: wl = {**wl, "positions": [p for p in (wl.get("positions") or []) if str(p.get("t", "")).upper() not in _miss]}
     held = {str(p.get("t", "")).upper() for p in (wl.get("positions") or [])}
     cfg = wl.get("settings") or {}
     rev_min = float(cfg.get("revMin", REV_MIN)); slots_us = int(cfg.get("slotsUs") or 7); slots_kr = int(cfg.get("slotsKr") or 5)   # 168. 기본 = 권장 7·5 (src/picks.js SLOTS_DEFAULT)
@@ -1337,7 +1365,7 @@ def build_today(stocks, market):
             "market": {m: (market.get("judge") or {}).get(m, {}).get("verdict") for m in ("us", "kr")},
             "sectors": [{"tk": x["tk"], "label": x["label"], "rank": x["rank"], "score": x.get("score")} for x in (market.get("sectors") or [])[:6]],
             "cfg": {"revMin": rev_min, "slotsUs": slots_us, "slotsKr": slots_kr, "krGate": kr_gate},   # 197. 그림자 기록이 같은 설정으로 고르게
-            "candidates": cands, "pickUs": pick_us, "pickKr": pick_kr, "size": size, "slots": slots, "excluded": excluded[:30], "held": heldrows,
+            "candidates": cands, "pickUs": pick_us, "pickKr": pick_kr, "size": size, "slots": slots, "excluded": excluded[:30], "held": heldrows, "brokerMiss": sorted(_miss),
             "dips": dips[:8], "dc": {"hold3": [x["label"] for x in (h3.get("items") or [])]}}
 
 def _shift_days(iso, n):
