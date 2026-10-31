@@ -54,6 +54,7 @@ export default async function handler(req, res) {
     // GET - 관심종목 목록 조회
     if (req.method === "GET") {
       const { content } = await getFile();
+      res.setHeader("Cache-Control", "no-store");
       return res.status(200).json(content);
     }
 
@@ -65,6 +66,16 @@ export default async function handler(req, res) {
       if (positions.length > 100 || watch.length > 200)
         return res.status(400).json({ error: "목록이 너무 깁니다" });
       const { content, sha } = await getFile();
+      // ★ 228. 기기 간 덮어쓰기 막기 (2026-10-31 사고: 옛 기록이 남은 PC 가 열리자마자 폰의 보유 VEEV·WAT 를 9월 기록으로 덮어씀)
+      //   앱은 마지막으로 본 서버 저장 시각(base)을 같이 보냅니다. 서버가 그보다 새로우면(다른 기기가 먼저 바꿈) 받지 않고 409 —
+      //   앱이 서버 것을 받아 맞추거나, 사용자가 고르게 합니다. base 가 없는 예전 앱은 새로 고침을 안내합니다.
+      //   (깃허브 읽기가 몇 초 늦을 수 있어 '같다'가 아니라 '서버가 더 새롭다'일 때만 막습니다)
+      if (content.updatedAt && !req.body.force) {
+        const base = String(req.body.base || "");
+        if (!base) return res.status(409).json({ ok: false, error: "old_app", message: "앱이 예전 버전입니다 — 화면을 새로 고침(당겨서 새로 고침)해 주세요" });
+        if (Date.parse(content.updatedAt) > Date.parse(base))
+          return res.status(409).json({ ok: false, error: "stale", updatedAt: content.updatedAt, message: "다른 기기에서 먼저 바뀐 기록이 있습니다" });
+      }
       // ★ 회차(tr) 를 그대로 보존합니다 — 예전엔 avg 만 받아서 앱의 새 형식이 '평단 0' 으로 저장됐고,
       //   텔레그램·장중 감시가 2회차 조건과 손익을 계산하지 못했습니다 (2026-09-22 수정)
       const num = (x) => { const v = Number(x); return Number.isFinite(v) && v > 0 ? v : 0; };
@@ -114,7 +125,7 @@ export default async function handler(req, res) {
       content.updatedAt = new Date().toISOString();
       const ok = await saveFile(content, sha);
       return res.status(ok ? 200 : 500).json({
-        ok, message: ok ? `보유 ${content.positions.length} · 관심 ${content.watch.length} 저장됨` : "저장 실패" });
+        ok, updatedAt: ok ? content.updatedAt : undefined, message: ok ? `보유 ${content.positions.length} · 관심 ${content.watch.length} 저장됨` : "저장 실패 — 잠시 뒤 다시 보냅니다" });
     }
 
     // POST - 관심종목 추가

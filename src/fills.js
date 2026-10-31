@@ -26,7 +26,7 @@ export function planFills({ orders = [], rows = [], pos = [], applied = new Set(
   const groups = new Map();
   for (const o of orders) {
     if (!o || !(o.filled > 0) || applied.has(o.odno)) continue;
-    const t = norm(o.t), d = ymd(o.dt), key = `${t}|${o.side}|${d}`;
+    const t = norm(o.t), d = ymd(o.sess || o.dt), key = `${t}|${o.side}|${d}`;   // 🇺🇸 은 미국 장 날짜(sess) — 한국 날짜로 적으면 새벽 체결이 하루 늦게 기록됨
     const g = groups.get(key) || { key, t, n: o.n || "", side: o.side, d, qty: 0, cost: 0, odnos: [] };
     const fp = o.fpx > 0 ? o.fpx : o.px;
     g.qty += o.filled; g.cost += o.filled * fp; g.odnos.push(o.odno);

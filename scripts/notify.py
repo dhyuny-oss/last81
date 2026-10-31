@@ -205,7 +205,8 @@ def build(snap, mkt, state, now):
                 + (f" {pct(pl)}" if pl is not None else "")
                 + (f" · 트레일링선 {price(d.get('stLine'), d.get('m'))}" if d.get("stLine") else "") + tgt_part + earn_txt(d))
         # 2회차 조건: 1회차뿐이고 1회차 매수가 +3% 넘게 마감 · 느린ST 초록
-        if p.get("role") == "swing" and len(tr) == 1 and d.get("c") and d.get("stSlow") == 1 and tr[0]["px"] * 1.03 <= d["c"] <= tr[0]["px"] * 1.06:
+        _after = bool(tr) and (not tr[0].get("d") or str(d.get("asOf") or "") > str(tr[0].get("d"))[:10])   # 1회차를 산 뒤의 종가여야 함 (앱과 같음)
+        if p.get("role") == "swing" and len(tr) == 1 and d.get("c") and d.get("stSlow") == 1 and _after and tr[0]["px"] * 1.03 <= d["c"] <= tr[0]["px"] * 1.06:
             # 109. 투자금 한도 확인 — 이미 넣은 돈 + 2회차(= 1회차 금액)가 직투 금액을 넘으면 건너뜀 (앱과 같은 판정)
             _mk = d.get("m") or "us"; _cap = (wl.get("settings") or {}).get("usAmt" if _mk == "us" else "krAmt")
             _inv = sum(sum((t.get("amt") or 0) for t in tr_of(q)) for q in (wl.get("positions") or [])
@@ -273,7 +274,7 @@ def build(snap, mkt, state, now):
         L.append("")
         L.append(f"<i>{line}</i>")
 
-    # ── 2. DC(퇴직연금) — 미국 S&P500 35% + 코스피200 35% + 안전자산 30% ──
+    # ── 2. DC(퇴직연금) — 나스닥100 · S&P500 · 코스피200 각 23% + 안전자산 30% (230) ──
     #   각 몫은 느린 슈퍼트렌드(12,3) 초록일 때만 보유. 색이 바뀐 날은 🔔 로 따로 알립니다.
     # 99. 앱 DC 탭에서 고른 규칙 하나로만 알립니다 (예전엔 듀얼을 골라도 매일 느린ST 상태를 보내 화면과 반대로 보였음)
     # 182. 듀얼 모멘텀 → '3지수 그냥 보유'로 바뀜. 예전에 듀얼을 고른 사람은 3지수 보유로 봅니다.
@@ -317,13 +318,14 @@ def build(snap, mkt, state, now):
         L.append(head)
         # 109. 빈 칸 — 앱 '오늘 살 것'과 같은 계산 (칸 수 − 들고 있는 단기 종목 수). 칸이 차면 아래 목록은 참고
         _cfg = (wl.get("settings") or {})
-        _note, _open = [], {}
+        _note, _open, _freeN = [], {}, {}
         _held = {str(q.get("t", "")).upper() for q in (wl.get("positions") or [])}
         for _m, _f, _n in (("us", "🇺🇸", int(_cfg.get("slotsUs") or 7)), ("kr", "🇰🇷", int(_cfg.get("slotsKr") or 5))):
             _h = sum(1 for q in (wl.get("positions") or []) if (q.get("role") or "swing") == "swing" and (str(q.get("t", "")).isdigit() == (_m == "kr")))
             _amt = _cfg.get("usAmt" if _m == "us" else "krAmt")
             _note.append(f"{_f} 투자금 0" if _amt == 0 else (f"{_f} <b>칸이 다 참</b>({_h}/{_n})" if _h >= _n else f"{_f} 빈 칸 {_n - _h}/{_n}"))
             _open[_m] = (_amt != 0) and _h < _n
+            _freeN[_m] = max(0, _n - _h)
         # 176. 한국 시장 '위험'이면 한국은 새로 사지 않음 (앱 '오늘 살 것'·today.json 과 같은 규칙)
         _jk = ((mkt or {}).get("judge") or {}).get("kr") or {}
         if _jk.get("gate") and _jk.get("verdict") == "risk" and _open.get("kr"):
@@ -333,6 +335,24 @@ def build(snap, mkt, state, now):
         # 114. 이미 가진 종목은 빼고, 살 수 없는 시장(칸이 참 · 투자금 0)은 목록을 접습니다 (앱 '오늘 살 것'과 같게)
         rows = [s for s in entry if str(s["t"]).upper() not in _held and _open.get(s["m"])]
         _hid = len(entry) - len(rows)
+        # ★ 앱 '오늘 살 것'과 같은 목록 — 파이프라인이 확정한 today.json (업종 하나씩 · 적자·재무 없음·매출 부진·보유 제외 · 빈 칸만큼)
+        #   예전엔 매수! 전체를 강도 순으로 보여 줘서, 앱이 같은 업종이라 뺀 종목(XOM·CVX 등)이 텔레그램엔 '살 것'처럼 보였음
+        _wait = []
+        try:
+            _td = _fix_names(json.load(open(f"{DATA}/today.json", encoding="utf-8")))
+        except Exception:
+            _td = None
+        if _td and _td.get("pickUs") is not None:
+            _sl = _td.get("slots") or {}
+            _pk = []
+            for _m in ("us", "kr"):
+                if not _open.get(_m): continue
+                _lst = [stocks.get(r["t"]) for r in (_td.get("pickUs") if _m == "us" else (_td.get("pickKr") or [])) if stocks.get(r["t"]) and str(r["t"]).upper() not in _held]
+                _fr = _freeN.get(_m, len(_lst))          # 빈 칸 = 지금 보유 기준 (위 줄과 같은 수)
+                _pk += _lst[:_fr]; _wait += _lst[_fr:]
+            _hid = len(entry) - len(_pk) - len(_wait)
+            rows = _pk
+            L.append(f"🛒 <b>오늘 살 것 {len(rows)}</b> <i>(앱 '오늘 살 것'과 같은 목록)</i>")
         if not rows:
             L.append("   <i>지금 살 수 있는 칸이 없어 목록은 접었습니다 · 전체는 앱 찾기 탭</i>")
         for s in rows[:MAX_ROWS]:
@@ -346,8 +366,10 @@ def build(snap, mkt, state, now):
             L.append(f"   강도 {int(s.get('str') or 0)} · RS {int(s.get('rs') or 0)}{gap} · 하루 거래 {money(s.get('tv'), s['m'])}{fin}{earn_txt(s)}")
         if len(rows) > MAX_ROWS:
             L.append(f"   … 외 {len(rows)-MAX_ROWS}종목")
-        if rows and _hid:
-            L.append(f"   <i>보유 중이거나 칸이 없는 시장의 {_hid}종목은 뺐습니다</i>")
+        if _wait:
+            L.append("   <i>대기(칸이 비면 이 순서): " + " · ".join(str(s.get("t") if s.get("m") == "us" else s.get("n")) for s in _wait) + "</i>")
+        if _hid > 0:
+            L.append(f"   <i>그 밖의 매수! {_hid}개는 보유·같은 업종·적자·매출 부진 등으로 뺐습니다 — 앱 찾기 탭</i>")
         L.append("<i>강세 = 추세 안 RSI 60↑ · 눌림 🇰🇷 = 추세 안 RSI 45 회복 · 추세 = ST 3개 초록+구름 위 · 매도! = 트레일링선 아래 마감</i>")
     else:
         L.append("🔍 <b>매수! 없음</b> — 오늘은 살 것이 없습니다")
@@ -366,8 +388,7 @@ def build(snap, mkt, state, now):
         h3 = ((mkt.get("dc") or {}).get("hold3") or {})
         if cfg.get("dcMode") in ("hold", "dual") and cfg.get("dcAmt") and h3.get("items") and now.month == 1 and _first_trading_day(now):
             total = float(cfg["dcAmt"]); hold = h3["items"]
-            semi = cfg.get("dcSemi") and ((mkt.get("dc") or {}).get("semi") or {}).get("state") == "hold"
-            share = 0.10 if semi else 0.0; riskw = 0.70 - share
+            semi = False; share = 0.0; riskw = 0.70          # 225. 반도체 고정 칸은 뺐음
             L.append(""); L.append(f"🏦 <b>DC 1년에 한 번 비중 맞춤</b> (총 {money(total, 'kr')} · 오늘 이 금액대로 맞추면 됩니다)")
             for c in hold:
                 L.append(f"   {(c.get('buy') or {}).get('code', '—')} {(c.get('buy') or {}).get('name') or c['label']} · {money(total * riskw / 3, 'kr')}")

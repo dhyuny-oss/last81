@@ -20,7 +20,7 @@ async def run(p,name,positions,plan):
         await route.fulfill(status=200,content_type="application/json",body=json.dumps(base))
     await ctx.route("**/api/**",lambda r:r.fulfill(status=200,content_type="application/json",body='{"ok":false}'))
     await ctx.route("**/api/broker",kis)
-    await ctx.add_init_script("(()=>{const d=new Date(Date.now()+9*3600000);const dow=d.getUTCDay();const sat=new Date(d);sat.setUTCDate(d.getUTCDate()-((dow+1)%%7));localStorage.setItem('v7.rules.wk',sat.toISOString().slice(0,10));localStorage.setItem('v7.kis.pin','1234');localStorage.setItem('v4.pos',%s);localStorage.setItem('v11.plan',%s);localStorage.setItem('v9.revMin','10');})()"%(json.dumps(json.dumps(positions)),json.dumps(json.dumps(plan))))
+    await ctx.add_init_script("(()=>{const d=new Date(Date.now()+9*3600000);const dow=d.getUTCDay();const sat=new Date(d);sat.setUTCDate(d.getUTCDate()-((dow+1)%%7));localStorage.setItem('v7.rules.wk',sat.toISOString().slice(0,10));localStorage.setItem('v7.kis.pin','1234');localStorage.setItem('v4.pos',%s);localStorage.setItem('v11.plan',%s);localStorage.setItem('v9.revMin','10');localStorage.setItem('v13.syncBase','2099-01-01T00:00:00.000Z');})()"%(json.dumps(json.dumps(positions)),json.dumps(json.dumps(plan))))
     pg=await ctx.new_page(); errs=[]; pg.on("pageerror",lambda e: errs.append(str(e)))
     await pg.goto("http://localhost:4228/"); await pg.wait_for_timeout(3500)
     t=await pg.inner_text("body")
@@ -34,6 +34,8 @@ async def run(p,name,positions,plan):
     head=re.search(r"(빈 칸 \d+ / \d+칸|칸이 다 참[^\n]*|투자금[^\n]*)",us)
     await pg.locator("nav button",has_text="내 종목").first.click(); await pg.wait_for_timeout(1500)
     await pg.get_by_role("button",name=re.compile("불러오기")).first.click(); await pg.wait_for_timeout(4000)
+    sm=pg.locator("summary",has_text="오늘 매수 제안")          # 계좌 카드의 매수 제안은 접혀 있음 (오늘 탭 5번과 같은 목록)
+    if await sm.count(): await sm.first.click(); await pg.wait_for_timeout(300)
     t=await pg.inner_text("body"); j=t.find("오늘 살 것",t.find("🏦 ")); e=t.find("매수",j)     # 계좌 카드(증권사 이름은 바뀔 수 있음)
     chips=re.findall(r"\b[A-Z]{1,5}\b",t[j+6:e]) if j>0 else []
     cards=[]
