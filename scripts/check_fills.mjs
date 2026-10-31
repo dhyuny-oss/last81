@@ -42,4 +42,16 @@ ok("NET 빠지고 매매 기록 1건 (손익 −8.8%)", !P("NET") && a.trades.le
 ok("VEEV 그대로 (일부 매도는 손으로)", P("VEEV")?.tr.length === 1);
 ok("CTAS 회차 2개 (1회차 213 → 2회차 220)", P("CTAS")?.tr.map((t) => t.px).join(",") === "213,220");
 ok("원래 배열은 바뀌지 않음", pos.length === 3 && pos[0].tr.length === 1);
+// 2026-10-31 사고: 앱을 열지 않은 사이 산 뒤 판 종목(AMD 등)이 '산 것'만 반영돼 유령 보유가 생김
+const rt = [
+  { odno: "a1", dt: "20261027", sess: "20261027", side: "buy", t: "AMD", filled: 3, fpx: 561.66, px: 562, open: 0, qty: 3 },
+  { odno: "a2", dt: "20261030", sess: "20261029", side: "sell", t: "AMD", filled: 3, fpx: 540, px: 540, open: 0, qty: 3 },
+  { odno: "b1", dt: "20261031", sess: "20261030", side: "buy", t: "KDP", filled: 50, fpx: 35.1, px: 35.2, open: 0, qty: 50 },
+];
+const q1 = planFills({ orders: rt, rows: [{ t: "KDP", qty: 50 }], pos: [] });
+const a1 = applyFills([], q1.items.filter((i) => i.kind !== "partial"), { mOf: () => "us" });
+ok("같은 묶음에서 산 뒤 다 판 AMD 는 보유로 남지 않고 매매 기록 1건", !a1.pos.some((p) => p.t === "AMD") && a1.trades.length === 1 && a1.trades[0].t === "AMD", JSON.stringify(a1));
+ok("미국 체결 날짜 = 미국 장 날짜(sess)", a1.pos.find((p) => p.t === "KDP")?.tr[0].d === "2026-10-30");
+const q2 = planFills({ orders: rt, rows: [{ t: "KDP", qty: 50 }], pos: [], from: "2026-10-30" });
+ok("from 이전 체결(AMD)은 반영하지 않고 지난 거래로 넘김", q2.items.map((i) => i.t).join(",") === "KDP" && q2.old.includes("a1") && q2.old.includes("a2") && q2.dup.includes("a1"), JSON.stringify(q2));
 process.exit(bad ? 1 : 0);

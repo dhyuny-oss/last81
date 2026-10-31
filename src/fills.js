@@ -21,7 +21,8 @@ const dayDiff = (a, b) => Math.abs((Date.parse(a) - Date.parse(b)) / 86400000);
 const sharesOf = (p) => (Array.isArray(p.tr) && p.tr.length ? p.tr : [{ px: p.avg, amt: p.amt || 0 }])
   .reduce((s, t) => s + (t.px > 0 ? (t.amt || 0) / t.px : 0), 0);
 
-export function planFills({ orders = [], rows = [], pos = [], applied = new Set(), ignored = new Set() } = {}) {
+export function planFills({ orders = [], rows = [], pos = [], applied = new Set(), ignored = new Set(), from = "" } = {}) {
+  // from = 이 날짜(YYYY-MM-DD) 전 체결은 반영하지 않고 '지난 거래'로 넘김 — 자동 반영을 켜기 전 기록을 다시 끌어오지 않게 (2026-10-31 사고)
   // 같은 날 · 같은 종목 · 같은 방향 체결은 하나로 (평균 체결가)
   const groups = new Map();
   for (const o of orders) {
@@ -32,11 +33,13 @@ export function planFills({ orders = [], rows = [], pos = [], applied = new Set(
     g.qty += o.filled; g.cost += o.filled * fp; g.odnos.push(o.odno);
     groups.set(key, g);
   }
-  const items = [], dup = [];
+  const items = [], dup = [], old = [];
   // 날짜 순으로 처리해야 '1회차 → 2회차'가 맞게 붙음
   const list = [...groups.values()].sort((a, b) => a.d.localeCompare(b.d) || (a.side === "buy" ? -1 : 1));
   const planned = new Map();             // 이번 묶음 안에서 생길 새 보유 (t → 회차 수)
+  const plannedSh = new Map();           // 이번 묶음 안에서 생길 새 보유의 주수 (t → 주수) — 같은 묶음에서 산 뒤 판 것도 정리되게
   for (const g of list) {
+    if (from && g.d < from) { old.push(...g.odnos); continue; }
     const px = g.qty > 0 ? g.cost / g.qty : 0;
     const p = pos.find((x) => norm(x.t) === g.t);
     const tr = p ? (Array.isArray(p.tr) && p.tr.length ? p.tr : [{ d: p.date, px: p.avg, amt: p.amt || 0 }]) : [];
@@ -46,21 +49,27 @@ export function planFills({ orders = [], rows = [], pos = [], applied = new Set(
       if (p && tr.some((x) => x.d && dayDiff(x.d, g.d) <= 1)) { dup.push(...g.odnos); continue; }
       const k = p ? tr.length : (planned.get(g.t) || 0);
       const kind = k === 0 ? "new" : k === 1 ? "t2" : "add";
-      planned.set(g.t, k + 1);
+      planned.set(g.t, k + 1); if (!p) plannedSh.set(g.t, (plannedSh.get(g.t) || 0) + g.qty);
       items.push({ ...base, kind, label: kind === "new" ? "새 보유 · 1회차" : kind === "t2" ? "기존 보유 · 2회차" : "기존 보유 · 추가 매수" });
     } else {
+      if (!p && plannedSh.get(g.t)) {                                // 같은 묶음 안에서 새로 산 종목을 판 것 → 그것까지 정리
+        const sh0 = plannedSh.get(g.t), full0 = g.qty >= sh0 * 0.9;
+        items.push({ ...base, kind: full0 ? "close" : "partial", label: full0 ? "보유 정리 · 매매 기록에 추가" : `일부 매도(${g.qty} / 약 ${Math.round(sh0)}주) — 카드에서 직접 고쳐 주세요` });
+        if (full0) { plannedSh.delete(g.t); planned.delete(g.t); }
+        continue;
+      }
       if (!p) { dup.push(...g.odnos); continue; }                    // 앱에 없는 종목을 판 것 — 반영할 게 없음
       const sh = sharesOf(p);
       const full = sh <= 0 || g.qty >= sh * 0.9;
       items.push({ ...base, kind: full ? "close" : "partial", label: full ? "보유 정리 · 매매 기록에 추가" : `일부 매도(${g.qty} / 약 ${Math.round(sh)}주) — 카드에서 직접 고쳐 주세요` });
     }
   }
-  const have = new Set([...pos.map((x) => norm(x.t)), ...items.filter((i) => i.side === "buy").map((i) => i.t)]);
+  const have = new Set([...pos.map((x) => norm(x.t)), ...[...plannedSh.keys()]]);
   const extra = rows.filter((r) => r && r.qty > 0 && !have.has(norm(r.t)) && !ignored.has(norm(r.t)))
     .map((r) => ({ t: norm(r.t), n: r.n || "", qty: r.qty, avg: r.avg }));
   const waiting = orders.filter((o) => o && o.side === "buy" && o.open > 0 && !(o.state || "").includes("취소") && !(o.state || "").includes("거부"))
     .map((o) => ({ t: norm(o.t), n: o.n || "", qty: o.qty, open: o.open, px: o.px, d: ymd(o.dt), odno: o.odno }));
-  return { items, dup, extra, waiting };
+  return { items, dup: [...dup, ...old], old, extra, waiting };
 }
 
 /** 반영 — 새 내 종목 배열과 매매 기록 추가분을 돌려줍니다 (화면 상태는 부르는 쪽이 바꿈) */
