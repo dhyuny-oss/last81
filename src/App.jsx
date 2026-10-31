@@ -19,7 +19,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot,
 } from "recharts";
 
-export const APP_VERSION = "v13.18.0";
+export const APP_VERSION = "v13.19.0";
 
 /** 135. 수집 데이터에 남아 있던 "&amp;" 를 "&" 로 (예: Procter &amp; Gamble). 파이프라인이 고친 뒤에는 할 일이 없어 그냥 지나갑니다 */
 const getJson = (url) => fetch(url).then(r => r.ok ? r.text().then(t => JSON.parse(t.includes("&amp;") ? t.replace(/&amp;/g, "&") : t)) : null);
@@ -608,6 +608,7 @@ const EarnTag = ({ s, within = 14 }) => { const t = earnTxt(s, within); if (!t) 
 const settingsChanged = () => { try { window.dispatchEvent(new Event("v11:settings")); } catch {} };
 
 /* ── 228. 서버(watchlist.json) 동기화 도구 ── */
+const AUTO_FROM = "2026-10-31";        // 메리츠 체결 자동 반영은 이 날(미국 장 날짜) 이후 체결만 — 그 전 거래는 이미 정리한 기록
 const SYNC_BASE = "v13.syncBase";      // 이 기기가 마지막으로 본 서버 저장 시각
 const LOCAL_BAK = "v13.localBak";      // 서버 기록으로 맞추기 전 이 기기 기록 (되살리기용)
 /** 기록 내용 지문 — 서버가 값을 다듬어 저장해도(평단 반올림·id 없음) 같은 내용이면 같은 값 */
@@ -3153,7 +3154,7 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
   const saveSet = (k, set) => { try { localStorage.setItem(k, JSON.stringify([...set].slice(-500))); } catch {} };
   const fillPlan = useMemo(() => ["us", "kr"].map(m => {
     const k = kisSync[m]; if (!k) return null;
-    return { m, env: k.env, broker: k.broker, ...planFills({ orders: k.orders, rows: k.rows, pos: pos.filter(p => mktOfT(p.t) === m), applied, ignored }) };
+    return { m, env: k.env, broker: k.broker, ...planFills({ orders: k.orders, rows: k.rows, pos: pos.filter(p => mktOfT(p.t) === m), applied, ignored, from: k.env === "real" ? AUTO_FROM : "" }) };
   }).filter(Boolean), [kisSync, pos, applied, ignored]);
   useEffect(() => {      // 손으로 이미 기록한 체결은 조용히 '반영됨' 처리
     const d = fillPlan.flatMap(x => x.dup).filter(o => !applied.has(o));
@@ -3356,6 +3357,22 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
             <button onClick={() => { setPos(autoNote.undo.pos); setTrades(autoNote.undo.trades); setAutoNote(null); }} style={{ ...btn(C.dim), flex: 1, minHeight: 38 }}>되돌리기</button>
           </div>
         </div>)}
+      {(() => {   /* 메리츠(실계좌) 잔고에 없는 단기 종목 — 이미 팔았거나 잘못 들어간 기록. 메리츠가 기준이라 한 번에 정리 */
+        const miss = Object.values(kisSync).filter(k => k && k.env === "real" && Array.isArray(k.rows))
+          .flatMap(k => pos.filter(p => (p.role || "swing") === "swing" && mktOfT(p.t) === k.mk && !kisQty[String(p.t).toUpperCase().replace("/", "-")]));
+        if (!miss.length) return null;
+        return (
+          <div role="alert" style={{ marginTop: 8, padding: "10px 12px", borderRadius: 12, background: "rgba(245,158,11,.10)", border: `1px solid ${C.gold}88` }}>
+            <div style={{ fontSize: FS.sm, fontWeight: 800, color: C.gold }}>⚠ {BK} 잔고에 없는 단기 종목 {miss.length}개</div>
+            <div style={{ fontSize: FS.xs, color: C.dim, marginTop: 2, lineHeight: 1.5 }}>{miss.map(p => mktOfT(p.t) === "kr" ? (stocks[p.t]?.n || p.t) : p.t).join(" · ")} — 이미 팔았거나 잘못 들어간 기록입니다. 남아 있으면 칸 수·매도 알림·텔레그램이 틀어집니다.</div>
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <button onClick={() => { if (!confirm(`${miss.map(p => p.t).join(", ")}\n\n${BK} 잔고에 없는 이 ${miss.length}종목을 매매 기록 없이 내 종목에서 뺄까요?`)) return;
+                                       const ids = new Set(miss.map(p => p.id)); setPos(v => v.filter(p => !ids.has(p.id))); }}
+                style={{ ...btn(C.gold), flex: 1, minHeight: 40 }}>{BK} 기준으로 정리 (기록 없이 빼기)</button>
+            </div>
+            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6 }}>실제로 팔아서 성적에 남기고 싶은 종목은 먼저 그 카드의 ×에서 매도가를 넣어 주세요</div>
+          </div>);
+      })()}
       {pendingN > 0 && (    /* 184. 한투 체결이 내 종목에 아직 없음 */
         <button onClick={() => setFillOpen(true)} style={{ display: "block", width: "100%", textAlign: "left", marginTop: 8, padding: "10px 12px", borderRadius: 12, cursor: "pointer",
                  background: "rgba(245,158,11,.10)", border: `1px solid ${C.gold}66`, color: C.text }}>
