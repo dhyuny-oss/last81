@@ -27,7 +27,7 @@ const getJson = (url) => fetch(url).then(r => r.ok ? r.text().then(t => JSON.par
 /* ★ 한투 (1/2) — 증권사 계좌 카드(조회 · 매수 제안 · 주문 · 기본 메리츠, BROKER 환경변수로 바꿈). 빼려면: 이 두 줄 + 아래 "★ 한투 (2/2)" 한 줄 + src/Kis.jsx + api/broker.js + api/_lib/ */
 const KisPanel = React.lazy(() => import("./Kis.jsx"));
 const OrderSheet = React.lazy(() => import("./OrderSheet.jsx"));      // 210. 주문 창 하나
-import { openOrder } from "./order.js";
+import { openOrder, nextOpen } from "./order.js";
 import { AboutCard, AboutLine, SchedLine, WeekSched, pastEarnTxt } from "./Info.jsx";
 
 /* ★ 연습 (1/2) — 고르기 연습 입구. 빼려면: 이 블록 + 아래 "★ 연습 (2/2)" 한 줄 + src/Practice.jsx + public/data/practice.json 삭제 */
@@ -380,10 +380,12 @@ const nextTrancheOf = (p, s, limit) => {   // 2회차 조건: 1회차 +3% ~ +6% 
   const tr = trOf(p); if (tr.length >= 2 || !s?.c) return null;   // (+6% 넘게 오른 날은 추격 금지 — 검증과 같은 밴드)
   const target = tr[0].px * 1.03, cap = tr[0].px * 1.06;
   const gain = (s.c / tr[0].px - 1) * 100;
-  const chase = s.c > cap;
+  // ★ 1회차를 산 뒤의 종가여야 함 — 산 날 밤 데이터가 아직 그 전날 종가면 '+3% 마감'을 확인한 게 아님 (검증도 매수 다음 종가부터)
+  const after = !s.asOf || !tr[0].d || String(s.asOf) > String(tr[0].d).slice(0, 10);
+  const chase = after && s.c > cap;
   // 103. 2회차 금액 = 1회차에 넣은 금액 (투자금을 나중에 바꿔도 '나머지 절반'이 1회차와 같게). 1회차 금액이 없으면 지금 한도의 절반
   const amt = tr[0].amt > 0 ? tr[0].amt : limit * 0.5;
-  return { target, cap, gain, chase, ok: s.c >= target && !chase && s.stSlow === 1, amt, pctToGo: (target / s.c - 1) * 100 };
+  return { target, cap, gain, chase, after, ok: after && s.c >= target && !chase && s.stSlow === 1, amt, pctToGo: (target / s.c - 1) * 100 };
 };
 
 /* ══════════════ 행동 표기 — 앱 전체·텔레그램·감시 스크립트가 같은 말을 씁니다 ══════════════
@@ -1144,7 +1146,10 @@ export default function App() {
     if (base && w.updatedAt && Date.parse(w.updatedAt) <= Date.parse(base)) return;   // 새로 바뀐 것 없음 (늦게 읽힌 옛 값도 무시)
     if (syncFp(here) === syncFp(w)) { if (w.updatedAt) localStorage.setItem(SYNC_BASE, w.updatedAt); return; }   // 내용이 같음
     const empty = (pos || []).length + (watch || []).length === 0;
-    if (empty || !unsynced) { adopt(w, empty ? "이 기기에 기록이 없어 서버에 저장된 기록을 불러왔습니다" : "다른 기기에서 바뀐 기록으로 맞췄습니다"); return; }
+    if (empty) { adopt(w, "이 기기에 기록이 없어 서버에 저장된 기록을 불러왔습니다"); return; }
+    // 처음(이 기능이 생기기 전 기기) — 어느 쪽이 최근인지 알 수 없어 고르게 함. 10/31 처럼 옛 PC 기록이 서버에 올라가 있을 수 있음
+    if (!base) { setConflict({ ...w, first: true }); return; }
+    if (!unsynced) { adopt(w, "다른 기기에서 바뀐 기록으로 맞췄습니다"); return; }
     setConflict(w);                                                               // 둘 다 바뀜 → 고르게 함
     if (!first) setSyncNote(null);
   };
@@ -1216,19 +1221,19 @@ export default function App() {
       {conflict && (     /* 228. 이 기기와 다른 기기가 둘 다 바뀜 — 자동으로 덮어쓰지 않고 고르게 함 */
         <div role="alertdialog" aria-label="기록 고르기" style={{ position: "fixed", inset: 0, zIndex: 700, background: "rgba(0,0,0,.65)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
           <div style={{ background: C.panel, width: "100%", maxWidth: 560, borderRadius: "16px 16px 0 0", padding: "16px 16px calc(18px + env(safe-area-inset-bottom))", borderTop: `2px solid ${C.gold}` }}>
-            <div style={{ fontSize: 16, fontWeight: 800, color: C.gold }}>다른 기기에서도 기록이 바뀌었습니다</div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: C.gold }}>{conflict.first ? "이 기기와 서버 기록이 다릅니다 (처음 한 번)" : "다른 기기에서도 기록이 바뀌었습니다"}</div>
             <div style={{ fontSize: FS.sm, color: C.dim, marginTop: 6, lineHeight: 1.6 }}>
-              어느 쪽 기록을 쓸지 골라 주세요. 고르기 전에는 아무것도 올리지 않습니다.</div>
-            {[["다른 기기 (서버)", conflict.positions || [], conflict.watch || [], (conflict.trades || []).length, conflict.updatedAt],
+              {conflict.first ? "실제 보유(메리츠)와 맞는 쪽을 골라 주세요. 한 번 고르면 다음부터는 기기끼리 자동으로 맞춥니다. " : "어느 쪽 기록을 쓸지 골라 주세요. "}고르기 전에는 아무것도 올리지 않습니다.</div>
+            {[[conflict.first ? "서버" : "다른 기기 (서버)", conflict.positions || [], conflict.watch || [], (conflict.trades || []).length, conflict.updatedAt],
               ["이 기기", pos, watch, (trades || []).length, null]].map(([k, ps, w, tn, at]) => (
               <div key={k} style={{ marginTop: 8, padding: "8px 10px", borderRadius: 10, background: "rgba(255,255,255,.04)", border: `1px solid ${C.border}`, fontSize: FS.sm, lineHeight: 1.5 }}>
                 <b>{k}</b>{at ? <span style={{ color: C.muted, fontSize: FS.xs }}> · {new Date(at).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} 저장</span> : null}
                 <div style={{ color: C.dim, fontSize: FS.xs }}>보유 {ps.length}{ps.length ? ` (${ps.slice(0, 6).map(p => p.t).join(" · ")}${ps.length > 6 ? " …" : ""})` : ""} · 관심 {w.length}{w.length ? ` (${w.slice(0, 5).join(" · ")}${w.length > 5 ? " …" : ""})` : ""} · 매매 기록 {tn}건</div>
               </div>))}
-            <button onClick={() => adopt(conflict, "다른 기기 기록으로 맞췄습니다")} style={{ ...btn(C.emerald), width: "100%", minHeight: 46, marginTop: 10 }}>다른 기기 기록 쓰기 (권장)</button>
+            <button onClick={() => adopt(conflict, "서버 기록으로 맞췄습니다")} style={{ ...btn(conflict.first ? C.cyan : C.emerald), width: "100%", minHeight: 46, marginTop: 10 }}>{conflict.first ? "서버 기록 쓰기" : "다른 기기 기록 쓰기 (권장)"}</button>
             <button onClick={() => { if (!confirm("이 기기 기록으로 서버를 덮어씁니다. 다른 기기에서 바꾼 내용은 사라집니다. 진행할까요?")) return;
                                      if (conflict.updatedAt) localStorage.setItem(SYNC_BASE, conflict.updatedAt); localStorage.removeItem("v11.syncKey"); setConflict(null); }}
-              style={{ ...btn(C.dim), width: "100%", minHeight: 42, marginTop: 8 }}>이 기기 기록으로 덮어쓰기</button>
+              style={{ ...btn(conflict.first ? C.cyan : C.dim), width: "100%", minHeight: conflict.first ? 46 : 42, marginTop: 8 }}>{conflict.first ? "이 기기 기록 쓰기 (서버를 이걸로 바꿈)" : "이 기기 기록으로 덮어쓰기"}</button>
           </div>
         </div>)}
       {chartOpen && sel && (
@@ -2385,7 +2390,8 @@ function TodayPicks({ today, stocks, sizer, openStock, pos, staleInfo, market, a
         <span style={{ fontSize: FS.xs, color: C.muted }}>{(() => { const a = asOfOf(stocks, "us"), b = asOfOf(stocks, "kr");
           return a && b && a !== b ? `🇺🇸 ${md(a)} · 🇰🇷 ${md(b)}` : md(a || b || today?.asOf) || "—"; })()} 종가 기준 · 매수! 🇺🇸 {nUs} · 🇰🇷 {candNew.length - nUs} 중에서</span>
       </div>
-      <StaleWarn info={staleInfo} />
+      {/* 한국은 시장 위험이거나 살 것이 없으면 한국 데이터가 늦어도 경고하지 않음 (미국 목록까지 늦은 것처럼 보였음) */}
+      {!cfg.krGate && loc.pickKr.length ? <StaleWarn info={staleInfo} /> : <StaleWarn info={staleInfo} m="us" />}
       {differs && <div style={{ fontSize: 10.5, color: C.gold, marginTop: 6, lineHeight: 1.5 }}>
         ⚙ 지금 설정(🇺🇸 {cfg.slotsUs}칸 · 🇰🇷 {cfg.slotsKr}칸 · 매출 {cfg.revMin > 0 ? `+${cfg.revMin}%` : "필터 끔"})이나 보유가 바뀌어 앱이 다시 골랐습니다. 텔레그램·AI 도구는 다음 갱신 때 같아집니다</div>}
       <Section m="us" flag="🇺🇸" name="미국" picks={loc.pickUs} />
@@ -3412,7 +3418,8 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
           const shApp = Math.round(tr.reduce((a, t) => a + (t.px > 0 ? (t.amt || 0) / t.px : 0), 0));
           const sh = shApp, shSell = kq?.qty || shApp;
           const kisBtn = !!broker?.canOrder;                      // 주문이 열린 계좌일 때만 (보유 수량은 서버가 다시 확인)
-          const when = s.m === "us" ? `오늘 밤 ${usDST(Date.now()) ? "22:30" : "23:30"} 개장 때` : "다음 거래일 09:30 이후";
+          const when = (() => { const o = nextOpen(s.m === "kr"), md0 = o.label.split(" ")[0];     // 주말·휴장일이면 '오늘 밤'이 아니라 그 날짜
+            return s.m === "us" ? `${o.d === kstDay() ? "오늘" : md0} 밤 ${usDST(Date.now()) ? "22:30" : "23:30"} 개장 때` : `${o.d === kstDay() ? "오늘" : md0} 09:30 이후`; })();
           const room = nxt?.ok ? roomFor(pos, sizer, s.m, nxt.amt) : false;
           const q2 = nxt ? Math.floor(nxt.amt / s.c) : 0;
           // 184. '다음 할 일' 한 줄 — 상태 하나 · 행동 하나
@@ -3421,7 +3428,7 @@ function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, 
             : nxt?.ok && room ? { c: C.emerald, k: "2회차", v: `${when} 2회차 ${q2 > 0 ? `${q2}주` : "1주"} · ~${price(s.c * 1.005, s.m)}`, sub: `1회차 대비 ${pct(nxt.gain, 1)} 마감 (조건 +3~6% · 느린ST 초록) · ${money(nxt.amt, s.m)}`, act: "t2" }
             : nxt?.ok ? { c: C.gold, k: "2회차 건너뜀", v: "투자금 한도를 넘어 2회차는 건너뜁니다", sub: `직투 ${money(budgetOf(sizer, s.m), s.m)} 중 ${money(investedIn(pos, s.m), s.m)} 투입 · 2회차 ${money(nxt.amt, s.m)}` }
             : nxt?.chase ? { c: C.gold, k: "기다리기", v: `2회차 추격 금지 — 1회차 대비 ${pct(nxt.gain, 1)}`, sub: `+6%를 넘었습니다. 눌렸다 +3~6% 안에 다시 들어오면 2회차 · ${price(s.stLine, s.m)} 아래로 마감하면 매도` }
-            : nxt ? { c: C.muted, k: "다음 할 일", v: "없음 — 기다리기", sub: `${price(nxt.target, s.m)} 위로 마감하면 2회차 (${nxt.pctToGo.toFixed(1)}% 남음${s.stSlow !== 1 ? " · 느린ST 초록이어야" : ""}) · ${s.stLine ? `${price(s.stLine, s.m)} 아래로 마감하면 매도` : "트레일링선 없음"}` }
+            : nxt ? { c: C.muted, k: "다음 할 일", v: "없음 — 기다리기", sub: `${!nxt.after ? `산 뒤 첫 종가부터 판단 · ${price(nxt.target, s.m)}~${price(nxt.cap, s.m)}(+3~6%)로 마감하면 2회차` : `${price(nxt.target, s.m)} 위로 마감하면 2회차 (${nxt.pctToGo.toFixed(1)}% 남음${s.stSlow !== 1 ? " · 느린ST 초록이어야" : ""})`} · ${s.stLine ? `${price(s.stLine, s.m)} 아래로 마감하면 매도` : "트레일링선 없음"}` }
             : { c: C.muted, k: "다음 할 일", v: "없음 — 기다리기", sub: s.stLine ? `${price(s.stLine, s.m)} 아래로 마감하면 매도 (선까지 ${lossTxt(s)})` : "트레일링선 없음" };
           return (
             <Card key={p.id} style={{ marginBottom: 8, borderColor: isSell ? "rgba(255,69,58,.5)" : N.act === "t2" ? "rgba(48,209,88,.45)" : C.border }}>

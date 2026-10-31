@@ -156,7 +156,7 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
         const st = /거부|거절/.test(x.state || "") ? "거부" : x.filled >= x.qty && x.qty > 0 ? "체결" : x.filled > 0 ? "일부 체결" : x.open > 0 ? "접수 — 대기 중" : x.state || "확인 중";
         setDone((d) => d && { ...d, st, fpx: x.fpx || 0, filled: x.filled || 0 });
         // 228. 다 체결되면 내 종목에 바로 반영 (내 종목 탭을 열기 전에도 오늘 탭 칸 수·'살 것'이 맞도록)
-        if (st === "체결" && info?.env === "real") { try { window.dispatchEvent(new CustomEvent("order-filled", { detail: { odno: x.odno, dt: x.dt, side: x.side, t: x.t, n: x.n, filled: x.filled, fpx: x.fpx, px: x.px, mk } })); } catch {} }
+        if (st === "체결" && info?.env === "real") { try { window.dispatchEvent(new CustomEvent("order-filled", { detail: { odno: x.odno, dt: x.dt, sess: x.sess, side: x.side, t: x.t, n: x.n, filled: x.filled, fpx: x.fpx, px: x.px, mk } })); } catch {} }
         if (st === "체결" || st === "거부") break;
       } catch { /* 다음에 */ }
     }

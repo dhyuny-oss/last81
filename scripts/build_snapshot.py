@@ -1317,7 +1317,8 @@ def build_today(stocks, market):
         t2 = None
         if p.get("role") == "swing" and len(tr) == 1 and tr and tr[0].get("px"):
             lo, hi = tr[0]["px"] * 1.03, tr[0]["px"] * 1.06
-            t2 = "도달" if (lo <= d["c"] <= hi and d.get("stSlow") == 1) else ("추격 금지" if d["c"] > hi else f"목표 {lo:.2f}")
+            after = not tr[0].get("d") or str(d.get("asOf") or "") > str(tr[0]["d"])[:10]   # 1회차를 산 뒤의 종가여야 함 (앱 nextTrancheOf 와 같음)
+            t2 = "도달" if (after and lo <= d["c"] <= hi and d.get("stSlow") == 1) else ("추격 금지" if d["c"] > hi else f"목표 {lo:.2f}")
         heldrows.append({"t": d["t"], "n": d.get("n"), "m": d["m"], "c": d["c"], "action": "sell" if d.get("action") == "sell" else "hold",
                          "stLine": d.get("stLine"), "loss": _r((1 - d["stLine"] / d["c"]) * 100, 1) if d.get("stLine") else None,
                          "tranche2": t2, "halted": bool(d.get("halted") or d.get("status")), "earn": d.get("earn"), "earnE": d.get("earnE")})
