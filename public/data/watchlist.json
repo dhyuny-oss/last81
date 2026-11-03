@@ -33,20 +33,20 @@
     "GH"
   ],
   "trades": [],
-  "updatedAt": "2026-11-02T21:29:31.520Z",
+  "updatedAt": "2026-11-03T12:14:46.215Z",
   "settings": {
     "revMin": 20,
     "slotsUs": 7,
     "slotsKr": 5,
     "dcAmt": 100000000,
-    "dcMode": "st",
+    "dcMode": "hold",
     "dcSemi": false,
     "usAmt": 45000,
     "krAmt": 10000000
   },
   "excludes": [],
   "backup": {
-    "at": "2026-11-02T21:29:31.520Z",
+    "at": "2026-11-03T12:14:46.214Z",
     "positions": [
       {
         "t": "VEEV",
