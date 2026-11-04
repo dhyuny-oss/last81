@@ -28,12 +28,14 @@
       "date": "2026-10-29"
     }
   ],
-  "watch": [],
+  "watch": [
+    "APH"
+  ],
   "extras": [
     "GH"
   ],
   "trades": [],
-  "updatedAt": "2026-11-03T22:50:17.514Z",
+  "updatedAt": "2026-11-04T09:49:39.673Z",
   "settings": {
     "revMin": 20,
     "slotsUs": 7,
@@ -46,7 +48,7 @@
   },
   "excludes": [],
   "backup": {
-    "at": "2026-11-03T22:50:17.514Z",
+    "at": "2026-11-04T09:49:39.672Z",
     "positions": [
       {
         "t": "VEEV",
