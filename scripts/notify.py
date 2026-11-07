@@ -197,6 +197,15 @@ def build(snap, mkt, state, now):
             if k == "us" and j.get("nqGate") is not None:      # 252. 미국 새로 사기는 나스닥100 200일선으로
                 L.append(f"   {'⛔ <b>나스닥100 200일선 아래' if j['nqGate'] else '✅ 나스닥100 200일선 위'}"
                          f"({(j.get('nq200') or 0):+.1f}%) → 미국 {'새로 안 삼</b>' if j['nqGate'] else '새로 사기 가능'}")
+                # 255. 하락장 QQQ 반등 — 기록만 (실제 규칙 아님 · 신호가 생기거나 끝난 날만 한 줄)
+                try:
+                    _b = ((json.load(open(f"{DATA}/self_check.json", encoding="utf-8")).get("report") or {}).get("bounce") or {})
+                except Exception:
+                    _b = {}
+                if _b.get("today") in ("in", "out"):
+                    _sm = _b.get("sum") or {}
+                    _hist = f" · 지금까지 {_sm['n']}번 이긴 비율 {_sm['win']:.0f}% 평균 {_sm['avg']:+.1f}%" if _sm.get("n") else ""
+                    L.append(f"   📎 <i>기록만: QQQ 반등 {'시작(RSI2 ' + str(round((_b.get('open') or {}).get('rsi2') or 0)) + ')' if _b['today'] == 'in' else '끝'} — 실제로 사지 않음{_hist}</i>")
 
     # ── 1.4 내 보유·관심 — 이것만 따로 먼저 알립니다 (남의 종목보다 내 종목이 먼저) ──
     mine, etfs_all = [], snap.get("etfs", {})
@@ -375,12 +384,12 @@ def build(snap, mkt, state, now):
         _jk = ((mkt or {}).get("judge") or {}).get("kr") or {}
         if _jk.get("gate") and _jk.get("verdict") == "risk" and _open.get("kr"):
             _open["kr"] = False
-            _note = [x if not x.startswith("🇰🇷") else "🇰🇷 <b>시장 위험 — 새로 사지 않음</b>" for x in _note]
+            _note = [x if not x.startswith("🇰🇷") else "🇰🇷 <b>시장 위험 — 새로 사지 않음</b> · 남는 원화는 단기채·국고채3년" for x in _note]
         # 252. 🇺🇸 나스닥100 이 200일선 아래면 미국은 새로 사지 않음 (앱·today.json 과 같은 규칙 · 보유는 트레일링선대로)
         _ju = ((mkt or {}).get("judge") or {}).get("us") or {}
         if _ju.get("nqGate") and _open.get("us"):
             _open["us"] = False
-            _note = [x if not x.startswith("🇺🇸") else f"🇺🇸 <b>나스닥100 200일선 아래({_ju.get('nq200'):+.1f}%) — 새로 사지 않음</b>" for x in _note]
+            _note = [x if not x.startswith("🇺🇸") else f"🇺🇸 <b>나스닥100 200일선 아래({_ju.get('nq200'):+.1f}%) — 새로 사지 않음</b> · 남는 달러는 SGOV·BIL" for x in _note]
         L.append("   " + " · ".join(_note) + " — <i>빈 칸만큼만 삽니다</i>")
         # 114. 이미 가진 종목은 빼고, 살 수 없는 시장(칸이 참 · 투자금 0)은 목록을 접습니다 (앱 '오늘 살 것'과 같게)
         rows = [s for s in entry if str(s["t"]).upper() not in _held and _open.get(s["m"])]

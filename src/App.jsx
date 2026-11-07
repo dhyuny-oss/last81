@@ -683,6 +683,9 @@ const krGateOf = (market) => !!(market?.judge?.kr?.gate && market.judge.kr.verdi
 /** 252. 🇺🇸 나스닥100 이 200일선 아래면 미국은 새로 사지 않음 — 파이프라인 judge.us.nqGate (오늘·찾기·계좌·텔레그램 같은 판정) */
 const usGateOf = (market) => !!market?.judge?.us?.nqGate;
 const US_GATE_TXT = "나스닥100 200일선 아래 — 새로 안 삼";
+/** 254. 하락장(게이트) 동안 남는 돈 · DC 안전자산 — 2026-11 비교: 단기채 5년 최대낙폭 −0.5% · 장기채 −44~48%(2022 금리 급등) */
+const SPARE_TXT = { us: "남는 달러는 단기 국채 ETF(SGOV·BIL)에", kr: "남는 원화는 단기채·국고채3년 ETF에" };
+
 /** '오늘 살 것' 설정 한 곳 — 칸 수·매출 필터·한국·미국 게이트 */
 const pickCfg = (market, plan = loadPlan()) => ({ revMin: getRevMin(), slotsUs: plan.slotsUs || SLOTS_DEFAULT.us, slotsKr: plan.slotsKr || SLOTS_DEFAULT.kr, krGate: krGateOf(market), usGate: usGateOf(market) });
 /* ★ 한투 (보조) — 한투 카드의 "오늘 살 것"을 오늘 탭과 똑같이 고름 (이 기기의 보유·칸 수·매출 필터 기준). 빼려면 이 함수도 삭제 */
@@ -1770,7 +1773,7 @@ function MarketTab({ market, setTab, onShowRules, list, pos, stocks, items, size
             })}
             {T.wait.length > 0 && <div style={{ fontSize: 10.5, color: C.muted, padding: "6px 0 2px", borderTop: `1px solid ${C.border}` }}>
               대기(칸이 비면 이 순서): {T.wait.map(r => m === "kr" ? r.n : r.t).join(" · ")}</div>}
-            {gated && <div style={{ fontSize: 10.5, color: C.muted, padding: "2px 0" }}>가진 종목은 트레일링선대로 · 2회차는 그대로 · 근거는 아래 🌐 시장</div>}
+            {gated && <div style={{ fontSize: 10.5, color: C.muted, padding: "2px 0" }}>가진 종목은 트레일링선대로 · 2회차는 그대로 · {SPARE_TXT[m]} · 근거는 아래 🌐 시장</div>}
           </div>);
       })}
       {canBuy > 0 && !ms.usRegular && !ms.krRegular && brokerT?.canOrder &&
@@ -1869,7 +1872,7 @@ function MarketInfo({ market, setTab, list, pos, stocks, items, sizer, openStock
         </div>
         <div style={{ fontSize: FS.sm, color: C.dim, marginTop: 5 }}>{j.why}</div>
         <div style={{ fontSize: FS.xs, marginTop: 2, color: j.gate ? (j.verdict === "risk" ? C.red : C.cyan) : C.muted, fontWeight: j.gate ? 700 : 400 }}>
-          {j.gate ? (j.verdict === "risk" ? "→ 한국은 새로 사지 않음 · 가진 종목은 트레일링선대로" : "→ 한국 새로 사기 가능 (이 판정으로 정함)") : "→ 이 색은 참고 · 미국 새로 사기는 아래 나스닥100 200일선으로 정함"}</div>
+          {j.gate ? (j.verdict === "risk" ? `→ 한국은 새로 사지 않음 · 가진 종목은 트레일링선대로 · ${SPARE_TXT.kr}` : "→ 한국 새로 사기 가능 (이 판정으로 정함)") : "→ 이 색은 참고 · 미국 새로 사기는 아래 나스닥100 200일선으로 정함"}</div>
         <div style={{ marginTop: 6 }}>
           <Head cols={["지수", "종가", "3일", "5일", "1달", "200일선"]} grid={IDX_GRID6} />
           {rows.map(idxRow)}
@@ -1879,7 +1882,8 @@ function MarketInfo({ market, setTab, list, pos, stocks, items, sizer, openStock
           if (g == null) return <div style={{ marginTop: 8, fontSize: FS.xs, color: C.gold }}>나스닥100 자료를 받지 못해 오늘은 막지 않습니다 (다음 수집 때 다시 판단)</div>;
           return <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 9, fontSize: FS.xs, lineHeight: 1.6,
                                background: g ? "rgba(255,69,58,.10)" : "rgba(48,209,88,.08)", border: `1px solid ${g ? C.red : C.emerald}55`, color: C.dim }}>
-            {g ? <><b style={{ color: C.red }}>⛔ 나스닥100 200일선 아래 ({pct(v, 1)}{run != null ? ` · ${Math.abs(run)}일째` : ""}) → 미국 새로 사지 않음</b> · 가진 종목은 트레일링선대로 · 2회차는 그대로 · 종가가 200일선 위로 올라서면 다음 날부터 다시 삽니다</>
+            {g ? <><b style={{ color: C.red }}>⛔ 나스닥100 200일선 아래 ({pct(v, 1)}{run != null ? ` · ${Math.abs(run)}일째` : ""}) → 미국 새로 사지 않음</b> · 가진 종목은 트레일링선대로 · 2회차는 그대로 · 종가가 200일선 위로 올라서면 다음 날부터 다시 삽니다
+                 <span style={{ display: "block", color: C.text, marginTop: 2 }}>💵 {SPARE_TXT.us} — 백테스트 연 +0.4%p · 5년 최대낙폭 −0.3%. 장기채(TLT)는 안전자산이 아님(2022 −30% · 5년 최대낙폭 −44%)</span></>
                : <><b style={{ color: C.emerald }}>나스닥100 200일선 위 ({pct(v, 1)}{run != null ? ` · ${Math.abs(run)}일째` : ""}) → 미국 새로 사기 가능</b> · 종가가 200일선 아래로 내려가면 새로 사지 않습니다</>}
             <span style={{ display: "block", color: C.muted }}>규칙(252) · 2010–26 지금 매매 규칙 7칸 · 업종 3개: 연 15.1% → 17.2% · 최대낙폭 −37.0% → −29.8% (2010–18 · 2019–26 둘 다 나음) · 지금 살아남은 종목으로 계산해 수익률 자체는 실제보다 높게 나옴</span>
           </div>;
@@ -2206,6 +2210,12 @@ function DcTab({ etfs, market, pos, setPos, openStock, sizer }) {
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: FS.lg, fontWeight: 800 }}>안전자산 <span style={{ fontSize: FS.sm, color: C.muted, fontWeight: 500 }}>30% + 대기 몫</span></div>
             <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 2 }}>적격 TDF · 채권혼합형(주식 40%↓) · 예금 — 증권사에서 ‘안전자산’ 분류 확인</div>
+            {/* 254. 채권은 짧은 것 — 장기채는 금리가 오르면 주식처럼 빠짐 */}
+            <div style={{ fontSize: FS.xs, color: C.dim, marginTop: 4, lineHeight: 1.55 }}>
+              채권으로 채운다면 <b style={{ color: C.text }}>예금 · 국내 단기채 · 국고채 3년</b> — 5년 최대낙폭 −0.5%~−5%.
+              국고채 10년(−17%) · 미국 30년(−48%) 같은 장기채는 급락 때 조금 오르지만 금리가 오르면 크게 빠져 안전자산 역할을 못 합니다(2022).
+              {dcModeOf() !== "hold" && <b style={{ color: C.gold }}> 느린ST 방식은 빨강일 때 이 몫으로 옮기므로 장기채를 쓰면 최대낙폭이 −13% → −35~39%로 커집니다(백테스트).</b>}
+            </div>
             {(() => { const unb = cores.filter(c => c.state === "hold" && (c.n || 0) < split).reduce((a, c) => a + (c.target || 0) - (c.n || 0) * (c.per || 0), 0);   // 174
               return unb > 0 ? <div style={{ fontSize: FS.xs, color: C.gold, marginTop: 2 }}>아직 안 산 보유 신호 몫 {money(unb, "kr")} 포함 — 위 '매수 완료 기록'을 누르면 줄어듭니다</div> : null; })()}
           </div>
@@ -4137,9 +4147,9 @@ function ReviewTab({ market, uni, snap, trades, setTrades, pos, stocks, setTab, 
         {[
           ["⭐ 눌림 매수 (종목)", "strong", "한국 연 +21.8% · 같은 종목 보유 대비 +8.2%p · 최대낙폭 −40%",
            "추세 안에서 RSI 45 회복 · 매도는 느린ST 빨강. 미국은 연 +17.9%지만 그냥 보유를 못 이겼습니다."],
-          ["🏦 DC 느린ST 규칙", "mid", "연 +7.2% · 최대낙폭 −13.3% · 샤프 0.58 (2008-03~2026-10 원화 · 비용 0.1%)",
+          ["🏦 DC 느린ST 규칙", "mid", "연 +7.1% · 최대낙폭 −13.3% · 샤프 0.56 (2008-03~2026-10 원화 · 비용 0.1% · 2008 위기 포함)",
            "나스닥100·S&P500·코스피200 각 23% + 안전자산 30%, 각 몫은 느린ST 초록일 때만 보유 (230: 예전 S&P·코스피 둘이면 +6.3% · −15.8% — 3년 구간 188개 중 145개에서 3지수가 나음). 최대낙폭은 2026-10 코스피 급락이 들어간 값."],
-          ["🏦 DC 3지수 보유 (선택지)", "mid", "연 +12.4% · 최대낙폭 −22.3% · 샤프 0.80 (같은 조건) · 1년 매매 1번",
+          ["🏦 DC 3지수 보유 (선택지)", "mid", "연 +11.6% · 최대낙폭 −23.4% · 샤프 0.69 (같은 조건) · 1년 매매 1번",
            "같은 3지수를 그냥 들고 1월 첫 거래일에만 비중 맞춤. 같은 188개 구간 중 187개에서 느린ST보다 수익이 높았고, 대신 낙폭이 −13% → −22%로 큽니다. 나스닥을 빼면 수익이 크게 줄어 나스닥 몫이 핵심 (182)."],
           ["🇰🇷 강세 추가 (한국 종목)", "mid", "눌림만일 때보다 연 +3~5%p (순서·기준값 흔든 28번 중 26번 나음 · 중앙값 19.7% → 24.7%) · 2010–26 · 한국 5칸",
            "눌림이 드물어 빈 칸을 약한 추세 신호가 채우던 것을 강세가 대신. 신호 하나하나의 120일 지수대비: 강세 +7.4%p · 눌림 +8.1 · 추세 +2.7. 기준 60 한 점만 보면 32.7%로 나오지만 운이 섞인 값이라 낮춰 잡음 (180)."],
