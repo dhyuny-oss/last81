@@ -464,3 +464,6 @@ export default async function meritz(req, res) {
       msg: String(e?.message || e).slice(0, 300), tok: ctx.tok ? seal(c, ctx.tok) : undefined });
   }
 }
+
+/* 249. 매수 예약(api/_lib/resv.js)이 같은 함수를 씀 — 검사·상한·번호표가 화면 주문과 똑같이 걸림 */
+export const INT = { getToken, seal, usBalance, usOrders, usQuotes, krBalance, krOrders, krQuotes, placeOrder, regularNow, nextOpenDay, tickKr, pinOk, GAP, sleep };

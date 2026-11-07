@@ -30,16 +30,19 @@ ok("보유 변경 뒤 추천이 다시 만들어졌는가", !stale, `watchlist $
 
 console.log("── 2. 오늘 살 것: 서버(today.json) = 앱 규칙(picks.js) = market.json 사본 ──");
 const krGate = !!(market.judge?.kr?.gate && market.judge.kr.verdict === "risk");
-const oldServer = !(today.rules && "krGate" in today.rules);       // 새 규칙(161·176) 전에 만든 today.json — 다음 갱신 때 같아짐
-const cfg = { revMin: Number((wl.settings || {}).revMin ?? 10), slotsUs: Number((wl.settings || {}).slotsUs || 7), slotsKr: Number((wl.settings || {}).slotsKr || 5), krGate };
+const usGate = !!market.judge?.us?.nqGate;                         // 252
+const oldServer = !(today.rules && "usGate" in today.rules);       // 새 규칙(247·252) 전에 만든 today.json — 다음 갱신 때 같아짐
+const cfg = { revMin: Number((wl.settings || {}).revMin ?? 10), slotsUs: Number((wl.settings || {}).slotsUs || 7), slotsKr: Number((wl.settings || {}).slotsKr || 5), krGate, usGate };
 const app = pickToday(stocks, cfg, new Set(heldWl));
 // 176. 한국 시장 위험이면 서버·앱 모두 한국 추천 0
 ok(`🇰🇷 시장 ${market.judge?.kr?.verdict || "—"} → 한국 추천 ${krGate ? "0이어야 함" : "허용"} (서버 ${(today.pickKr || []).length} · 앱 ${app.pickKr.length})`,
    !krGate || ((today.pickKr || []).length === 0 && app.pickKr.length === 0), oldServer ? "서버 today.json 이 새 규칙 전에 만들어짐 — 다음 갱신 때 같아집니다" : "", stale || oldServer);
-// 161. 미국 추천에 '이미 보유한 업종'이 없어야 함 (원칙 5)
-const heldSecs = new Set(heldWl.map((t) => stocks[t]).filter((d) => d && d.m === "us" && d.sec).map((d) => d.sec));
-const clash = (today.pickUs || []).filter((r) => heldSecs.has(r.sec)).map((r) => `${r.t}(${r.sec})`);
-ok("🇺🇸 추천에 보유 종목과 같은 업종 없음", clash.length === 0, clash.join(","), stale);
+// 161 · 247. 미국 추천 + 보유가 같은 업종 3개를 넘지 않아야 함 (원칙 5)
+const secN = {}; [...heldWl.map((t) => stocks[t]).filter((d) => d && d.m === "us" && d.sec), ...(today.pickUs || [])].forEach((d) => { secN[d.sec] = (secN[d.sec] || 0) + 1; });
+const clash = Object.entries(secN).filter(([, v]) => v > 3).map(([k, v]) => `${k} ${v}개`);
+ok("🇺🇸 추천 + 보유가 같은 업종 3개 이하", clash.length === 0, clash.join(","), stale || oldServer);
+ok(`🇺🇸 나스닥100 200일선 ${usGate ? "아래 → 미국 추천 0이어야 함" : "위(또는 자료 없음) → 허용"} (서버 ${(today.pickUs || []).length} · 앱 ${app.pickUs.length})`,
+   !usGate || ((today.pickUs || []).length === 0 && app.pickUs.length === 0), "", stale || oldServer);
 ok(`🇺🇸 추천  서버 [${ids(today.pickUs)}] = 앱 [${ids(app.pickUs)}]`, ids(today.pickUs) === ids(app.pickUs), "", stale || oldServer);
 ok(`🇰🇷 추천  서버 [${ids(today.pickKr)}] = 앱 [${ids(app.pickKr)}]`, ids(today.pickKr) === ids(app.pickKr), "", stale || oldServer);
 ok("market.json 안의 today = today.json", eq(market.today, today));
@@ -86,6 +89,8 @@ ok("매출 필터 기본값 10 (서버·앱 규칙·앱 설정)", n(/^REV_MIN = 
 ok("칸 수 기본값 🇺🇸7 · 🇰🇷5 (서버·알림·서버 저장·앱 규칙) — 168", /slotsUs"\) or 7\)/.test(py) && /slotsKr"\) or 5\)/.test(py) && /slotsUs"\) or 7\)/.test(notify) && /slotsKr"\) or 5\)/.test(notify)
   && /SLOTS_DEFAULT = \{ us: 7, kr: 5 \}/.test(picksJs) && !/plan\.slotsUs \|\| \d/.test(app_) && !/plan\.slotsKr \|\| \d/.test(app_)
   && /num\(st\.slotsUs, 1, 20, 7\)/.test(T("api/watchlist.js")) && /num\(st\.slotsKr, 1, 20, 5\)/.test(T("api/watchlist.js")));
+ok("나스닥100 게이트를 서버·앱·알림이 같은 판정으로 씀 — 252", /us_gate = bool\(\(\(market\.get\("judge"\) or \{\}\)\.get\("us"\) or \{\}\)\.get\("nqGate"\)\)/.test(py)
+  && /usGateOf = \(market\) => !!market\?\.judge\?\.us\?\.nqGate/.test(app_) && /_ju\.get\("nqGate"\) and _open\.get\("us"\)/.test(notify));
 ok("한국 시장 게이트를 서버·앱·알림이 같은 판정으로 씀 — 176", /kr_gate = bool\(_jk\.get\("gate"\) and _jk\.get\("verdict"\) == "risk"\)/.test(py)
   && /krGateOf = \(market\) => !!\(market\?\.judge\?\.kr\?\.gate && market\.judge\.kr\.verdict === "risk"\)/.test(app_) && /_jk\.get\("gate"\) and _jk\.get\("verdict"\) == "risk"/.test(notify));
 ok("화면에 '판정은 DC에만 사용'·근거 없는 16.9% 같은 옛 문구 없음 — 160", !/DC 판단에만 사용|ETF 배분\(DC\)에만|\+16\.9%·최대낙폭 −28%/.test(app_));

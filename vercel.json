@@ -35,11 +35,30 @@
     {
       "path": "/api/cron/kr-2",
       "schedule": "0 8 * * 1-5"
+    },
+    {
+      "path": "/api/cron/resv-us1",
+      "schedule": "0 14 * * 1-5"
+    },
+    {
+      "path": "/api/cron/resv-us2",
+      "schedule": "0 15 * * 1-5"
+    },
+    {
+      "path": "/api/cron/resv-kr1",
+      "schedule": "0 0 * * 1-5"
+    },
+    {
+      "path": "/api/cron/resv-kr2",
+      "schedule": "0 1 * * 1-5"
     }
   ],
   "functions": {
     "api/broker.js": {
-      "maxDuration": 30
+      "maxDuration": 60
+    },
+    "api/cron/*.js": {
+      "maxDuration": 60
     }
   }
 }

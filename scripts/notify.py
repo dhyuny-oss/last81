@@ -194,6 +194,9 @@ def build(snap, mkt, state, now):
             tail = "" if j.get("gate") else " <i>(참고용)</i>"
             L.append(f"{flag} <b>{name} {VERDICT.get(j['verdict'], j['verdict'])}</b>{tail} "
                      f"<i>— {j.get('why','')}</i>")
+            if k == "us" and j.get("nqGate") is not None:      # 252. 미국 새로 사기는 나스닥100 200일선으로
+                L.append(f"   {'⛔ <b>나스닥100 200일선 아래' if j['nqGate'] else '✅ 나스닥100 200일선 위'}"
+                         f"({(j.get('nq200') or 0):+.1f}%) → 미국 {'새로 안 삼</b>' if j['nqGate'] else '새로 사기 가능'}")
 
     # ── 1.4 내 보유·관심 — 이것만 따로 먼저 알립니다 (남의 종목보다 내 종목이 먼저) ──
     mine, etfs_all = [], snap.get("etfs", {})
@@ -328,6 +331,25 @@ def build(snap, mkt, state, now):
         ab = mkt.get("allocation", {})
         _dcL.append(f"   <i>안전자산 30%는 적격TDF·채권혼합형·예금 · 다음 비중 점검 {ab.get('nextRebal','분기 첫 거래일')}</i>")
 
+    # ── 249. 매수 예약 — 지난 확인 결과 · 기다리는 예약 (서버가 바로 못 보냈어도 아침에 한 번은 보이게)
+    try:
+        _rv = (json.load(open(f"{DATA}/resv.json", encoding="utf-8")).get("items") or [])
+    except Exception:
+        _rv = []
+    if _rv:
+        _cut = (now.astimezone(timezone.utc) - timedelta(hours=20)).strftime("%Y-%m-%dT%H:%M:%S")   # resv.json 은 세계표준시(Z)
+        _ic = {"sent": "✅", "skip": "⏭", "expired": "⌛", "fail": "⚠️", "unsure": "❓"}
+        _done = [x for x in _rv if x.get("status") in _ic and str(x.get("doneAt") or "") >= _cut]
+        _wait = [x for x in _rv if x.get("status") in ("wait", "run")]
+        _nm = lambda x: x.get("n") or x["t"] if x.get("m") == "kr" else x["t"]
+        if _done:
+            L.append("")
+            L.append("⏰ <b>매수 예약 결과</b>")
+            for x in _done:
+                L.append(f"   {_ic[x['status']]} <b>{_nm(x)}</b> " + (f"{x.get('qty')}주 지정가 {price(x.get('px'), x.get('m', 'us'))} 주문 보냄" if x["status"] == "sent" else f"안 삼 — {x.get('why') or x['status']}"))
+        if _wait:
+            L.append("⏰ 예약 기다림: " + " · ".join(f"{_nm(x)} {x.get('qty')}주({str(x.get('day', ''))[4:6].lstrip('0')}/{str(x.get('day', ''))[6:8].lstrip('0')})" for x in _wait))
+
     # ── 3. 신호 (앱 발굴탭과 같은 목록·같은 순서) ─────────────
     L.append("")
     if entry:
@@ -354,11 +376,16 @@ def build(snap, mkt, state, now):
         if _jk.get("gate") and _jk.get("verdict") == "risk" and _open.get("kr"):
             _open["kr"] = False
             _note = [x if not x.startswith("🇰🇷") else "🇰🇷 <b>시장 위험 — 새로 사지 않음</b>" for x in _note]
+        # 252. 🇺🇸 나스닥100 이 200일선 아래면 미국은 새로 사지 않음 (앱·today.json 과 같은 규칙 · 보유는 트레일링선대로)
+        _ju = ((mkt or {}).get("judge") or {}).get("us") or {}
+        if _ju.get("nqGate") and _open.get("us"):
+            _open["us"] = False
+            _note = [x if not x.startswith("🇺🇸") else f"🇺🇸 <b>나스닥100 200일선 아래({_ju.get('nq200'):+.1f}%) — 새로 사지 않음</b>" for x in _note]
         L.append("   " + " · ".join(_note) + " — <i>빈 칸만큼만 삽니다</i>")
         # 114. 이미 가진 종목은 빼고, 살 수 없는 시장(칸이 참 · 투자금 0)은 목록을 접습니다 (앱 '오늘 살 것'과 같게)
         rows = [s for s in entry if str(s["t"]).upper() not in _held and _open.get(s["m"])]
         _hid = len(entry) - len(rows)
-        # ★ 앱 '오늘 살 것'과 같은 목록 — 파이프라인이 확정한 today.json (업종 하나씩 · 적자·재무 없음·매출 부진·보유 제외 · 빈 칸만큼)
+        # ★ 앱 '오늘 살 것'과 같은 목록 — 파이프라인이 확정한 today.json (업종 3개까지 · 적자·재무 없음·매출 부진·보유 제외 · 빈 칸만큼)
         #   예전엔 매수! 전체를 강도 순으로 보여 줘서, 앱이 같은 업종이라 뺀 종목(XOM·CVX 등)이 텔레그램엔 '살 것'처럼 보였음
         _wait = []
         try:
