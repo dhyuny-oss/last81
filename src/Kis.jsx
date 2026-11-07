@@ -340,9 +340,9 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
           <div style={{ color: K.gold, fontSize: 12, marginTop: 6, lineHeight: 1.5 }}>{pickNote} — 오늘 탭과 같은 기준입니다. 그래도 넣으려면 아래 주문 칸을 쓰세요.</div>
         </div>)}
 
-      {info.canOrder && data && picks.length > 0 && (   /* 오늘 탭 5번과 같은 목록 — 거기서 '사기'로 사는 게 기본이라 여기선 접어 둠 */
+      {info.canOrder && data && picks.length > 0 && (   /* 오늘 탭 3번(오늘 살 것)과 같은 목록 — 거기서 '사기'로 사는 게 기본이라 여기선 접어 둠 */
         <details style={{ marginTop: 14, paddingTop: 10, borderTop: `1px solid ${K.border}` }}>
-          <summary style={{ cursor: "pointer", minHeight: 36, display: "flex", alignItems: "center", color: K.dim, fontSize: 12.5 }}>▸ 오늘 매수 제안 {picks.length}개 · 오늘 탭 5번과 같은 목록 (보통은 거기서 '사기')</summary>
+          <summary style={{ cursor: "pointer", minHeight: 36, display: "flex", alignItems: "center", color: K.dim, fontSize: 12.5 }}>▸ 오늘 매수 제안 {picks.length}개 · 오늘 탭 3번(오늘 살 것)과 같은 목록 (보통은 거기서 '사기')</summary>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
             <b style={{ fontSize: 13 }}>오늘 매수 제안</b>
             <span style={{ color: K.dim, fontSize: 11.5 }}>{asOf ? `${asOf.slice(5).replace("-", "/")} 종가로 뽑음` : "전날 종가로 뽑음"} · 오늘 탭과 같은 목록 · 지정가 = 지금 가격 +{GUARD.slip}%{KR ? " (호가 단위로 올림)" : ""}</span>

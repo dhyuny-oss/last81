@@ -58,6 +58,7 @@ SECTOR_ETFS = {
 }
 INDICES = {
     "^GSPC":("S&P500","us"), "^IXIC":("NASDAQ","us"), "^KS11":("KOSPI","kr"),
+    "^NDX":("나스닥100","us"),        # 252. 미국 새로 사기 판단 (나스닥100 200일선)
 }
 RISK = {"^VIX":"VIX", "^TNX":"US10Y", "^IRX":"US3M"}
 BENCH = {"us":"^GSPC", "kr":"^KS11"}
@@ -524,7 +525,16 @@ def decide_judge(idx, breadth):
         judge[mkt] = {"verdict": v, "why": why, "index": tk, "gate": gate,
                       "breadth": bv, "breadthPct": bp,
                       "note": ("폭 백분위 기준 — 한국 새로 사기에 사용 (검증 연 11.4% → 24.1%)" if gate else
-                               "미국은 검증을 통과한 시장 타이밍 지표가 없어 참고용입니다")}
+                               "판정 색은 참고용 · 새로 사기는 나스닥100 200일선으로 정함(252)")}
+    # ★ 252. 🇺🇸 나스닥100 이 200일선 아래면 미국은 새로 사지 않음 (보유는 트레일링선대로 · 2회차는 그대로)
+    #   2010–26 지금 매매 규칙 · 7칸 · 업종 3개: 연 15.1% → 17.2% · 최대낙폭 −37.0% → −29.8% (2010–18 · 2019–26 둘 다 나음)
+    #   나스닥100 자료가 없으면 막지 않음(nqGate=None) — 화면·텔레그램이 '확인 안 됨'으로 표시
+    if "us" in judge:
+        n = idx.get("^NDX") or {}
+        m = n.get("ma200p")
+        judge["us"]["nq200"] = m
+        judge["us"]["nqRun"] = n.get("run200")
+        judge["us"]["nqGate"] = (m < 0) if m is not None else None
     return judge
 
 
@@ -1247,6 +1257,10 @@ def broker_miss(wl, today=None):
         if t not in {str(x[0]).upper() for x in b[m]} and d0 < d: out.add(t)
     return out
 
+SEC_CAP = 3                                            # 247. 🇺🇸 같은 업종 최대 종목 수 (src/picks.js SEC_CAP 와 같음)
+SEC_FULL_WHY = f"같은 업종 {SEC_CAP}개 찼음"               # 앱 src/picks.js 와 같은 문구
+US_GATE_WHY = "나스닥100 200일선 아래 — 미국 새로 사지 않음"   # 252 · 앱 src/picks.js US_GATE_WHY
+
 def build_today(stocks, market):
     idx = market.get("indices") or {}
     secrank = {x["tk"]: (x["rank"], x["label"]) for x in (market.get("sectors") or [])}
@@ -1262,6 +1276,7 @@ def build_today(stocks, market):
     # 176. 한국 시장 '위험'(폭 3년 하위 40% 아래)이면 한국은 새로 사지 않음 — 2010–26 검증 연 11.4% → 24.1% (주 1회 폭 · 보유는 그대로)
     _jk = (market.get("judge") or {}).get("kr") or {}
     kr_gate = bool(_jk.get("gate") and _jk.get("verdict") == "risk")
+    us_gate = bool(((market.get("judge") or {}).get("us") or {}).get("nqGate"))   # 252. 나스닥100 200일선 아래 → 미국 새로 안 삼
     # 98. 1회차 금액 — 앱 💰 투자금(직투 금액 ÷ 칸 수의 절반). 앱이 금액을 보낸 적이 없으면 넣지 않음
     size = {}
     for _m, _amt, _n in (("us", cfg.get("usAmt"), slots_us), ("kr", cfg.get("krAmt"), slots_kr)):
@@ -1310,20 +1325,23 @@ def build_today(stocks, market):
     # 점수가 같으면 티커 순 — 앱(src/picks.js)과 순서가 똑같이 나오도록 (96)
     rank = lambda r: ((1 if r["why"] == "trend" else 0) * 1000 - (r.get("str") or 0), r["t"])
     cands = sorted(buys, key=rank)
-    excluded, pick_us, pick_kr, used = [], [], [], set()
-    # 161. 이미 보유한 미국 종목의 업종도 '사용 중' — 원칙 5 "같은 업종에 두 칸 이상 넣지 않는다" (앱 src/picks.js 와 같은 규칙)
-    held_sec = {}
+    excluded, pick_us, pick_kr = [], [], []
+    # 161 · 247. 같은 업종은 3개까지 — 이미 보유한 미국 종목도 그 업종 몫으로 셈 (앱 src/picks.js 와 같은 규칙)
+    #   2010–26 · 7칸: 업종 1개 연 12.6% → 3개 15.1% (시작일 12번 모두 3 > 2 > 1). 대신 한 업종이 몰리면 같이 빠질 수 있음
+    held_sec, used = {}, {}
     for p in (wl.get("positions") or []):
         _d = stocks.get(str(p.get("t", "")).upper())
-        if _d and _d.get("m") == "us" and _d.get("sec") and _d["sec"] not in held_sec: held_sec[_d["sec"]] = _d["t"]
+        if _d and _d.get("m") == "us" and _d.get("sec"): held_sec.setdefault(_d["sec"], []).append(_d["t"])
     for r in cands:
         why = reasons(r)
         if why: excluded.append({"t": r["t"], "n": r["n"], "m": r["m"], "why": why}); continue
         if r["m"] == "us":
+            if us_gate: excluded.append({"t": r["t"], "n": r["n"], "m": "us", "why": [US_GATE_WHY]}); continue
             key = r["sec"] or f"?{r['t']}"
-            if key in held_sec: excluded.append({"t": r["t"], "n": r["n"], "m": "us", "why": [f"같은 업종 보유 중({held_sec[key]})"]}); continue
-            if key in used: excluded.append({"t": r["t"], "n": r["n"], "m": "us", "why": ["같은 업종 이미 선택"]}); continue
-            if len(pick_us) < slots_us: pick_us.append(r); used.add(key)
+            hs, us_ = held_sec.get(key, []), used.get(key, [])
+            if len(hs) + len(us_) >= SEC_CAP:
+                excluded.append({"t": r["t"], "n": r["n"], "m": "us", "why": [f"같은 업종 보유 중({'·'.join(hs)})" if not us_ else SEC_FULL_WHY]}); continue
+            if len(pick_us) < slots_us: pick_us.append(r); used.setdefault(key, []).append(r["t"])
         elif kr_gate:
             excluded.append({"t": r["t"], "n": r["n"], "m": "kr", "why": ["시장 위험 — 한국 새로 사지 않음"]})
         elif len(pick_kr) < slots_kr:
@@ -1359,12 +1377,13 @@ def build_today(stocks, market):
             "asOfKr": max((d.get("asOf") or "" for d in stocks.values() if d.get("m") == "kr"), default=None),
             "rules": {"buy": "action=buy", "rev": f"🇺🇸 매출 +{rev_min:.0f}%↑ (최근 분기 전년 동기 대비 → 없으면 4분기 합계 → 연간) · 적자 제외",
                       "order": "강세·눌림 먼저 → 강도 점수(RS 백분위와 200일선 거리 백분위의 평균) 높은 순",
-                      "sector": f"🇺🇸 같은 업종은 하나 — 보유 종목 업종 포함(위험 관리용 · 미검증) · 최대 {slots_us} · 🇰🇷 최대 {slots_kr}",
+                      "sector": f"🇺🇸 같은 업종은 {SEC_CAP}개까지 — 보유 종목 업종 포함 · 최대 {slots_us} · 🇰🇷 최대 {slots_kr}",
+                      "usGate": "🇺🇸 나스닥100 이 200일선 아래면 새로 사지 않음 · 보유는 트레일링선대로" + (" — 지금 작동 중" if us_gate else ""),
                       "krGate": "🇰🇷 시장 '위험'(폭 3년 하위 40% 아래 · 주 1회 계산)이면 새로 사지 않음 · 보유는 트레일링선대로" + (" — 지금 작동 중" if kr_gate else ""),
                       "tranche": "1회차 = 한도 절반 → +3~6% 마감 & 느린ST 초록이면 나머지 절반 · 매도 = 종가 < 트레일링선"},
             "market": {m: (market.get("judge") or {}).get(m, {}).get("verdict") for m in ("us", "kr")},
             "sectors": [{"tk": x["tk"], "label": x["label"], "rank": x["rank"], "score": x.get("score")} for x in (market.get("sectors") or [])[:6]],
-            "cfg": {"revMin": rev_min, "slotsUs": slots_us, "slotsKr": slots_kr, "krGate": kr_gate},   # 197. 그림자 기록이 같은 설정으로 고르게
+            "cfg": {"revMin": rev_min, "slotsUs": slots_us, "slotsKr": slots_kr, "krGate": kr_gate, "usGate": us_gate, "secCap": SEC_CAP},   # 197. 그림자 기록이 같은 설정으로 고르게
             "candidates": cands, "pickUs": pick_us, "pickKr": pick_kr, "size": size, "slots": slots, "excluded": excluded[:30], "held": heldrows, "brokerMiss": sorted(_miss),
             "dips": dips[:8], "dc": {"hold3": [x["label"] for x in (h3.get("items") or [])]}}
 
@@ -1482,7 +1501,7 @@ def main():
     try:
         from universe import SAME_CO_DROP as _SAME
     except Exception:
-        _SAME = {"BRK-A": "BRK-B", "GOOG": "GOOGL"}
+        _SAME = {"BRK-A": "BRK-B", "GOOG": "GOOGL", "FOX": "FOXA", "NWS": "NWSA"}
     _dup = [t for t in _SAME if t in universe and t not in PROT and universe.pop(t, None) is not None]
     if _dup: print(f"  ➖ 같은 회사 다른 주식 {len(_dup)}개 제외: {', '.join(_dup)}")
 
@@ -1838,6 +1857,11 @@ def main():
                               if b else "표본 부족 — 200일선 판단으로 대체"))
     market["breadth"] = breadth
     market["judge"]   = decide_judge(market["indices"], breadth)
+    # 252. 나스닥100 을 못 받은 날은 지난 판정을 그대로 (하루 수집 실패로 필터가 풀리지 않게)
+    _ju, _pj = market["judge"].get("us") or {}, ((prev_mkt or {}).get("judge") or {}).get("us") or {}
+    if _ju and _ju.get("nqGate") is None and _pj.get("nqGate") is not None:
+        _ju.update({"nqGate": _pj["nqGate"], "nq200": _pj.get("nq200"), "nqRun": _pj.get("nqRun"), "nqStale": True})
+        print(f"  ⚠️ 나스닥100 수집 실패 — 지난 판정 유지 (200일선 {_pj.get('nq200')}%)")
     market["ref"]     = ref if ref else prev_mkt.get("ref") or {}     # 평일 감시 모드가 쓸 분포
     for mkt, j in market["judge"].items():
         print(f"  판단 {mkt}: {j['verdict']} — {j['why']}"
@@ -1856,7 +1880,7 @@ def main():
     # ══════════════════════════════════════════════════════════
     # ★ today.json — 오늘 후보를 파이프라인이 확정해 작은 파일로. (48번)
     #   AI 도구는 이것만 읽으면 되고, 텔레그램 5칸 추천·앱 선정과 같은 규칙이라 서로 어긋나지 않습니다.
-    #   규칙: action=buy · 미국 매출 +10%↑(재무 있으면) · 적자 제외 · 트레일링선까지 20% 이하 · 보유 제외 · 업종 하나씩 · 🇺🇸 5 · 🇰🇷 3
+    #   규칙: action=buy · 미국 매출 +10%↑(재무 있으면) · 적자 제외 · 트레일링선까지 20% 이하 · 보유 제외 · 업종 3개까지 · 🇺🇸 7 · 🇰🇷 5 · 나스닥100 200일선 아래면 🇺🇸 안 삼
     # ══════════════════════════════════════════════════════════
     try:
         market["today"] = build_today(stocks, market)
@@ -1875,7 +1899,7 @@ def main():
     market["dc"] = dc
     # 187. 지수 차트 — 종목·ETF 와 같은 차트 화면으로 열리게 지수도 같은 모양으로 내보냅니다 (매수 대상 아님: idx 표시)
     #      파일 이름에 ^ 가 들어가지 않게 읽기 쉬운 이름으로 (SPX · NASDAQ · KOSPI)
-    IDX_KEY = {"^GSPC": ("SPX", "S&P500 지수"), "^IXIC": ("NASDAQ", "나스닥 종합지수"), "^KS11": ("KOSPI", "코스피 지수")}
+    IDX_KEY = {"^GSPC": ("SPX", "S&P500 지수"), "^IXIC": ("NASDAQ", "나스닥 종합지수"), "^KS11": ("KOSPI", "코스피 지수"), "^NDX": ("NDX", "나스닥100 지수")}
     for _tk, (_cd, _label, _mkt) in IDX_CD.items():
         if _tk not in IDX_KEY: continue
         try:

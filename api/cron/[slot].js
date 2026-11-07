@@ -8,9 +8,12 @@
  * 시각(UTC → 한국):  us-1 21시대 → 06시대(화~토) · us-2 22시대 → 07시대(보험)
  *                    kr-1 07시대 → 16시대(월~금) · kr-2 08시대 → 17시대(보험)
  *
+ * 249. resv-us1·us2 (UTC 14시대 · 15시대 = 한국 23시대 · 00시대) · resv-kr1·kr2 (UTC 00시대 · 01시대 = 한국 09시대 · 10시대) — 매수 예약 확인
+ *      서머타임에 따라 둘 중 하나가 확인 시간(🇺🇸 개장 5분~2시간 30분 · 🇰🇷 09:30~11:30)에 걸립니다
  * 보호: Vercel 예약(User-Agent vercel-cron) 또는 CRON_SECRET 이 맞는 요청만 받습니다.
  *       이미 돌고 있거나 20분 안에 평일 갱신을 시작했으면 다시 시작하지 않습니다.
  */
+import { runResv } from "../_lib/resv.js";
 const REPO = process.env.GH_REPO || "dhyuny-oss/last81";
 const TOKEN = process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "";
 const WF = process.env.GH_WORKFLOW || "daily.yml";
@@ -28,6 +31,12 @@ export default async function handler(req, res) {
   const okAuth = secret ? req.headers.authorization === `Bearer ${secret}` : ua.startsWith("vercel-cron");
   if (!okAuth) return res.status(401).json({ ok: false, msg: "예약 실행 전용 주소입니다." });
   if (!TOKEN) return res.status(500).json({ ok: false, msg: "GH_TOKEN 이 없습니다." });
+  // 249. 매수 예약 확인 — resv-us1 · resv-us2 · resv-kr1 · resv-kr2 (확인 시간 밖이면 아무것도 안 함 · 몇 번 불러도 두 번 사지 않음)
+  const slot = String(req.query?.slot || "");
+  if (/^resv-(us|kr)\d?$/.test(slot)) {
+    try { const r = await runResv({ only: slot.slice(5, 7) }); return res.status(200).json({ ok: true, slot, done: r.done.map(x => ({ t: x.t, status: x.status, why: x.why })) }); }
+    catch (e) { return res.status(200).json({ ok: false, slot, msg: String(e?.message || e).slice(0, 300) }); }
+  }
   try {
     const cur = await gh(`/repos/${REPO}/actions/workflows/${WF}/runs?per_page=20`);
     if (cur.ok) {

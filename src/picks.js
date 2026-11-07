@@ -7,13 +7,17 @@
  *   후보   : action = buy · 거래대금 백분위 40 이상
  *   빼기   : 적자 · 🇺🇸 재무 자료 없음(224) · 🇺🇸 매출 성장 < 매출 필터(값이 있을 때만) · 이미 보유
  *   순서   : 강세·눌림 먼저 → 강도 점수 높은 순
- *   🇺🇸    : 같은 업종(섹터 ETF)은 하나 · 이미 보유한 종목의 업종도 '사용 중'(161 · 원칙 5) · 최대 slotsUs
+ *   🇺🇸    : 같은 업종(섹터 ETF)은 3개까지(247) · 이미 보유한 종목도 그 업종 몫으로 셈(161) · 최대 slotsUs
+ *            나스닥100 이 200일선 아래(usGate)면 새로 사지 않음(252 · 2010–26 7칸: 연 15.1% → 17.2%, 최대낙폭 −37% → −30%)
  *   🇰🇷    : 최대 slotsKr · 시장 '위험'(폭 3년 하위 40% 아래, krGate)이면 새로 사지 않음(176 · 2010–26 검증 연 11.4% → 24.1%)
  */
 export const SLOTS_DEFAULT = { us: 7, kr: 5 };        // 168. 권장 칸 수 = 기본값 (앱·파이프라인·점검 스크립트 공통)
 export const KR_GATE_WHY = "시장 위험 — 한국 새로 사지 않음";
 export const NO_FIN_WHY = "재무 자료 없음 — 적자 여부 확인 전";
-export function pickToday(stocks, { revMin = 10, slotsUs = SLOTS_DEFAULT.us, slotsKr = SLOTS_DEFAULT.kr, krGate = false } = {}, held = new Set(), extra = {}) {
+export const SEC_CAP = 3;                                      // 247. 같은 업종 최대 (scripts/build_snapshot.py SEC_CAP)
+export const SEC_FULL_WHY = `같은 업종 ${SEC_CAP}개 찼음`;
+export const US_GATE_WHY = "나스닥100 200일선 아래 — 미국 새로 사지 않음";   // 252
+export function pickToday(stocks, { revMin = 10, slotsUs = SLOTS_DEFAULT.us, slotsKr = SLOTS_DEFAULT.kr, krGate = false, usGate = false } = {}, held = new Set(), extra = {}) {
   const { secRank = {}, age = {}, since = {} } = extra;
   const lossOf = (d) => (d.stLine && d.c) ? Math.round((1 - d.stLine / d.c) * 1000) / 10 : null;
   const row = (d) => {
@@ -40,16 +44,16 @@ export function pickToday(stocks, { revMin = 10, slotsUs = SLOTS_DEFAULT.us, slo
   const rank = (r) => (r.why === "trend" ? 1 : 0) * 1000 - (r.str ?? 0);
   // 점수가 같으면 티커 순 (파이프라인과 같은 순서)
   const cands = buys.slice().sort((a, b) => (rank(a) - rank(b)) || (a.t < b.t ? -1 : a.t > b.t ? 1 : 0));
-  const excluded = [], us = [], kr = [], used = new Set(), heldSec = {};
-  for (const t of held) { const d = stocks[t]; if (d && d.m === "us" && d.sec && !heldSec[d.sec]) heldSec[d.sec] = t; }
+  const excluded = [], us = [], kr = [], used = {}, heldSec = {};
+  for (const t of held) { const d = stocks[t]; if (d && d.m === "us" && d.sec) (heldSec[d.sec] = heldSec[d.sec] || []).push(t); }
   for (const r of cands) {
     const why = reasons(r);
     if (why.length) { excluded.push({ t: r.t, n: r.n, m: r.m, why }); continue; }
     if (r.m === "us") {
-      const key = r.sec || `?${r.t}`;
-      if (heldSec[key]) { excluded.push({ t: r.t, n: r.n, m: "us", why: [`같은 업종 보유 중(${heldSec[key]})`] }); continue; }
-      if (used.has(key)) { excluded.push({ t: r.t, n: r.n, m: "us", why: ["같은 업종 이미 선택"] }); continue; }
-      if (us.length < slotsUs) { us.push(r); used.add(key); }
+      if (usGate) { excluded.push({ t: r.t, n: r.n, m: "us", why: [US_GATE_WHY] }); continue; }
+      const key = r.sec || `?${r.t}`, hs = heldSec[key] || [], us_ = used[key] || [];
+      if (hs.length + us_.length >= SEC_CAP) { excluded.push({ t: r.t, n: r.n, m: "us", why: [us_.length ? SEC_FULL_WHY : `같은 업종 보유 중(${hs.join("·")})`] }); continue; }
+      if (us.length < slotsUs) { us.push(r); (used[key] = used[key] || []).push(r.t); }
     } else if (krGate) {
       excluded.push({ t: r.t, n: r.n, m: "kr", why: [KR_GATE_WHY] });
     } else if (kr.length < slotsKr) {
