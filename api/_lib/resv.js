@@ -200,6 +200,7 @@ export async function runResv({ only = null, now = Date.now(), dry = false } = {
     for (const x of todo) {
       const q = qj.quotes?.[x.t] || null;
       const skip = (why) => { upd[x.id] = { status: "skip", why, last: q?.last || null }; };
+      if (!(num(x.base) > 0)) { skip("기준 종가가 없는 예약 — 사지 않음"); continue; }          // 297. 기준 종가가 없으면 +3%·−5% 검사가 안 되므로 사지 않음
       if (bal.rows.some((r) => r.t === x.t)) { skip("이미 이 계좌에 있음"); continue; }
       if (orders.some((o) => o.t === x.t && o.side === "buy" && o.open > 0 && !o.orgn)) { skip("같은 종목 매수 대기 주문이 있음"); continue; }
       if (boughtToday(x.t)) { skip("오늘 이미 산 주문이 있음"); continue; }

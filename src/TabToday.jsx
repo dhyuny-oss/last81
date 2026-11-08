@@ -122,7 +122,7 @@ export function MarketLine({ market, setTab }) {
     </button>);
 }
 
-export function MarketTab({ market, setTab, onShowRules, list, pos, stocks, items, sizer, openStock, brokerMiss = [] }) {
+export function MarketTab({ market, setTab, onShowRules, list, pos, stocks, items, sizer, openStock, brokerMiss = [], trades = [] }) {
   const [hoursOpen, setHoursOpen] = useState(false);
   const sectors = market.sectors || [];
   const krGate = krGateOf(market), usGate = usGateOf(market);
@@ -205,14 +205,18 @@ export function MarketTab({ market, setTab, onShowRules, list, pos, stocks, item
                 {!T.z && !gated && sizer?.limit ? ` · 1회차 ${money(sizer.limit(m) / 2, m)}` : ""}</span>
             </div>
             {T.buy.map(r => {
-              const sh = sizer?.shares(r.c, r.m), rv = resvOf(resv.items, r.t);
+              const sh = sizer?.shares(r.c, r.m), cd = String(r.asOf || stocks?.[r.t]?.asOf || "");
+              // 297. 예약으로 주문이 이미 나갔거나(체결 대기) · 신호 종가 뒤에 판 종목은 '사기' 대신 상태만 (같은 날 두 번 사거나 판 걸 바로 다시 사지 않게)
+              const rv = resvOf(resv.items, r.t) || (resv.items || []).find(x => x.t === r.t && x.status === "sent" && String(x.day || "") >= cd.replace(/-/g, ""));
+              const sold = (trades || []).find(x => String(x.t).toUpperCase() === r.t && cd && String(x.out || "") >= cd);
               return (
                 <div key={r.t} onClick={() => openStock(r.t)} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: "1px 8px", padding: "8px 0", borderTop: `1px solid ${C.border}`, cursor: "pointer" }}>
                   <span style={{ minWidth: 0, fontSize: 14, ...ONE }}>{m === "kr" ? <b>{r.n}</b> : <><b style={{ fontFamily: MONO }}>{r.t}</b> <span style={{ fontSize: FS.xs, color: C.dim }}>{shortName(r.n)}</span></>}</span>
                   <b style={{ fontFamily: MONO, fontSize: FS.md, textAlign: "right" }}>{price(r.c, r.m)}</b>
                   <span style={{ fontSize: 10.5, color: C.muted, minWidth: 0, ...ONE }}>
                     {earnTxt(r, 7) && <b style={{ color: C.gold }}>📅 {earnTxt(r, 7)} · </b>}{r.secRank ? `${r.secLabel} ${r.secRank}위 · ` : ""}강도 {r.str ?? "—"} · 선까지 {r.loss != null ? `−${r.loss.toFixed(0)}%` : "—"}{r.growth != null ? ` · 매출 ${r.growth >= 0 ? "+" : ""}${r.growth.toFixed(0)}%` : ""}</span>
-                  {rv ? <button onClick={e => { e.stopPropagation(); setTab("track"); }} style={{ ...btn(C.cyan), minHeight: 30, padding: "0 10px", fontSize: FS.xs, justifySelf: "end" }}>⏰ {resvDay(rv.day)} 예약됨</button>
+                  {sold && !rv ? <span style={{ fontSize: 10.5, color: C.muted, textAlign: "right", fontWeight: 700 }}>{+String(sold.out).slice(5, 7)}/{+String(sold.out).slice(8, 10)} 팖 · 다음 종가 뒤</span>
+                    : rv ? <button onClick={e => { e.stopPropagation(); setTab("track"); }} style={{ ...btn(C.cyan), minHeight: 30, padding: "0 10px", fontSize: FS.xs, justifySelf: "end" }}>{rv.status === "sent" ? "⏰ 주문 보냄" : `⏰ ${resvDay(rv.day)} 예약됨`}</button>
                     : brokerT?.canOrder && !gated && !T.z
                     ? <button onClick={e => { e.stopPropagation(); openOrder({ t: r.t, side: "buy", qty: sh > 0 ? sh : 1, m: r.m }); }}
                         style={{ ...btn(usHalt && m === "us" ? C.red : openNow ? C.emerald : C.cyan), minHeight: 30, padding: "0 12px", fontSize: FS.xs, justifySelf: "end" }}>{usHalt && m === "us" ? "⚠ 사기" : openNow ? "사기" : "예약"}</button>
