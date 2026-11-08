@@ -391,7 +391,7 @@ export default function App() {
     const today = kstDay();
     const store = seenRef.current, now = Date.now();
     const cur = Object.values(snap.stocks || {}).filter(x =>
-      (x.tvr ?? 0) >= RULES.tvrMin && x.tmpl && (x.rs ?? 0) >= 70);
+      (x.tvr ?? 0) >= RULES.tvrMin && x.tmpl && (x.rs ?? 0) >= RULES.signal.rsMin);
     for (const x of cur) {
       const r = store[x.t];
       if (!r) store[x.t] = { first: now, last: today };
@@ -418,25 +418,8 @@ export default function App() {
   const goTab = useCallback((t) => { setChartOpen(false); setTab(t); }, []);
   const toggleWatch = useCallback((t) => setWatch(w => w.includes(t) ? w.filter(x => x !== t) : [...w, t]), []);
 
-  // 파이프라인이 action 을 안 준 데이터(구버전)면 같은 규칙으로 앱이 채웁니다 — 빈 화면 방지
-  const rawStocks = useMemo(() => {
-    const src = snap?.stocks || {};
-    const first = Object.values(src)[0];
-    if (!first || "action" in first) return src;
-    const out = {};
-    for (const [t, d] of Object.entries(src)) {
-      const rsOk = (d.rs ?? 0) >= 70;
-      const up = d.stSlow === 1 && rsOk && (d.ma200p ?? -1) > 0;
-      const strong = up && (d.rsi ?? 0) >= 60;                 // 180: 한국도 강세
-      const trend3 = d.st === 3 && d.cloud === 1 && rsOk;
-      const action = d.stSlow === 0 ? "sell" : (d.m === "kr" && d.pull) ? "buy" : strong ? "buy" : trend3 ? "buy" : "watch";
-      const why = action === "sell" ? "st" : action === "buy" ? ((d.m === "kr" && d.pull) ? "pull" : strong ? "strong" : "trend") : null;
-      const dip = (d.w52p != null && d.hlt != null && d.w52p <= -25 && d.hlt >= 0.6)
-        ? ((d.ma200p ?? 0) < -50 ? "broken" : ((d.ma20p ?? 0) > 0 || (d.c > 0 && d.ma200p != null && d.d21 > 0)) ? "watch" : "wait") : null;
-      out[t] = { ...d, action, why, dip, strong, trend3, _legacy: true };
-    }
-    return out;
-  }, [snap]);
+  // 296. 행동 판정(action·why)은 파이프라인 scripts/snap/signals.py 한 곳에서만 정합니다 — 앱이 같은 규칙을 따로 갖고 있으면 서로 어긋나서, 옛 데이터용 대체 계산을 지웠습니다.
+  const rawStocks = useMemo(() => snap?.stocks || {}, [snap]);
   const etfs = snap?.etfs || {};
   const rawList = useMemo(() => Object.values(rawStocks), [rawStocks]);
   const updMs = snap?.meta?.generatedAt ? new Date(snap.meta.generatedAt).getTime() : null;

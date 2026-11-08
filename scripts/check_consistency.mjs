@@ -104,6 +104,14 @@ const n = (re, txt) => { const m = re.exec(txt); return m ? Number(m[1]) : null;
   const lit = [["src/picks.js", /tvr \?\? 0\) >= 40|SEC_CAP = 3|us: 7, kr: 5/], ["src/App.jsx", /tvr \?\? 0\) >= 40|px \* 1\.0[36]\b/], ["scripts/build_snapshot.py", /tvr"\) or 0\) >= 40|\* 1\.0[36]\b|^SEC_CAP = 3/m],
                ["scripts/notify.py", /tvr"\) or 0\) >= 40|\* 1\.0[36]\b|or [75]\)/], ["scripts/watch_alert.py", /\* 1\.0[36]\b/]].filter(([f, re]) => re.test(T(f))).map(([f]) => f);
   ok("규칙 숫자를 코드에 다시 적은 곳 없음", lit.length === 0, lit.join(", "));
+  // 291·293. 급락 기준·신호 숫자·점검 경보 숫자를 코드에 다시 적지 않았는지 (규칙 파일 dip · signal · live)
+  const lit2 = [["scripts/snap/signals.py", /dd <= -25|hl >= 0\.6|< -50\b/], ["src/App.jsx", /w52p <= -25|hlt >= 0\.6|rs \?\? 0\) >= 70/],
+                ["src/TabChart.jsx", /\(s\.rs \?\? 0\) >= 70|\(s\.rsi \?\? 0\) >= 60/], ["scripts/build_snapshot.py", /w52p"\) or 0\) <= -25/],
+                ["scripts/snap/today.py", /win < 20|exm < -3/]].filter(([f, re]) => re.test(T(f))).map(([f]) => f);
+  ok(`급락·신호·점검 경보 숫자(dip ${R.dip.fallPct}/${R.dip.healthMin} · live ${R.live.recent}건)를 코드에 다시 적은 곳 없음`, lit2.length === 0, lit2.join(", "));
+  { const uiTxt = T("src/TabFind.jsx") + T("src/TabReview.jsx");
+    const wrong = [...uiTxt.matchAll(/고점 (−?\d+)%↓/g)].filter(m => Number(m[1].replace("−", "-")) !== R.dip.fallPct).map(m => m[0]);
+    ok("급락 '고점 N%↓' 문구가 규칙 파일과 같음", wrong.length === 0, wrong.join(", ")); }
   ok(`계좌 지정가 여유(+${R.guard.slip}%)가 서버 매수 거절선(${R.guard.buyBand}%)보다 작음`, R.guard.slip < R.guard.buyBand && /RULES\.guard\.buyBand/.test(T("api/_lib/meritz.js")));
 }
 ok("새로 사지 않는 나라(blocked)를 서버·앱·알림이 같은 값으로 읽음 — 269",

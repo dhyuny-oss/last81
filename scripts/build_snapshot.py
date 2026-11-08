@@ -193,7 +193,7 @@ def main():
         #   (예전: 평일마다 다시 걸러서 RS 가 60 아래로 잠깐 내려간 종목이 빠지고 토요일까지 못 돌아왔음 — 298 → 278 → 266)
         _prev_focus = ((prev_snap.get("meta", {}).get("health") or {}).get("mode") == "focus")
         keep = {t for t, d in prev_snap.get("stocks", {}).items()
-                if _prev_focus or (d.get("rs") or 0) >= 60 or ((d.get("w52p") or 0) <= -25 and (d.get("hlt") or 0) >= 0.6)}
+                if _prev_focus or (d.get("rs") or 0) >= 60 or ((d.get("w52p") or 0) <= RULES["dip"]["fallPct"] and (d.get("hlt") or 0) >= RULES["dip"]["healthMin"])}
         keep |= {str(t).upper() for t in prot if t}
         fu = {t: v for t, v in universe.items() if t in keep}
         n_kr = sum(1 for v in fu.values() if v["market"] == "kr"); n_us = len(fu) - n_kr
@@ -454,7 +454,7 @@ def main():
         for m, key in (("kr", "kr"), ("us", "us")):
             rows = (market.get("idxbars", {}).get(key) or {}).get("rows") or []
             idx_series[m] = [(datetime.fromtimestamp(r[0], timezone.utc).strftime("%Y-%m-%d"), r[1]) for r in rows]
-        market["live"] = update_signal_log(stocks, series, idx_series)
+        market["live"] = update_signal_log(stocks, series, idx_series, market)
     except Exception as e:
         print("  ⚠️ 실전 장부 갱신 실패:", e); market["live"] = None
 

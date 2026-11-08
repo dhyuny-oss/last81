@@ -11,6 +11,7 @@ from snap.common import *  # noqa
 from snap.indicators import *  # noqa
 
 SIG = RULES["signal"]
+DIP = RULES["dip"]
 
 
 def decide_actions(stocks, market):
@@ -45,8 +46,8 @@ def decide_actions(stocks, market):
         dd, hl = d.get("w52p"), d.get("hlt")
         prof = (d.get("fin") or {}).get("prof")
         rebound = bool(d.get("ma20p") is not None and d["ma20p"] > 0)
-        if dd is not None and hl is not None and dd <= -25 and hl >= 0.6:
-            broken = (d.get("ma200p") or 0) < -50
+        if dd is not None and hl is not None and dd <= DIP["fallPct"] and hl >= DIP["healthMin"]:
+            broken = (d.get("ma200p") or 0) < DIP["brokenMa200"]
             d["dip"] = "broken" if broken else ("watch" if (rebound and (prof or d["m"] == "kr")) else "wait")
         else:
             d["dip"] = None

@@ -15,7 +15,20 @@ from snap.dc import *  # noqa
 LOG_FILE = f"{OUT_DIR}/signals_log.json"
 LOG_KEEP_DAYS = 400
 
-def update_signal_log(stocks, series, idx_series):
+LIVE = RULES["live"]
+
+def _kr_gate_on(market, date):
+    """288. 예전 기록(blk 없음)을 채울 때 — 그 날짜의 한국 폭 백분위가 기준 아래였나. 폭 기록이 없으면 None(모름)"""
+    try:
+        hist = ((market.get("breadth") or {}).get("kr") or {}).get("hist") or []
+        ts = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp() + 86400
+        vals = [v for t, v in hist if t <= ts]
+        if len(vals) < 20: return None
+        return (sum(1 for v in vals[:-1] if v < vals[-1]) / (len(vals) - 1) * 100) < BREADTH_GATE
+    except Exception:
+        return None
+
+def update_signal_log(stocks, series, idx_series, market=None):
     try:
         log = json.load(open(LOG_FILE, encoding="utf-8"))
     except Exception:
@@ -29,7 +42,8 @@ def update_signal_log(stocks, series, idx_series):
         k = {"pull": "pull", "strong": "strong", "trend": "buy"}.get(d.get("why"), "buy")   # 앱·알림과 같은 근거 하나
         log.append({"d": d["asOf"], "t": t, "n": d.get("n"), "m": d["m"], "k": k, "p": d["c"],
                     "fin": {"rev": f.get("rev"), "qyoy": f.get("qyoy"), "growth": f.get("growth"), "prof": f.get("prof")} if f else None,   # 6개월 뒤 성장주 신호 성적 비교용
-                    "sec": d.get("sec"), "both": bool(d.get("strong") and d.get("trend3"))})
+                    "sec": d.get("sec"), "both": bool(d.get("strong") and d.get("trend3")),
+                    "blk": (blocked_of(((market or {}).get("judge") or {}).get(d["m"])) if ((market or {}).get("judge") or {}).get(d["m"]) else None)})   # 288. 그날 '새로 사지 않음'이던 나라인가
         added += 1
     # 193. 규칙 확정 전(2026-09) 버전이 남긴 '미국 눌림' 기록은 지금 규칙에 없는 신호라 지웁니다 (점검 탭 표에 '눌림 🇺🇸'로 보였음)
     log = [x for x in log if not (x.get("m") == "us" and x.get("k") == "pull")]
@@ -41,6 +55,9 @@ def update_signal_log(stocks, series, idx_series):
     log = dedup
     cutoff = _shift_days(today, -LOG_KEEP_DAYS) if today else ""
     log = [x for x in log if x["d"] >= cutoff]
+    for x in log:                                         # 288. 옛 기록 채우기 — 한국은 폭 기록으로, 미국은 모르면 None
+        if "blk" not in x:
+            x["blk"] = _kr_gate_on(market or {}, x["d"]) if x.get("m") == "kr" else None
     # 이후 성과 계산 — 신호일 종가 → 5·10·20거래일 뒤, 그리고 지금까지
     def close_at(rows, date, offset):
         ds = [r[0] for r in rows]
@@ -72,28 +89,49 @@ def update_signal_log(stocks, series, idx_series):
         c_now = rr[-1][1] if rr else None
         if c_now: x["r"]["now"] = _r((c_now / x["p"] - 1) * 100, 2)
     _write(LOG_FILE, log)
-    # 요약 — 20거래일이 지난 신호만 성적으로 칩니다
-    summ = {}
+    # 요약 — 20거래일이 지난 신호만 성적으로 칩니다. 288: 그날 '새로 사지 않음'이던 나라의 신호는 앱이 사지 않았을 것이라 따로 셉니다
+    def _rule_ret(x):                                     # 290. 규칙대로 = 이탈했으면 이탈가, 아니면 지금까지
+        if x.get("x") and x.get("p"): return (x["x"]["p"] / x["p"] - 1) * 100
+        return (x.get("r") or {}).get("now")
+    def _stat(L, rule_only=False):
+        r20 = [x["r"]["20"] for x in L if x.get("r", {}).get("20") is not None]
+        ex = [x["r"]["x20"] for x in L if x.get("r", {}).get("x20") is not None]
+        rr = [v for v in (_rule_ret(x) for x in L) if v is not None]
+        out = {"n": len(r20), "avg": _r(sum(r20) / len(r20), 2) if r20 else None,
+               "win": _r(sum(1 for v in r20 if v > 0) / len(r20) * 100, 0) if r20 else None,
+               "excess": _r(sum(ex) / len(ex), 2) if ex else None, "med": _r(sorted(r20)[len(r20) // 2], 2) if r20 else None,
+               # 290. 규칙대로(이탈까지 보유) 성적 — 20일 고정이 아니라 앱 규칙 그대로
+               "rule": {"n": len(rr), "avg": _r(sum(rr) / len(rr), 2) if rr else None,
+                        "win": _r(sum(1 for v in rr if v > 0) / len(rr) * 100, 0) if rr else None,
+                        "exited": sum(1 for x in L if x.get("x")), "open": sum(1 for x in L if not x.get("x")),
+                        "days": len({x["d"] for x in L})}}
+        return out
+    summ, summ_blk = {}, {}
     for k in ("pull", "buy", "strong"):
         for m in ("kr", "us", "all"):
-            L = [x for x in log if x["k"] == k and (m == "all" or x["m"] == m) and x.get("r", {}).get("20") is not None]
-            if len(L) < 3: continue
-            r20 = [x["r"]["20"] for x in L]; ex = [x["r"]["x20"] for x in L if x["r"].get("x20") is not None]
-            summ[f"{k}:{m}"] = {"n": len(L), "avg": _r(sum(r20) / len(r20), 2), "win": _r(sum(1 for v in r20 if v > 0) / len(r20) * 100, 0),
-                                "excess": _r(sum(ex) / len(ex), 2) if ex else None, "med": _r(sorted(r20)[len(r20) // 2], 2)}
+            base = [x for x in log if x["k"] == k and (m == "all" or x["m"] == m)]
+            L = [x for x in base if not x.get("blk") and x.get("r", {}).get("20") is not None]
+            if len(L) >= 3: summ[f"{k}:{m}"] = _stat([x for x in base if not x.get("blk")])
+            B = [x for x in base if x.get("blk")]
+            if len(B) >= 3 and m != "all": summ_blk[f"{k}:{m}"] = _stat(B)
     pending = sum(1 for x in log if x.get("r", {}).get("20") is None)
     done = sum(1 for x in log if x.get("r", {}).get("20") is not None)
-    # ★ 드리프트 경보 — 최근 30건 승률 20% 미만, 또는 20일 지수대비가 최근 8주 연속 마이너스면 "규칙 재검토"
-    recent = [x for x in log if x.get("r", {}).get("20") is not None][-30:]
+    # ★ 드리프트 경보 — 289. 같은 날 몰려 뜬 신호는 한 묶음이라, 최근 N건이 서로 다른 신호일 minDays일 이상일 때만 판정 (필터가 막은 신호는 제외)
+    recent = [x for x in log if not x.get("blk") and x.get("r", {}).get("20") is not None][-LIVE["recent"]:]
     drift = None
-    if len(recent) >= 30:
+    if len(recent) >= LIVE["recent"]:
+        nd = len({x["d"] for x in recent})
         win = sum(1 for x in recent if x["r"]["20"] > 0) / len(recent) * 100
         ex = [x["r"].get("x20") for x in recent if x["r"].get("x20") is not None]
         exm = sum(ex) / len(ex) if ex else None
         reasons = []
-        if win < 20: reasons.append(f"최근 30건 승률 {win:.0f}% (기준 20%)")
-        if exm is not None and exm < -3: reasons.append(f"최근 30건 지수대비 {exm:+.1f}%p")
-        drift = {"flag": bool(reasons), "win": _r(win, 0), "excess": _r(exm, 2) if exm is not None else None, "reasons": reasons}
+        if nd < LIVE["minDays"]:
+            note = f"최근 {len(recent)}건이 신호일 {nd}일에 몰려 있어 판정 보류 (신호일 {LIVE['minDays']}일 이상 필요)"
+        else:
+            note = None
+            if win < LIVE["driftWin"]: reasons.append(f"최근 {len(recent)}건 승률 {win:.0f}% (기준 {LIVE['driftWin']}%)")
+            if exm is not None and exm < LIVE["driftExcess"]: reasons.append(f"최근 {len(recent)}건 지수대비 {exm:+.1f}%p")
+        drift = {"flag": bool(reasons), "win": _r(win, 0), "excess": _r(exm, 2) if exm is not None else None, "reasons": reasons, "days": nd, "note": note}
         if reasons: print("  🚨 드리프트 경보:", " · ".join(reasons))
     print(f"  📒 실전 장부: 기록 {len(log)}건 (+{added}) · 20일 성적 확정 {done} · 대기 {pending}")
     # 57. 복기 요약 — 이탈한 신호의 규칙 손익과 '판 뒤 더 떨어졌나'
@@ -111,7 +149,7 @@ def update_signal_log(stocks, series, idx_series):
               "ruleAvg": _r(sum((x["x"]["p"] / x["p"] - 1) * 100 for x in exited) / len(exited), 2) if exited else None,
               "savedPct": _r(len(good) / len(judged) * 100, 0) if judged else None, "savedN": len(good), "judgedN": len(judged)}
     return {"summary": summ, "n": len(log), "pending": pending, "since": min((x["d"] for x in log), default=None), "review": review,
-            "drift": drift, "kinds": ["pull", "buy", "strong"]}
+            "drift": drift, "blocked": summ_blk, "kinds": ["pull", "buy", "strong"]}
 REV_MIN = RULES["revMin"]        # 앱 '매출 필터' 기본값 — 앱이 settings.revMin 을 보내면 그 값을 씁니다 (61)
 LINE_MAX_LOSS = 17  # 트레일링선까지(닿으면 잃는 폭) 17% 넘으면 오늘 후보에서 제외 — 예전 '선까지 20%'(c/선−1)와 같은 기준 (62)
 
