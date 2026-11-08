@@ -55,7 +55,6 @@ jobs:
     timeout-minutes: 60     # 코스닥 거래소 확인(.KS→.KQ 재조회)으로 2~4분 늘어납니다
     permissions:
       contents: write
-    env:
     steps:
       - uses: actions/checkout@v4
 

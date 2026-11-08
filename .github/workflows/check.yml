@@ -24,7 +24,10 @@ jobs:
       - name: 설치
         run: npm ci
       - name: 파이썬 문법
-        run: python -m py_compile scripts/*.py
+        run: python -m py_compile scripts/*.py scripts/snap/*.py
+      # 워크플로 파일 문법 — 틀리면 GitHub 가 그 워크플로를 아예 못 돌림(2026-11-08 빈 env: 로 daily.yml 이 0초 실패)
+      - name: 워크플로 문법
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -shellcheck= -pyflakes=
       - name: 빌드
         run: npm run build
       - name: 시험
