@@ -230,7 +230,7 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
           {["buy", "sell"].map((k) => (
             <button key={k} type="button" onClick={() => flip(k)} disabled={!!done}
               style={{ ...btn, minHeight: 36, padding: "2px 14px", color: side === k ? (k === "buy" ? K.up : K.down) : K.dim, borderColor: side === k ? (k === "buy" ? K.up : K.down) : K.border }}>{k === "buy" ? "매수" : "매도"}</button>))}
-          <span style={{ marginLeft: "auto", fontSize: 11, color: info?.env === "real" ? K.gold : K.dim }}>{BK} · {info?.env === "real" ? "실전 · 실제 돈" : info ? "모의" : ""}</span>
+          <span style={{ marginLeft: "auto", fontSize: 11, color: K.gold }}>{BK} · {info ? "실전 · 실제 돈" : ""}</span>
           <button type="button" onClick={onClose} aria-label="닫기" style={{ ...btn, minHeight: 36, padding: "0 10px" }}>✕</button>
         </div>
         <div style={{ marginTop: 10, display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
@@ -330,7 +330,7 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
               <div style={{ marginTop: 6, fontSize: 15, fontWeight: 800, color: done.st === "체결" ? K.up : done.st === "거부" ? K.down : K.gold }}>
                 상태: {done.st}{done.st === "체결" && done.fpx ? ` · 체결가 ${M(done.fpx)}` : ""}</div>
               <div style={{ color: K.dim, fontSize: 12 }}>
-                {done.st === "체결" ? (info?.env === "real" ? "실제 체결가로 내 종목에 바로 반영했습니다." : "내 종목 맨 위 '체결 반영'에서 넣습니다(모의).")
+                {done.st === "체결" ? "실제 체결가로 내 종목에 바로 반영했습니다."
                   : done.st === "거부" ? `${BK}가 거부했습니다 — ${BK} 앱에서 사유를 확인하세요.`
                   : `지정가에 안 닿으면 대기로 남았다가 장이 끝나면 사라집니다. 내 종목 → ${BK} 카드 '최근 주문'에서 취소할 수 있습니다.`}</div>
             </>}

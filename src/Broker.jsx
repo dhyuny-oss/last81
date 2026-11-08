@@ -119,7 +119,7 @@ export default function BrokerPanel({ held = [], stocks = {}, picks: picksUs = [
   };
   const amount = (Number(form.qty) || 0) * (Number(form.px) || 0);
   const M = (v, d = 0) => (KR ? won(v) : usd(v, d));                // 금액 표시: 🇰🇷 원 · 🇺🇸 달러
-  const cap1 = KR ? (info?.maxKrw || 5000000) : (info?.maxUsd || 5000), capDay = KR ? (info?.maxDayKrw || 20000000) : (info?.maxDay || 20000);
+  const cap1 = KR ? (info?.maxKrw || 0) : (info?.maxUsd || 0), capDay = KR ? (info?.maxDayKrw || 0) : (info?.maxDay || 0);   // 상한은 서버가 알려 준 값만 씀 (화면에 숫자를 따로 적지 않음)
   // 종목당 예산: 직접 넣은 값이 없으면 앱 1회차 금액(💰 투자금 ÷ 칸 ÷ 2) — 1건 상한을 넘지 않게
   const halfM = Math.floor(Number(half?.[mk]) || 0);
   const budgetAuto = halfM > 0 ? Math.min(halfM, cap1) : 0;
@@ -135,7 +135,7 @@ export default function BrokerPanel({ held = [], stocks = {}, picks: picksUs = [
     if (!j.ok && j.code === "warn" && j.warn && !c.warnOk)       // 증권사 경고(예: 미국 PTP 과세 확인) — 내용을 보여 주고 한 번 더 확인받아 다시 보냄
       return setConfirm({ ...c, rid: rid(), warnOk: true, note: `${BK} 경고: ${j.warn} — 읽고 괜찮으면 다시 보내 주세요` });
     if (!j.ok) { if (j.code === "unsure") { await new Promise((r) => setTimeout(r, 900)); await reloadOrders(); } return setMsg(j.msg || "주문이 거절되었습니다"); }
-    setOk(`${BK} ${demo ? "모의" : "실전"} ${c.side === "buy" ? "매수" : "매도"} 주문을 보냈습니다 — ${c.t} ${c.qty}주 × ${M(c.px, 2)}${j.placed?.odno ? ` · 주문번호 ${j.placed.odno}` : ""} (체결은 주문 내역에서 확인)`);
+    setOk(`${BK} ${c.side === "buy" ? "매수" : "매도"} 주문을 보냈습니다 — ${c.t} ${c.qty}주 × ${M(c.px, 2)}${j.placed?.odno ? ` · 주문번호 ${j.placed.odno}` : ""} (체결은 주문 내역에서 확인)`);
     await new Promise((r) => setTimeout(r, 700)); await reloadOrders();
   });
   const cancel = (o) => run("cancel:" + o.odno, async () => {
@@ -148,7 +148,7 @@ export default function BrokerPanel({ held = [], stocks = {}, picks: picksUs = [
   const mine = useMemo(() => new Set(held.filter((t) => isUs(t) !== KR)), [held, KR]);
   /* 143. 비밀번호가 저장돼 있으면 열 때 · 시장을 바꿀 때 자동으로 불러옴 (토큰은 하루 한 번만 새로 받으니 알림톡도 하루 한 번) */
   // 184. 잔고·주문을 받을 때마다 앱(내 종목 '체결 반영')에 알려 줌 — 주문을 보내거나 취소한 뒤에도
-  useEffect(() => { if (onSync && (data || orders)) onSync({ mk, broker: info?.broker || "kis", label: BK, env: data?.env || info?.env || "demo", rows: data?.rows || [], orders: orders || [], at: Date.now() }); },
+  useEffect(() => { if (onSync && (data || orders)) onSync({ mk, broker: info?.broker || "kis", label: BK, env: "real", rows: data?.rows || [], orders: orders || [], at: Date.now() }); },
     [data, orders]);                                     // eslint-disable-line react-hooks/exhaustive-deps
   // 184. 내 종목 카드의 '증권사로 매도/2회차' → 주문 칸을 채우고 그 자리로 이동
   // 189. 매도!(open) — 다음 개장 때 팔리도록 기준 종가보다 2.5% 낮은 지정가 (서버 거절선 3% 안쪽). 지정가가 시장 가격보다 낮으면 개장 가격으로 체결됩니다
@@ -183,9 +183,8 @@ export default function BrokerPanel({ held = [], stocks = {}, picks: picksUs = [
   }, [info, mk]);                                        // eslint-disable-line react-hooks/exhaustive-deps
   const setMk = (m) => { if (m === mk || busy) return; setMkRaw(m); ls.set(MK, m); setData(null); setOrders(null); setLive(null); setDayBuy(0); setConfirm(null); setMsg(""); setOk("");
     setForm({ side: "buy", t: "", ex: m === "kr" ? "KRX" : "NASD", qty: "1", px: "" }); };
-  const krSrc = kr ? (kr.list.length === 0 && kr.test && (data?.env || info?.env) !== "real" ? kr.test : kr) : { list: [], note: "" };
+  const krSrc = kr || { list: [], note: "" };
   const picks = KR ? krSrc.list : picksUs, pickNote = KR ? krSrc.note : noteUs;
-  const demo = (data?.env || info?.env) !== "real";
   const BK = info?.label || "증권사";                        // 연결된 증권사 이름 (메리츠)
   const MERITZ = info?.broker === "meritz";
   const box = { marginTop: 14, padding: "12px 14px", borderRadius: 12, background: K.panel, border: `1px solid ${K.border}`, color: K.text, fontSize: 13 };
@@ -194,8 +193,8 @@ export default function BrokerPanel({ held = [], stocks = {}, picks: picksUs = [
   const head = (
     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
       <b style={{ fontSize: 14 }}>🏦 {BK} 계좌</b>
-      <span style={{ fontSize: 11, padding: "1px 8px", borderRadius: 99, border: `1px solid ${demo ? K.dim : K.gold}`, color: demo ? K.dim : K.gold }}>{demo ? "모의투자" : "실전"}</span>
-      <span style={{ fontSize: 11, color: K.dim }}>{info.canOrder ? (demo ? "조회 + 모의 주문" : "조회 + 실전 주문") : "조회 전용"}</span>
+      <span style={{ fontSize: 11, padding: "1px 8px", borderRadius: 99, border: `1px solid ${K.gold}`, color: K.gold }}>{BK}</span>
+      <span style={{ fontSize: 11, color: K.dim }}>{info.canOrder ? "조회 + 주문" : "조회 전용"}</span>
       {info.configured && !info.pinMissing && <span role="tablist" aria-label="시장" style={{ display: "inline-flex", gap: 4, marginLeft: "auto" }}>
         {[["us", "🇺🇸 미국"], ["kr", "🇰🇷 한국"]].map(([k, l]) => (
           <button key={k} type="button" role="tab" aria-selected={mk === k} onClick={() => setMk(k)} disabled={!!busy}
@@ -275,8 +274,7 @@ export default function BrokerPanel({ held = [], stocks = {}, picks: picksUs = [
             <div style={{ color: K.dim, fontSize: 11.5, marginTop: 4 }}>지정가에 안 닿은 주문입니다. 그대로 두면 장이 끝날 때 사라집니다 · '새 가격으로 다시'는 이 주문을 먼저 취소한 뒤 쓰세요</div>
           </div>) : null; })()}
       <div style={{ marginTop: 6, color: K.dim, fontSize: 11.5, lineHeight: 1.5 }}>
-        {demo ? <>모의 체결은 내 종목 맨 위 '체결 반영'에서 한 번 눌러 넣습니다('모의' 표시).</>
-              : <>{BK}에서 체결된 매수·매도는 이 화면을 열 때 내 종목 맨 위에 <b style={{ color: K.text }}>'이렇게 반영할게요'</b>로 먼저 보여 드립니다 (내 종목 = {BK} 잔고 기준 · 11/8부터는 자동 반영 · 주문 창에서 체결된 건 바로 반영).</>}
+        <>{BK}에서 체결된 매수·매도는 이 화면을 열 때 내 종목 맨 위에 <b style={{ color: K.text }}>'이렇게 반영할게요'</b>로 먼저 보여 드립니다 (내 종목 = {BK} 잔고 기준 · 11/8부터는 자동 반영 · 주문 창에서 체결된 건 바로 반영).</>}
       </div>
       {(needPin || !pin) && (
         <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
@@ -290,10 +288,10 @@ export default function BrokerPanel({ held = [], stocks = {}, picks: picksUs = [
       {ok && <div role="status" style={{ color: K.up, marginTop: 8, lineHeight: 1.5 }}>✓ {ok}</div>}
 
       {data && (data.rows.length === 0
-        ? <div style={{ color: K.dim, marginTop: 10 }}>보유한 {KR ? "한국" : "미국"} 주식이 없습니다{demo ? " (모의 계좌는 모의로 산 종목만 보입니다)" : ""}.</div>
+        ? <div style={{ color: K.dim, marginTop: 10 }}>보유한 {KR ? "한국" : "미국"} 주식이 없습니다.</div>
         : <>
           <div style={{ marginTop: 10, fontFamily: MONO, fontSize: 13 }}>
-            {demo ? "모의 보유" : `${BK} 보유`} {data.sum.n}종목 · 매입 {M(data.sum.cost)} → 평가 {M(data.sum.val)} <b style={{ color: col(data.sum.pl) }}>{pct(data.sum.plPct)}</b>
+            {BK} 보유 {data.sum.n}종목 · 매입 {M(data.sum.cost)} → 평가 {M(data.sum.val)} <b style={{ color: col(data.sum.pl) }}>{pct(data.sum.plPct)}</b>
           </div>
           <div style={{ overflowX: "auto", marginTop: 8 }}>
             <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12.5 }}>
@@ -309,7 +307,7 @@ export default function BrokerPanel({ held = [], stocks = {}, picks: picksUs = [
                       : <b>{KR ? (r.n || stocks[r.t]?.n || r.t) : r.t}</b>}
                     <div style={{ color: K.dim, fontFamily: "inherit", fontSize: 11 }}>{r.qty}주 · 평단 {M(r.avg, 2)}</div>
                     {/* 229. 내 종목과 맞는지 */}
-                    {!demo && !mine.has(r.t) && <button type="button" onClick={() => { try { window.dispatchEvent(new CustomEvent("fill-open", { detail: { t: r.t } })); } catch {} }}
+                    {!mine.has(r.t) && <button type="button" onClick={() => { try { window.dispatchEvent(new CustomEvent("fill-open", { detail: { t: r.t } })); } catch {} }}
                       style={{ font: "inherit", fontSize: 11, color: K.gold, background: "none", border: "none", padding: "2px 0", cursor: "pointer", textAlign: "left", minHeight: 26 }}>⚠ 내 종목에 없음 — 넣기 ›</button>}</td>
                   <td style={td}>{M(r.px, 2)}</td>
                   <td style={{ ...td, color: col(r.pl) }}>{pct(r.plPct)}</td>
@@ -421,18 +419,18 @@ export default function BrokerPanel({ held = [], stocks = {}, picks: picksUs = [
         return only.length > 0 ? <div style={{ marginTop: 10, color: K.dim, fontSize: 11.5, lineHeight: 1.6 }}>앱 내 종목에만 있음: <span style={{ color: K.text, fontFamily: MONO }}>{only.join(" · ")}</span> — {MERITZ ? "메리츠 계좌에는 없습니다. 이미 팔았다면 내 종목에서 정리해 주세요." : "정상입니다. 서로 다른 계좌입니다."}</div> : null; })()}
 
       <div style={{ marginTop: 10, color: K.dim, fontSize: 11, lineHeight: 1.5 }}>
-        {!info.canOrder ? `보기만 합니다. 주문은 서버 스위치(MERITZ_ORDER=on)를 켜야 열립니다.` : demo ? "모의투자 주문입니다 — 가짜 돈입니다." : "실전 주문입니다 — 실제 돈이 나갑니다. 모든 주문은 확인 창을 거칩니다."}{MERITZ ? "" : " 조회할 때마다 한투 알림톡이 올 수 있습니다(접속 토큰을 새로 받는 날)."}
+        {!info.canOrder ? `보기만 합니다. 주문은 서버 스위치(MERITZ_ORDER=on)를 켜야 열립니다.` : "실전 주문입니다 — 실제 돈이 나갑니다. 모든 주문은 확인 창을 거칩니다."}{MERITZ ? "" : " 조회할 때마다 한투 알림톡이 올 수 있습니다(접속 토큰을 새로 받는 날)."}
       </div>
 
       {confirm && (
         <div role="dialog" aria-modal="true" aria-label="주문 확인" onClick={() => setConfirm(null)}
           style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 360, background: K.panel2, border: `2px solid ${demo ? K.gold : K.down}`, borderRadius: 14, padding: 18, color: K.text }}>
-            <div style={{ fontSize: 12, color: demo ? K.gold : K.down, fontWeight: 700 }}>{demo ? `${BK} 모의투자 · 지정가` : `⚠ ${BK} 실전 · 실제 돈 · 지정가`}</div>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 360, background: K.panel2, border: `2px solid ${K.down}`, borderRadius: 14, padding: 18, color: K.text }}>
+            <div style={{ fontSize: 12, color: K.down, fontWeight: 700 }}>{`⚠ ${BK} 실전 · 실제 돈 · 지정가`}</div>
             <div style={{ fontSize: 20, fontWeight: 700, marginTop: 6 }}><span style={{ color: confirm.side === "buy" ? K.up : K.down }}>{confirm.side === "buy" ? "매수" : "매도"}</span> {KR && stocks[confirm.t]?.n ? `${stocks[confirm.t].n} ` : ""}{confirm.t}</div>
             <div style={{ fontFamily: MONO, fontSize: 15, marginTop: 6 }}>{confirm.qty}주 × {M(confirm.px, 2)} = <b>{M(confirm.qty * confirm.px, 2)}</b>{!KR && fx ? <span style={{ color: K.dim, fontSize: 12 }}> (약 {Math.round(confirm.qty * confirm.px * fx / 10000).toLocaleString("ko-KR")}만 원)</span> : null}</div>
             {confirm.note && <div style={{ color: K.dim, fontSize: 12, marginTop: 4 }}>{confirm.note}</div>}
-            <div style={{ color: K.dim, fontSize: 12, marginTop: 4 }}>{EXN[confirm.ex]} · {demo ? "가짜 돈입니다." : "실제 계좌에서 실제 돈으로 주문됩니다."} 같은 주문이 두 번 나가지 않게 한 번만 전송됩니다.</div>
+            <div style={{ color: K.dim, fontSize: 12, marginTop: 4 }}>{EXN[confirm.ex]} · 실제 계좌에서 실제 돈으로 주문됩니다. 같은 주문이 두 번 나가지 않게 한 번만 전송됩니다.</div>
             <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
               <button type="button" onClick={() => setConfirm(null)} style={{ ...quiet, flex: 1 }}>돌아가기</button>
               <button type="button" onClick={send} style={{ ...btn, flex: 1, background: K.gold, color: "#111", border: `1px solid ${K.gold}` }}>주문 보내기</button>

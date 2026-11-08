@@ -137,7 +137,7 @@ export function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, s
         if (lastI == null && rows[i].idx != null) lastI = rows[i].idx;
         if (lastC != null && lastI != null) break;
       }
-      return (lastC != null && lastI) ? (lastC / lastI - 1) * 100 : null;
+      return (lastC != null && lastI) ? { rel: (lastC / lastI - 1) * 100, stk: (lastC / stkFirst - 1) * 100, idx: (lastI / stkFirst - 1) * 100 } : null;
     })() : null;
 
     // 가격축 범위 — 구름을 stack 으로 깔면 0 이 축에 끌려 들어와 가격선이 납작해집니다.
@@ -239,12 +239,12 @@ export function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, s
   const isStock = !isEtf;
   // 체크리스트 = 파이프라인 판정의 재료를 풀어 보여주는 것. 결론은 위 ActionTag 와 항상 같습니다.
   const checks = isStock ? [
-    ["주도주 (RS 70↑)", (s.rs ?? 0) >= 70, `RS ${s.rs != null ? Math.floor(s.rs) : "—"}`],
+    [`주도주 (RS ${RULES.signal.rsMin}↑)`, (s.rs ?? 0) >= RULES.signal.rsMin, `RS ${s.rs != null ? Math.floor(s.rs) : "—"}`],
     ["추세 (50>200일선 · 종가>200일선)", (s.ma200p ?? -1) > 0 && s.tmpl !== false && (s.stSlow === 1), `200일선 ${pct(s.ma200p, 1)}`],
     ["느린 ST 초록", s.stSlow === 1, s.stSlow == null ? "—" : `${s.stSlow === 1 ? "초록" : "빨강"} ${s.slowDays}거래일째`],
-    ["RSI 60 이상 (강세)", (s.rsi ?? 0) >= 60, `RSI ${s.rsi?.toFixed(0) ?? "—"}`],
+    [`RSI ${RULES.signal.strongRsi} 이상 (강세)`, (s.rsi ?? 0) >= RULES.signal.strongRsi, `RSI ${s.rsi?.toFixed(0) ?? "—"}`],
     ...(s.m === "kr"
-      ? [["↳ 또는 RSI 45 회복 (눌림)", !!s.pull, `${s.pull ? "오늘 회복" : "아님"}`]]
+      ? [[`↳ 또는 RSI ${RULES.signal.pullRsi} 회복 (눌림)`, !!s.pull, `${s.pull ? "오늘 회복" : "아님"}`]]
       : []),
     ["↳ 또는 추세 확인 (ST 3개 초록 + 구름 위)", !!s.trend3, `ST ${s.st ?? "—"}/3 · 구름 ${s.cloud === 1 ? "위" : s.cloud === 0 ? "안" : "아래"}`],
   ] : [];
@@ -449,9 +449,9 @@ export function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, s
                 {marks.some(k => k.kind === "pick") && <span style={{ color: C.emerald }}>▲추천 </span>}
                 {marks.some(k => k.kind === "buy") && <span style={{ color: C.gold }}>●삼 </span>}
                 {marks.some(k => k.kind === "sell") && <span style={{ color: C.red }}>✕팖</span>}</span>}
-              {opt.idx && view?.idxRel != null && (
-                <span style={{ fontWeight: 700, color: view.idxRel >= 0 ? C.emerald : C.red }}>
-                  지수 대비 {view.idxRel >= 0 ? "+" : ""}{view.idxRel.toFixed(1)}%</span>)}
+              {opt.idx && view?.idxRel != null && (() => { const r = view.idxRel, d = r.stk - r.idx, sg = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;   // 286. 지수 이름·두 수익률·차이(%p)를 같이
+                return <span style={{ fontWeight: 700, color: d >= 0 ? C.emerald : C.red }}>
+                  이 구간 {sg(r.stk)} · {idxLabel} {sg(r.idx)} → 지수보다 {Math.abs(d).toFixed(1)}%p {d >= 0 ? "더 오름" : "덜 오름"}</span>; })()}
             </PanelLabel>
             <div {...touchBox(mainH)}>
               <ResponsiveContainer width="100%" height="100%">
@@ -584,7 +584,7 @@ export function NoteBox({ s, note, setNote }) {
   useEffect(() => { setM(note?.m || ""); setTg(note?.tg || ""); }, [s.t]);
   const a = s.tgt; const my = Number(tg) > 0 ? Number(tg) : null;
   const gMy = tgtGap(my, s.c), gA = tgtGap(a?.a, s.c);
-  const line = (g) => g == null ? "" : g <= 0 ? "도달 ✓" : `남은 거리 +${g.toFixed(0)}%`;
+  const line = (g) => g == null ? "" : g <= 0 ? `도달 ✓ (현재가가 ${(-g / (1 + g / 100)).toFixed(0)}% 위)` : `현재가에서 +${g.toFixed(0)}% 남음`;
   return (
     <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, background: "rgba(255,255,255,.03)" }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap", fontSize: FS.xs }}>

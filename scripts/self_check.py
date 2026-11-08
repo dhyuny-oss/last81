@@ -13,6 +13,8 @@
 """
 import json, os
 from datetime import datetime, timezone, timedelta, date
+import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from rules import R as _R   # 260. 기본 칸·매출 숫자는 config/rules.json
 
 KST = timezone(timedelta(hours=9))
 SHADOW_FILE = "shadow_log.json"
@@ -80,7 +82,7 @@ def anomalies(stocks, health, today_kst):
 
 # ─────────────────────────── ② 그림자 기록
 def _variants(cands, cfg):
-    rev_min, su, sk, gate = cfg.get("revMin", 10), cfg.get("slotsUs", 7), cfg.get("slotsKr", 5), cfg.get("krGate", False)
+    rev_min, su, sk, gate = cfg.get("revMin", _R["revMin"]), cfg.get("slotsUs", _R["slots"]["us"]), cfg.get("slotsKr", _R["slots"]["kr"]), cfg.get("krGate", False)
     ok = [r for r in cands if r.get("prof") is not False
           and not (rev_min > 0 and r["m"] == "us" and r.get("growth") is not None and r["growth"] < rev_min)]
     strength = lambda r: ((1 if r.get("why") == "trend" else 0) * 1000 - (r.get("str") or 0), r["t"])
