@@ -111,6 +111,15 @@ ok("새로 사지 않는 나라(blocked)를 서버·앱·알림이 같은 값으
   && /usGateOf = \(market\) =>/.test(app_) && /krGateOf = \(market\) =>/.test(app_) && /\.blocked/.test(app_)
   && /_ju\.get\("blocked"\) and _open\.get\("us"\)/.test(notify) && /_jk\.get\("blocked"\) and _open\.get\("kr"\)/.test(notify)
   && !/\.get\("nqGate"\)|\.get\("gate"\)/.test(notify));
+// 279. 화면·알림 문구에 적힌 기준 숫자가 config/rules.json 과 같은가 (숫자를 바꾸고 문구를 놓치는 일 막기)
+{
+  const R = JSON.parse(T("config/rules.json"));
+  const txt = ["src/App.jsx", "scripts/notify.py", "scripts/snap/today.py"].map(T).join("\n") + readdirSync("src").filter((f) => f.endsWith(".jsx")).map((f) => readFileSync(`src/${f}`, "utf-8")).join("\n");
+  const kb = [...txt.matchAll(/3년 하위 (\d+)%/g)].map((m) => Number(m[1])).filter((n) => n !== 0 && n !== 100);
+  const rs = [...txt.matchAll(/RS (\d+)↑/g)].map((m) => Number(m[1]));
+  ok(`'3년 하위 N%' 문구가 모두 ${R.krBreadthPct}% (한국 폭 기준)`, kb.every((n) => n === R.krBreadthPct), `다른 값: ${[...new Set(kb.filter((n) => n !== R.krBreadthPct))].join(",")}`);
+  ok(`'RS N↑' 문구가 모두 ${R.signal.rsMin} (신호 RS 하한)`, rs.every((n) => n === R.signal.rsMin), `다른 값: ${[...new Set(rs.filter((n) => n !== R.signal.rsMin))].join(",")}`);
+}
 ok("화면에 '판정은 DC에만 사용'·근거 없는 16.9% 같은 옛 문구 없음 — 160", !/DC 판단에만 사용|ETF 배분\(DC\)에만|\+16\.9%·최대낙폭 −28%/.test(app_));
 ok("폭 계산 날짜(breadthAsOf)가 데이터에 있음 — 171", !!market.breadthAsOf, "", true);
 const brokerJs = T("api/_lib/meritz.js"), brokerUi = T("src/Broker.jsx");
