@@ -40,7 +40,7 @@ def load_extra(universe):
         042660  한화오션        (이름을 직접 적고 싶을 때)
 
     # 로 시작하는 줄과 빈 줄은 무시합니다.
-    이미 stocks.json 에 있는 종목은 건너뜁니다(중복 추가 안 됨).
+    이미 universe.json 에 있는 종목은 건너뜁니다(중복 추가 안 됨).
     """
     added = []
     # 앱에서 "종목풀에 추가"를 누르면 watchlist.json 의 extras 로 들어옵니다 (파일 수정 없이 즉시)

@@ -1,17 +1,11 @@
 #!/usr/bin/env python3
 """
-Beta Terminal v0.4 — 미국 풀 전체 재무 수집 (PR #3c 단계 1)
+② 미국 재무 (주 1회 · quarterly-us.yml)
 ================================================================================
 
-목적:
-  - stocks.json의 pool에서 미국 종목 전부 추출
-  - yfinance로 재무 데이터 수집
-  - 결과 → public/data/financials_us.json (별도 파일, 알파 안 건드림)
-
-⚠️ 안전 원칙:
-  - stocks.json 절대 안 건드림
-  - 별도 파일에 저장 → 알파 영향 0%
-  - 단계 2에서 stocks.json에 통합 (그때 알파 코드 검토 후)
+  입력   public/data/universe.json 의 미국 종목 (① build_universe.py 가 만듦)
+  출력   public/data/financials_us.json  → ③ build_snapshot 이 바로 읽음 (262 · 예전 stocks.json 병합 단계 없앰)
+  안전   이번에 못 받은 종목은 지난 값을 그대로 둠
 
 처리량:
   - 미국 종목 ~500개 예상 (알파 daily가 수집한 풀)
@@ -271,7 +265,7 @@ def main():
     print(f"시작: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 70)
 
-    # ─── stocks.json 로드 (읽기 전용) ───
+    # ─── universe.json 로드 (읽기 전용) ───
     if not os.path.exists(STOCKS_PATH):
         print(f"❌ {STOCKS_PATH} 없음")
         sys.exit(1)
@@ -312,7 +306,7 @@ def main():
     fail_reasons = {}
 
     for i, ticker in enumerate(us_tickers, 1):
-        # yfinance 형식 (BRK.B → BRK-B 같은 변환은 알파 stocks.json에서 이미 처리됨)
+        # yfinance 형식 (BRK.B → BRK-B 같은 변환은 universe.json 에서 이미 처리됨)
         yt = ticker
 
         result, status = fetch_financials(yt)
@@ -394,7 +388,7 @@ def main():
         f"- 파일 크기: {file_size:.0f}KB",
         f"",
         f"## 다음 단계 결정 기준",
-        f"- 완전+부분 ≥ 80% → ✅ 단계 2 (stocks.json 통합) 진행",
+        f"- 완전+부분 ≥ 80% → ✅ 정상",
         f"- 완전+부분 60~80% → ⚠️ 실패 패턴 분석 후 결정",
         f"- < 60% → ❌ 디버깅 필요",
     ]
