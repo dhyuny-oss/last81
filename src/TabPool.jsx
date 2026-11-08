@@ -170,10 +170,10 @@ export function PoolTab({ snap, uni, list, openStock, watch, pos, extras, setExt
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 6, marginTop: 8 }}>
               <Box k="종목풀" v={total} sub="이번 주 명단" />
               <Box k="오늘 신호 계산" v={list.length} sub={`🇰🇷 ${list.filter(s => s.m === "kr").length} · 🇺🇸 ${list.filter(s => s.m === "us").length}`} c={C.emerald} />
-              <Box k="뺀 종목" v={h.mode === "focus" ? (total != null ? total - list.length : null) : drop} sub={h.mode === "focus" ? "평일 감시 모드" : "아래 이유"} />
+              <Box k="뺀 종목" v={h.mode === "focus" ? (total != null ? total - list.length : null) : drop} sub={h.mode === "focus" ? "평일 간이 수집" : "아래 이유"} />
             </div>
             <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5, lineHeight: 1.6 }}>
-              {h.mode === "focus" ? "평일엔 신호가 날 수 있는 종목만 계산(감시 모드) · 토요일에 전체 다시 계산"
+              {h.mode === "focus" ? "평일엔 신호가 날 수 있는 종목만 계산(간이 수집) · 토요일에 전체 다시 계산"
                 : `뺀 ${drop} = ${[...Object.entries(h.dropped || {}).map(([k, v]) => `${k} ${v}`), h.failed ? `수집 실패 ${h.failed}` : null].filter(Boolean).join(" · ") || "없음"}`}
             </div></>;
         })()}

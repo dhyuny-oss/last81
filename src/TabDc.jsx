@@ -32,7 +32,7 @@ export function DcTab({ etfs, market, pos, setPos, openStock, sizer }) {
   const [done, setDone] = useState(() => loadJSON("v6.dc.done", { us: [], kr: [] }));
   const [moreUs, setMoreUs] = useState(false);
   const [moreKr, setMoreKr] = useState(false);
-  const [mode, setMode] = useState(dcModeOf);      // st=현행(느린ST) · hold=3지수 보유 (182: 듀얼 모멘텀 대신)
+  const [mode, setMode] = useState(dcModeOf);      // st=현행(느린 ST) · hold=3지수 보유 (182: 듀얼 모멘텀 대신)
   useEffect(() => { localStorage.setItem("v9.dc.mode", mode); settingsChanged(); }, [mode]);
   useEffect(() => { localStorage.setItem("v6.dc.total", String(total)); }, [total]);
   useEffect(() => { localStorage.setItem("v6.dc.split", String(split)); }, [split]);
@@ -71,27 +71,27 @@ export function DcTab({ etfs, market, pos, setPos, openStock, sizer }) {
   const St = ({ d }) => {
     if (!d || d.stSlow == null) return <Chip tone="n">신호 없음</Chip>;
     return d.stSlow === 1
-      ? <Chip tone="g">느린ST 초록 {d.slowDays}거래일</Chip>
-      : <Chip tone="r">느린ST 빨강 {d.slowDays}거래일</Chip>;
+      ? <Chip tone="g">느린 ST 초록 {d.slowDays}거래일</Chip>
+      : <Chip tone="r">느린 ST 빨강 {d.slowDays}거래일</Chip>;
   };
 
   return (
     <>
-      {/* 규칙 택일 — 낙폭 작은 쪽(느린ST)과 수익 쪽(3지수 보유) */}
+      {/* 규칙 택일 — 낙폭 작은 쪽(느린 ST)과 수익 쪽(3지수 보유) */}
       <div style={{ marginTop: 8 }}>
-        <Seg full value={mode} onChange={setMode} items={[["st", "느린ST (낙폭 작음)"], ["hold", "3지수 보유 (수익↑ 낙폭↑)"]]} />
+        <Seg full value={mode} onChange={setMode} items={[["st", "느린 ST (낙폭 작음)"], ["hold", "3지수 보유 (수익↑ 낙폭↑)"]]} />
       </div>
       {/* 84. 규칙 설명은 한 줄 요약만 두고 나머지는 접어, '이번 달 보유 목표'가 먼저 보이게 */}
       <div style={{ fontSize: FS.xs, color: C.muted, margin: "6px 2px 0", display: "flex", gap: 6, alignItems: "baseline" }}>
-        <span>{mode === "st" ? "느린ST 빨강이면 그 몫은 안전자산" : "1년에 한 번(1월 첫 거래일) 비중만 맞춤"}</span>
+        <span>{mode === "st" ? "느린 ST 빨강이면 그 몫은 안전자산" : "1년에 한 번(1월 첫 거래일) 비중만 맞춤"}</span>
         <button onClick={() => setRuleOpen(v => !v)} style={{ ...linkBtn, fontSize: FS.xs, minHeight: 36, padding: "0 8px", marginLeft: "auto" }}>{ruleOpen ? "접기" : "규칙 자세히"}</button>
       </div>
       {ruleOpen && (
         <div style={{ fontSize: FS.xs, color: C.muted, margin: "2px 2px 0" }}>
           {mode === "st" ? (() => { const ev = dc.evidence || {};    // 173. 수치는 데이터 파일 하나에서 (예전엔 화면에 적은 값과 조금 달랐음)
-              return `${(dc.core || []).map(c => `${c.label.replace(/^(미국|한국) /, "")} ${Math.round(c.w * 100)}%`).join(" + ")} + 안전자산 30%, 각 몫은 느린ST 초록일 때만 보유 · 검증 ${ev.period || "—"}: 연 +${ev.cagr ?? "—"}% · 최대낙폭 ${ev.mdd ?? "—"}% · 샤프 ${ev.sharpe ?? "—"}${ev.bh_cagr != null ? ` (3지수 그냥 보유 +${ev.bh_cagr}% · ${ev.bh_mdd}%)` : ""}`; })()
+              return `${(dc.core || []).map(c => `${c.label.replace(/^(미국|한국) /, "")} ${Math.round(c.w * 100)}%`).join(" + ")} + 안전자산 30%, 각 몫은 느린 ST 초록일 때만 보유 · 검증 ${ev.period || "—"}: 연 +${ev.cagr ?? "—"}% · 최대낙폭 ${ev.mdd ?? "—"}% · 샤프 ${ev.sharpe ?? "—"}${ev.bh_cagr != null ? ` (3지수 그냥 보유 +${ev.bh_cagr}% · ${ev.bh_mdd}%)` : ""}`; })()
                          : (() => { const ev = dc.hold3?.evidence || {};
-              return `나스닥100·S&P500·코스피200 각 23% + 안전자산 30% · 환노출 상품 · 그 사이엔 사고팔지 않음 · 검증 ${ev.period || "2008–26"}: 연 +${ev.cagr ?? "—"}% · 최대낙폭 ${ev.mdd ?? "—"}% · 샤프 ${ev.sharpe ?? "—"}${ev.st_cagr != null ? ` (느린ST 3지수 +${ev.st_cagr}% · ${ev.st_mdd}%)` : ""}`; })()}
+              return `나스닥100·S&P500·코스피200 각 23% + 안전자산 30% · 환노출 상품 · 그 사이엔 사고팔지 않음 · 검증 ${ev.period || "2008–26"}: 연 +${ev.cagr ?? "—"}% · 최대낙폭 ${ev.mdd ?? "—"}% · 샤프 ${ev.sharpe ?? "—"}${ev.st_cagr != null ? ` (느린 ST 3지수 +${ev.st_cagr}% · ${ev.st_mdd}%)` : ""}`; })()}
         </div>)}
       {mode === "hold" && (() => {
         const riskW = 0.70, safeW = 0.30;                 // 225. 반도체 고정 칸은 뺐음 (검증에서 효과 없음)
@@ -178,7 +178,7 @@ export function DcTab({ etfs, market, pos, setPos, openStock, sizer }) {
             <div style={{ fontSize: FS.xs, color: C.dim, marginTop: 4, lineHeight: 1.55 }}>
               채권으로 채운다면 <b style={{ color: C.text }}>예금 · 국내 단기채 · 국고채 3년</b> — 5년 최대낙폭 −0.5%~−5%.
               국고채 10년(−17%) · 미국 30년(−48%) 같은 장기채는 급락 때 조금 오르지만 금리가 오르면 크게 빠져 안전자산 역할을 못 합니다(2022).
-              {dcModeOf() !== "hold" && <b style={{ color: C.gold }}> 느린ST 방식은 빨강일 때 이 몫으로 옮기므로 장기채를 쓰면 최대낙폭이 −13% → −35~39%로 커집니다(백테스트).</b>}
+              {dcModeOf() !== "hold" && <b style={{ color: C.gold }}> 느린 ST 방식은 빨강일 때 이 몫으로 옮기므로 장기채를 쓰면 최대낙폭이 −13% → −35~39%로 커집니다(백테스트).</b>}
             </div>
             {(() => { const unb = cores.filter(c => c.state === "hold" && (c.n || 0) < split).reduce((a, c) => a + (c.target || 0) - (c.n || 0) * (c.per || 0), 0);   // 174
               return unb > 0 ? <div style={{ fontSize: FS.xs, color: C.gold, marginTop: 2 }}>아직 안 산 보유 신호 몫 {money(unb, "kr")} 포함 — 위 '매수 완료 기록'을 누르면 줄어듭니다</div> : null; })()}
@@ -196,7 +196,7 @@ export function DcTab({ etfs, market, pos, setPos, openStock, sizer }) {
             : <input type="number" inputMode="numeric" value={total0} onChange={e => setTotal(Number(e.target.value) || 0)} style={{ ...inp("100%"), flex: 1 }} />}
         </label>
         <div style={{ fontSize: FS.xs, color: C.muted, margin: "4px 0 0 72px" }}>{sizer?.plan ? "💰 전체 투자금에서 자동 · 내 종목 탭에서 변경" : money(total, "kr")}</div>
-        {mode === "st" && <>{/* 진입 방식은 느린ST 규칙 전용 — 3지수 보유는 처음 한 번 사 두면 끝 */}
+        {mode === "st" && <>{/* 진입 방식은 느린 ST 규칙 전용 — 3지수 보유는 처음 한 번 사 두면 끝 */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
           <span style={{ fontSize: FS.sm, color: C.dim, width: 64, flexShrink: 0 }}>진입</span>
           <Seg full value={split} onChange={setSplit} items={[[1, "한 번에"], [3, "3분할"]]} />
@@ -210,10 +210,10 @@ export function DcTab({ etfs, market, pos, setPos, openStock, sizer }) {
       </Card>
 
       <button onClick={() => setShowRef(v => !v)} style={{ ...btn(C.dim), width: "100%", marginTop: 14, textAlign: "left", display: "flex" }}>
-        <span>참고: 섹터·업종 ETF</span><span style={{ marginLeft: "auto", fontWeight: 400, color: C.muted }}>배분하지 않음 · 검증에서 지수 보유와 차이 없음 {showRef ? "▴" : "▾"}</span>
+        <span>참고: 업종 ETF</span><span style={{ marginLeft: "auto", fontWeight: 400, color: C.muted }}>배분하지 않음 · 검증에서 지수 보유와 차이 없음 {showRef ? "▴" : "▾"}</span>
       </button>
       {showRef && <>
-      <Sec right={<Grade k="weak" />}>🇺🇸 미국 섹터 → 국내 ETF</Sec>
+      <Sec right={<Grade k="weak" />}>🇺🇸 미국 업종 → 국내 ETF</Sec>
       <Card style={{ padding: "0 12px" }}>
         {[...(dc.usCore || []), ...(dc.usSect || [])].slice(0, moreUs ? 99 : 5).map((t, i) => {
           const d = etfs[t]; if (!d) return null;
@@ -242,10 +242,10 @@ export function DcTab({ etfs, market, pos, setPos, openStock, sizer }) {
         {!moreUs && (dc.usCore || []).length + (dc.usSect || []).length > 5 && (
           <button onClick={() => setMoreUs(true)} style={{ ...btn(C.dim), width: "100%", margin: "8px 0" }}>
             나머지 {(dc.usCore || []).length + (dc.usSect || []).length - 5}개 보기</button>)}
-        <Info label="섹터 선택 근거">
+        <Info label="업종 선택 근거">
           판단(점수·신호)은 미국 원본 ETF로, 매수는 국내 상장 ETF로 합니다. 국내 상품은 원화 기준이라 환율 영향이 더해집니다
-          (주간 상관 0.83~0.96). 섹터 상위 3개로 교체하는 방식은 원화·DC 조건 검증에서 지수 보유와 차이가 없었습니다
-          (연 9.2% vs 9.2%) — 핵심 비중은 위 규칙대로 두고, 섹터는 비중을 더 두고 싶을 때 고르는 참고로 쓰세요.
+          (주간 상관 0.83~0.96). 업종 상위 3개로 교체하는 방식은 원화·DC 조건 검증에서 지수 보유와 차이가 없었습니다
+          (연 9.2% vs 9.2%) — 핵심 비중은 위 규칙대로 두고, 업종은 비중을 더 두고 싶을 때 고르는 참고로 쓰세요.
         </Info>
       </Card>
 

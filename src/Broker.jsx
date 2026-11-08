@@ -8,16 +8,14 @@
  *  · 🇺🇸 미국 · 🇰🇷 한국을 위쪽 전환 단추로 바꿉니다 (한국: 원화 · 호가 단위 · 코스피/코스닥 급락 보류).
  *    한국 투자금이 0원이면 실전은 제안하지 않고, 모의 계좌에서만 "시험용"으로 한국 추천을 보여 줍니다.
  *  · 비밀번호가 저장돼 있으면 열 때 자동으로 불러옵니다(143).
- *  · 주문·취소는 모의투자(demo)에서 열립니다. 실전은 서버에 KIS_REAL_ORDER=on 이 있을 때만 (없으면 조회만).
+ *  · 주문·취소는 서버에 MERITZ_ORDER=on 이 있을 때만 열립니다 (없으면 조회만).
  *  · "오늘 매수 제안": 전날 종가로 뽑힌 오늘 살 것을 지금 가격과 견줘, 살 만하면 수량·지정가를 채워 묻습니다.
- *    시장 급락 · 종목 급락 · 손절선 아래 · 이미 많이 오름이면 제안을 보류합니다 (아래 GUARD 숫자 · 미검증 안전장치).
- *  · (한투일 때만) 한투 관심 그룹 → 앱 관심종목은 읽어 와서 추가만 합니다 (반대 방향은 한투가 지원하지 않음).
+ *    시장 급락 · 종목 급락 · 트레일링선 아래 · 이미 많이 오름이면 제안을 보류합니다 (아래 GUARD 숫자 · 미검증 안전장치).
  *
  * ▣ 증권사 바꾸는 법: api/broker.js 맨 위 설명 (BROKER 환경변수 하나)
- * ▣ 카드 자체를 빼는 법: App.jsx 의 "★ 한투" 두 곳 + 이 파일 + api/broker.js · api/_lib/
+ * ▣ 카드 자체를 빼는 법: App.jsx 의 "★ 증권사" 두 곳 + 이 파일 + api/broker.js · api/_lib/
  *
  * props: held = 앱 내 종목 티커(비교용·읽기만) · stocks = 앱 종목 지표 · picks = 오늘 살 것(빠른 선택)
- *        watch / toggleWatch = 앱 관심종목 (관심 불러오기에서만 씀)
  *        asOf = 오늘 살 것의 기준 날짜({us, kr} 또는 문자열) · half = 앱 1회차 금액 {us, kr} · usOpen = 미국 정규장 여부 · fx = 원/달러
  */
 import RULES from "./rules.js";
@@ -48,7 +46,7 @@ const quiet = { ...btn, border: `1px solid ${K.border}`, color: K.dim, fontWeigh
 const inp = { minHeight: 40, padding: "6px 10px", borderRadius: 10, border: `1px solid ${K.border}`, background: "#0A0E1A", color: K.text, font: "inherit", minWidth: 0 };
 const SIG = { buy: ["매수!", K.up], sell: ["매도!", K.down], hold: ["들고 있기", K.cyan], watch: ["관망", K.dim] };   // 229. "보유"는 '내 종목에 있다'로 읽혀서 → 앱 판정 "들고 있기"
 
-export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], watch = [], toggleWatch, asOf: asOfIn = "", half = null, usOpen = false, fx = null, pickNote: noteUs = "", kr = null, krOpen = false, onSync = null, openStock = null }) {
+export default function BrokerPanel({ held = [], stocks = {}, picks: picksUs = [], asOf: asOfIn = "", half = null, usOpen = false, fx = null, pickNote: noteUs = "", kr = null, krOpen = false, onSync = null, openStock = null }) {
   const [mk, setMkRaw] = useState(() => (ls.get(MK) === "kr" ? "kr" : "us"));   // 🇺🇸 / 🇰🇷 전환
   const KR = mk === "kr";
   const asOf = (asOfIn && typeof asOfIn === "object" ? asOfIn[mk] : asOfIn) || "";   // 시장마다 종가 날짜가 다름 (🇺🇸 은 하루 늦음)
@@ -61,7 +59,6 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
   const [pin, setPin] = useState(() => ls.get(PIN));
   const [form, setForm] = useState({ side: "buy", t: "", ex: "NASD", qty: "1", px: "" });
   const [confirm, setConfirm] = useState(null);       // { ...order, rid }
-  const [groups, setGroups] = useState(null), [fav, setFav] = useState(null);
   const [live, setLive] = useState(null);             // 지금 가격 { quotes, idx, at }
   const [resv, setResv] = useState(null);             // 189. 예약 주문 (메리츠)
   const [budgetUs, setBudgetUs] = useState(() => ls.get(BUD) || "");
@@ -147,15 +144,13 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
     setOk(`${o.t} 주문 ${o.odno} 취소를 보냈습니다`);
     await new Promise((r) => setTimeout(r, 700)); await reloadOrders();
   });
-  const loadGroups = () => run("groups", async () => { setFav(null); const j = await call({ what: "groups" }); if (j.ok) setGroups(j.groups); else setMsg(j.msg || ""); });
-  const loadGroup = (g) => run("group", async () => { const j = await call({ what: "group", code: g.code }); if (j.ok) setFav({ g, stocks: j.stocks }); else setMsg(j.msg || ""); });
 
   const mine = useMemo(() => new Set(held.filter((t) => isUs(t) !== KR)), [held, KR]);
   /* 143. 비밀번호가 저장돼 있으면 열 때 · 시장을 바꿀 때 자동으로 불러옴 (토큰은 하루 한 번만 새로 받으니 알림톡도 하루 한 번) */
   // 184. 잔고·주문을 받을 때마다 앱(내 종목 '체결 반영')에 알려 줌 — 주문을 보내거나 취소한 뒤에도
   useEffect(() => { if (onSync && (data || orders)) onSync({ mk, broker: info?.broker || "kis", label: BK, env: data?.env || info?.env || "demo", rows: data?.rows || [], orders: orders || [], at: Date.now() }); },
     [data, orders]);                                     // eslint-disable-line react-hooks/exhaustive-deps
-  // 184. 내 종목 카드의 '한투로 매도/2회차' → 주문 칸을 채우고 그 자리로 이동
+  // 184. 내 종목 카드의 '증권사로 매도/2회차' → 주문 칸을 채우고 그 자리로 이동
   // 189. 매도!(open) — 다음 개장 때 팔리도록 기준 종가보다 2.5% 낮은 지정가 (서버 거절선 3% 안쪽). 지정가가 시장 가격보다 낮으면 개장 가격으로 체결됩니다
   const prefillNow = (d) => {
     const s = stocks[d.t]; const extra = d.qty != null ? { qty: d.qty } : {};
@@ -191,7 +186,7 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
   const krSrc = kr ? (kr.list.length === 0 && kr.test && (data?.env || info?.env) !== "real" ? kr.test : kr) : { list: [], note: "" };
   const picks = KR ? krSrc.list : picksUs, pickNote = KR ? krSrc.note : noteUs;
   const demo = (data?.env || info?.env) !== "real";
-  const BK = info?.label || "증권사";                        // 연결된 증권사 이름 (메리츠 · 한투 …)
+  const BK = info?.label || "증권사";                        // 연결된 증권사 이름 (메리츠)
   const MERITZ = info?.broker === "meritz";
   const box = { marginTop: 14, padding: "12px 14px", borderRadius: 12, background: K.panel, border: `1px solid ${K.border}`, color: K.text, fontSize: 13 };
 
@@ -212,7 +207,7 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
       <div style={{ color: K.dim, marginTop: 6, lineHeight: 1.6 }}>
         {info.off ? "서버 연결 함수(/api/broker)를 찾지 못했습니다."
           : info.msg && !info.broker ? info.msg
-          : !info.configured ? <>아직 연결 전입니다. Vercel → Settings → Environment Variables 에 <span style={{ fontFamily: MONO, color: K.text }}>{MERITZ ? "MERITZ_APP_KEY · MERITZ_APP_SECRET · APP_PIN" : "KIS_DEMO_APP_KEY · KIS_DEMO_APP_SECRET · KIS_DEMO_ACCOUNT · KIS_ENV · APP_PIN"}</span> 을 넣고 다시 배포하면 여기서 조회됩니다.</>
+          : !info.configured ? <>아직 연결 전입니다. Vercel → Settings → Environment Variables 에 <span style={{ fontFamily: MONO, color: K.text }}>MERITZ_APP_KEY · MERITZ_APP_SECRET · APP_PIN</span> 을 넣고 다시 배포하면 여기서 조회됩니다.</>
           : "Vercel 환경변수 APP_PIN(내가 정하는 비밀번호)을 넣어야 열립니다."}
       </div>
     </div>);
@@ -245,7 +240,7 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
     if (stale) return no("가격을 다시 본 뒤 살 수 있습니다");
     if (mkt.unknown) return no("시장 상태 확인 안 됨 — 보류");
     if (mkt.halt) return no("시장 급락 중 — 보류", "bad");
-    if (line > 0 && q.last <= line) return no(`손절선 ${M(line, 2)} 아래 — 신호가 깨졌습니다`, "bad");
+    if (line > 0 && q.last <= line) return no(`트레일링선 ${M(line, 2)} 아래 — 신호가 깨졌습니다`, "bad");
     if (ch <= GUARD.stDown) return no(`기준 종가보다 ${pct(ch)} — 급락 중이라 보류`, "bad");
     if (ch >= GUARD.stUp) return no(`기준 종가보다 ${pct(ch)} — 이미 많이 올라 추격 보류`);
     if (qty < 1) return no(capDay - dayBuy < px ? "하루 매수 상한에 닿았습니다" : `예산이 1주 값(${M(px, 2)})보다 적습니다`);
@@ -330,7 +325,7 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
       {sellNow.length > 0 && (
         <div role="alert" style={{ marginTop: 10, padding: "8px 10px", borderRadius: 10, border: `1px solid ${K.down}`, color: K.text, lineHeight: 1.5 }}>
           <b style={{ color: K.down }}>매도 신호</b> <span style={{ fontFamily: MONO }}>{sellNow.map((r) => r.t).join(" · ")}</span>
-          <div style={{ color: K.dim, fontSize: 11.5 }}>앱 규칙은 종가가 손절선 아래로 마감하면 다음 장 시작에 매도입니다. 위 표의 "매도"를 누르면 — 장이 닫혀 있으면 '다음 개장 때 매도' 예약, 장 중이면 바로 매도 주문 창이 열립니다.</div>
+          <div style={{ color: K.dim, fontSize: 11.5 }}>앱 규칙은 종가가 트레일링선 아래로 마감하면 다음 장 시작에 매도입니다. 위 표의 "매도"를 누르면 — 장이 닫혀 있으면 '다음 개장 때 매도' 예약, 장 중이면 바로 매도 주문 창이 열립니다.</div>
         </div>)}
 
       {info.canOrder && data && picks.length === 0 && pickNote && (
@@ -366,7 +361,7 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div>{KR ? <><b>{x.n || x.t}</b> <span style={{ color: K.dim, fontSize: 12, fontFamily: MONO }}>{x.t}</span></> : <><b style={{ fontFamily: MONO }}>{x.t}</b> <span style={{ color: K.dim, fontSize: 12 }}>{x.n}</span></>}</div>
                   <div style={{ fontFamily: MONO, fontSize: 12, color: K.dim, lineHeight: 1.5 }}>
-                    {x.q ? <>기준 {M(x.base, 2)} → 지금 <span style={{ color: K.text }}>{M(x.q.last, 2)}</span> <span style={{ color: col(x.ch) }}>{pct(x.ch)}</span>{x.line ? <> · 손절선 {M(x.line, 2)}</> : null}</> : "지금 가격 확인 안 됨"}
+                    {x.q ? <>기준 {M(x.base, 2)} → 지금 <span style={{ color: K.text }}>{M(x.q.last, 2)}</span> <span style={{ color: col(x.ch) }}>{pct(x.ch)}</span>{x.line ? <> · 트레일링선 {M(x.line, 2)}</> : null}</> : "지금 가격 확인 안 됨"}
                   </div>
                   <div style={{ fontSize: 12, color: x.ok ? K.text : x.tone === "bad" ? K.down : K.gold, lineHeight: 1.5 }}>
                     {x.ok ? <span style={{ fontFamily: MONO }}>{x.qty}주 × {M(x.px, 2)} = {M(x.qty * x.px, 2)}{!KR && fx ? ` (약 ${Math.round(x.qty * x.px * fx / 10000).toLocaleString("ko-KR")}만 원)` : ""}</span> : x.why}
@@ -376,7 +371,7 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
                   style={{ ...btn, opacity: x.ok && !busy ? 1 : .4, minWidth: 64 }}>사기</button>
               </div>))}
             <div style={{ color: K.dim, fontSize: 11, marginTop: 6, lineHeight: 1.5 }}>
-              보류 기준(미검증 안전장치): 시장 {GUARD.mktDown}% 이하 · 종목 {GUARD.stDown}% 이하 · 손절선 아래 · 종목 +{GUARD.stUp}% 이상(추격). 보류된 종목도 아래 주문 칸에서 직접 넣을 수는 있습니다.
+              보류 기준(미검증 안전장치): 시장 {GUARD.mktDown}% 이하 · 종목 {GUARD.stDown}% 이하 · 트레일링선 아래 · 종목 +{GUARD.stUp}% 이상(추격). 보류된 종목도 아래 주문 칸에서 직접 넣을 수는 있습니다.
               {" "}{BK} 시세가 늦게 올 수 있어, 지정가에 안 닿으면 대기로 남고 장이 끝나면 사라집니다.
             </div>
           </>)}
@@ -422,28 +417,11 @@ export default function KisPanel({ held = [], stocks = {}, picks: picksUs = [], 
             </div>)}
         </div>)}
 
-      {info.hts && (
-        <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${K.border}` }}>
-          <b style={{ fontSize: 13 }}>한투 관심 그룹 불러오기</b> <span style={{ color: K.dim, fontSize: 11.5 }}>한투 → 앱 한 방향 · 앱에서 뺀다고 한투에서 빠지지는 않습니다</span>
-          <div style={{ marginTop: 8 }}><button type="button" onClick={loadGroups} disabled={!!busy} style={btn}>{busy === "groups" ? "불러오는 중…" : groups ? "그룹 다시 불러오기" : "그룹 불러오기"}</button></div>
-          {groups && (groups.length === 0 ? <div style={{ color: K.dim, marginTop: 6 }}>관심 그룹이 없습니다.</div>
-            : <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>{groups.map((g) => (
-              <button key={g.code} type="button" onClick={() => loadGroup(g)} disabled={!!busy} style={{ ...quiet, minHeight: 34, color: fav?.g.code === g.code ? K.gold : K.dim, borderColor: fav?.g.code === g.code ? K.gold : K.border }}>{g.name || g.code}</button>))}</div>)}
-          {fav && (fav.stocks.length === 0 ? <div style={{ color: K.dim, marginTop: 8 }}>이 그룹에 종목이 없습니다.</div> : (
-            <div style={{ marginTop: 8 }}>{fav.stocks.map((s) => { const inPool = !!stocks[s.t], has = watch.includes(s.t);
-              return (<div key={s.t} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: `1px solid ${K.border}` }}>
-                <span style={{ flex: 1, minWidth: 0 }}><b style={{ fontFamily: MONO }}>{s.t}</b> <span style={{ color: K.dim }}>{s.n || stocks[s.t]?.n || ""}</span></span>
-                {has ? <span style={{ color: K.dim, fontSize: 12 }}>이미 관심</span>
-                  : inPool ? <button type="button" onClick={() => toggleWatch && toggleWatch(s.t)} style={{ ...quiet, minHeight: 32, padding: "2px 10px", fontSize: 12 }}>앱 관심에 추가</button>
-                  : <span style={{ color: K.dim, fontSize: 12 }}>종목풀에 없음</span>}
-              </div>); })}</div>))}
-        </div>)}
-
       {data && mine.size > 0 && (() => { const acct = new Set(data.rows.map((r) => r.t)); const only = [...mine].filter((t) => !acct.has(t));
         return only.length > 0 ? <div style={{ marginTop: 10, color: K.dim, fontSize: 11.5, lineHeight: 1.6 }}>앱 내 종목에만 있음: <span style={{ color: K.text, fontFamily: MONO }}>{only.join(" · ")}</span> — {MERITZ ? "메리츠 계좌에는 없습니다. 이미 팔았다면 내 종목에서 정리해 주세요." : "정상입니다. 서로 다른 계좌입니다."}</div> : null; })()}
 
       <div style={{ marginTop: 10, color: K.dim, fontSize: 11, lineHeight: 1.5 }}>
-        {!info.canOrder ? `보기만 합니다. 주문은 서버 스위치(${MERITZ ? "MERITZ_ORDER=on" : "KIS_REAL_ORDER=on"})를 켜야 열립니다.` : demo ? "모의투자 주문입니다 — 가짜 돈입니다." : "실전 주문입니다 — 실제 돈이 나갑니다. 모든 주문은 확인 창을 거칩니다."}{MERITZ ? "" : " 조회할 때마다 한투 알림톡이 올 수 있습니다(접속 토큰을 새로 받는 날)."}
+        {!info.canOrder ? `보기만 합니다. 주문은 서버 스위치(MERITZ_ORDER=on)를 켜야 열립니다.` : demo ? "모의투자 주문입니다 — 가짜 돈입니다." : "실전 주문입니다 — 실제 돈이 나갑니다. 모든 주문은 확인 창을 거칩니다."}{MERITZ ? "" : " 조회할 때마다 한투 알림톡이 올 수 있습니다(접속 토큰을 새로 받는 날)."}
       </div>
 
       {confirm && (

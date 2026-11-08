@@ -7,7 +7,7 @@
  *   지정가: 매수 = 지금 가격 +0.5% · 매도 = 지금 가격 −0.5% (고칠 수 있음)
  *   검사(오늘 매수 제안과 같은 기준):
  *     막음 — 주문 꺼짐 · 정규장 밖 매수 · 매수 지정가가 지금 +1.5% 초과 / 매도 −3% 미만 · 1건 상한 초과 · 지금 가격 확인 안 됨
- *     빨간 경고(체크해야 보냄) — 시장 급락(−2%↓) · 종목 −5%↓ · 손절선 아래 · 앱 신호가 매수!/매도! 아님 · 이미 보유 중
+ *     빨간 경고(체크해야 보냄) — 시장 급락(−2%↓) · 종목 −5%↓ · 트레일링선 아래 · 앱 신호가 매수!/매도! 아님 · 이미 보유 중
  *     안내(노란 글씨) — +4%↑ 추격(248) · 개장 직후 5분 · 실적 발표 가까움
  *   249. 장이 닫혀 있을 때 매수 = 매수 예약 — 장이 열린 뒤 서버가 조건을 다시 보고 지정가로 삼 (src/resv.js · api/_lib/resv.js)
  *   보내면: 결과를 보여 주고 'broker-changed' 를 알림 → 계좌 카드가 주문 내역을 다시 불러옴
@@ -21,7 +21,7 @@ import RULES from "./rules.js";
 const K = { panel: "#0F1420", panel2: "#161B2E", border: "rgba(255,255,255,.09)", text: "#E5E7EB", dim: "#9CA3AF", gold: "#F59E0B", up: "#30D158", down: "#FF453A", cyan: "#06B6D4" };
 const MONO = "ui-monospace,SFMono-Regular,Menlo,monospace";
 const TOK = "v7.kis.tok", PIN = "v7.kis.pin";
-const G = RULES.guard;   // 260. config/rules.json — 계좌 카드(src/Kis.jsx GUARD) · 서버(api/_lib/meritz.js)와 같은 숫자
+const G = RULES.guard;   // 260. config/rules.json — 계좌 카드(src/Broker.jsx GUARD) · 서버(api/_lib/meritz.js)와 같은 숫자
 const EX = { NMS: "NASD", NGM: "NASD", NCM: "NASD", NYQ: "NYSE", ASE: "AMEX", PCX: "AMEX", BTS: "AMEX" };
 const IDX = { us: [["QQQ", "나스닥100"], ["SPY", "S&P500"]], kr: [["KOSPI", "코스피"], ["KOSDAQ", "코스닥"]] };
 const ls = { get: (k) => { try { return localStorage.getItem(k) || ""; } catch { return ""; } }, set: (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch {} } };
@@ -146,14 +146,14 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
     if (halt) warns.push(`시장 급락 중 — ${idxR.map(([l, v]) => `${l} ${pct(v)}`).join(" · ")} (기준 ${G.mktDown}%)`);
     if (s && s.action !== "buy") warns.push(`앱 신호가 매수!가 아닙니다 (지금: ${s.action === "sell" ? "매도!" : "관망"} · ${md(s.asOf)} 종가 기준)`);
     if (!s) warns.push("앱 종목풀에 없는 종목입니다 — 신호를 확인할 수 없음");
-    if (line && last > 0 && last <= line) warns.push(`지금 가격이 손절선 ${M(line)} 아래 — 신호가 깨졌습니다`);
+    if (line && last > 0 && last <= line) warns.push(`지금 가격이 트레일링선 ${M(line)} 아래 — 신호가 깨졌습니다`);
     if (ch != null && ch <= G.stDown) warns.push(`기준 종가보다 ${pct(ch)} — 급락 중`);
     if (held && !req.tranche2) warns.push("이미 보유 중인 종목입니다 — 2회차인지 확인");
   } else {
-    if (s && s.action !== "sell") warns.push(`앱 신호는 매도!가 아닙니다 (지금: ${s.action === "buy" ? "매수!" : "들고 있기"} · 손절선 ${line ? M(line) : "—"}) — 규칙보다 일찍 파는 것`);
+    if (s && s.action !== "sell") warns.push(`앱 신호는 매도!가 아닙니다 (지금: ${s.action === "buy" ? "매수!" : "들고 있기"} · 트레일링선 ${line ? M(line) : "—"}) — 규칙보다 일찍 파는 것`);
   }
   const notes = [];
-  if (side === "buy" && !buyResv && ch != null && ch >= G.stUp) notes.push(`기준 종가보다 ${pct(ch)} — 이미 많이 올랐습니다 (추격 주의 · 사도 되지만 손절선까지 거리가 멀어짐)`);   // 248. 빨간 체크 → 노란 안내
+  if (side === "buy" && !buyResv && ch != null && ch >= G.stUp) notes.push(`기준 종가보다 ${pct(ch)} — 이미 많이 올랐습니다 (추격 주의 · 사도 되지만 트레일링선까지 거리가 멀어짐)`);   // 248. 빨간 체크 → 노란 안내
   if (sess.early) notes.push("개장 직후 5분 — 가격이 크게 흔들리는 시간입니다. 몇 분 뒤가 안전합니다");
   if (side === "buy" && s?.earn) { const d = Math.round((Date.parse(s.earn) - Date.now()) / 864e5); if (d >= 0 && d <= 3) notes.push(`실적 발표 ${d === 0 ? "오늘" : `D-${d}`} — 발표 전후 크게 움직일 수 있음`); }
   const needAck = warns.length > 0;
@@ -238,7 +238,7 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
           <span style={{ color: K.dim }}>{KR ? t : s?.n || ""}</span>
         </div>
         <div style={{ color: K.dim, fontSize: 12, marginTop: 2 }}>
-          신호 기준 <b style={{ color: K.text }}>{md(s?.asOf)} 종가</b> {s ? M(s.c) : ""}{s ? ` · 지금 앱 신호 ${s.action === "buy" ? "매수!" : s.action === "sell" ? "매도!" : "관망"}` : ""}{line ? ` · 손절선 ${M(line)}` : ""}
+          신호 기준 <b style={{ color: K.text }}>{md(s?.asOf)} 종가</b> {s ? M(s.c) : ""}{s ? ` · 지금 앱 신호 ${s.action === "buy" ? "매수!" : s.action === "sell" ? "매도!" : "관망"}` : ""}{line ? ` · 트레일링선 ${M(line)}` : ""}
         </div>
 
         {(!pin || needPin) && info?.configured && (
@@ -285,7 +285,7 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
         {buyResv ? (
           <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 10, background: "rgba(6,182,212,.08)", border: `1px solid ${K.cyan}66`, fontSize: 12, lineHeight: 1.6 }}>
             <b style={{ color: K.cyan }}>지금은 장이 닫혀 있어 매수 예약으로 넣습니다 — {nxo?.label.replace(" 때", "")}{KR ? " · 09:30 뒤" : " 5분 뒤"}부터 서버가 확인</b><br />
-            그때 <b>시장 −2% 이하 · 손절선 아래 · 기준 종가({base > 0 ? M(base) : "—"})보다 +3% 넘게 또는 −5% 넘게 · 새 종가에서 매수! 꺼짐{KR ? " · 한국 시장 위험" : " · 나스닥100 200일선 아래"} · 이미 보유</b>면 사지 않습니다.
+            그때 <b>시장 −2% 이하 · 트레일링선 아래 · 기준 종가({base > 0 ? M(base) : "—"})보다 +3% 넘게 또는 −5% 넘게 · 새 종가에서 매수! 꺼짐{KR ? " · 한국 시장 위험" : " · 나스닥100 200일선 아래"} · 이미 보유</b>면 사지 않습니다.
             아니면 그때 가격 +0.5% 지정가로 삽니다. <b>하루만</b> 유효 — 그날 확인하지 못하면 자동 취소.
             <span style={{ display: "block", color: K.dim }}>예약 확인은 무료 서버 예약이라 개장 뒤 몇 분~1시간쯤 늦을 수 있습니다 · 결과는 텔레그램과 내 종목 탭 '매수 예약' · 그 전에 취소 가능{cap1 ? ` · 최대 약 ${M(resvAmt, 0)}` : ""}</span>
           </div>) : resvMode ? (

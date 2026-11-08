@@ -47,7 +47,7 @@ export const SortBar = ({ text, n, market }) => {
 /* 표기 설명 — 한 곳에서 관리해 찾기·차트가 다른 말을 하지 않게 */
 export const EXPLAIN = {
   trend: [
-    ["매수! (눌림)", "🇰🇷 50일선>200일선 · 종가>200일선 · RS 70↑ · 느린ST 초록 · RSI(14)가 45 아래→위로 올라온 날. 검증 1위"],
+    ["매수! (눌림)", "🇰🇷 50일선>200일선 · 종가>200일선 · RS 70↑ · 느린 ST 초록 · RSI(14)가 45 아래→위로 올라온 날. 검증 1위"],
     ["매수! (강세)", "🇺🇸🇰🇷 같은 추세 조건 + RSI 60 이상. 주도주는 눌림을 잘 안 주고 강한 채로 가서, 미국은 세 구간 모두 보유를 이김 · 한국도 눌림과 같이 쓰면 추세만보다 나음(180)"],
     ["매수! (추세)", "슈퍼트렌드 3개 초록 + 구름 위 + RS 70↑. 눌림·강세보다 늦지만 확인된 뒤"],
     ["매도!", "들고 있는 종목의 종가가 트레일링선(느린 슈퍼트렌드 12,3) 아래로 마감. 유일한 매도 기준. 안 들고 있으면 '관망 (추세 이탈)'로 표시"],
@@ -65,9 +65,9 @@ export const EXPLAIN = {
     ["📝", "내가 적은 메모가 있는 종목"],
     ["강도 88", "RS 백분위와 200일선 거리 백분위의 평균(0~100). 매수! 중 무엇부터 살지 정하는 점수 — '강한 것 중 더 강한 것'. 규칙을 2010–18에서 정하고 2019–26에 적용해도 RS 순·업종 순보다 나았음"],
     ["전일 +2.7%", "직전 거래일 종가 대비 오늘(마지막) 종가"],
-    ["업종 3위", "이 종목 업종의 섹터 ETF 순위 (미국만)"],
+    ["업종 3위", "이 종목 업종의 업종 ETF 순위 (미국만)"],
     ["매출 +16% 분기↑ · 흑자", "최근 분기 매출의 전년 동기 대비 (SEC 공시, ↑ = 직전 분기보다 성장 가속). 없으면 4분기 합계 → 연간. 미국만. 검증 불가라 조건이 아닌 취향 필터 — 한국·재무 없는 종목은 통과"],
-    ["예비", "관찰용. rising = 추세 유지·RS 55~70·1달 시장대비 + / turn = 느린ST 초록 전환 3일 이내. 검증에서 현행을 못 이겨 매수!로 쓰지 않음"],
+    ["예비", "관찰용. rising = 추세 유지·RS 55~70·1달 시장대비 + / turn = 느린 ST 초록 전환 3일 이내. 검증에서 현행을 못 이겨 매수!로 쓰지 않음"],
     ["○ 확인함", "누르면 회색으로 맨 아래. 그 주 동안 유지"],
     ["🆕 9/24 종가 · 9/24 첫 신호", "매수! 조건이 처음 켜진 종가 날짜 (실전 장부 기준). 그 뒤 중간에 꺼졌다 다시 켜졌을 수도 있어서 '며칠째'로 세지 않습니다. 미국 종가는 한국 아침에 들어오므로 달력 날짜보다 하루 앞설 수 있음. 20거래일 넘으면 표시 없음"],
     ["📅 실적 D-3", "다음 실적 발표까지 남은 날 (그 시장 현지 날짜 · 14일 안일 때만). (예상) = 회사가 아직 확정 안 한 날짜. 발표 전후엔 하루에 크게 움직일 수 있어 새로 살 때 참고 — 매수·매도 규칙은 그대로"],
@@ -85,7 +85,7 @@ export const ROW_GUIDE = [
   ["1줄", "DELL Dell Technologies ↗ 🆕 9/24 종가 ○ · $568.06 · 전일 −3.5% · ☆", "티커(한국은 이름) · 네이버 ↗ · 매수! 된 지 며칠째 · 확인함 ○ · 종가 · 전일 대비 · 관심 ☆"],
   ["2줄", "매수! (강세) · RS 100 · 1달 S&P比 +31p · +4.5% +0.1% +29.8%", "행동(근거) · 6개월 상대강도 순위 · 1달 수익 − 비교 지수 1달 수익 · 3일·5일·1달 누적(위 고정 바와 같은 열)"],
   ["3줄", "강도 88 · 선까지 −16% · 시총 $390B · 하루 거래 $5.2B · RSI 62(3일↑) · 업종 기술 2위 · 매출 분기 전년比 +58% · 흑자",
-          "강도 점수(RS+200일선) · 선에 닿으면 잃는 폭 · 시가총액 · 20일 평균 하루 거래대금 · 한도 절반으로 살 수 있는 주수 · RSI와 3일 전 대비 방향 · 섹터 ETF 점수 순위 · 최근 분기 매출의 전년 같은 분기 대비"],
+          "강도(RS+200일선) · 선에 닿으면 잃는 폭 · 시가총액 · 20일 평균 하루 거래대금 · 한도 절반으로 살 수 있는 주수 · RSI와 3일 전 대비 방향 · 섹터 ETF 점수 순위 · 최근 분기 매출의 전년 같은 분기 대비"],
 ];
 export const ExplainList = ({ items }) => (
   <Info label="▸ 표기 설명 · 행 읽는 법">
@@ -170,17 +170,18 @@ export function MarketInfo({ market, setTab, list, pos, stocks, items, sizer, op
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <b style={{ fontSize: FS.lg }}>{m === "us" ? "🇺🇸 미국" : "🇰🇷 한국"}</b>
           <span style={{ fontSize: FS.sm, fontWeight: 800, color: c, background: `${c}1f`, border: `1px solid ${c}55`, borderRadius: 99, padding: "1px 10px" }}>{t}</span>
-          <span style={{ marginLeft: "auto", fontSize: 10.5, color: C.muted, textAlign: "right" }}>판정 근거: {j.gate ? "폭 3년 하위 40%" : "S&P500 200일선 · 급락"}</span>
+          <span style={{ marginLeft: "auto", fontSize: 10.5, color: C.muted, textAlign: "right" }}>판정 근거: {j.basis || (m === "kr" ? "폭 3년 하위 40%" : "나스닥100 200일선")}</span>
         </div>
         <div style={{ fontSize: FS.sm, color: C.dim, marginTop: 5 }}>{j.why}</div>
-        <div style={{ fontSize: FS.xs, marginTop: 2, color: j.gate ? (j.verdict === "risk" ? C.red : C.cyan) : C.muted, fontWeight: j.gate ? 700 : 400 }}>
-          {j.gate ? (j.verdict === "risk" ? `→ 한국은 새로 사지 않음 · 가진 종목은 트레일링선대로 · ${SPARE_TXT.kr}` : "→ 한국 새로 사기 가능 (이 판정으로 정함)") : "→ 이 색은 참고 · 미국 새로 사기는 아래 나스닥100 200일선으로 정함"}</div>
+        {(() => { const bl = j.blocked ?? (m === "kr" ? (j.gate && j.verdict === "risk") : j.nqGate); const nm = m === "kr" ? "한국" : "미국";
+          return bl == null ? null : <div style={{ fontSize: FS.xs, marginTop: 2, color: bl ? C.red : C.cyan, fontWeight: 700 }}>
+            {bl ? `→ ${nm}은 새로 사지 않음 · 가진 종목은 트레일링선대로${m === "kr" ? ` · ${SPARE_TXT.kr}` : ""}` : `→ ${nm} 새로 사기 가능`}</div>; })()}
         <div style={{ marginTop: 6 }}>
           <Head cols={["지수", "종가", "3일", "5일", "1달", "200일선"]} grid={IDX_GRID6} />
           {rows.map(idxRow)}
         </div>
         {m === "us" && (() => {     // 252. 나스닥100 200일선 — 미국 새로 사기 규칙
-          const g = j.nqGate, v = j.nq200 ?? nq?.ma200p, run = (j.nqRun ?? nq?.run200);
+          const g = j.blocked ?? j.nqGate, v = j.nq200 ?? nq?.ma200p, run = (j.nqRun ?? nq?.run200);
           if (g == null) return <div style={{ marginTop: 8, fontSize: FS.xs, color: C.gold }}>나스닥100 자료를 받지 못해 오늘은 막지 않습니다 (다음 수집 때 다시 판단)</div>;
           return <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 9, fontSize: FS.xs, lineHeight: 1.6,
                                background: g ? "rgba(255,69,58,.10)" : "rgba(48,209,88,.08)", border: `1px solid ${g ? C.red : C.emerald}55`, color: C.dim }}>
@@ -190,8 +191,9 @@ export function MarketInfo({ market, setTab, list, pos, stocks, items, sizer, op
             <span style={{ display: "block", color: C.muted }}>규칙(252) · 2010–26 지금 매매 규칙 7칸 · 업종 3개: 연 15.1% → 17.2% · 최대낙폭 −37.0% → −29.8% (2010–18 · 2019–26 둘 다 나음) · 지금 살아남은 종목으로 계산해 수익률 자체는 실제보다 높게 나옴</span>
           </div>;
         })()}
-        <BreadthBar b={b} c={c} />
-        <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>폭 계산 {market.breadthAsOf ? md(market.breadthAsOf) : "—"} (토요일 전체 계산 · 평일엔 그 값)</div>
+        {m === "kr" && <>{/* 폭은 한국 새로 사기 기준 — 미국은 나스닥100 200일선이라 폭 막대를 보이지 않음 */}
+          <BreadthBar b={b} c={c} />
+          <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>폭 계산 {market.breadthAsOf ? md(market.breadthAsOf) : "—"} (토요일 전체 계산 · 평일엔 그 값)</div></>}
       </Card>);
   };
   return (
@@ -201,7 +203,7 @@ export function MarketInfo({ market, setTab, list, pos, stocks, items, sizer, op
       <MarketBlock m="us" />
       <MarketBlock m="kr" />
       <div style={{ fontSize: 10.5, color: C.muted, margin: "0 2px", lineHeight: 1.6 }}>
-        폭 = 200일선 위 종목 비율 · 세로 흰 선 = 3년 중 오늘 위치 · 옅은 선 = 기준 40 · DC(ETF 배분)는 이 판정을 쓰지 않고 느린ST로만 판단</div>
+        폭 = 200일선 위 종목 비율 · 세로 흰 선 = 3년 중 오늘 위치 · 옅은 선 = 기준 40 · DC(ETF 배분)는 이 판정을 쓰지 않고 느린 ST로만 판단</div>
 
       {/* ② 위험 지표 */}
       <Step n="2" q="숨은 경고는?" right="미국 · 종가 기준">위험 지표</Step>
@@ -225,7 +227,7 @@ export function MarketInfo({ market, setTab, list, pos, stocks, items, sizer, op
       </Card>
 
       {/* ③ 섹터 — 수익률 / PER·매수! 수 */}
-      <Step n="3" q="어디가 강하지?" right={<Grade k="weak" />}>미국 섹터</Step>
+      <Step n="3" q="어디가 강하지?" right={<Grade k="weak" />}>미국 업종</Step>
       {/* 215. 참고용(●○○) 표라 기본은 접어 둠 — 1~3위만 한 줄로 */}
       <button onClick={() => setSecOpen(!secOpen)} style={{ ...btn(C.dim), width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 8, marginBottom: secOpen ? 6 : 0 }}>
         <span style={{ minWidth: 0, ...ONE }}>{sectors.slice(0, 3).map(x => `${x.rank} ${x.label}`).join(" · ")}</span>
@@ -233,7 +235,7 @@ export function MarketInfo({ market, setTab, list, pos, stocks, items, sizer, op
       {secOpen && <Seg full value={secView} onChange={setSecView} items={[["ret", "수익률"], ["per", "PER · 매수! 수"]]} />}
       {!secOpen ? null : secView === "ret" ? (
       <Card style={{ padding: "2px 12px 6px", marginTop: 6 }}>
-        <Head cols={["#", "섹터 · S&P比 1달", "3일", "5일", "1달", "점수"]} grid={SEC_GRID} />
+        <Head cols={["#", "업종 · S&P比 1달", "3일", "5일", "1달", "모멘텀"]} grid={SEC_GRID} />
         {sectors.map(s => {
           const r = (s.d21 == null || spy21 == null) ? null : s.d21 - spy21;
           const bt = buyBySec[s.tk] || [], ht = heldBySec[s.tk] || [], nb = nbOf(s.tk);
@@ -251,7 +253,7 @@ export function MarketInfo({ market, setTab, list, pos, stocks, items, sizer, op
             <span style={{ ...FIT, textAlign: "right", fontWeight: 700, color: col(s.score) }}>{pctFit(s.score)}</span>
           </div>); })}
         <div style={{ fontSize: FS.xs, color: C.muted, padding: "7px 0 2px" }}>
-          이름 아래 숫자 = S&P500 대비 1달 %p · 점수 = 3·6·9·12개월 평균 · <span style={{ color: C.gold }}>살 것</span>/<span style={{ color: C.cyan }}>보유</span> = 그 업종에서 오늘 고른 종목 · 줄을 누르면 그 업종 ETF 차트 · 섹터를 갈아타는 방식은 지수 보유와 차이가 없었습니다
+          이름 아래 숫자 = S&P500 대비 1달 %p · 모멘텀 = 3·6·9·12개월 수익률 평균 · <span style={{ color: C.gold }}>살 것</span>/<span style={{ color: C.cyan }}>보유</span> = 그 업종에서 오늘 고른 종목 · 줄을 누르면 그 업종 ETF 차트 · 섹터를 갈아타는 방식은 지수 보유와 차이가 없었습니다
           <button onClick={() => setTab("alloc")} style={{ ...linkBtn, fontSize: FS.sm, minHeight: 36, display: "block" }}>국내 ETF로 보기 ›</button>
         </div>
       </Card>) : (
@@ -271,7 +273,7 @@ export function MarketInfo({ market, setTab, list, pos, stocks, items, sizer, op
             </div>);
         })}
         <div style={{ fontSize: FS.xs, color: C.muted, padding: "7px 0 2px", lineHeight: 1.6 }}>
-          # = 섹터 순위(3·6·9·12개월 수익률 평균) · PER·예상 PER = 종목풀에 든 그 업종 🇺🇸 종목의 <b style={{ color: C.dim }}>중앙값</b>(업종 지수의 PER 과는 다를 수 있음)
+          # = 업종 순위(3·6·9·12개월 수익률 평균) · PER·예상 PER = 종목풀에 든 그 업종 🇺🇸 종목의 <b style={{ color: C.dim }}>중앙값</b>(업종 지수의 PER 과는 다를 수 있음)
           · 매수! = 지금 매수 신호인 종목 수. PER 로 종목을 거르지는 않습니다.
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
             <a href="https://finviz.com/groups.ashx?g=sector&v=120&o=pe" target="_blank" rel="noopener" style={{ ...linkBtn, fontSize: FS.xs, minHeight: 34, padding: "0 10px", border: `1px solid ${C.border}`, borderRadius: 8, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>↗ 🇺🇸 업종별 PER 자세히 (finviz)</a>
@@ -280,7 +282,7 @@ export function MarketInfo({ market, setTab, list, pos, stocks, items, sizer, op
         </div>
       </Card>)}
       <Info label="판단 기준 — 폭 · 판정 · 검증 수치">
-        <b style={{ color: C.text }}>폭</b> = 그 시장에서 200일선 위에 있는 종목 비율. 토요일에 전체 종목으로 계산하고 평일엔 그 값을 씁니다. 세로 흰 선 = 3년 중 오늘 위치, 옅은 선 = 기준(40).<br />
+        <b style={{ color: C.text }}>폭</b> = 그 시장에서 200일선 위에 있는 종목 비율. 토요일에 전체 종목풀로 계산하고 평일엔 그 값을 씁니다. 세로 흰 선 = 3년 중 오늘 위치, 옅은 선 = 기준(40).<br />
         <b style={{ color: C.cyan }}>🇰🇷 한국 새로 사기에 사용</b> — 폭이 3년 하위 40% 아래면 '위험' → 한국은 새로 사지 않습니다(가진 종목은 트레일링선대로).
         2010–26 검증(지금 매매 규칙 · 한국 5칸): 연 11.4% → 24.1%, 최대낙폭 −72% → −52%, 16년 중 12년 나음. 기준을 2·3·5년 × 30·40·50으로 바꿔도 모두 16~24%, 같은 비율을 무작위로 막으면 평균 11.9%.
         단 급반등 해(2020·2021)는 손해였고, 지금 살아남은 종목으로 계산해 수익률 자체는 실제보다 높게 나옵니다. DC(ETF 배분)는 이 판정을 쓰지 않습니다.<br />
@@ -368,7 +370,7 @@ export function TodayPicks({ today, stocks, sizer, openStock, pos, staleInfo, ma
           {liveOf(s, live) && <span style={{ marginLeft: "auto" }}><LiveTag s={s} q={live} short /></span>}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 6, margin: "6px 0 0 20px" }}>
-          <Stat k="강도 점수" v={r.str ?? "—"} />
+          <Stat k="강도" v={r.str ?? "—"} />
           <Stat k="선까지(잃을 폭)" v={r.loss != null ? `−${r.loss.toFixed(0)}%` : "—"} />
           <Stat k="매출 성장" v={r.growth != null ? `${r.growth >= 0 ? "+" : ""}${r.growth.toFixed(0)}%${r.accel ? "↑" : ""}` : "—"} c={r.growth != null ? col(r.growth) : C.muted} />
           <Stat k={fpe ? "예상 PER" : "PER"} v={fpe ? fpe.toFixed(0) : pe ? pe.toFixed(0) : r.m === "kr" ? "↗ 네이버" : "—"} c={fpe || pe ? C.text : C.muted} />
@@ -452,7 +454,7 @@ export function TodayPicks({ today, stocks, sizer, openStock, pos, staleInfo, ma
         <summary style={{ fontSize: FS.xs, color: C.muted, cursor: "pointer", minHeight: 30, display: "flex", alignItems: "center" }}>▸ 어떻게 고르나 · 칸이 뭔가</summary>
         <div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.7, marginTop: 2 }}>
           <b style={{ color: C.text }}>칸</b> = 동시에 들고 있을 종목 수 한도. 직투 금액 ÷ 칸 수 = 한 종목에 넣을 돈, 1회차는 그 절반. 빈 칸만큼만 삽니다.<br />
-          <b style={{ color: C.text }}>고르는 순서</b>: 매수! 중 강세·눌림 먼저 → 강도 점수(6개월 상대강도 + 200일선 거리) 높은 순 · 🇺🇸 같은 업종은 {SEC_CAP}개까지(이미 보유한 종목 포함 — 2010–26 검증 7칸: 1개 연 12.6% · 3개 15.1%) · 적자·매출 부진·보유 제외.<br />
+          <b style={{ color: C.text }}>고르는 순서</b>: 매수! 중 강세·눌림 먼저 → 강도(6개월 상대강도 + 200일선 거리) 높은 순 · 🇺🇸 같은 업종은 {SEC_CAP}개까지(이미 보유한 종목 포함 — 2010–26 검증 7칸: 1개 연 12.6% · 3개 15.1%) · 적자·매출 부진·보유 제외.<br />
           <b style={{ color: C.text }}>🇺🇸 나스닥100 200일선 아래</b>면 미국은 새로 사지 않습니다 — 업종 3개와 함께 검증 연 15.1% → 17.2%, 최대낙폭 −37% → −30% (2010–18 · 2019–26 둘 다 나음).<br />
           <b style={{ color: C.text }}>🇰🇷 시장 위험</b>(폭 3년 하위 40% 아래 · 주 1회 계산)이면 한국은 새로 사지 않습니다 — 2010–26 검증 연 11.4% → 24.1%, 최대낙폭 −72% → −52%.<br />
           <b style={{ color: C.text }}>검증</b>: 규칙을 2010–18에서 정하고 2019–26에 적용 — 🇺🇸 연 +50%·+38% (RS 순 +41%·+27%) · 🇰🇷 +48%·+39%. 텔레그램·AI 도구와 같은 규칙.<br />
@@ -540,7 +542,7 @@ export function FindTab({ list, openStock, watch, toggleWatch, market, sizer, po
       {filt === "pre" && (
         <div style={{ fontSize: FS.xs, color: C.dim, background: "rgba(6,182,212,.07)", borderRadius: 8, padding: "7px 10px", marginTop: 6, lineHeight: 1.6 }}>
           <b style={{ color: C.cyan }}>예비 후보 = 관찰용, 매수! 아님.</b> 검증(2008–26)에서 '강해질 것 같은' 진입 5종은 모두 현행을 못 이겼습니다(미국 −8~−14%p).
-          ☆로 담아 두면 매수!로 바뀌는 날 알림이 옵니다. <b>rising</b> = 추세 유지·RS 55~70·1달 시장대비 + / <b>turn</b> = 느린ST 초록 전환 3일 이내
+          ☆로 담아 두면 매수!로 바뀌는 날 알림이 옵니다. <b>rising</b> = 추세 유지·RS 55~70·1달 시장대비 + / <b>turn</b> = 느린 ST 초록 전환 3일 이내
         </div>)}
       <button onClick={() => setShowAll(v => !v)} style={{ ...btn(C.dim), width: "100%", marginTop: 8, display: "flex", alignItems: "center" }}>
         <span>{filt === "pre" ? `예비 목록 ${rows.length}개` : filt === "buy" ? `매수! 목록 ${rows.length}개` : `전체 목록 ${rows.length}개`}</span><span style={{ marginLeft: "auto", fontWeight: 400, color: C.muted }}>{showAll ? "접기 ▴" : "펼치기 ▾"}</span>

@@ -17,14 +17,12 @@ KST       = timezone(timedelta(hours=9))
 BARS_KEEP   = 200        # 차트에 보관할 봉수 (약 10개월)
 RS_LOOKBACK = 126        # RS 백분위 기준 기간 (6개월) — 검증으로 정한 값
 MIN_BARS  = 130          # 이보다 적으면 지표 일부 생략
-# ── 시장 '폭' = 200일선 위 종목 비율 ─────────────────────────
-#   백테스트 결론(3개월 보유, 발굴 바스켓):
-#     한국  폭 백분위>40  전체 +5.85%p · 2010-18 +2.95%p · 2019-23 +4.72%p (전부 +)
-#           지수 200일선  전체 +2.24%p · 2010-18 +2.24%p · 2024-26 -2.68%p (뒤집힘)
-#     미국  폭·지수200일선·골든크로스·낙폭·변동성 등 15개 후보가
-#           2010년 이후 모든 구간에서 (-) → 미국은 시장 게이트를 걸지 않습니다.
+# ── 시장 '폭' = 200일선 위 종목 비율 (한국 새로 사기 판단) ─────────
+#   한국은 이 폭을, 미국은 나스닥100 200일선을 씁니다 (scripts/snap/market.py decide_judge).
+#   검증 수치와 기간은 config/rules.json _why.krGate / _why.usGate 한 곳에만 둡니다.
+#   (예전 "미국은 게이트를 걸지 않는다"는 3개월 보유 발굴 바스켓 시험이었고, 252 에서 지금 매매 규칙 전체로 다시 시험해 바뀜)
 BREADTH_DAYS = 756       # 폭 백분위 기준 기간 (3년)
-BREADTH_GATE = 40        # 한국: 폭 백분위가 이 아래면 위험
+
 
 try:                                    # 172. 업종 고침표 — scripts/universe.py 한 곳에서
     sys.path.insert(0, SCRIPTS_DIR); from universe import SECTOR_FIX as _SECTOR_FIX
@@ -52,6 +50,7 @@ BENCH = {"us":"^GSPC", "kr":"^KS11"}
 KR_ETF = ("069500.KS", "KODEX 200")
 
 from rules import R as RULES                          # 260. 규칙 숫자 한 파일 (config/rules.json)
+BREADTH_GATE = RULES["krBreadthPct"]                   # 한국: 폭 백분위가 이 아래면 새로 사지 않음
 
 def _write(path, obj):
     with open(path,"w",encoding="utf-8") as f:

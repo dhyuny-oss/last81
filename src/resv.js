@@ -46,5 +46,5 @@ export function useResv() {
 }
 /** 이 종목에 기다리는 예약이 있나 */
 export const resvOf = (items, t) => (items || []).find((x) => x.t === String(t).toUpperCase() && (x.status === "wait" || x.status === "run"));
-export const RESV_ST = { wait: ["기다림", "#06B6D4"], run: ["확인 중", "#F59E0B"], sent: ["주문 보냄", "#30D158"], skip: ["안 삼", "#9CA3AF"], expired: ["만료", "#9CA3AF"], cancel: ["취소", "#9CA3AF"], fail: ["실패", "#FF453A"], unsure: ["확인 필요", "#FF453A"] };
+export const RESV_ST = { wait: ["기다림", "#06B6D4"], run: ["확인 중", "#F59E0B"], sent: ["주문 보냄", "#30D158"], skip: ["사지 않음", "#9CA3AF"], expired: ["만료", "#9CA3AF"], cancel: ["취소", "#9CA3AF"], fail: ["실패", "#FF453A"], unsure: ["확인 필요", "#FF453A"] };
 export const resvDay = (d) => d ? `${+String(d).slice(4, 6)}/${+String(d).slice(6, 8)}` : "";

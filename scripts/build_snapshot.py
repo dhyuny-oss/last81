@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Alpha Terminal v4 — 지표 스냅샷 파이프라인
+Alpha Terminal — 지표 스냅샷 파이프라인
 ════════════════════════════════════════════════════════════════
 핵심 원칙: "한 번 계산, 어디서나 표시"
   · 모든 지표를 여기서 한 번만 계산해 snapshot.json 에 저장
@@ -73,7 +73,7 @@ def load_extra(universe):
 
 def pct_fill(stocks, raw_key, out_key, ref, focus, value_fn=None):
     """시장별 백분위. 전체 스캔이면 순위로 계산하고 분포를 ref 에 저장,
-       감시 모드(주도주만 스캔)면 지난 전체 분포(ref) 위치로 계산합니다 — 주도주끼리만 줄세우면 왜곡되기 때문."""
+       간이 수집(주도주만 스캔)면 지난 전체 분포(ref) 위치로 계산합니다 — 주도주끼리만 줄세우면 왜곡되기 때문."""
     import bisect
     for mkt in ("us", "kr"):
         vals = []
@@ -99,7 +99,7 @@ def pct_fill(stocks, raw_key, out_key, ref, focus, value_fn=None):
             pctl = round(((i + j) / 2) / (n - 1) * 100, 1)
             for k in range(i, j + 1): stocks[vals[k][0]][out_key] = pctl
             i = j + 1
-        ref.setdefault(mkt, {})[out_key] = [round(v, 4) for _, v in vals]   # 다음 평일 감시 모드용
+        ref.setdefault(mkt, {})[out_key] = [round(v, 4) for _, v in vals]   # 다음 평일 간이 수집용
 
 
 def main():
@@ -107,7 +107,7 @@ def main():
     t0 = time.time()
     print("="*64); print(f"  Alpha Terminal 스냅샷 파이프라인 v{VERSION}"); print("="*64)
 
-    # 유니버스 — ① 종목 목록 단계(build_universe.py)의 universe.json + 내가 직접 넣은 종목(EXTRA_FILE)
+    # 종목풀 — ① 종목풀 단계(build_universe.py)의 universe.json + 내가 직접 넣은 종목(EXTRA_FILE)
     src = load_universe()
     universe = {}
     for tk, s in (src.get("stocks") or {}).items():
@@ -167,7 +167,7 @@ def main():
     else:
         print("  ⚠️ 한투 공식 명단을 받지 못해 이번엔 상태 검사를 건너뜁니다")
 
-    # ★ 감시 모드 (평일) — 신호가 날 수 있는 종목만 봅니다.
+    # ★ 간이 수집 (평일) — 신호가 날 수 있는 종목만 봅니다.
     #   눌림·매수 신호는 RS 70↑ 주도주에서만, 과매도는 고점 −25%↓ 에서만 나므로
     #   토요일 전체 스캔에서 RS 60↑ 또는 과매도 후보였던 종목 + 내 종목·관심·추가 만 평일에 다시 받습니다.
     #   실측: 711 → 약 370종목 (신호 종목 56/56 포함). 실행 시간·요청 수가 절반 아래로.
@@ -180,7 +180,7 @@ def main():
         # 175. 전체 수 = 이번 명단 그대로 (예전엔 지난 값을 계속 이어 써서 교체 뒤에도 옛 숫자가 남았음)
     except Exception:
         prev_snap = None
-    universe_all = dict(universe)        # 110. 업종 PER 은 감시 모드에서도 종목풀 전체로 계산
+    universe_all = dict(universe)        # 110. 업종 PER 은 간이 수집에서도 종목풀 전체로 계산
     if focus and prev_snap and ref:
         prot = set()
         try:
@@ -199,7 +199,7 @@ def main():
         n_kr = sum(1 for v in fu.values() if v["market"] == "kr"); n_us = len(fu) - n_kr
         if n_kr >= 40 and n_us >= 60:
             universe = fu
-            print(f"\n🎯 감시 모드: 전체 {full_n} 중 {len(universe)}종목만 (kr {n_kr} · us {n_us}) — 토요일에 전체 재스캔")
+            print(f"\n🎯 간이 수집: 전체 {full_n} 중 {len(universe)}종목만 (kr {n_kr} · us {n_us}) — 토요일에 전체 재스캔")
         else:
             focus = False
             print(f"\n⚠️ 감시 풀이 너무 작아({n_kr}/{n_us}) 전체 스캔으로 전환")
@@ -208,7 +208,7 @@ def main():
         print("\n⚠️ 지난 전체 스캔 기록이 없어 전체 스캔으로 실행")
     if not focus:
         ref = {}    # 전체 스캔이면 분포를 새로 만듭니다
-    print(f"\n📋 유니버스 {len(universe)}종목 "
+    print(f"\n📋 종목풀 {len(universe)}종목 "
           f"(kr {sum(1 for x in universe.values() if x['market']=='kr')} · "
           f"us {sum(1 for x in universe.values() if x['market']=='us')})")
     print(f"   · universe.json {base_n}개 + 직접추가 {len(extra_added)}개"
@@ -320,7 +320,7 @@ def main():
             if st_: d["status"] = st_                 # 보호 종목의 공식 상태 (거래정지·관리종목 등)
 
     # RS 백분위 — 6개월 수익률의 시장 내 순위 (검증: 21/42/63/126/252일 중 126일이 최고)
-    print("\n📈 RS·거래대금 백분위" + (" (감시 모드: 지난 전체 분포 기준)" if focus else ""))
+    print("\n📈 RS·거래대금 백분위" + (" (간이 수집: 지난 전체 분포 기준)" if focus else ""))
     def r126(tk, d):
         cds = series.get(tk)
         if cds and len(cds) > RS_LOOKBACK and cds[-(RS_LOOKBACK+1)][1]:
@@ -394,7 +394,7 @@ def main():
         "mode": "focus" if focus else "full", "fullUniverse": full_n,
     }
     print("\n🩺 데이터 검사")
-    print(f"  유니버스 {len(universe)} → 사용 {len(stocks)} "
+    print(f"  종목풀 {len(universe)} → 사용 {len(stocks)} "
           f"(한국 {now_by_mkt.get('kr',0)} · 미국 {now_by_mkt.get('us',0)})")
     for r, v in sorted(drops.items(), key=lambda x: -len(x[1])):
         print(f"  제외 {r}: {len(v)}종목 — {', '.join(x['n'] for x in v[:6])}{' …' if len(v) > 6 else ''}")
@@ -408,76 +408,23 @@ def main():
         sys.exit(1)
     # (지난번 대비 급감 비교는 뺐습니다 — 주간 기준으로 종목풀이 줄어드는 것은 정상이고, 망가짐은 위 '수집 실패율'로 잡습니다)
 
-    # ══════════════════════════════════════════════════════════
-    # ★ 행동 판정 — 여기서 한 번만 정합니다. 앱 4개 화면·텔레그램·장중 감시는 이 값을 읽기만 합니다.
-    #   action: buy(매수!) / watch(관망) / sell(매도!)   ※ hold(보유)는 '들고 있는지'를 아는 앱 쪽에서 붙입니다
-    #   why   : pull(눌림·한국) / strong(강세·한국·미국) / trend(추세) — 왜 매수인지
-    #   검증(2008–26): 한국은 RSI 45 회복(눌림)이 모든 구간 +, 미국은 RSI 60 이상(강세)이 세 구간 모두 보유를 이김.
-    #   180 (2026-10): 한국에도 강세 추가 — 눌림이 드물어 빈 칸을 약한 추세가 채우던 것을 강세가 대신.
-    #     2010–26 한국 5칸·폭 게이트: 후보 순서·기준값(57~63)을 흔든 28번 중 26번이 지금보다 나음 (중앙값 연 19.7% → 24.7%).
-    #     강세 신호 하나하나의 120일 지수대비 +7.4%p (눌림 +8.1, 추세 +2.7) · 기준 55~65 어디서나 +6~8%p.
-    #   매도는 느린 슈퍼트렌드(12,3) 빨강 하나. −3%·고점−5%·2주 타임컷은 검증에서 성과를 깎아 쓰지 않습니다.
-    # ══════════════════════════════════════════════════════════
+    # ★ 행동 판정(buy·sell·watch)은 scripts/snap/signals.py 한 곳 — 여기서는 재료(재무·목표가·실적일)를 붙인 뒤 부르기만 합니다
     fin_flags(stocks)
     attach_quarterly(stocks, refresh=not focus)
     attach_targets(stocks, PROT)
     attach_earnings(stocks, universe_all, market)
     attach_earn_rx(stocks, series)
-    for d in stocks.values():
-        rs_ok = (d.get("rs") or 0) >= 70
-        up = bool(d.get("upTrend") and d.get("stSlow") == 1 and rs_ok)
-        d["pull"]   = bool(up and d.get("rsi45"))                                            # 한국형
-        d["strong"] = bool(up and (d.get("rsi") or 0) >= 60)                                # 강세 (한국·미국, 180)
-        d["trend3"] = bool(d.get("st") == 3 and d.get("cloud") == 1 and rs_ok)                # 추세 확인형
-        d["sig"] = "buy" if d["trend3"] else ("exit" if d.get("stSlow") == 0 else "keep")    # (구버전 호환)
-        if d.get("stSlow") == 0:
-            d["action"], d["why"] = "sell", "st"
-        elif d["m"] == "kr" and d["pull"]:
-            d["action"], d["why"] = "buy", "pull"
-        elif d["strong"]:
-            d["action"], d["why"] = "buy", "strong"
-        elif d["trend3"]:
-            d["action"], d["why"] = "buy", "trend"
-        else:
-            d["action"], d["why"] = "watch", None
-        # 급락(과매도) 판정 — 참고용. 27번 재검증: 어떤 조합도 주도주 보유를 못 이김 → −40 특별취급 없앰
-        dd, hl = d.get("w52p"), d.get("hlt")
-        prof = (d.get("fin") or {}).get("prof")
-        rebound = bool(d.get("ma20p") is not None and d["ma20p"] > 0)
-        if dd is not None and hl is not None and dd <= -25 and hl >= 0.6:
-            broken = (d.get("ma200p") or 0) < -50
-            d["dip"] = "broken" if broken else ("watch" if (rebound and (prof or d["m"] == "kr")) else "wait")
-        else:
-            d["dip"] = None
-        # 업종 → 섹터 ETF
-        if d["m"] == "us" and d.get("t") in _SECTOR_FIX: d["s"] = _SECTOR_FIX[d["t"]]     # 172. 나스닥 분류 ≠ GICS (종목풀 교체 전에도 바로 반영)
-        d["sec"] = GICS_TO_ETF.get(d.get("s") or "", None) if d["m"] == "us" else None
-        # ★ 예비 후보 (관찰용, 매수! 아님) — 검증(2026-09): '강해질 것 같은' 트리거는 현행을 못 이김.
-        #   그래도 다음 매수! 가 나올 자리를 미리 보기 위해 두 가지만 표시합니다.
-        #   rising: 추세 유지 · RS 55~70 · 1달 시장대비 플러스   /   turn: 느린ST 초록 전환 3거래일 이내 · RS 50↑ · 200일선 위
-        rsv = d.get("rs") or 0
-        trend_ok = bool(d.get("upTrend") and d.get("stSlow") == 1)
-        if d.get("action") != "buy" and d.get("stSlow") == 1:
-            _idx = (market.get("indices") or {}).get("^KS11" if d["m"] == "kr" else ("^IXIC" if d.get("ex") in ("NMS", "NGM", "NCM") else "^GSPC")) or {}
-            _rel = (d.get("d21") or 0) - (_idx.get("d21") or 0)
-            if trend_ok and 55 <= rsv < 70 and _rel > 0:
-                d["pre"] = "rising"
-            elif (d.get("slowDays") or 99) <= 3 and rsv >= 50 and (d.get("ma200p") or -1) > 0:
-                d["pre"] = "turn"
-            else:
-                d["pre"] = None
-        else:
-            d["pre"] = None
+    decide_actions(stocks, market)
 
     # 변동성 백분위 — 시장 안에서 줄세우기 (미국 진입 신호로 사용)
     pct_fill(stocks, "atrp", "atrr", ref, focus)
     # 화면·알림 어디서도 쓰지 않는 중간값 제거는 모든 백분위 계산이 끝난 '뒤'에
-    DROP = ("atrp", "macdX", "stPrev", "vr", "vr5", "rsi45", "upTrend")
+    DROP = ("atrp", "d200r", "rsi45", "upTrend")
     for d in stocks.values():
         for k in DROP: d.pop(k, None)
 
     # 시장 '폭' — 200일선 위 종목 비율과 그 3년 백분위. 한국 판단의 근거입니다.
-    print("\n🌡️ 시장 폭 계산" + (" (감시 모드: 토요일 전체 스캔 값 유지)" if focus else ""))
+    print("\n🌡️ 시장 폭 계산" + (" (간이 수집: 토요일 전체 스캔 값 유지)" if focus else ""))
     if focus and prev_mkt.get("breadth"):
         breadth = prev_mkt["breadth"]
         market["breadthAsOf"] = prev_mkt.get("breadthAsOf") or prev_snap.get("meta", {}).get("generatedKST", "")[:10]
@@ -492,13 +439,14 @@ def main():
     market["judge"]   = decide_judge(market["indices"], breadth)
     # 252. 나스닥100 을 못 받은 날은 지난 판정을 그대로 (하루 수집 실패로 필터가 풀리지 않게)
     _ju, _pj = market["judge"].get("us") or {}, ((prev_mkt or {}).get("judge") or {}).get("us") or {}
-    if _ju and _ju.get("nqGate") is None and _pj.get("nqGate") is not None:
-        _ju.update({"nqGate": _pj["nqGate"], "nq200": _pj.get("nq200"), "nqRun": _pj.get("nqRun"), "nqStale": True})
+    if _ju and _ju.get("blocked") is None and _pj.get("blocked") is not None:
+        _ju.update({"blocked": _pj["blocked"], "verdict": _pj.get("verdict", _ju["verdict"]), "why": _pj.get("why", _ju["why"]),
+                    "nq200": _pj.get("nq200"), "nqRun": _pj.get("nqRun"), "nqStale": True})
         print(f"  ⚠️ 나스닥100 수집 실패 — 지난 판정 유지 (200일선 {_pj.get('nq200')}%)")
-    market["ref"]     = ref if ref else prev_mkt.get("ref") or {}     # 평일 감시 모드가 쓸 분포
+    market["ref"]     = ref if ref else prev_mkt.get("ref") or {}     # 평일 간이 수집가 쓸 분포
     for mkt, j in market["judge"].items():
         print(f"  판단 {mkt}: {j['verdict']} — {j['why']}"
-              f"{'' if j['gate'] else '  (색은 참고 · 새로 사기는 나스닥100 200일선)'}")
+              f"  → {'새로 사지 않음' if j.get('blocked') else '새로 사기 가능' if j.get('blocked') is False else '확인 안 됨'}")
 
     # 실전 장부 갱신 (지수는 market 의 idxbars 를 날짜 문자열로 바꿔서)
     try:
@@ -569,7 +517,7 @@ def main():
     # 종목별 차트 파일
     bars_dir = f"{OUT_DIR}/bars"
     os.makedirs(bars_dir, exist_ok=True)
-    for old in os.listdir(bars_dir):                  # 유니버스에서 빠진 종목 파일 정리
+    for old in os.listdir(bars_dir):                  # 종목풀에서 빠진 종목 파일 정리
         if old.endswith(".json") and old[:-5] not in series:
             try: os.remove(os.path.join(bars_dir, old))
             except OSError: pass

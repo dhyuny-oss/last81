@@ -17,51 +17,55 @@ def _run200(c):
     while i >= 199 and side(i) == last: n += 1; i -= 1
     return n if last else -n
 
+def blocked_of(j):
+    """그 나라 판정이 '새로 사지 않음'인가. 옛 market.json(gate·nqGate 시절)도 읽도록 한 줄 호환 — 다음 갱신 뒤엔 지워도 됩니다."""
+    j = j or {}
+    if "blocked" in j: return bool(j["blocked"])
+    return bool(j.get("nqGate") or (j.get("gate") and j.get("verdict") == "risk"))
+
+
 def decide_judge(idx, breadth):
-    """시장 판단.
-       한국 : 폭(200일선 위 종목 비율)의 3년 백분위가 기준 아래면 위험.
-              검증에서 지수 200일선보다 확실히 나았고 구간마다 뒤집히지 않았습니다.
-       미국 : 게이트를 걸지 않습니다(gate=False).
-              지수 200일선·골든크로스·낙폭·폭·변동성 등 15개 후보 전부
-              2010년 이후 모든 구간에서 (-) 였습니다. 미국은 시장이 나빠지면
-              발굴 후보 수가 알아서 35개→14개로 줄어드는 것이 실제 방어였습니다.
-       판정 색은 양쪽 다 보여주되, 발굴탭의 '관망' 전환은 gate=True 인 시장에서만."""
+    """시장 판단 — 나라마다 '새로 사도 되는가' 한 가지를 정합니다. blocked=True 면 그 나라는 새로 사지 않음.
+       한국 : 폭(200일선 위 종목 비율)의 3년 백분위가 BREADTH_GATE 아래면 막힘 (폭 자료가 없으면 코스피 200일선으로 대신)
+       미국 : 나스닥100(^NDX)이 200일선 아래면 막힘 (자료가 없으면 blocked=None — 막지 않고 '확인 안 됨'으로 표시)
+       verdict: risk(막힘) / warn(막히진 않았지만 지수가 급락) / safe — 화면·알림의 색과 문구가 모두 이 값을 읽습니다.
+       근거 수치(검증 기간·연수익·낙폭)는 config/rules.json 의 _why 한 곳에만 둡니다."""
     judge = {}
-    for mkt, tk in (("us", "^GSPC"), ("kr", "^KS11")):
+    for mkt, tk in (("us", "^NDX"), ("kr", "^KS11")):
         i = idx.get(tk)
-        if not i: continue
+        if not i:
+            if mkt == "us":   # 나스닥100 을 못 받음 — 막지 않고 '확인 안 됨'으로 (build_snapshot 이 지난 판정이 있으면 그걸 씀)
+                judge["us"] = {"verdict": "safe", "why": "판단 보류 (나스닥100 자료 없음)", "index": tk, "blocked": None,
+                               "breadth": None, "breadthPct": None, "basis": "나스닥100 200일선"}
+            continue
         b = breadth.get(mkt) or {}
         bv, bp = b.get("v"), b.get("pct")
-        gate = (mkt == "kr")
         crash = ((i.get("d1") is not None and i["d1"] <= -5) or
                  (i.get("d21") is not None and i["d21"] <= -15))
+        m = i.get("ma200p")
+        blocked = None
         if mkt == "kr" and bp is not None:
-            if bp < BREADTH_GATE:
+            blocked = bp < BREADTH_GATE
+            if blocked:
                 v, why = "risk", f"200일선 위 종목이 적습니다 (폭 {bv:.0f}% · 3년 하위 {bp:.0f}%)"
             elif crash:
                 v, why = "warn", f"폭은 괜찮지만 지수가 급락했습니다 (폭 3년 상위 {100-bp:.0f}%)"
             else:
                 v, why = "safe", f"200일선 위 종목이 넉넉합니다 (폭 {bv:.0f}% · 3년 상위 {100-bp:.0f}%)"
+        elif m is None:
+            v, why = "safe", "판단 보류 (지수 자료 없음)"
         else:
-            # 폭 계산 전이거나 미국 — 200일선은 '참고'로만 표시
-            m = i.get("ma200p")
-            if m is None: v, why = "safe", "판단 보류"
-            elif m < 0:   v, why = "risk" if gate else "warn", "지수가 200일선 아래"
-            elif crash:   v, why = "warn", "지수 200일선 위지만 최근 급락"
-            else:         v, why = "safe", "지수 200일선 위 · 급락 없음"
-        judge[mkt] = {"verdict": v, "why": why, "index": tk, "gate": gate,
+            blocked = m < 0
+            name, jo, jo2 = ("나스닥100", "이", "은") if mkt == "us" else ("코스피", "가", "는")
+            if blocked:  v, why = "risk", f"{name}{jo} 200일선 아래 ({m:+.1f}%)"
+            elif crash:  v, why = "warn", f"{name}{jo2} 200일선 위지만 최근 급락"
+            else:        v, why = "safe", f"{name} 200일선 위 · 급락 없음"
+        judge[mkt] = {"verdict": v, "why": why, "index": tk, "blocked": blocked,
                       "breadth": bv, "breadthPct": bp,
-                      "note": ("폭 백분위 기준 — 한국 새로 사기에 사용 (검증 연 11.4% → 24.1%)" if gate else
-                               "판정 색은 참고용 · 새로 사기는 나스닥100 200일선으로 정함(252)")}
-    # ★ 252. 🇺🇸 나스닥100 이 200일선 아래면 미국은 새로 사지 않음 (보유는 트레일링선대로 · 2회차는 그대로)
-    #   2010–26 지금 매매 규칙 · 7칸 · 업종 3개: 연 15.1% → 17.2% · 최대낙폭 −37.0% → −29.8% (2010–18 · 2019–26 둘 다 나음)
-    #   나스닥100 자료가 없으면 막지 않음(nqGate=None) — 화면·텔레그램이 '확인 안 됨'으로 표시
-    if "us" in judge:
-        n = idx.get("^NDX") or {}
-        m = n.get("ma200p")
-        judge["us"]["nq200"] = m
-        judge["us"]["nqRun"] = n.get("run200")
-        judge["us"]["nqGate"] = (m < 0) if m is not None else None
+                      "basis": "폭 3년 하위 40%" if mkt == "kr" else "나스닥100 200일선"}
+        if mkt == "us":
+            judge[mkt]["nq200"] = m                 # 나스닥100 이 200일선보다 몇 % 위(+)·아래(−)
+            judge[mkt]["nqRun"] = i.get("run200")   # 그 상태가 며칠째인지 (아래면 음수)
     return judge
 
 

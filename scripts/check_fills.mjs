@@ -1,4 +1,4 @@
-// 184. 한투 체결 → 내 종목 반영 규칙 점검 — 실행: node scripts/check_fills.mjs
+// 184. 증권사 체결 → 내 종목 반영 규칙 점검 — 실행: node scripts/check_fills.mjs
 import { planFills, applyFills } from "../src/fills.js";
 let bad = 0; const ok = (n, c, d = "") => { console.log(`${c ? "✅" : "❌"} ${n}${c ? "" : " — " + d}`); if (!c) bad++; };
 const pos = [
@@ -30,7 +30,7 @@ ok("VEEV 10/13 매수는 손으로 기록한 것 → 중복 처리", r.dup.inclu
 ok("앱에 없는 AAPL 매도는 반영 대상 아님", !by("AAPL", "sell") && r.dup.includes("8"));
 ok("CTAS 10/19 → 1회차, 10/21 → 2회차 (같은 묶음 안 순서)", r.items.filter((i) => i.t === "CTAS").map((i) => i.kind).join(",") === "new,t2");
 ok("체결 대기 KDP 92주", r.waiting.some((w) => w.t === "KDP" && w.open === 92));
-ok("한투에만 있는 TSLA 표시 · 새로 반영될 SHOP·CTAS 는 제외", r.extra.map((e) => e.t).join(",") === "TSLA", JSON.stringify(r.extra));
+ok("증권사에만 있는 TSLA 표시 · 새로 반영될 SHOP·CTAS 는 제외", r.extra.map((e) => e.t).join(",") === "TSLA", JSON.stringify(r.extra));
 const a0 = applyFills(pos, r.items.filter((i) => i.kind !== "partial"), { src: "kis-demo" });
 const r2 = planFills({ orders, rows, pos: a0.pos, applied: new Set(["1", "2", "3", "4", "5", "8", "9", "10"]), ignored: new Set(["TSLA"]) });
 ok("반영한 주문·무시한 종목은 다시 안 뜸", r2.items.length === 0 && r2.extra.length === 0 && r2.waiting.length === 1, JSON.stringify(r2));

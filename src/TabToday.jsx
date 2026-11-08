@@ -112,9 +112,9 @@ export function MarketLine({ market, setTab }) {
                                   background: C.panel, border: `1px solid ${usG || krG ? C.red + "55" : C.border}`, color: C.text, cursor: "pointer", minHeight: 44 }}>
       <b style={{ fontSize: FS.sm, flexShrink: 0 }}>🌐 시장</b>
       <span style={{ flex: 1, minWidth: 0, fontSize: FS.xs, lineHeight: 1.5 }}>
-        🇺🇸 {ju?.nqGate == null ? <span style={{ color: C.muted }}>나스닥100 다음 수집 때 판단</span>
-          : <><Tag ok={!usG}>{usG ? "새로 안 삼" : "새로 사기 가능"}</Tag><span style={{ color: C.muted }}> (나스닥100 200일선 {pct(ju.nq200, 1)})</span></>}
-        {" · "}🇰🇷 <Tag ok={!krG}>{krG ? "새로 안 삼" : "새로 사기 가능"}</Tag>
+        🇺🇸 {(ju?.blocked ?? ju?.nqGate) == null ? <span style={{ color: C.muted }}>나스닥100 다음 수집 때 판단</span>
+          : <><Tag ok={!usG}>{usG ? "새로 사지 않음" : "새로 사기 가능"}</Tag><span style={{ color: C.muted }}> (나스닥100 200일선 {pct(ju.nq200, 1)})</span></>}
+        {" · "}🇰🇷 <Tag ok={!krG}>{krG ? "새로 사지 않음" : "새로 사기 가능"}</Tag>
         <span style={{ color: C.muted }}> (폭 3년 하위 {jk?.breadthPct ?? "—"}%)</span>
         {vix != null && <span style={{ color: vix >= 30 ? C.red : vix >= 22 ? C.gold : C.muted }}> · VIX {Number(vix).toFixed(0)}</span>}
       </span>
@@ -159,7 +159,7 @@ export function MarketTab({ market, setTab, onShowRules, list, pos, stocks, item
   })();
   const brokerT = useBroker();                                                                   // 210. 오늘 살 것 → 바로 사기
   const gatedOf = (m) => (m === "kr" && krGate) || (m === "us" && usGate);
-  const gateTxt = (m) => m === "us" ? US_GATE_TXT : "시장 위험 — 새로 안 삼";
+  const gateTxt = (m) => m === "us" ? US_GATE_TXT : "시장 위험 — 새로 사지 않음";
   const slotNote = [["us", "🇺🇸"], ["kr", "🇰🇷"]].map(([m, f]) => todo3[m].z ? `${f} 투자금 0` : gatedOf(m) ? `${f} ${gateTxt(m)}` : todo3[m].held > todo3[m].n ? `${f} ⚠ 칸보다 많이 보유 ${todo3[m].held}/${todo3[m].n} — 기록 확인` : `${f} 빈 칸 ${todo3[m].free}/${todo3[m].n}`).join(" · ");   // 237
   const dcWait = (market.dc?.core || []).filter(c => c.state === "wait").length;
   // 99. DC 탭에서 고른 규칙으로 말함 (182: 3지수 보유면 1월 첫 거래일에만 할 일)
@@ -225,7 +225,7 @@ export function MarketTab({ market, setTab, onShowRules, list, pos, stocks, item
           </div>);
       })}
       {canBuy > 0 && !ms.usRegular && !ms.krRegular && brokerT?.canOrder &&
-        <div style={{ fontSize: 10.5, color: C.muted, margin: "6px 0 0 32px", lineHeight: 1.5 }}>⏰ 예약 = 장이 열린 뒤 서버가 시장 −2%·손절선·+3% 추격을 다시 보고 지정가로 삼 (하루만 유효)</div>}
+        <div style={{ fontSize: 10.5, color: C.muted, margin: "6px 0 0 32px", lineHeight: 1.5 }}>⏰ 예약 = 장이 열린 뒤 서버가 시장 −2%·트레일링선·+3% 추격을 다시 보고 지정가로 삼 (하루만 유효)</div>}
       <button onClick={() => setTab("find")} style={{ ...linkBtn, fontSize: FS.xs, minHeight: 34, margin: "4px 0 0 32px" }}>찾기 탭에서 자세히 ›</button>
     </div>);
   return (
@@ -257,7 +257,7 @@ export function MarketTab({ market, setTab, onShowRules, list, pos, stocks, item
         {TodoRow(["2", t2N ? `2회차 ${t2L.map(x => nm(x.p.t)).join(" · ")}` : "2회차 0건", t2N ? `1회차 +3~6% 마감 — 나머지 절반 · ${t2L.map(x => `${nm(x.p.t)} ${x.q ?? "—"}주`).join(" · ")}` : "없음", "track", t2N ? C.emerald : C.muted])}
         <BuyBlock />
         {TodoRow(dcHold3 ? ["4", "DC 그대로 보유", "3지수 보유 · 1년에 한 번(1월 첫 거래일) 비중만 맞춤", "alloc", C.dim]
-                 : ["4", `DC ${dcWait === 0 ? "모두 보유" : dcWait === (market.dc?.core || []).length ? "모두 대기(안전자산)" : `${(market.dc?.core || []).filter(c => c.state === "wait").map(c => c.label.replace(/^(미국|한국) /, "")).join("·")} 대기`}`, "느린ST · 색이 바뀌면 알림", "alloc", C.dim])}
+                 : ["4", `DC ${dcWait === 0 ? "모두 보유" : dcWait === (market.dc?.core || []).length ? "모두 대기(안전자산)" : `${(market.dc?.core || []).filter(c => c.state === "wait").map(c => c.label.replace(/^(미국|한국) /, "")).join("·")} 대기`}`, "느린 ST · 색이 바뀌면 알림", "alloc", C.dim])}
       </Card>
 
       {/* 244. 시장 · 내 종목 — 한 줄씩 (자세한 건 찾기 › 🌐 시장 · 내 종목 탭) */}

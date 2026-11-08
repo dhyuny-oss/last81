@@ -11,6 +11,7 @@ const SNAP = ["scripts/build_snapshot.py", ...readdirSync("scripts/snap").filter
 // 264. 앱 화면은 App.jsx + core.jsx + Tab*.jsx 로 나뉨 → "src/App.jsx" 로 읽으면 전부 이어 붙여 봄
 const APPF = ["src/App.jsx", "src/core.jsx", ...readdirSync("src").filter((f) => /^Tab\w+\.jsx$/.test(f)).sort().map((f) => `src/${f}`)];
 const T = (f) => f === "scripts/build_snapshot.py" ? SNAP.map((x) => readFileSync(x, "utf-8")).join("\n")
+  : f === "scripts/notify.py" ? ["scripts/notify.py", "scripts/notify_lib.py", "scripts/notify_weekly.py"].map((x) => readFileSync(x, "utf-8")).join("\n")
   : f === "src/App.jsx" ? APPF.map((x) => readFileSync(x, "utf-8")).join("\n") : readFileSync(f, "utf-8");
 const snap = J("snapshot.json"), market = J("market.json"), today = J("today.json"), wl = J("watchlist.json");
 const stocks = snap.stocks;
@@ -34,8 +35,8 @@ ok(`today.json 보유(${heldToday.length}) = watchlist 보유(${heldWl.length})`
 ok("보유 변경 뒤 추천이 다시 만들어졌는가", !stale, `watchlist ${wl.updatedAt} > 데이터 ${snap.meta?.generatedAt} — 그 사이 텔레그램·서버 추천은 옛 보유 기준`, true);
 
 console.log("── 2. 오늘 살 것: 서버(today.json) = 앱 규칙(picks.js) = market.json 사본 ──");
-const krGate = !!(market.judge?.kr?.gate && market.judge.kr.verdict === "risk");
-const usGate = !!market.judge?.us?.nqGate;                         // 252
+const krGate = !!(market.judge?.kr?.blocked ?? (market.judge?.kr?.gate && market.judge.kr.verdict === "risk"));   // 옛 market.json 호환
+const usGate = !!(market.judge?.us?.blocked ?? market.judge?.us?.nqGate);
 const oldServer = !(today.rules && "usGate" in today.rules);       // 새 규칙(247·252) 전에 만든 today.json — 다음 갱신 때 같아짐
 const cfg = { revMin: Number((wl.settings || {}).revMin ?? 10), slotsUs: Number((wl.settings || {}).slotsUs || 7), slotsKr: Number((wl.settings || {}).slotsKr || 5), krGate, usGate };
 const app = pickToday(stocks, cfg, new Set(heldWl));
@@ -95,7 +96,7 @@ const py = T("scripts/build_snapshot.py"), app_ = T("src/App.jsx"), picksJs = T(
 const n = (re, txt) => { const m = re.exec(txt); return m ? Number(m[1]) : null; };
 // 260. 규칙 숫자는 config/rules.json 한 파일 — 각 파일이 그 파일을 읽고, 같은 숫자를 다시 적지 않았는지
 { const R = JSON.parse(T("config/rules.json"));
-  const users = { "src/picks.js": /from "\.\/rules\.js"/, "src/App.jsx": /from "\.\/rules\.js"/, "src/OrderSheet.jsx": /from "\.\/rules\.js"/, "src/Kis.jsx": /from "\.\/rules\.js"/,
+  const users = { "src/picks.js": /from "\.\/rules\.js"/, "src/App.jsx": /from "\.\/rules\.js"/, "src/OrderSheet.jsx": /from "\.\/rules\.js"/, "src/Broker.jsx": /from "\.\/rules\.js"/,
                   "api/_lib/resv.js": /config\/rules\.json/, "api/_lib/meritz.js": /config\/rules\.json/, "api/watchlist.js": /config\/rules\.json/,
                   "scripts/build_snapshot.py": /from rules import/, "scripts/notify.py": /from rules import/, "scripts/watch_alert.py": /from rules import/ };
   const miss = Object.entries(users).filter(([f, re]) => !re.test(T(f))).map(([f]) => f);
@@ -105,16 +106,26 @@ const n = (re, txt) => { const m = re.exec(txt); return m ? Number(m[1]) : null;
   ok("규칙 숫자를 코드에 다시 적은 곳 없음", lit.length === 0, lit.join(", "));
   ok(`계좌 지정가 여유(+${R.guard.slip}%)가 서버 매수 거절선(${R.guard.buyBand}%)보다 작음`, R.guard.slip < R.guard.buyBand && /RULES\.guard\.buyBand/.test(T("api/_lib/meritz.js")));
 }
-ok("나스닥100 게이트를 서버·앱·알림이 같은 판정으로 씀 — 252", /us_gate = bool\(\(\(market\.get\("judge"\) or \{\}\)\.get\("us"\) or \{\}\)\.get\("nqGate"\)\)/.test(py)
-  && /usGateOf = \(market\) => !!market\?\.judge\?\.us\?\.nqGate/.test(app_) && /_ju\.get\("nqGate"\) and _open\.get\("us"\)/.test(notify));
-ok("한국 시장 게이트를 서버·앱·알림이 같은 판정으로 씀 — 176", /kr_gate = bool\(_jk\.get\("gate"\) and _jk\.get\("verdict"\) == "risk"\)/.test(py)
-  && /krGateOf = \(market\) => !!\(market\?\.judge\?\.kr\?\.gate && market\.judge\.kr\.verdict === "risk"\)/.test(app_) && /_jk\.get\("gate"\) and _jk\.get\("verdict"\) == "risk"/.test(notify));
+ok("새로 사지 않는 나라(blocked)를 서버·앱·알림이 같은 값으로 읽음 — 269",
+  /kr_gate = blocked_of\(_jk\)/.test(py) && /us_gate = blocked_of\(/.test(py)
+  && /usGateOf = \(market\) =>/.test(app_) && /krGateOf = \(market\) =>/.test(app_) && /\.blocked/.test(app_)
+  && /_ju\.get\("blocked"\) and _open\.get\("us"\)/.test(notify) && /_jk\.get\("blocked"\) and _open\.get\("kr"\)/.test(notify)
+  && !/\.get\("nqGate"\)|\.get\("gate"\)/.test(notify));
+// 279. 화면·알림 문구에 적힌 기준 숫자가 config/rules.json 과 같은가 (숫자를 바꾸고 문구를 놓치는 일 막기)
+{
+  const R = JSON.parse(T("config/rules.json"));
+  const txt = ["src/App.jsx", "scripts/notify.py", "scripts/snap/today.py"].map(T).join("\n") + readdirSync("src").filter((f) => f.endsWith(".jsx")).map((f) => readFileSync(`src/${f}`, "utf-8")).join("\n");
+  const kb = [...txt.matchAll(/3년 하위 (\d+)%/g)].map((m) => Number(m[1])).filter((n) => n !== 0 && n !== 100);
+  const rs = [...txt.matchAll(/RS (\d+)↑/g)].map((m) => Number(m[1]));
+  ok(`'3년 하위 N%' 문구가 모두 ${R.krBreadthPct}% (한국 폭 기준)`, kb.every((n) => n === R.krBreadthPct), `다른 값: ${[...new Set(kb.filter((n) => n !== R.krBreadthPct))].join(",")}`);
+  ok(`'RS N↑' 문구가 모두 ${R.signal.rsMin} (신호 RS 하한)`, rs.every((n) => n === R.signal.rsMin), `다른 값: ${[...new Set(rs.filter((n) => n !== R.signal.rsMin))].join(",")}`);
+}
 ok("화면에 '판정은 DC에만 사용'·근거 없는 16.9% 같은 옛 문구 없음 — 160", !/DC 판단에만 사용|ETF 배분\(DC\)에만|\+16\.9%·최대낙폭 −28%/.test(app_));
 ok("폭 계산 날짜(breadthAsOf)가 데이터에 있음 — 171", !!market.breadthAsOf, "", true);
-const kisJs = T("api/_lib/meritz.js"), kisUi = T("src/Kis.jsx");
+const brokerJs = T("api/_lib/meritz.js"), brokerUi = T("src/Broker.jsx");
 ok("미국 개장 22:30/23:30 · 마감 05:00/06:00 (앱·감시)", /dst \? 1350 : 1410/.test(app_) && /dst \? 300 : 360/.test(app_)
   && [T("scripts/watch_alert.py")].every((t) => /\(22 \* 60 \+ 30, 5 \* 60\) if dst else \(23 \* 60 \+ 30, 6 \* 60\)/.test(t)));
-ok("한투 카드는 오늘 탭과 같은 선정 함수 사용", /kisPicks\(stocks, pos, genDay/.test(app_) && !/picks=\{today\?\.pickUs/.test(app_));
+ok("증권사 카드는 오늘 탭과 같은 선정 함수 사용", /brokerPicks\(stocks, pos, genDay/.test(app_) && !/picks=\{today\?\.pickUs/.test(app_));
 // 259. 저장 단계 — 폴더 전체를 담고 내 기록(watchlist · resv)만 뺌
 { const yml = T(".github/workflows/daily.yml");
   ok("자동 수집 저장: public/data 전체 + watchlist·resv 제외", /git add -A public\/data\n/.test(yml) && /git reset -q -- public\/data\/watchlist\.json public\/data\/resv\.json/.test(yml));

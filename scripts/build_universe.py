@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-262. ① 종목 목록 (주 1회) — 이 단계는 '어떤 종목을 볼지'만 정합니다. 시세·지표는 ③ build_snapshot.py 가 직접 받습니다.
+262. ① 종목풀 (주 1회) — 이 단계는 '어떤 종목을 볼지'만 정합니다. 시세·지표는 ③ build_snapshot.py 가 직접 받습니다.
 
   입력   한투 공개 마스터(🇰🇷) · 위키 S&P500 + 나스닥 스크리너(🇺🇸) — scripts/universe.py
          public/data/watchlist.json (보유·관심·추가·빼기) · scripts/tickers_extra.txt (직접 넣는 종목)
@@ -35,8 +35,8 @@ def _load(path, default):
 
 
 def previous():
-    """지난주 목록 — universe.json, 없으면 예전 stocks.json (처음 한 번 옮길 때)"""
-    src = _load(OUT, None) or _load(os.path.join(DATA, "stocks.json"), {})
+    """지난주 목록 — universe.json"""
+    src = _load(OUT, None) or {}
     out = {}
     for t, v in (src.get("stocks") or {}).items():
         sec = v.get("sector") or ""
@@ -119,7 +119,7 @@ def main():
            "rules": {"kr": "보통주 · 거래정지/관리/경고/정리매매 제외 · 시총 3,000억↑ · 거래대금 상위 150 ∪ 시총 상위 150",
                      "us": "S&P500 + 시총 $25B↑ · 거래대금 $50M↑"}}
     json.dump(log, open(LOG, "w", encoding="utf-8"), ensure_ascii=False)
-    print(f"📦 종목 목록 {len(pk)} → {len(nk)} (추가 {len(log['added'])} · 제외 {len(log['removed'])}) → universe.json")
+    print(f"📦 종목풀 {len(pk)} → {len(nk)} (추가 {len(log['added'])} · 제외 {len(log['removed'])}) → universe.json")
     for x in log["added"][:8]: print(f"   ➕ {x['n']} ({x['t']})")
     for x in log["removed"][:8]: print(f"   ➖ {x['n']} ({x['t']})")
 
