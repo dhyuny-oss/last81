@@ -123,6 +123,12 @@ jobs:
         with:
           python-version: '3.11'
 
+      # 261. '오늘 살 것'은 앱과 같은 함수(src/picks.js)를 node 로 부름 — config/rules.json 을 읽으려면 node 20.10 이상
+      - uses: actions/setup-node@v4
+        if: steps.fresh.outputs.skip != 'true'
+        with:
+          node-version: '20'
+
       # ① 유니버스·종목명 — 16:00 과 토요일, 그리고 수동 실행에서만
       - name: Install dependencies
         if: steps.fresh.outputs.skip != 'true' && ((github.event_name == 'workflow_dispatch' && inputs.mode != 'daily' && inputs.mode != 'quick') || github.event.schedule == '13 0 * * 6')

@@ -16,11 +16,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { nextOpen } from "./order.js";
 import { resvCall } from "./resv.js";
+import RULES from "./rules.js";
 
 const K = { panel: "#0F1420", panel2: "#161B2E", border: "rgba(255,255,255,.09)", text: "#E5E7EB", dim: "#9CA3AF", gold: "#F59E0B", up: "#30D158", down: "#FF453A", cyan: "#06B6D4" };
 const MONO = "ui-monospace,SFMono-Regular,Menlo,monospace";
 const TOK = "v7.kis.tok", PIN = "v7.kis.pin";
-const G = { mktDown: -2, stDown: -5, stUp: 4, slip: 0.5, buyBand: 1.5, sellBand: 3 };   // 계좌 카드(src/Kis.jsx GUARD) · 서버(api/_lib/meritz.js)와 같은 숫자
+const G = RULES.guard;   // 260. config/rules.json — 계좌 카드(src/Kis.jsx GUARD) · 서버(api/_lib/meritz.js)와 같은 숫자
 const EX = { NMS: "NASD", NGM: "NASD", NCM: "NASD", NYQ: "NYSE", ASE: "AMEX", PCX: "AMEX", BTS: "AMEX" };
 const IDX = { us: [["QQQ", "나스닥100"], ["SPY", "S&P500"]], kr: [["KOSPI", "코스피"], ["KOSDAQ", "코스닥"]] };
 const ls = { get: (k) => { try { return localStorage.getItem(k) || ""; } catch { return ""; } }, set: (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch {} } };

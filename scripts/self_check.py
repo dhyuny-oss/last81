@@ -99,7 +99,8 @@ def _variants(cands, cfg):
                 kr.append(r)
         return {"us": [[r["t"], r["c"]] for r in us], "kr": [[r["t"], r["c"]] for r in kr]}
     # 247 · 252. 지금 규칙 = 업종 3개까지 + 나스닥100 필터 · 비교 = 예전 규칙(업종 1개 · 필터 없음)
-    return {"base": pick(strength, 3), "cap1": pick(strength, 1, nq=False), "newest": pick(newest, 3)}
+    cap = int(cfg.get("secCap") or 3)          # 260. today.json cfg(= config/rules.json secCap)
+    return {"base": pick(strength, cap), "cap1": pick(strength, 1, nq=False), "newest": pick(newest, cap)}
 
 
 VAR_NAME = {"base": "지금 규칙", "cap1": "예전 규칙 (업종 1개 · 나스닥 필터 없음)", "newest": "최신순", "stop10": "비상 −10% 손절"}

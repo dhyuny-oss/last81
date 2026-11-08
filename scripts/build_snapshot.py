@@ -1219,7 +1219,8 @@ def update_signal_log(stocks, series, idx_series):
     return {"summary": summ, "n": len(log), "pending": pending, "since": min((x["d"] for x in log), default=None), "review": review,
             "drift": drift, "kinds": ["pull", "buy", "strong"]}
 
-REV_MIN = 10        # 앱 '매출 필터' 기본값 — 앱이 settings.revMin 을 보내면 그 값을 씁니다 (61)
+from rules import R as RULES                          # 260. 규칙 숫자 한 파일 (config/rules.json)
+REV_MIN = RULES["revMin"]        # 앱 '매출 필터' 기본값 — 앱이 settings.revMin 을 보내면 그 값을 씁니다 (61)
 LINE_MAX_LOSS = 17  # 트레일링선까지(닿으면 잃는 폭) 17% 넘으면 오늘 후보에서 제외 — 예전 '선까지 20%'(c/선−1)와 같은 기준 (62)
 
 PICKS_LOG = f"{OUT_DIR}/picks_log.json"
@@ -1263,9 +1264,18 @@ def broker_miss(wl, today=None):
         if t not in {str(x[0]).upper() for x in b[m]} and d0 < d: out.add(t)
     return out
 
-SEC_CAP = 3                                            # 247. 🇺🇸 같은 업종 최대 종목 수 (src/picks.js SEC_CAP 와 같음)
-SEC_FULL_WHY = f"같은 업종 {SEC_CAP}개 찼음"               # 앱 src/picks.js 와 같은 문구
-US_GATE_WHY = "나스닥100 200일선 아래 — 미국 새로 사지 않음"   # 252 · 앱 src/picks.js US_GATE_WHY
+SEC_CAP = RULES["secCap"]                              # 247. 🇺🇸 같은 업종 최대 종목 수 (src/picks.js SEC_CAP 와 같음)
+
+def pick_with_app_rules(rows, cfg, held_sec):
+    """261. '오늘 살 것'을 고르는 규칙은 src/picks.js 의 pickFrom 한 곳 — scripts/pick_cli.mjs 를 node 로 불러 같은 함수를 씀"""
+    import subprocess
+    here = os.path.dirname(os.path.abspath(__file__))
+    out = subprocess.run(["node", os.path.join(here, "pick_cli.mjs")], input=json.dumps({"rows": rows, "cfg": cfg, "heldSec": held_sec}),
+                         capture_output=True, text=True, timeout=60, cwd=os.path.join(here, ".."))
+    if out.returncode != 0:
+        raise RuntimeError(f"오늘 살 것 계산(node pick_cli.mjs) 실패: {out.stderr[-400:]}")
+    return json.loads(out.stdout)
+
 
 def build_today(stocks, market):
     idx = market.get("indices") or {}
@@ -1278,7 +1288,7 @@ def build_today(stocks, market):
     if _miss: wl = {**wl, "positions": [p for p in (wl.get("positions") or []) if str(p.get("t", "")).upper() not in _miss]}
     held = {str(p.get("t", "")).upper() for p in (wl.get("positions") or [])}
     cfg = wl.get("settings") or {}
-    rev_min = float(cfg.get("revMin", REV_MIN)); slots_us = int(cfg.get("slotsUs") or 7); slots_kr = int(cfg.get("slotsKr") or 5)   # 168. 기본 = 권장 7·5 (src/picks.js SLOTS_DEFAULT)
+    rev_min = float(cfg.get("revMin", REV_MIN)); slots_us = int(cfg.get("slotsUs") or RULES["slots"]["us"]); slots_kr = int(cfg.get("slotsKr") or RULES["slots"]["kr"])   # 168. 기본 = 권장 7·5 (src/picks.js SLOTS_DEFAULT)
     # 176. 한국 시장 '위험'(폭 3년 하위 40% 아래)이면 한국은 새로 사지 않음 — 2010–26 검증 연 11.4% → 24.1% (주 1회 폭 · 보유는 그대로)
     _jk = (market.get("judge") or {}).get("kr") or {}
     kr_gate = bool(_jk.get("gate") and _jk.get("verdict") == "risk")
@@ -1317,41 +1327,17 @@ def build_today(stocks, market):
                 "secLabel": secrank.get(d.get("sec"), (None, None))[1], "rev": f.get("rev"), "prof": f.get("prof"),
                 "mcap": d.get("mcap"), "tv": d.get("tv"), "age": age(d["t"]), "since": first.get(d["t"]), "rsi": d.get("rsi"), "held": d["t"] in held,
                 "earn": d.get("earn"), "earnE": d.get("earnE"), "pe": d.get("pe"), "fpe": d.get("fpe")}
-    buys = [row(d) for d in stocks.values() if d.get("action") == "buy" and (d.get("tvr") or 0) >= 40]
-    def reasons(r):
-        out = []
-        if r["prof"] is False: out.append("적자")
-        # 224. 🇺🇸 재무 자료가 아직 없으면(새로 들어온 종목 — 분기 수집 전) 적자·매출 검사를 못 해 뺌 (앱 src/picks.js 와 같은 문구)
-        elif r["m"] == "us" and r["prof"] is None: out.append("재무 자료 없음 — 적자 여부 확인 전")
-        if rev_min > 0 and r["m"] == "us" and r["growth"] is not None and r["growth"] < rev_min: out.append(f"매출 {r['growth']:+.0f}%")
-        # (선까지 −17% 초과 제외는 없앰 — 검증에서 🇺🇸 2024–26 성과를 26.8% → 7.1% 로 깎았음. 선이 먼 종목이 곧 강하게 달리는 종목)
-        if r["held"]: out.append("보유 중")
-        return out
-    # 강세·눌림(검증한 신호) 먼저 → 그 안에서 강도 점수 높은 순. 업종 순위 먼저 정렬은 검증에서 성과가 절반이라 뺐음 (70)
-    # 점수가 같으면 티커 순 — 앱(src/picks.js)과 순서가 똑같이 나오도록 (96)
-    rank = lambda r: ((1 if r["why"] == "trend" else 0) * 1000 - (r.get("str") or 0), r["t"])
-    cands = sorted(buys, key=rank)
-    excluded, pick_us, pick_kr = [], [], []
-    # 161 · 247. 같은 업종은 3개까지 — 이미 보유한 미국 종목도 그 업종 몫으로 셈 (앱 src/picks.js 와 같은 규칙)
-    #   2010–26 · 7칸: 업종 1개 연 12.6% → 3개 15.1% (시작일 12번 모두 3 > 2 > 1). 대신 한 업종이 몰리면 같이 빠질 수 있음
-    held_sec, used = {}, {}
+    buys = [row(d) for d in stocks.values() if d.get("action") == "buy" and (d.get("tvr") or 0) >= RULES["tvrMin"]]
+    # 161 · 247. 같은 업종 몫 — 이미 보유한 미국 종목도 그 업종 몫으로 셈
+    held_sec = {}
     for p in (wl.get("positions") or []):
         _d = stocks.get(str(p.get("t", "")).upper())
         if _d and _d.get("m") == "us" and _d.get("sec"): held_sec.setdefault(_d["sec"], []).append(_d["t"])
-    for r in cands:
-        why = reasons(r)
-        if why: excluded.append({"t": r["t"], "n": r["n"], "m": r["m"], "why": why}); continue
-        if r["m"] == "us":
-            if us_gate: excluded.append({"t": r["t"], "n": r["n"], "m": "us", "why": [US_GATE_WHY]}); continue
-            key = r["sec"] or f"?{r['t']}"
-            hs, us_ = held_sec.get(key, []), used.get(key, [])
-            if len(hs) + len(us_) >= SEC_CAP:
-                excluded.append({"t": r["t"], "n": r["n"], "m": "us", "why": [f"같은 업종 보유 중({'·'.join(hs)})" if not us_ else SEC_FULL_WHY]}); continue
-            if len(pick_us) < slots_us: pick_us.append(r); used.setdefault(key, []).append(r["t"])
-        elif kr_gate:
-            excluded.append({"t": r["t"], "n": r["n"], "m": "kr", "why": ["시장 위험 — 한국 새로 사지 않음"]})
-        elif len(pick_kr) < slots_kr:
-            pick_kr.append(r)
+    # ★ 261. 고르는 규칙은 앱과 같은 함수 하나(src/picks.js pickFrom) — node 로 부름. 실패하면 today.json 을 만들지 않고 멈춤(지난 파일 유지)
+    P = pick_with_app_rules(buys, {"revMin": rev_min, "slotsUs": slots_us, "slotsKr": slots_kr, "krGate": kr_gate, "usGate": us_gate}, held_sec)
+    by_t = {r["t"]: r for r in buys}
+    cands = [by_t[t] for t in P["order"]]
+    pick_us, pick_kr, excluded = [by_t[t] for t in P["pickUs"]], [by_t[t] for t in P["pickKr"]], P["excluded"]
     # 109. 빈 칸 = 칸 수 − 지금 들고 있는 단기 종목 수. 0 이면 새로 사지 않음 (앱·텔레그램·AI 도구가 같은 숫자를 봄)
     slots = {}
     for _m, _n in (("us", slots_us), ("kr", slots_kr)):
@@ -1368,7 +1354,7 @@ def build_today(stocks, market):
         tr = p.get("tr") if isinstance(p.get("tr"), list) and p.get("tr") else ([{"px": p.get("avg"), "amt": 0}] if p.get("avg") else [])
         t2 = None
         if p.get("role") == "swing" and len(tr) == 1 and tr and tr[0].get("px"):
-            lo, hi = tr[0]["px"] * 1.03, tr[0]["px"] * 1.06
+            lo, hi = tr[0]["px"] * RULES["tranche2"]["lo"], tr[0]["px"] * RULES["tranche2"]["hi"]
             after = not tr[0].get("d") or str(d.get("asOf") or "") > str(tr[0]["d"])[:10]   # 1회차를 산 뒤의 종가여야 함 (앱 nextTrancheOf 와 같음)
             t2 = "도달" if (after and lo <= d["c"] <= hi and d.get("stSlow") == 1) else ("추격 금지" if d["c"] > hi else f"목표 {lo:.2f}")
         heldrows.append({"t": d["t"], "n": d.get("n"), "m": d["m"], "c": d["c"], "action": "sell" if d.get("action") == "sell" else "hold",

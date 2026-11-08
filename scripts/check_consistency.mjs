@@ -88,23 +88,28 @@ console.log("── 5. 코드에 여러 번 적힌 같은 값 ──");
 }
 const py = T("scripts/build_snapshot.py"), app_ = T("src/App.jsx"), picksJs = T("src/picks.js"), notify = T("scripts/notify.py");
 const n = (re, txt) => { const m = re.exec(txt); return m ? Number(m[1]) : null; };
-ok("매출 필터 기본값 10 (서버·앱 규칙·앱 설정)", n(/^REV_MIN = (\d+)/m, py) === 10 && n(/revMin = (\d+)/, picksJs) === 10 && n(/getRevMin[^\n]*v == null \? (\d+)/, app_) === 10);
-ok("칸 수 기본값 🇺🇸7 · 🇰🇷5 (서버·알림·서버 저장·앱 규칙) — 168", /slotsUs"\) or 7\)/.test(py) && /slotsKr"\) or 5\)/.test(py) && /slotsUs"\) or 7\)/.test(notify) && /slotsKr"\) or 5\)/.test(notify)
-  && /SLOTS_DEFAULT = \{ us: 7, kr: 5 \}/.test(picksJs) && !/plan\.slotsUs \|\| \d/.test(app_) && !/plan\.slotsKr \|\| \d/.test(app_)
-  && /num\(st\.slotsUs, 1, 20, 7\)/.test(T("api/watchlist.js")) && /num\(st\.slotsKr, 1, 20, 5\)/.test(T("api/watchlist.js")));
+// 260. 규칙 숫자는 config/rules.json 한 파일 — 각 파일이 그 파일을 읽고, 같은 숫자를 다시 적지 않았는지
+{ const R = JSON.parse(T("config/rules.json"));
+  const users = { "src/picks.js": /from "\.\/rules\.js"/, "src/App.jsx": /from "\.\/rules\.js"/, "src/OrderSheet.jsx": /from "\.\/rules\.js"/, "src/Kis.jsx": /from "\.\/rules\.js"/,
+                  "api/_lib/resv.js": /config\/rules\.json/, "api/_lib/meritz.js": /config\/rules\.json/, "api/watchlist.js": /config\/rules\.json/,
+                  "scripts/build_snapshot.py": /from rules import/, "scripts/notify.py": /from rules import/, "scripts/watch_alert.py": /from rules import/ };
+  const miss = Object.entries(users).filter(([f, re]) => !re.test(T(f))).map(([f]) => f);
+  ok(`규칙 숫자 한 파일(config/rules.json · 칸 ${R.slots.us}/${R.slots.kr} · 업종 ${R.secCap} · 매출 ${R.revMin} · 거래대금 ${R.tvrMin}) — 10곳이 읽음`, miss.length === 0, miss.join(", "));
+  const lit = [["src/picks.js", /tvr \?\? 0\) >= 40|SEC_CAP = 3|us: 7, kr: 5/], ["src/App.jsx", /tvr \?\? 0\) >= 40|px \* 1\.0[36]\b/], ["scripts/build_snapshot.py", /tvr"\) or 0\) >= 40|\* 1\.0[36]\b|^SEC_CAP = 3/m],
+               ["scripts/notify.py", /tvr"\) or 0\) >= 40|\* 1\.0[36]\b|or [75]\)/], ["scripts/watch_alert.py", /\* 1\.0[36]\b/]].filter(([f, re]) => re.test(T(f))).map(([f]) => f);
+  ok("규칙 숫자를 코드에 다시 적은 곳 없음", lit.length === 0, lit.join(", "));
+  ok(`계좌 지정가 여유(+${R.guard.slip}%)가 서버 매수 거절선(${R.guard.buyBand}%)보다 작음`, R.guard.slip < R.guard.buyBand && /RULES\.guard\.buyBand/.test(T("api/_lib/meritz.js")));
+}
 ok("나스닥100 게이트를 서버·앱·알림이 같은 판정으로 씀 — 252", /us_gate = bool\(\(\(market\.get\("judge"\) or \{\}\)\.get\("us"\) or \{\}\)\.get\("nqGate"\)\)/.test(py)
   && /usGateOf = \(market\) => !!market\?\.judge\?\.us\?\.nqGate/.test(app_) && /_ju\.get\("nqGate"\) and _open\.get\("us"\)/.test(notify));
 ok("한국 시장 게이트를 서버·앱·알림이 같은 판정으로 씀 — 176", /kr_gate = bool\(_jk\.get\("gate"\) and _jk\.get\("verdict"\) == "risk"\)/.test(py)
   && /krGateOf = \(market\) => !!\(market\?\.judge\?\.kr\?\.gate && market\.judge\.kr\.verdict === "risk"\)/.test(app_) && /_jk\.get\("gate"\) and _jk\.get\("verdict"\) == "risk"/.test(notify));
 ok("화면에 '판정은 DC에만 사용'·근거 없는 16.9% 같은 옛 문구 없음 — 160", !/DC 판단에만 사용|ETF 배분\(DC\)에만|\+16\.9%·최대낙폭 −28%/.test(app_));
 ok("폭 계산 날짜(breadthAsOf)가 데이터에 있음 — 171", !!market.breadthAsOf, "", true);
-ok("거래대금 순위 하한 40 (서버·앱 규칙)", /tvr \?\? 0\) >= 40/.test(picksJs) && /tvr"\)? or 0\) >= 40|tvr.*>= 40/.test(py));
 const kisJs = T("api/_lib/kis.js") + T("api/_lib/meritz.js"), kisUi = T("src/Kis.jsx");
 ok("미국 개장 22:30/23:30 · 마감 05:00/06:00 (앱·감시)", /dst \? 1350 : 1410/.test(app_) && /dst \? 300 : 360/.test(app_)
   && [T("scripts/watch_alert.py")].every((t) => /\(22 \* 60 \+ 30, 5 \* 60\) if dst else \(23 \* 60 \+ 30, 6 \* 60\)/.test(t)));
 ok("한투 카드는 오늘 탭과 같은 선정 함수 사용", /kisPicks\(stocks, pos, genDay/.test(app_) && !/picks=\{today\?\.pickUs/.test(app_));
-ok("계좌 지정가 여유(+0.5%)가 서버 매수 거절선(메리츠 1.5%)보다 작음", (n(/slip: ([\d.]+)/, kisUi) ?? 99) < 1.5 && /q\.last \* 1\.015/.test(T("api/_lib/meritz.js")));
-
 // 259. 저장 단계 — 폴더 전체를 담고 내 기록(watchlist · resv)만 뺌
 { const yml = T(".github/workflows/daily.yml");
   ok("자동 수집 저장: public/data 전체 + watchlist·resv 제외", /git add -A public\/data\n/.test(yml) && /git reset -q -- public\/data\/watchlist\.json public\/data\/resv\.json/.test(yml));

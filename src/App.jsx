@@ -13,6 +13,7 @@
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import MKT_CAL from "../config/market.json";
+import RULES from "./rules.js";
 import { pickToday, SLOTS_DEFAULT, KR_GATE_WHY, US_GATE_WHY, SEC_FULL_WHY, SEC_CAP } from "./picks.js";
 import { planFills, applyFills } from "./fills.js";
 import {
@@ -379,7 +380,7 @@ const avgOf = (p) => { const tr = trOf(p); const a = tr.reduce((x, t) => x + (t.
 const investedOf = (p) => trOf(p).reduce((x, t) => x + (t.amt || 0), 0);
 const nextTrancheOf = (p, s, limit) => {   // 2회차 조건: 1회차 +3% ~ +6% 밴드 안에서 마감 · 느린ST 초록 · 아직 1회차뿐
   const tr = trOf(p); if (tr.length >= 2 || !s?.c) return null;   // (+6% 넘게 오른 날은 추격 금지 — 검증과 같은 밴드)
-  const target = tr[0].px * 1.03, cap = tr[0].px * 1.06;
+  const target = tr[0].px * RULES.tranche2.lo, cap = tr[0].px * RULES.tranche2.hi;   // 260. config/rules.json
   const gain = (s.c / tr[0].px - 1) * 100;
   // ★ 1회차를 산 뒤의 종가여야 함 — 산 날 밤 데이터가 아직 그 전날 종가면 '+3% 마감'을 확인한 게 아님 (검증도 매수 다음 종가부터)
   const after = !s.asOf || !tr[0].d || String(s.asOf) > String(tr[0].d).slice(0, 10);
@@ -677,7 +678,7 @@ const benchName = (s) => s?.m === "kr" ? "코스피" : (NASDAQ.has(s?.ex) ? "나
 /** 매출 성장 필터 — 앱 전체 공통 설정. 오늘 할 일·찾기·선정이 같은 개수를 보여주도록 한 곳에서 읽습니다
     (텔레그램도 같은 기본값 +10% 를 씁니다) */
 const REV_KEY = "v9.revMin";
-const getRevMin = () => { try { const v = localStorage.getItem(REV_KEY); return v == null ? 10 : Number(v); } catch { return 10; } };
+const getRevMin = () => { try { const v = localStorage.getItem(REV_KEY); return v == null ? RULES.revMin : Number(v); } catch { return RULES.revMin; } };
 /** 176. 한국 시장 '위험'(폭 3년 하위 40% 아래)이면 한국은 새로 사지 않음 — 오늘·찾기·한투·선정·파이프라인이 같은 판정을 씀 */
 const krGateOf = (market) => !!(market?.judge?.kr?.gate && market.judge.kr.verdict === "risk");
 /** 252. 🇺🇸 나스닥100 이 200일선 아래면 미국은 새로 사지 않음 — 파이프라인 judge.us.nqGate (오늘·찾기·계좌·텔레그램 같은 판정) */
@@ -1027,7 +1028,7 @@ export default function App() {
     const today = kstDay();
     const store = seenRef.current, now = Date.now();
     const cur = Object.values(snap.stocks || {}).filter(x =>
-      (x.tvr ?? 0) >= 40 && x.tmpl && (x.rs ?? 0) >= 70);
+      (x.tvr ?? 0) >= RULES.tvrMin && x.tmpl && (x.rs ?? 0) >= 70);
     for (const x of cur) {
       const r = store[x.t];
       if (!r) store[x.t] = { first: now, last: today };
@@ -1687,7 +1688,7 @@ function MarketTab({ market, setTab, onShowRules, list, pos, stocks, items, size
     const nx = nextTrancheOf(p, s, sizer.limit(m)); return nx?.ok && roomFor(pos, sizer, m, nx.amt) ? { p, m, q: s?.c ? Math.max(1, Math.floor(nx.amt / s.c)) : null } : null; }).filter(Boolean);
   const sellN = sellL.length, t2N = t2L.length;
   const revMin = getRevMin();
-  const buyL = list.filter(x => x.action === "buy" && (x.tvr ?? 0) >= 40).filter(x => passRevOf(x, revMin));
+  const buyL = list.filter(x => x.action === "buy" && (x.tvr ?? 0) >= RULES.tvrMin).filter(x => passRevOf(x, revMin));
   const heldT = new Set((pos || []).map(p => p.t));
   const buyN = buyL.filter(x => !heldT.has(x.t)).length;   // 132. 보유 종목은 '새 신호' 수에서 뺌 (찾기 탭과 같은 수)
   // 109. 오늘 실제로 살 수 있는 수 = 추천(찾기 탭 '오늘 살 것'과 같은 함수) 중 빈 칸만큼 · 투자금 0원인 시장은 0 · 176·252. 시장 게이트면 0
@@ -1839,7 +1840,7 @@ function MarketInfo({ market, setTab, list, pos, stocks, items, sizer, openStock
   const [secView, setSecView] = useSticky("v13.market.secView", "ret");
   const [secOpen, setSecOpen] = useSticky("v13.market.secOpen", false);      // 섹터: 수익률 / PER·매수! 수
   const revMin = getRevMin();
-  const buyL = (list || []).filter(x => x.action === "buy" && (x.tvr ?? 0) >= 40).filter(x => passRevOf(x, revMin));
+  const buyL = (list || []).filter(x => x.action === "buy" && (x.tvr ?? 0) >= RULES.tvrMin).filter(x => passRevOf(x, revMin));
   const secRank = Object.fromEntries(sectors.map(x => [x.tk, [x.rank, x.label]]));
   const usBuy = (() => {          // 그 업종에서 오늘 살 것 (오늘 탭 3번과 같은 함수 · 빈 칸만큼)
     const pa = sizer?.plan; if (!pa || !(pa.us > 0)) return [];
@@ -2598,7 +2599,7 @@ function FindTab({ list, openStock, watch, toggleWatch, market, sizer, pos, sigl
   const passRev = (s) => passRevOf(s, revMin);
   const isBuy = (s) => s.action === "buy" && passRev(s) && !heldSet.has(s.t);   // 132. 매수! 목록 = 새로 살 수 있는 것만 (보유 제외)
   const pool = useMemo(() => {
-    let r = list.filter(s => (s.tvr ?? 0) >= 40);
+    let r = list.filter(s => (s.tvr ?? 0) >= RULES.tvrMin);
     if (mkt !== "all") r = r.filter(s => s.m === mkt);
     return r;
   }, [list, mkt]);
@@ -2673,7 +2674,7 @@ function OversoldTab({ list, openStock, watch, toggleWatch, sizer, market, pos }
   const [onlyWatch, setOnlyWatch] = useState(true);
   const [limit, setLimit] = useState(20);
   const heldSet = useMemo(() => new Set((pos || []).map(p => p.t)), [pos]);
-  const all = useMemo(() => list.filter(s => (s.tvr ?? 0) >= 40 && s.dip), [list]);
+  const all = useMemo(() => list.filter(s => (s.tvr ?? 0) >= RULES.tvrMin && s.dip), [list]);
   const nKr = all.filter(s => s.m === "kr").length;
   const rows = useMemo(() => all
     .filter(s => showKr || s.m === "us")

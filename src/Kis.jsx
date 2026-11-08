@@ -20,6 +20,7 @@
  *        watch / toggleWatch = 앱 관심종목 (관심 불러오기에서만 씀)
  *        asOf = 오늘 살 것의 기준 날짜({us, kr} 또는 문자열) · half = 앱 1회차 금액 {us, kr} · usOpen = 미국 정규장 여부 · fx = 원/달러
  */
+import RULES from "./rules.js";
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { openOrder } from "./order.js";      // 210. 주문은 모두 같은 주문 창(src/OrderSheet.jsx)으로
 
@@ -27,10 +28,8 @@ const K = { panel: "#0F1420", panel2: "#161B2E", border: "rgba(255,255,255,.09)"
 const MONO = "ui-monospace,SFMono-Regular,Menlo,monospace";
 const TOK = "v7.kis.tok", PIN = "v7.kis.pin", BUD = "v7.kis.budget", BUD_KR = "v7.kis.budget.kr", MK = "v7.kis.mk";
 /* 매수 제안 안전장치 (미검증 · 숫자는 여기서만 바꿉니다) */
-const GUARD = { mktDown: -2, mktUp: 2,     // 나스닥100(QQQ)·S&P500(SPY) 중 나쁜 쪽이 −2% 이하면 전부 보류 · +2% 이상이면 주의만
-                stDown: -5, stUp: 4,       // 종목이 기준 종가보다 −5% 이하 = 급락 보류 · +4% 이상 = 추격 보류
-                slip: 0.5,                 // 지정가 = 지금 가격 + 0.5% (바로 체결되되 그 이상은 안 삼)
-                fresh: 120 };              // 가격을 본 지 120초가 넘으면 다시 보게 함
+//   260. 숫자는 config/rules.json 의 guard — 시장 −2% 이하 보류 · +2% 주의 · 종목 −5% 급락 · +4% 추격 · 지정가 +0.5%
+const GUARD = { ...RULES.guard, fresh: 120 };   // fresh: 가격을 본 지 120초가 넘으면 다시 보게 함
 const EXN = { NASD: "나스닥", NYSE: "뉴욕", AMEX: "아멕스", KRX: "한국거래소" };
 const won = (v) => `${Math.round(Number(v) || 0).toLocaleString("ko-KR")}원`;
 /** 🇰🇷 호가 단위 (2023-01 이후 코스피·코스닥 공통) — 서버(api/_lib/*.js)와 같은 표 */

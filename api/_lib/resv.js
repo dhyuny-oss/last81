@@ -13,14 +13,16 @@
  *        주문은 화면 주문과 같은 함수(placeOrder) — 1건·하루 상한 · 지정가 범위 · 정규장 · 번호표 검사가 그대로 걸림
  * 알림   Vercel 에 TELEGRAM_BOT_TOKEN · TELEGRAM_CHAT_ID (또는 TG_TOKEN · TG_CHAT) 가 있으면 바로 · 없으면 다음 아침 텔레그램(notify.py)에 한 줄
  */
+import { createRequire } from "module";
 import { INT, cfg } from "./meritz.js";
+const RULES = createRequire(import.meta.url)("../../config/rules.json");   // 260. 규칙 숫자 한 파일
 
 const REPO = process.env.GH_REPO || "dhyuny-oss/last81";
 const GH_TOKEN = process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "";
 const PATH = "public/data/resv.json";
 const API = `https://api.github.com/repos/${REPO}/contents/`;
-const G = { mktDown: -2, up: 3, down: -5, slip: 0.5 };          // 249 에서 정한 값 (주문 창 G 와 같은 방향 · 추격은 +3% 로 더 좁게)
-const WIN = { us: [5, 150], kr: [570, 690] };                   // 🇺🇸 개장 뒤 분 · 🇰🇷 한국 시각 분(09:30 ~ 11:30)
+const G = RULES.resv;                                           // 249 · config/rules.json resv (추격은 주문 창보다 좁게 +3%)
+const WIN = { us: RULES.resv.usWin, kr: RULES.resv.krWin };     // 🇺🇸 개장 뒤 분 · 🇰🇷 한국 시각 분(09:30 ~ 11:30)
 const KEEP = 40;
 
 const ghHead = () => ({ Authorization: `Bearer ${GH_TOKEN}`, Accept: "application/vnd.github+json", "User-Agent": "alpha-terminal", "X-GitHub-Api-Version": "2022-11-28" });

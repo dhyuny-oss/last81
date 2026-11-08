@@ -100,7 +100,8 @@ def act_txt(d, held=False):
     why = WHY.get(d.get("why")) if a == "buy" else ("트레일링선 아래" if a == "sell" else None)
     return ACT[a] + (f" ({why})" if why else "")
 
-REV_MIN = float(os.environ.get("REV_MIN", 10))   # 앱 '매출 필터' 기본값 — 앱이 settings.revMin 을 보내면 그 값 (61)
+from rules import R as RULES                                      # 260. 규칙 숫자 한 파일
+REV_MIN = float(os.environ.get("REV_MIN", RULES["revMin"]))   # 앱 '매출 필터' 기본값 — 앱이 settings.revMin 을 보내면 그 값 (61)
 try:
     _cfg = (json.load(open(f"{DATA}/watchlist.json", encoding="utf-8")).get("settings") or {})
     if "revMin" in _cfg: REV_MIN = float(_cfg["revMin"])
@@ -130,7 +131,7 @@ def pick_entry(stocks, judge=None):
 def pick_oversold(stocks):
     """★ 미국 종목만. 한국은 검증에서 −7.24%(유의하게 손해)라 제외합니다."""
     # 앱 급락 탭의 '관찰' 과 같은 판정 (파이프라인 dip=watch): −25%↓ · 3년 건강 60%↑ · 흑자 · 20일선 회복
-    out = [s for s in stocks.values() if s.get("m") == "us" and (s.get("tvr") or 0) >= 40 and s.get("dip") == "watch"]
+    out = [s for s in stocks.values() if s.get("m") == "us" and (s.get("tvr") or 0) >= RULES["tvrMin"] and s.get("dip") == "watch"]
     out.sort(key=lambda x: x.get("w52p") or 0)
     return out
 
@@ -239,7 +240,7 @@ def build(snap, mkt, state, now):
                 + (f" · 트레일링선 {price(d.get('stLine'), d.get('m'))}" if d.get("stLine") else "") + tgt_part + earn_txt(d))
         # 2회차 조건: 1회차뿐이고 1회차 매수가 +3% 넘게 마감 · 느린ST 초록
         _after = bool(tr) and (not tr[0].get("d") or str(d.get("asOf") or "") > str(tr[0].get("d"))[:10])   # 1회차를 산 뒤의 종가여야 함 (앱과 같음)
-        if p.get("role") == "swing" and len(tr) == 1 and d.get("c") and d.get("stSlow") == 1 and _after and tr[0]["px"] * 1.03 <= d["c"] <= tr[0]["px"] * 1.06:
+        if p.get("role") == "swing" and len(tr) == 1 and d.get("c") and d.get("stSlow") == 1 and _after and tr[0]["px"] * RULES["tranche2"]["lo"] <= d["c"] <= tr[0]["px"] * RULES["tranche2"]["hi"]:
             # 109. 투자금 한도 확인 — 이미 넣은 돈 + 2회차(= 1회차 금액)가 직투 금액을 넘으면 건너뜀 (앱과 같은 판정)
             _mk = d.get("m") or "us"; _cap = (wl.get("settings") or {}).get("usAmt" if _mk == "us" else "krAmt")
             _inv = sum(sum((t.get("amt") or 0) for t in tr_of(q)) for q in (wl.get("positions") or [])
@@ -248,8 +249,8 @@ def build(snap, mkt, state, now):
             if _cap and _inv + _add > _cap * 1.001:
                 line += f"\n      ⚠️ 2회차 조건은 됐지만 <b>투자금 한도 초과 — 건너뜀</b> ({money(_inv, _mk)} 투입 / 직투 {money(_cap, _mk)})"
             else:
-                line += f"\n      ✅ <b>2회차 조건 도달</b> (1회차 +3% = {price(tr[0]['px'] * 1.03, d.get('m'))} 넘음, +6% 안) — 1회차와 같은 금액{f' {money(_add, _mk)}' if _add else ''}"
-        elif p.get("role") == "swing" and len(tr) == 1 and d.get("c") and d["c"] > tr[0]["px"] * 1.06:
+                line += f"\n      ✅ <b>2회차 조건 도달</b> (1회차 +3% = {price(tr[0]['px'] * RULES['tranche2']['lo'], d.get('m'))} 넘음, +6% 안) — 1회차와 같은 금액{f' {money(_add, _mk)}' if _add else ''}"
+        elif p.get("role") == "swing" and len(tr) == 1 and d.get("c") and d["c"] > tr[0]["px"] * RULES["tranche2"]["hi"]:
             line += f"\n      ⛔ 추격 금지 — 1회차 대비 {(d['c'] / tr[0]['px'] - 1) * 100:+.1f}% (밴드 +3~6% 초과)"
         val = sum((t.get("amt") or 0) / t["px"] * (d.get("c") or t["px"]) for t in tr)
         # 92. 위험 합계 재료 — 스윙·선 위 종목만: 선에 닿으면 잃는 금액 (장기 보유는 선으로 팔지 않아 제외)
@@ -365,7 +366,7 @@ def build(snap, mkt, state, now):
         nkr = sum(1 for s in entry if s["m"] == "kr")
         kinds = {}
         for s in entry: kinds[WHY.get(s.get("why"), "기타")] = kinds.get(WHY.get(s.get("why"), "기타"), 0) + 1
-        ncut = sum(1 for d in stocks.values() if d.get("action") == "buy" and (d.get("tvr") or 0) >= 40 and not rev_ok(d))
+        ncut = sum(1 for d in stocks.values() if d.get("action") == "buy" and (d.get("tvr") or 0) >= RULES["tvrMin"] and not rev_ok(d))
         head = f"🔍 <b>매수! {len(entry)}</b> <i>({' · '.join(f'{k} {v}' for k, v in kinds.items())} · 🇰🇷{nkr} 🇺🇸{len(entry)-nkr})</i>"
         if ncut: head += f" <i>✂ 매출 +{REV_MIN:.0f}% 미만 {ncut} 제외</i>"
         if new_entry: head += f" (신규 {len(new_entry)})"
@@ -374,7 +375,7 @@ def build(snap, mkt, state, now):
         _cfg = (wl.get("settings") or {})
         _note, _open, _freeN = [], {}, {}
         _held = {str(q.get("t", "")).upper() for q in (wl.get("positions") or [])}
-        for _m, _f, _n in (("us", "🇺🇸", int(_cfg.get("slotsUs") or 7)), ("kr", "🇰🇷", int(_cfg.get("slotsKr") or 5))):
+        for _m, _f, _n in (("us", "🇺🇸", int(_cfg.get("slotsUs") or RULES["slots"]["us"])), ("kr", "🇰🇷", int(_cfg.get("slotsKr") or RULES["slots"]["kr"]))):
             _h = sum(1 for q in (wl.get("positions") or []) if (q.get("role") or "swing") == "swing" and (str(q.get("t", "")).isdigit() == (_m == "kr")))
             _amt = _cfg.get("usAmt" if _m == "us" else "krAmt")
             _note.append(f"{_f} 투자금 0" if _amt == 0 else (f"{_f} ⚠️ <b>칸보다 많이 보유</b>({_h}/{_n}) — 앱 기록 확인" if _h > _n else f"{_f} <b>칸이 다 참</b>({_h}/{_n})" if _h >= _n else f"{_f} 빈 칸 {_n - _h}/{_n}"))
@@ -586,7 +587,7 @@ def build_weekly(snap, mkt, now):
       # (today.json 이 없을 때의 예비 계산)
       secrank = {x["tk"]: x["rank"] for x in (mkt.get("sectors") or [])}
       held = {p.get("t") for p in ((wl or {}).get("positions") or [])}
-      buys = [d for d in stocks.values() if d.get("action") == "buy" and (d.get("tvr") or 0) >= 40 and d.get("m") == "us" and d.get("t") not in held]
+      buys = [d for d in stocks.values() if d.get("action") == "buy" and (d.get("tvr") or 0) >= RULES["tvrMin"] and d.get("m") == "us" and d.get("t") not in held]
       def rk(d): return (1 if d.get("why") == "trend" else 0) * 1000 - (d.get("str") or 0)
       picks, used, drop = [], set(), []
       for d in sorted(buys, key=rk):
@@ -606,7 +607,7 @@ def build_weekly(snap, mkt, now):
               L.append(f"   {i}. <b>{d['t']}</b> {d.get('n','')[:18]} · {WHY.get(d.get('why'),'')} · RS{int(d.get('rs') or 0)}"
                        + (f" · 선까지 −{gap:.0f}%" if gap is not None else "") + (f" · 매출{f['rev']:+.0f}%" if f.get("rev") is not None else ""))
           if drop: L.append("   <i>제외: " + ", ".join(drop[:8]) + "</i>")
-      krb = [d for d in stocks.values() if d.get("action") == "buy" and d.get("m") == "kr" and (d.get("tvr") or 0) >= 40]
+      krb = [d for d in stocks.values() if d.get("action") == "buy" and d.get("m") == "kr" and (d.get("tvr") or 0) >= RULES["tvrMin"]]
       if krb:
           L.append("   🇰🇷 " + ", ".join(f"{d['n']}({WHY.get(d.get('why'),'')})" for d in sorted(krb, key=rk)[:4]) + (" — 시장 위험: 새로 사지 않음" if (mkt.get("judge") or {}).get("kr", {}).get("verdict") == "risk" else ""))
     # 5 DC

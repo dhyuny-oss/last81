@@ -1,8 +1,8 @@
 /**
  * 96. 오늘 살 것 — 앱이 지금 설정(칸 수·매출 필터)으로 바로 고릅니다.
  *
- * 파이프라인(scripts/build_snapshot.py 의 build_today)과 **같은 규칙을 한 줄씩 옮긴 것**입니다.
- * 규칙을 바꿀 때는 두 곳을 함께 바꾸고, scripts/check_picks.mjs 로 두 결과가 같은지 확인합니다.
+ * 261. 고르는 규칙(pickFrom)은 여기 한 곳뿐입니다 — 파이프라인(build_snapshot.build_today)도 scripts/pick_cli.mjs 로 이 함수를 부릅니다.
+ * 숫자는 config/rules.json · 후보 줄을 만드는 부분(row)만 두 곳(여기 · build_today)에 있고 scripts/check_picks.mjs 가 같은지 확인합니다.
  *
  *   후보   : action = buy · 거래대금 백분위 40 이상
  *   빼기   : 적자 · 🇺🇸 재무 자료 없음(224) · 🇺🇸 매출 성장 < 매출 필터(값이 있을 때만) · 이미 보유
@@ -11,13 +11,14 @@
  *            나스닥100 이 200일선 아래(usGate)면 새로 사지 않음(252 · 2010–26 7칸: 연 15.1% → 17.2%, 최대낙폭 −37% → −30%)
  *   🇰🇷    : 최대 slotsKr · 시장 '위험'(폭 3년 하위 40% 아래, krGate)이면 새로 사지 않음(176 · 2010–26 검증 연 11.4% → 24.1%)
  */
-export const SLOTS_DEFAULT = { us: 7, kr: 5 };        // 168. 권장 칸 수 = 기본값 (앱·파이프라인·점검 스크립트 공통)
+import RULES from "./rules.js";                                // 260. 규칙 숫자 한 파일 (config/rules.json)
+export const SLOTS_DEFAULT = RULES.slots;        // 168. 권장 칸 수 = 기본값 (앱·파이프라인·점검 스크립트 공통)
 export const KR_GATE_WHY = "시장 위험 — 한국 새로 사지 않음";
 export const NO_FIN_WHY = "재무 자료 없음 — 적자 여부 확인 전";
-export const SEC_CAP = 3;                                      // 247. 같은 업종 최대 (scripts/build_snapshot.py SEC_CAP)
+export const SEC_CAP = RULES.secCap;                                      // 247. 같은 업종 최대 (scripts/build_snapshot.py SEC_CAP)
 export const SEC_FULL_WHY = `같은 업종 ${SEC_CAP}개 찼음`;
 export const US_GATE_WHY = "나스닥100 200일선 아래 — 미국 새로 사지 않음";   // 252
-export function pickToday(stocks, { revMin = 10, slotsUs = SLOTS_DEFAULT.us, slotsKr = SLOTS_DEFAULT.kr, krGate = false, usGate = false } = {}, held = new Set(), extra = {}) {
+export function pickToday(stocks, { revMin = RULES.revMin, slotsUs = SLOTS_DEFAULT.us, slotsKr = SLOTS_DEFAULT.kr, krGate = false, usGate = false } = {}, held = new Set(), extra = {}) {
   const { secRank = {}, age = {}, since = {} } = extra;
   const lossOf = (d) => (d.stLine && d.c) ? Math.round((1 - d.stLine / d.c) * 1000) / 10 : null;
   const row = (d) => {
@@ -31,7 +32,20 @@ export function pickToday(stocks, { revMin = 10, slotsUs = SLOTS_DEFAULT.us, slo
       age: age[d.t] ?? null, since: since[d.t] ?? null, held: held.has(d.t), earn: d.earn, earnE: d.earnE,
     };
   };
-  const buys = Object.values(stocks).filter(d => d && d.action === "buy" && (d.tvr ?? 0) >= 40).map(row);
+  const buys = Object.values(stocks).filter(d => d && d.action === "buy" && (d.tvr ?? 0) >= RULES.tvrMin).map(row);
+  const heldSec = {};
+  for (const t of held) { const d = stocks[t]; if (d && d.m === "us" && d.sec) (heldSec[d.sec] = heldSec[d.sec] || []).push(t); }
+  const P = pickFrom(buys, { revMin, slotsUs, slotsKr, krGate, usGate }, heldSec);
+  return { pickUs: P.pickUs, pickKr: P.pickKr, excluded: P.excluded, candidates: buys };
+}
+
+/**
+ * 261. 고르는 규칙 — 여기 한 곳에만 있습니다. 파이프라인(build_snapshot.build_today)도 scripts/pick_cli.mjs 로 이 함수를 부릅니다.
+ *   rows   : 후보 줄 (t · n · m · why · str · prof · growth · sec · held …)
+ *   heldSec: { 업종: [보유 티커…] } — 🇺🇸 같은 업종 몫 계산용
+ *   돌려줌 : { pickUs, pickKr, excluded, order }  — order = 정렬된 후보 (티커)
+ */
+export function pickFrom(rows, { revMin = RULES.revMin, slotsUs = SLOTS_DEFAULT.us, slotsKr = SLOTS_DEFAULT.kr, krGate = false, usGate = false } = {}, heldSec = {}) {
   const reasons = (r) => {
     const out = [];
     if (r.prof === false) out.push("적자");
@@ -42,10 +56,9 @@ export function pickToday(stocks, { revMin = 10, slotsUs = SLOTS_DEFAULT.us, slo
     return out;
   };
   const rank = (r) => (r.why === "trend" ? 1 : 0) * 1000 - (r.str ?? 0);
-  // 점수가 같으면 티커 순 (파이프라인과 같은 순서)
-  const cands = buys.slice().sort((a, b) => (rank(a) - rank(b)) || (a.t < b.t ? -1 : a.t > b.t ? 1 : 0));
-  const excluded = [], us = [], kr = [], used = {}, heldSec = {};
-  for (const t of held) { const d = stocks[t]; if (d && d.m === "us" && d.sec) (heldSec[d.sec] = heldSec[d.sec] || []).push(t); }
+  // 점수가 같으면 티커 순 (정렬이 늘 같게)
+  const cands = rows.slice().sort((a, b) => (rank(a) - rank(b)) || (a.t < b.t ? -1 : a.t > b.t ? 1 : 0));
+  const excluded = [], us = [], kr = [], used = {};
   for (const r of cands) {
     const why = reasons(r);
     if (why.length) { excluded.push({ t: r.t, n: r.n, m: r.m, why }); continue; }
@@ -60,5 +73,5 @@ export function pickToday(stocks, { revMin = 10, slotsUs = SLOTS_DEFAULT.us, slo
       kr.push(r);
     }
   }
-  return { pickUs: us, pickKr: kr, excluded, candidates: buys };
+  return { pickUs: us, pickKr: kr, excluded, order: cands };
 }
