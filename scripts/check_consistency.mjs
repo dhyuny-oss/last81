@@ -95,7 +95,7 @@ const py = T("scripts/build_snapshot.py"), app_ = T("src/App.jsx"), picksJs = T(
 const n = (re, txt) => { const m = re.exec(txt); return m ? Number(m[1]) : null; };
 // 260. 규칙 숫자는 config/rules.json 한 파일 — 각 파일이 그 파일을 읽고, 같은 숫자를 다시 적지 않았는지
 { const R = JSON.parse(T("config/rules.json"));
-  const users = { "src/picks.js": /from "\.\/rules\.js"/, "src/App.jsx": /from "\.\/rules\.js"/, "src/OrderSheet.jsx": /from "\.\/rules\.js"/, "src/Kis.jsx": /from "\.\/rules\.js"/,
+  const users = { "src/picks.js": /from "\.\/rules\.js"/, "src/App.jsx": /from "\.\/rules\.js"/, "src/OrderSheet.jsx": /from "\.\/rules\.js"/, "src/Broker.jsx": /from "\.\/rules\.js"/,
                   "api/_lib/resv.js": /config\/rules\.json/, "api/_lib/meritz.js": /config\/rules\.json/, "api/watchlist.js": /config\/rules\.json/,
                   "scripts/build_snapshot.py": /from rules import/, "scripts/notify.py": /from rules import/, "scripts/watch_alert.py": /from rules import/ };
   const miss = Object.entries(users).filter(([f, re]) => !re.test(T(f))).map(([f]) => f);
@@ -112,10 +112,10 @@ ok("새로 사지 않는 나라(blocked)를 서버·앱·알림이 같은 값으
   && !/\.get\("nqGate"\)|\.get\("gate"\)/.test(py + notify));
 ok("화면에 '판정은 DC에만 사용'·근거 없는 16.9% 같은 옛 문구 없음 — 160", !/DC 판단에만 사용|ETF 배분\(DC\)에만|\+16\.9%·최대낙폭 −28%/.test(app_));
 ok("폭 계산 날짜(breadthAsOf)가 데이터에 있음 — 171", !!market.breadthAsOf, "", true);
-const kisJs = T("api/_lib/meritz.js"), kisUi = T("src/Kis.jsx");
+const brokerJs = T("api/_lib/meritz.js"), brokerUi = T("src/Broker.jsx");
 ok("미국 개장 22:30/23:30 · 마감 05:00/06:00 (앱·감시)", /dst \? 1350 : 1410/.test(app_) && /dst \? 300 : 360/.test(app_)
   && [T("scripts/watch_alert.py")].every((t) => /\(22 \* 60 \+ 30, 5 \* 60\) if dst else \(23 \* 60 \+ 30, 6 \* 60\)/.test(t)));
-ok("한투 카드는 오늘 탭과 같은 선정 함수 사용", /kisPicks\(stocks, pos, genDay/.test(app_) && !/picks=\{today\?\.pickUs/.test(app_));
+ok("증권사 카드는 오늘 탭과 같은 선정 함수 사용", /brokerPicks\(stocks, pos, genDay/.test(app_) && !/picks=\{today\?\.pickUs/.test(app_));
 // 259. 저장 단계 — 폴더 전체를 담고 내 기록(watchlist · resv)만 뺌
 { const yml = T(".github/workflows/daily.yml");
   ok("자동 수집 저장: public/data 전체 + watchlist·resv 제외", /git add -A public\/data\n/.test(yml) && /git reset -q -- public\/data\/watchlist\.json public\/data\/resv\.json/.test(yml));

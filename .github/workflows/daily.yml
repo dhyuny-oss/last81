@@ -120,7 +120,7 @@ jobs:
       # ★ 종목풀은 주 1회만 새로 뽑습니다 (토요일 + 수동 실행)
       #   예전엔 평일마다 730종목을 6개월치로 다시 받아 실행 시간의 대부분을 썼습니다.
       #   풀이 매일 바뀌면 신호도 따라 흔들려서, 주 단위로 정리하는 편이 낫습니다.
-      - name: ① 종목 목록 (universe.json) — 주간 1회
+      - name: ① 종목풀 (universe.json) — 주간 1회
         if: steps.fresh.outputs.skip != 'true' && ((github.event_name == 'workflow_dispatch' && inputs.mode != 'daily' && inputs.mode != 'quick') || github.event.schedule == '13 0 * * 6')
         run: python scripts/build_universe.py
 

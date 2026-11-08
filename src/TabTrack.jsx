@@ -23,10 +23,10 @@ export const AUTO_APPLY_FROM = "2026-11-08";
 
 /* ══════════════ 6. 추적 ══════════════ */
 /** 246. 내 종목 탭 맨 위 — 메리츠 잔고 요약(내 종목 = 메리츠 기준) · 249. 매수 예약 목록 */
-export function BrokerTop({ kisSync = {}, stocks = {} }) {
+export function BrokerTop({ brokerSync = {}, stocks = {} }) {
   const resv = useResv();
   const [busy, setBusy] = useState("");
-  const rows = ["us", "kr"].map(m => kisSync[m]).filter(k => k && k.env === "real" && Array.isArray(k.rows));
+  const rows = ["us", "kr"].map(m => brokerSync[m]).filter(k => k && k.env === "real" && Array.isArray(k.rows));
   const at = rows.length ? Math.max(...rows.map(k => k.at || 0)) : 0;
   const go = () => { try { document.getElementById("kis-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} };
   const items = resv.items || [];
@@ -63,7 +63,7 @@ export function BrokerTop({ kisSync = {}, stocks = {} }) {
             <div key={x.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderTop: `1px solid ${C.border}` }}>
               <span style={{ flex: 1, minWidth: 0, fontSize: FS.sm }}>
                 <b style={{ fontFamily: x.m === "us" ? MONO : "inherit" }}>{nmOf(x)}</b> {x.qty}주
-                <span style={{ display: "block", fontSize: 10.5, color: C.muted }}>{resvDay(x.day)} {x.m === "us" ? "미국 장 시작 5분 뒤부터" : "09:30 뒤"} 확인 · 기준 {price(x.base, x.m)}{x.line ? ` · 손절선 ${price(x.line, x.m)}` : ""} · 하루만</span></span>
+                <span style={{ display: "block", fontSize: 10.5, color: C.muted }}>{resvDay(x.day)} {x.m === "us" ? "미국 장 시작 5분 뒤부터" : "09:30 뒤"} 확인 · 기준 {price(x.base, x.m)}{x.line ? ` · 트레일링선 ${price(x.line, x.m)}` : ""} · 하루만</span></span>
               {x.status === "run" ? <span style={{ fontSize: FS.xs, color: C.gold }}>확인 중…</span>
                 : <button onClick={() => cancel(x)} disabled={busy === x.id} style={{ ...btn(C.dim), minHeight: 34, padding: "0 12px", fontSize: FS.xs }}>{busy === x.id ? "…" : "취소"}</button>}
             </div>))}
@@ -71,12 +71,12 @@ export function BrokerTop({ kisSync = {}, stocks = {} }) {
             <div key={x.id} style={{ fontSize: FS.xs, padding: "6px 0", borderTop: `1px solid ${C.border}`, color: C.dim, lineHeight: 1.5 }}>
               <b style={{ color: c }}>{l}</b> <b style={{ color: C.text, fontFamily: x.m === "us" ? MONO : "inherit" }}>{nmOf(x)}</b> {resvDay(x.day)}
               {x.status === "sent" ? ` · ${x.qty}주 지정가 ${price(x.px, x.m)} — 체결은 메리츠 카드 '최근 주문'` : x.why ? ` · ${x.why}` : ""}</div>); })}
-          <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>장이 열린 뒤 서버가 시장 −2% · 손절선 · 기준 종가 +3%/−5% · 매수! 신호 · 나스닥100 200일선을 다시 보고 지정가(그때 가격 +0.5%)로 삽니다 · 무료 서버 예약이라 개장 뒤 몇 분~1시간 늦을 수 있음</div>
+          <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>장이 열린 뒤 서버가 시장 −2% · 트레일링선 · 기준 종가 +3%/−5% · 매수! 신호 · 나스닥100 200일선을 다시 보고 지정가(그때 가격 +0.5%)로 삽니다 · 무료 서버 예약이라 개장 뒤 몇 분~1시간 늦을 수 있음</div>
         </Card>)}
     </>);
 }
 
-export function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, bumpSizer, extras, trades, setTrades, sizer, syncState, kisSync = {}, syncOk = true, brokerMiss = [] }) {
+export function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, market, bumpSizer, extras, trades, setTrades, sizer, syncState, brokerSync = {}, syncOk = true, brokerMiss = [] }) {
   const [role, setRole] = useState("all");
   const [tmk, setTmkRaw] = useState(() => localStorage.getItem("v11.trackMkt") || "us");      // 69. 기본 🇺🇸, 마지막 선택 기억
   const setTmk = (v) => { setTmkRaw(v); localStorage.setItem("v11.trackMkt", v); };
@@ -95,21 +95,21 @@ export function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, m
   const nUs = pos.filter(p => mktOfT(p.t) === "us").length, nKr = pos.length - nUs;
   const RB = { etf: ["ETF", "w"], swing: ["단기", "g"], long: ["장기", "c"] };
 
-  /* ── 184. 한투 체결 반영 — 아래 한투 카드가 불러온 잔고·주문과 내 종목을 맞춥니다 (src/fills.js · scripts/check_fills.mjs) ── */
+  /* ── 184. 증권사 체결 반영 — 아래 증권사 카드가 불러온 잔고·주문과 내 종목을 맞춥니다 (src/fills.js · scripts/check_fills.mjs) ── */
   const [applied, setApplied] = useState(() => new Set(loadJSON("v13.kis.applied", [])));
   const [ignored, setIgnored] = useState(() => new Set(loadJSON("v13.kis.ignore", [])));
   const saveSet = (k, set) => { try { localStorage.setItem(k, JSON.stringify([...set].slice(-500))); } catch {} };
   const fillPlan = useMemo(() => ["us", "kr"].map(m => {
-    const k = kisSync[m]; if (!k) return null;
+    const k = brokerSync[m]; if (!k) return null;
     return { m, env: k.env, broker: k.broker, ...planFills({ orders: k.orders, rows: k.rows, pos: pos.filter(p => mktOfT(p.t) === m), applied, ignored, from: k.env === "real" ? AUTO_FROM : "" }) };
-  }).filter(Boolean), [kisSync, pos, applied, ignored]);
+  }).filter(Boolean), [brokerSync, pos, applied, ignored]);
   useEffect(() => {      // 손으로 이미 기록한 체결은 조용히 '반영됨' 처리
     const d = fillPlan.flatMap(x => x.dup).filter(o => !applied.has(o));
     if (d.length) { const n = new Set([...applied, ...d]); setApplied(n); saveSet("v13.kis.applied", n); }
   }, [fillPlan]);        // eslint-disable-line react-hooks/exhaustive-deps
-  const kisQty = useMemo(() => { const o = {}; Object.values(kisSync).forEach(k => (k.rows || []).forEach(r => { o[String(r.t).toUpperCase().replace("/", "-")] = { qty: r.qty, env: k.env, label: k.label }; })); return o; }, [kisSync]);
+  const kisQty = useMemo(() => { const o = {}; Object.values(brokerSync).forEach(k => (k.rows || []).forEach(r => { o[String(r.t).toUpperCase().replace("/", "-")] = { qty: r.qty, env: k.env, label: k.label }; })); return o; }, [brokerSync]);
   const broker = useBroker();          // 210. 주문이 열린 계좌면 카드에서 바로 주문 창
-  const BK = broker?.label || Object.values(kisSync).find(k => k && k.label)?.label || "계좌";   // 연결된 증권사 이름 (카드가 알려 줌)
+  const BK = broker?.label || Object.values(brokerSync).find(k => k && k.label)?.label || "계좌";   // 연결된 증권사 이름 (카드가 알려 줌)
   const pendingN = fillPlan.reduce((a, x) => a + x.items.length + x.extra.length, 0);
   const [fillOpen, setFillOpen] = useState(false);
   const [fillOff, setFillOff] = useState({});          // key → true 면 반영하지 않음
@@ -242,7 +242,7 @@ export function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, m
     </label>);
   // 220. 잘못 등록 추정: 오늘 등록 + (계좌 잔고를 불러왔다면) 잔고에 없음
   const mistakeOf = (p) => { const d0 = kstDay(), reg = String(p.date || trOf(p)[0]?.d || "") === d0;
-    const loaded = Object.values(kisSync).some(k => k && Array.isArray(k.rows) && k.mk === mktOfT(p.t));
+    const loaded = Object.values(brokerSync).some(k => k && Array.isArray(k.rows) && k.mk === mktOfT(p.t));
     return reg && (!loaded || !kisQty[String(p.t).toUpperCase()]); };
   const Sheet = () => !sheet ? null : (
     <div onClick={(e) => { if (e.target === e.currentTarget) setSheet(null); }}
@@ -287,7 +287,7 @@ export function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, m
     <>
       {Sheet()}{/* 함수로 불러야 입력 칸이 글자마다 다시 그려지지 않습니다 */}
       {FillSheet()}
-      <BrokerTop kisSync={kisSync} stocks={stocks} />
+      <BrokerTop brokerSync={brokerSync} stocks={stocks} />
       <PlanCard sizer={sizer} bumpSizer={bumpSizer} pos={pos} stocks={stocks} />
       {/* 사이징 — 전체 투자금이 없을 때만 계좌별로 직접 */}
       {!sizer.plan && <Card style={{ marginTop: 8, borderColor: `${C.gold}66` }}>
@@ -320,7 +320,7 @@ export function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, m
             <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6 }}>실제로 팔아서 성적에 남기고 싶은 종목은 먼저 그 카드의 ×에서 매도가를 넣어 주세요</div>
           </div>);
       })()}
-      {pendingN > 0 && (    /* 184. 한투 체결이 내 종목에 아직 없음 */
+      {pendingN > 0 && (    /* 184. 증권사 체결이 내 종목에 아직 없음 */
         <button onClick={() => setFillOpen(true)} style={{ display: "block", width: "100%", textAlign: "left", marginTop: 8, padding: "10px 12px", borderRadius: 12, cursor: "pointer",
                  background: "rgba(245,158,11,.10)", border: `1px solid ${C.gold}66`, color: C.text }}>
           <div style={{ fontSize: FS.sm, fontWeight: 800, color: C.gold }}>{[fillPlan.reduce((a, x) => a + x.items.length, 0) && `${BK} 체결 ${fillPlan.reduce((a, x) => a + x.items.length, 0)}건`, fillPlan.some(x => x.extra.length) && `${BK}에만 있는 종목 ${fillPlan.reduce((a, x) => a + x.extra.length, 0)}`].filter(Boolean).join(" · ")} — 아직 내 종목에 없음</div>
@@ -335,7 +335,7 @@ export function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, m
         <Seg value={role} onChange={setRole} items={[["all", "전체"], ["etf", "ETF"], ["swing", "단기"], ["long", "장기"]]} />
       </div>
       <HoldTotals pos={pos} stocks={stocks} fx={sizer.fx} only={tmk} />
-      {(() => {   // 184. 한투에 넣어 둔 매수 주문 중 아직 체결 안 된 것
+      {(() => {   // 184. 증권사에 넣어 둔 매수 주문 중 아직 체결 안 된 것
         const w = fillPlan.filter(x => tmk === "all" || x.m === tmk).flatMap(x => x.waiting.filter(o => !pos.some(p => String(p.t).toUpperCase() === o.t)).map(o => ({ ...o, m: x.m })));
         return w.length ? <Card style={{ marginBottom: 8, borderColor: `${C.cyan}55`, padding: "8px 12px" }}>
           <div style={{ fontSize: 10.5, fontWeight: 800, color: C.cyan }}>체결 대기 ({BK})</div>
@@ -391,10 +391,10 @@ export function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, m
           const N = missHere ? { c: C.gold, k: `${BK}에 없음`, v: "정리 필요 — 이미 팔았거나 잘못 들어간 기록", sub: "오늘 할 일·칸 계산에서는 이미 뺐습니다 · 실제로 팔았으면 × 에서 매도가를 넣어 성적에 남길 수 있음" }
             : p.role === "long" ? { c: C.cyan, k: "장기", v: "장기 보유 — 앱 매도 규칙 적용 안 함", sub: "칸 수·매도! 알림에서 빠짐 · 손익 합계에는 들어감" }
             : isSell ? { c: C.red, k: "매도!", v: `${when} 전량 매도${sh ? ` · ${sh}주` : ""}`, sub: `${md(s.asOf)} 종가 ${price(s.c, s.m)} < 트레일링선 ${price(s.stLine, s.m)} · 미루지 않고 그날 처리 (원칙 3)`, act: "sell" }
-            : nxt?.ok && room ? { c: C.emerald, k: "2회차", v: `${when} 2회차 ${q2 > 0 ? `${q2}주` : "1주"} · ~${price(s.c * 1.005, s.m)}`, sub: `1회차 대비 ${pct(nxt.gain, 1)} 마감 (조건 +3~6% · 느린ST 초록) · ${money(nxt.amt, s.m)}`, act: "t2" }
+            : nxt?.ok && room ? { c: C.emerald, k: "2회차", v: `${when} 2회차 ${q2 > 0 ? `${q2}주` : "1주"} · ~${price(s.c * 1.005, s.m)}`, sub: `1회차 대비 ${pct(nxt.gain, 1)} 마감 (조건 +3~6% · 느린 ST 초록) · ${money(nxt.amt, s.m)}`, act: "t2" }
             : nxt?.ok ? { c: C.gold, k: "2회차 건너뜀", v: "투자금 한도를 넘어 2회차는 건너뜁니다", sub: `직투 ${money(budgetOf(sizer, s.m), s.m)} 중 ${money(investedIn(pos, s.m), s.m)} 투입 · 2회차 ${money(nxt.amt, s.m)}` }
             : nxt?.chase ? { c: C.gold, k: "기다리기", v: `2회차 추격 금지 — 1회차 대비 ${pct(nxt.gain, 1)}`, sub: `+6%를 넘었습니다. 눌렸다 +3~6% 안에 다시 들어오면 2회차 · ${price(s.stLine, s.m)} 아래로 마감하면 매도` }
-            : nxt ? { c: C.muted, k: "다음 할 일", v: "없음 — 기다리기", sub: `${!nxt.after ? `산 뒤 첫 종가부터 판단 · ${price(nxt.target, s.m)}~${price(nxt.cap, s.m)}(+3~6%)로 마감하면 2회차` : `${price(nxt.target, s.m)} 위로 마감하면 2회차 (${nxt.pctToGo.toFixed(1)}% 남음${s.stSlow !== 1 ? " · 느린ST 초록이어야" : ""})`} · ${s.stLine ? `${price(s.stLine, s.m)} 아래로 마감하면 매도` : "트레일링선 없음"}` }
+            : nxt ? { c: C.muted, k: "다음 할 일", v: "없음 — 기다리기", sub: `${!nxt.after ? `산 뒤 첫 종가부터 판단 · ${price(nxt.target, s.m)}~${price(nxt.cap, s.m)}(+3~6%)로 마감하면 2회차` : `${price(nxt.target, s.m)} 위로 마감하면 2회차 (${nxt.pctToGo.toFixed(1)}% 남음${s.stSlow !== 1 ? " · 느린 ST 초록이어야" : ""})`} · ${s.stLine ? `${price(s.stLine, s.m)} 아래로 마감하면 매도` : "트레일링선 없음"}` }
             : { c: C.muted, k: "다음 할 일", v: "없음 — 기다리기", sub: s.stLine ? `${price(s.stLine, s.m)} 아래로 마감하면 매도 (선까지 ${lossTxt(s)})` : "트레일링선 없음" };
           return (
             <Card key={p.id} style={{ marginBottom: 8, borderColor: missHere ? `${C.gold}88` : isSell ? "rgba(255,69,58,.5)" : N.act === "t2" ? "rgba(48,209,88,.45)" : C.border }}>
@@ -403,7 +403,7 @@ export function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, m
                   <Chip tone={rt}>{rl}</Chip> {s.m === "kr" ? <b>{s.n}</b> : <b style={{ fontFamily: MONO }}>{p.t}</b>} <span style={{ color: C.dim, fontWeight: 400, fontSize: FS.sm }}>{s.m === "kr" ? p.t : shortName(s.n)}</span></div>
                 {p.src === "kis-demo" && <Chip tone="w">모의</Chip>}
                 {kq && <span style={{ fontSize: 10.5, color: C.cyan, whiteSpace: "nowrap" }}>{kq.label || BK}{kq.env !== "real" ? " 모의" : ""} {kq.qty}주</span>}
-                {!kq && p.role !== "etf" && Object.values(kisSync).some(k => k && k.env === "real" && k.mk === s.m && Array.isArray(k.rows)) &&
+                {!kq && p.role !== "etf" && Object.values(brokerSync).some(k => k && k.env === "real" && k.mk === s.m && Array.isArray(k.rows)) &&
                   <span title="계좌 잔고에 없음 — 이미 팔았거나 다른 곳에서 산 종목" style={{ fontSize: 10.5, color: C.gold, whiteSpace: "nowrap" }}>{BK}에 없음</span>}
                 <button onClick={() => closePos(p, s)} aria-label="매도 기록"
                   style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: 18, width: 32, height: 34, flexShrink: 0 }}>×</button>
@@ -438,7 +438,7 @@ export function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, m
                 <summary style={{ fontSize: FS.xs, color: C.muted, cursor: "pointer", minHeight: 32, display: "flex", alignItems: "center" }}>
                   ▸ 자세히 — {s.stLine ? `선 ${price(s.stLine, s.m)} (${lossTxt(s)})` : "선 없음"}{s.slowDays != null ? ` · ${s.stSlow === 1 ? "초록" : "빨강"} ${s.slowDays}일` : ""}{earnTxt(s) ? ` · 📅 ${earnTxt(s)}` : ""}</summary>
                 <div style={{ fontSize: FS.xs, color: C.dim, lineHeight: 1.7, padding: "2px 0 4px" }}>
-                  {p.role !== "long" ? <>트레일링선 {price(s.stLine, s.m)} · 선까지 {lossTxt(s)}{s.slowDays != null ? ` · 느린ST ${s.stSlow === 1 ? "초록" : "빨강"} ${s.slowDays}거래일째` : ""}</> : <>장기 관찰 · <DipTag s={s} /></>}
+                  {p.role !== "long" ? <>트레일링선 {price(s.stLine, s.m)} · 선까지 {lossTxt(s)}{s.slowDays != null ? ` · 느린 ST ${s.stSlow === 1 ? "초록" : "빨강"} ${s.slowDays}거래일째` : ""}</> : <>장기 관찰 · <DipTag s={s} /></>}
                   {earnTxt(s) && <><br /><b style={{ color: earnDays(s) <= 7 ? C.gold : C.dim }}>📅 {earnTxt(s)}</b></>}
                   {pastEarnTxt(s) && <><br />{pastEarnTxt(s)}</>}
                   {(() => { const tg = tgtOf(p.t, NOTES_REF.cur, s); const g = tg && tgtGap(tg.v, s.c);
@@ -623,7 +623,7 @@ export function PlanCard({ sizer, bumpSizer, pos, stocks }) {
           지금 투입 중 — 🇺🇸 {money(invUs, "us")}{pa.us ? ` (${Math.round(invUs / pa.us * 100)}%)` : ""} · 🇰🇷 {money(invKr, "kr")}{pa.kr ? ` (${Math.round(invKr / pa.kr * 100)}%)` : ""}</div>)}
       {open && (
         <div style={{ marginTop: 6 }}>
-          <Row k="dcAmt" label="🏦 DC" unit="원" m="kr" sub={dcModeOf() === "hold" ? "3지수 보유" : "느린ST"} />
+          <Row k="dcAmt" label="🏦 DC" unit="원" m="kr" sub={dcModeOf() === "hold" ? "3지수 보유" : "느린 ST"} />
           <Row k="usAmt" label="🇺🇸 직투" unit="$" m="us" sub={sizer.fx && p.usAmt ? `≈ ${money(p.usAmt * sizer.fx, "kr")} (환율 ${sizer.fx.toFixed(0)})` : "달러로 입력"} />
           <Row k="krAmt" label="🇰🇷 직투" unit="원" m="kr" sub="강세·눌림" />
           <Row k="cashAmt" label="💤 대기" unit="원" m="kr" sub="예금·예비금" />

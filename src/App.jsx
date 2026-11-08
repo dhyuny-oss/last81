@@ -33,8 +33,8 @@ import { PoolTab } from "./TabPool.jsx";
 
 export const APP_VERSION = "v13.21.0";
 
-/* ★ 한투 (1/2) — 증권사 계좌 카드(조회 · 매수 제안 · 주문 · 기본 메리츠, BROKER 환경변수로 바꿈). 빼려면: 이 두 줄 + 아래 "★ 한투 (2/2)" 한 줄 + src/Kis.jsx + api/broker.js + api/_lib/ */
-const KisPanel = React.lazy(() => import("./Kis.jsx"));
+/* ★ 증권사 (1/2) — 증권사 계좌 카드(조회 · 매수 제안 · 주문 · 기본 메리츠, BROKER 환경변수로 바꿈). 빼려면: 이 두 줄 + 아래 "★ 증권사 (2/2)" 한 줄 + src/Kis.jsx + api/broker.js + api/_lib/ */
+const BrokerPanel = React.lazy(() => import("./Broker.jsx"));
 const OrderSheet = React.lazy(() => import("./OrderSheet.jsx"));
 
 /* ★ 연습 (1/2) — 고르기 연습 입구. 빼려면: 이 블록 + 아래 "★ 연습 (2/2)" 한 줄 + src/Practice.jsx + public/data/practice.json 삭제 */
@@ -175,8 +175,8 @@ async function getWatchServer() {
   try { const r = await fetch("/data/watchlist.json?t=" + Date.now()); if (r.ok) return await r.json(); } catch {}
   return null;
 }
-/* ★ 한투 (보조) — 한투 카드의 "오늘 살 것"을 오늘 탭과 똑같이 고름 (이 기기의 보유·칸 수·매출 필터 기준). 빼려면 이 함수도 삭제 */
-const kisPicks = (stocks, pos, genDay, fx, m = "us", market = null) => {
+/* ★ 증권사 (보조) — 증권사 카드의 "오늘 살 것"을 오늘 탭과 똑같이 고름 (이 기기의 보유·칸 수·매출 필터 기준). 빼려면 이 함수도 삭제 */
+const brokerPicks = (stocks, pos, genDay, fx, m = "us", market = null) => {
   if (!stocks || !Object.keys(stocks).length) return { list: [], note: "" };
   const plan = loadPlan();
   const dayOf = (p) => String(p.date || trOf(p)[0]?.d || "");
@@ -283,7 +283,7 @@ export default function App() {
   }, []);
   useEffect(() => { localStorage.setItem("v7.trades", JSON.stringify(trades)); }, [trades]);
   const [pos, setPos] = useState(() => { try { return JSON.parse(localStorage.getItem("v4.pos") || "[]"); } catch { return []; } });
-  const [kisSync, setKisSync] = useState({});
+  const [brokerSync, setBrokerSync] = useState({});
   /* 234. 앱을 열면 메리츠(실계좌) 잔고를 뒤에서 미리 불러옴 — 내 종목 탭을 열기 전에도 오늘 탭·서버(텔레그램)가 '메리츠 기준'으로 보게
    *   비밀번호가 이 기기에 저장돼 있을 때만 · 잔고만(주문 내역은 내 종목 탭 카드가) · 주문 창에서 체결되면 다시 불러옴 */
   const loadBrokerBg = useCallback(async (force) => {
@@ -300,7 +300,7 @@ export default function App() {
         const j = await r.json().catch(() => ({}));
         if (j.tok) { try { localStorage.setItem(tk, j.tok); } catch {} }
         if (!j.ok || !Array.isArray(j.rows)) continue;
-        setKisSync(v => (v[mk] && !force) ? v : { ...v, [mk]: { ...(v[mk] || {}), mk, broker: info.broker, label: info.label, env: "real", rows: j.rows, orders: v[mk]?.orders || [], at: Date.now() } });
+        setBrokerSync(v => (v[mk] && !force) ? v : { ...v, [mk]: { ...(v[mk] || {}), mk, broker: info.broker, label: info.label, env: "real", rows: j.rows, orders: v[mk]?.orders || [], at: Date.now() } });
       }
     } catch { /* 조용히 — 내 종목 탭에서 다시 불러옴 */ }
   }, []);
@@ -309,14 +309,14 @@ export default function App() {
   // 234. 메리츠 잔고에 없는 단기 보유 — 이미 팔았거나 잘못 들어간 기록. 오늘 탭·찾기 탭은 이걸 뺀 '메리츠 기준 보유'로 계산
   const brokerMiss = useMemo(() => {
     const have = new Set(); const at = {};
-    Object.values(kisSync).forEach(k => { if (k && k.env === "real" && Array.isArray(k.rows)) { at[k.mk] = new Date((k.at || Date.now()) + 9 * 3600000).toISOString().slice(0, 10); k.rows.forEach(r => have.add(String(r.t).toUpperCase().replace("/", "-"))); } });
+    Object.values(brokerSync).forEach(k => { if (k && k.env === "real" && Array.isArray(k.rows)) { at[k.mk] = new Date((k.at || Date.now()) + 9 * 3600000).toISOString().slice(0, 10); k.rows.forEach(r => have.add(String(r.t).toUpperCase().replace("/", "-"))); } });
     // 잔고를 본 날 이후에 산 종목(그 사이 체결)은 아직 잔고에 안 보일 수 있어 빼지 않음
     return (pos || []).filter(p => (p.role || "swing") === "swing" && at[mktOfT(p.t)] && !have.has(String(p.t).toUpperCase()) && String(trOf(p)[0]?.d || p.date || "") < at[mktOfT(p.t)]);
-  }, [kisSync, pos]);
+  }, [brokerSync, pos]);
   const posEff = useMemo(() => { const ids = new Set(brokerMiss.map(p => p.id)); return ids.size ? pos.filter(p => !ids.has(p.id)) : pos; }, [pos, brokerMiss]);
   const [orderReq, setOrderReq] = useState(null);   // 210. 주문 창 — openOrder() 가 어디서든 엶
   useEffect(() => { const f = (e) => setOrderReq(e.detail ? { ...e.detail, k: Date.now() } : null); window.addEventListener("order-open", f); return () => window.removeEventListener("order-open", f); }, []);
-  useEffect(() => { const f = () => { setChartOpen(false); setTab("track"); }; window.addEventListener("go-track", f); return () => window.removeEventListener("go-track", f); }, []);   // 221. 주문 창 '내 종목으로'       // 184. 한투 잔고·주문 (시장별) — 내 종목 '체결 반영'이 읽음
+  useEffect(() => { const f = () => { setChartOpen(false); setTab("track"); }; window.addEventListener("go-track", f); return () => window.removeEventListener("go-track", f); }, []);   // 221. 주문 창 '내 종목으로'       // 184. 증권사 잔고·주문 (시장별) — 내 종목 '체결 반영'이 읽음
   useEffect(() => { localStorage.setItem("v4.watch", JSON.stringify(watch)); }, [watch]);
   useEffect(() => { localStorage.setItem("v4.pos", JSON.stringify(pos)); }, [pos]);
   // 228. 주문 창에서 '체결'을 확인하면 그 자리에서 내 종목에 반영 (내 종목 탭 자동 반영과 같은 함수 · 같은 체결은 다시 안 넣음)
@@ -504,7 +504,7 @@ export default function App() {
   const bodyOf = () => {
     const plan = loadPlan();
     // 234. 메리츠 잔고 요약(종목·수량·날짜) — 텔레그램·오늘 후보가 '메리츠에 없는 기록'을 알아보게. 날짜만 적어 하루 한 번만 바뀜
-    const bk = {}; Object.values(kisSync).forEach(k => { if (k && k.env === "real" && Array.isArray(k.rows)) bk[k.mk] = k.rows.map(r => [String(r.t).toUpperCase(), Number(r.qty) || 0]).sort(); });
+    const bk = {}; Object.values(brokerSync).forEach(k => { if (k && k.env === "real" && Array.isArray(k.rows)) bk[k.mk] = k.rows.map(r => [String(r.t).toUpperCase(), Number(r.qty) || 0]).sort(); });
     return { bulk: true, positions: pos, watch, extras, excludes: loadJSON("v10.excludes", []), trades: (trades || []).slice(-300), notes,
              ...(Object.keys(bk).length ? { broker: { d: kstDay(), ...bk } } : {}),
              settings: { revMin: getRevMin(), slotsUs: plan.slotsUs || SLOTS_DEFAULT.us, slotsKr: plan.slotsKr || SLOTS_DEFAULT.kr,
@@ -586,7 +586,7 @@ export default function App() {
       } catch { setSyncState(s => ({ ...s, ok: false, msg: "네트워크 오류" })); setTimeout(() => setSyncRetry(x => x + 1), 30000); }
     }, 3000);
     return () => clearTimeout(tm);
-  }, [pos, watch, extras, trades, cfgTick, notes, syncReady, conflict, syncRetry, kisSync]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pos, watch, extras, trades, cfgTick, notes, syncReady, conflict, syncRetry, brokerSync]);   // eslint-disable-line react-hooks/exhaustive-deps
   const restoreBak = () => {
     const b = loadJSON(LOCAL_BAK, null); if (!b) return;
     if (!confirm("이 기기에 있던 예전 기록으로 되돌리고 서버에도 올립니다. 다른 기기의 기록은 덮어써집니다. 진행할까요?")) return;
@@ -720,7 +720,7 @@ export default function App() {
                 const dr = Object.entries(h.dropped || {});
                 return (<>
                   <span style={{ color: C.emerald }}>🩺 {h.kept}종목 검사 통과</span>
-                  {h.mode === "focus" && <span style={{ color: C.gold }}> · 감시 모드 (전체 {h.fullUniverse} 중 신호 가능 종목만 · 토요일 전체 스캔)</span>}
+                  {h.mode === "focus" && <span style={{ color: C.gold }}> · 간이 수집 (전체 {h.fullUniverse} 중 신호 가능 종목만 · 토요일 전체 스캔)</span>}
                   {h.byMarket && <> (🇰🇷 {h.byMarket.kr?.kept ?? 0} · 🇺🇸 {h.byMarket.us?.kept ?? 0})</>}
                   {h.exchange && <> · 코스피 {h.exchange.KS} / 코스닥 {h.exchange.KQ}</>}
                   {market?.breadthAsOf && h.mode === "focus" && <> · 폭은 {market.breadthAsOf.slice(5)} 전체 스캔 기준</>}
@@ -749,9 +749,9 @@ export default function App() {
         {tab === "find" && <FindHub {...shared} pos={posEff} />}
         {tab === "review" && <ReviewTab {...shared} uni={uni} snap={snap} onShowRules={() => setRulesOpen(true)} />}
         {tab === "pool" && <PoolTab {...shared} snap={snap} uni={uni} />}
-        {tab === "track" && <TrackTab {...shared} stocks={items} kisSync={kisSync} brokerMiss={brokerMiss} />}
+        {tab === "track" && <TrackTab {...shared} stocks={items} brokerSync={brokerSync} brokerMiss={brokerMiss} />}
         {tab === "track" && <div id="kis-panel" style={{ scrollMarginTop: 60 }} />}
-        {tab === "track" && <React.Suspense fallback={null}><KisPanel held={pos.map(p => p.t)} stocks={stocks} {...(({ list, note }) => ({ picks: list, pickNote: note }))(kisPicks(stocks, pos, genDay, market?.fx?.usdkrw || null, "us", market))} kr={kisPicks(stocks, pos, genDay, market?.fx?.usdkrw || null, "kr", market)} krOpen={() => marketState().krRegular} watch={watch} toggleWatch={toggleWatch} asOf={{ us: asOfOf(stocks, "us") || "", kr: asOfOf(stocks, "kr") || "" }} half={{ us: sizer.limit("us") / 2, kr: sizer.limit("kr") / 2 }} usOpen={() => marketState().usRegular} fx={market?.fx?.usdkrw || null} onSync={(x) => setKisSync(v => ({ ...v, [x.mk]: x }))} openStock={openStock} /></React.Suspense>}{/* ★ 한투 (2/2) */}
+        {tab === "track" && <React.Suspense fallback={null}><BrokerPanel held={pos.map(p => p.t)} stocks={stocks} {...(({ list, note }) => ({ picks: list, pickNote: note }))(brokerPicks(stocks, pos, genDay, market?.fx?.usdkrw || null, "us", market))} kr={brokerPicks(stocks, pos, genDay, market?.fx?.usdkrw || null, "kr", market)} krOpen={() => marketState().krRegular} watch={watch} toggleWatch={toggleWatch} asOf={{ us: asOfOf(stocks, "us") || "", kr: asOfOf(stocks, "kr") || "" }} half={{ us: sizer.limit("us") / 2, kr: sizer.limit("kr") / 2 }} usOpen={() => marketState().usRegular} fx={market?.fx?.usdkrw || null} onSync={(x) => setBrokerSync(v => ({ ...v, [x.mk]: x }))} openStock={openStock} /></React.Suspense>}{/* ★ 증권사 (2/2) */}
         {(tab === "market" || tab === "review") && <PracticeEntry />}{/* ★ 연습 (2/2) */}
       </main>
       {orderReq && <React.Suspense fallback={null}><OrderSheet key={orderReq.k} req={orderReq} stocks={items} pos={pos}
@@ -859,9 +859,9 @@ function TabBasis({ tab, stocks, market, snap, siglog, uni }) {
   const sig = (siglog || []).map(x => x.d).filter(Boolean).sort();
   const items = {
     market: [basisDates(stocks, market), market.breadthAsOf && <>폭 {B(`${md(market.breadthAsOf)} 계산`)}</>,
-             <>다음 수집 🇰🇷 {nextCollect("kr")} · 🇺🇸 {nextCollect("us")}</>, "시세 야후 · 🇰🇷 거래대금 한투"],
+             <>다음 수집 🇰🇷 {nextCollect("kr")} · 🇺🇸 {nextCollect("us")}</>, "시세·거래대금 야후"],
     find: [basisDates(stocks, market), <>설정 {B(`🇺🇸 ${plan.slotsUs || SLOTS_DEFAULT.us}칸 · 🇰🇷 ${plan.slotsKr || SLOTS_DEFAULT.kr}칸 · 매출 ${getRevMin() > 0 ? `+${getRevMin()}%` : "필터 끔"}`)}</>,
-           krGateOf(market) && <span style={{ color: C.red }}>🇰🇷 시장 위험 — 새로 안 삼</span>, usGateOf(market) && <span style={{ color: C.red }}>🇺🇸 {US_GATE_TXT}</span>],
+           krGateOf(market) && <span style={{ color: C.red }}>🇰🇷 시장 위험 — 새로 사지 않음</span>, usGateOf(market) && <span style={{ color: C.red }}>🇺🇸 {US_GATE_TXT}</span>],
     track: [<>평가 {B(`앱의 마지막 종가 (🇺🇸 ${md(asOfOf(stocks, "us")) || "—"} · 🇰🇷 ${md(asOfOf(stocks, "kr")) || "—"})`)}</>, <>보유 기록 {B("메리츠 잔고 기준 · 서버 저장 (휴대폰·PC 같음)")}</>],
     alloc: [<>판단 {B(`🇺🇸 ${md(asOfOf(snap?.etfs, "us")) || "—"} · 🇰🇷 ${md(asOfOf(snap?.etfs, "kr")) || "—"} 종가`)} (미국은 원본 QQQ·SPY · 한국 KODEX 200)</>, market.allocation?.nextRebal && <>다음 비중 점검 {B(market.allocation.nextRebal)}</>],
     review: [sig.length > 0 && <>신호 기록 {B(`${md(sig[0])} ~ ${md(sig[sig.length - 1])} · ${sig.length}건`)}</>, <>시장 비교 {B("🇺🇸 S&P500 · 🇰🇷 코스피")}</>, <>검증값 {B("백테스트")}</>],

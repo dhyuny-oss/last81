@@ -86,7 +86,7 @@ def _variants(cands, cfg):
     strength = lambda r: ((1 if r.get("why") == "trend" else 0) * 1000 - (r.get("str") or 0), r["t"])
     newest = lambda r: (r.get("age") if r.get("age") is not None else 999,) + strength(r)
 
-    ugate = cfg.get("usGate", False)          # 252. 나스닥100 200일선 아래 → 미국 새로 안 삼 (지금 규칙에만)
+    ugate = cfg.get("usGate", False)          # 252. 나스닥100 200일선 아래 → 미국 새로 사지 않음 (지금 규칙에만)
     def pick(order, cap, nq=True):
         us, kr, used = [], [], {}
         for r in sorted(ok, key=order):

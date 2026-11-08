@@ -208,7 +208,7 @@ export const trOf = (p) => (Array.isArray(p.tr) && p.tr.length ? p.tr : [{ d: p.
 export const avgOf = (p) => { const tr = trOf(p); const a = tr.reduce((x, t) => x + (t.amt || 0), 0); const sh = tr.reduce((x, t) => x + (t.amt || 0) / t.px, 0);
   return sh > 0 ? a / sh : tr[0].px; };
 export const investedOf = (p) => trOf(p).reduce((x, t) => x + (t.amt || 0), 0);
-export const nextTrancheOf = (p, s, limit) => {   // 2회차 조건: 1회차 +3% ~ +6% 밴드 안에서 마감 · 느린ST 초록 · 아직 1회차뿐
+export const nextTrancheOf = (p, s, limit) => {   // 2회차 조건: 1회차 +3% ~ +6% 밴드 안에서 마감 · 느린 ST 초록 · 아직 1회차뿐
   const tr = trOf(p); if (tr.length >= 2 || !s?.c) return null;   // (+6% 넘게 오른 날은 추격 금지 — 검증과 같은 밴드)
   const target = tr[0].px * RULES.tranche2.lo, cap = tr[0].px * RULES.tranche2.hi;   // 260. config/rules.json
   const gain = (s.c / tr[0].px - 1) * 100;
@@ -424,11 +424,11 @@ export const benchName = (s) => s?.m === "kr" ? "코스피" : (NASDAQ.has(s?.ex)
     (텔레그램도 같은 기본값 +10% 를 씁니다) */
 export const REV_KEY = "v9.revMin";
 export const getRevMin = () => { try { const v = localStorage.getItem(REV_KEY); return v == null ? RULES.revMin : Number(v); } catch { return RULES.revMin; } };
-/** 176. 한국 시장 '위험'(폭 3년 하위 40% 아래)이면 한국은 새로 사지 않음 — 오늘·찾기·한투·선정·파이프라인이 같은 판정을 씀 */
+/** 176. 한국 시장 '위험'(폭 3년 하위 40% 아래)이면 한국은 새로 사지 않음 — 오늘·찾기·증권사 카드·선정·파이프라인이 같은 판정을 씀 */
 export const krGateOf = (market) => { const j = market?.judge?.kr; return !!(j && (j.blocked ?? (j.gate && j.verdict === "risk"))); };   // blocked = 새로 사지 않음 (옛 market.json 은 gate+risk)
 /** 252. 🇺🇸 나스닥100 이 200일선 아래면 미국은 새로 사지 않음 — 파이프라인 judge.us.nqGate (오늘·찾기·계좌·텔레그램 같은 판정) */
 export const usGateOf = (market) => { const j = market?.judge?.us; return !!(j && (j.blocked ?? j.nqGate)); };
-export const US_GATE_TXT = "나스닥100 200일선 아래 — 새로 안 삼";
+export const US_GATE_TXT = "나스닥100 200일선 아래 — 새로 사지 않음";
 /** 254. 하락장(게이트) 동안 남는 돈 · DC 안전자산 — 2026-11 비교: 단기채 5년 최대낙폭 −0.5% · 장기채 −44~48%(2022 금리 급등) */
 export const SPARE_TXT = { us: "남는 달러는 단기 국채 ETF(SGOV·BIL)에", kr: "남는 원화는 단기채·국고채3년 ETF에" };
 
@@ -470,7 +470,7 @@ export function subLine(s, sizer, market, extra = []) {
     `하루 거래 ${money(s.tv, s.m)}`,
     (() => { const tg = tgtOf(s.t, NOTES_REF.cur, s); const g = tg && tgtGap(tg.v, s.c);
              return g == null ? null : tg.mine ? (g <= 0 ? "내 목표 도달" : `내 목표까지 +${g.toFixed(0)}%`) : (g <= 0 ? "애널 목표보다 위" : `애널 목표까지 +${g.toFixed(0)}%`); })(),
-    // 188. 몇 주 살 수 있는지는 고르는 단계에선 필요 없어 뺌 — 주수는 주문하는 곳(차트 1회차 등록·한투 주문·2회차 안내)에만
+    // 188. 몇 주 살 수 있는지는 고르는 단계에선 필요 없어 뺌 — 주수는 주문하는 곳(차트 1회차 등록·증권사 주문·2회차 안내)에만
     s.rsi != null ? `RSI ${s.rsi.toFixed(0)}(3일${s.rsiUp ? "↑" : "↓"})` : null,
     secRank ? `업종 ${secRank.label} ${secRank.rank}위` : null,
     f ? [
@@ -561,7 +561,7 @@ export function AppPerf({ market, compact, onOpen }) {
     </Card>);
 }
 export function loadJSON(k, d) { try { const v = JSON.parse(localStorage.getItem(k) || "null"); return v ?? d; } catch { return d; } }
-// 182. DC 규칙: st=느린ST(기본) · hold=3지수 보유 — 예전 'dual'(듀얼 모멘텀)을 고른 기기는 3지수 보유로 봅니다
+// 182. DC 규칙: st=느린 ST(기본) · hold=3지수 보유 — 예전 'dual'(듀얼 모멘텀)을 고른 기기는 3지수 보유로 봅니다
 export function dcModeOf() { try { const v = localStorage.getItem("v9.dc.mode"); return v === "hold" || v === "dual" ? "hold" : "st"; } catch { return "st"; } }
 /** 시장 대비 = 그 종목 1달 수익 − 같은 시장 지수 1달 수익 */
 export const benchOf = (s) => s.m === "kr" ? "^KS11" : (NASDAQ.has(s.ex) ? "^IXIC" : "^GSPC");   // 이름표(benchName)와 같은 기준

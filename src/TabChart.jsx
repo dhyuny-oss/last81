@@ -288,7 +288,7 @@ export function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, s
                 <div style={{ fontSize: FS.sm, fontWeight: 700, fontFamily: MONO, color: c == null ? C.muted : col(c), ...ONE }}>{v}</div>
               </div>))}
           </div>)}
-        {isStock && <div style={{ fontSize: 10, color: C.muted, marginTop: 3 }}>자리 정보는 참고용 — 이 값으로 걸러 사면 검증에서 성과가 떨어졌습니다. 선까지 = 지금 사면 잃을 수 있는 폭</div>}
+        {isStock && <div style={{ fontSize: 10, color: C.muted, marginTop: 3 }}>위치 정보는 참고용 — 이 값으로 걸러 사면 검증에서 성과가 떨어졌습니다. 선까지 = 지금 사면 잃을 수 있는 폭</div>}
         {isStock && (() => {      /* 110. PER (참고) · 112. 바깥 차트·자료 연결 */
           const sec = (market?.sectors || []).find(x => x.tk === s.sec);
           const f1 = (v) => v == null ? "—" : v >= 100 ? v.toFixed(0) : v.toFixed(1);

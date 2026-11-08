@@ -2,7 +2,7 @@ import { createRequire } from "module";
 /**
  * 메리츠증권 Open API 어댑터 — /api/broker 가 BROKER=meritz(기본값)일 때 씁니다
  * ════════════════════════════════════════════════════════════
- * 증권사 어댑터 약속(what = balance·orders·order·cancel·quote)대로 답합니다. 그래서 화면(src/Kis.jsx)은 증권사를 몰라도 됩니다.
+ * 증권사 어댑터 약속(what = balance·orders·order·cancel·quote)대로 답합니다. 그래서 화면(src/Broker.jsx)은 증권사를 몰라도 됩니다.
  *   what = balance · orders · order · cancel · quote      (mk:"kr" 이면 🇰🇷 국내 · 없으면 🇺🇸 미국)
  *
  * ▣ Vercel 환경변수 (채팅·깃허브에 적지 마세요)
@@ -12,7 +12,7 @@ import { createRequire } from "module";
  *   (선택) MERITZ_MAX_USD · MERITZ_MAX_DAY_USD     🇺🇸 1건 · 하루 매수 상한 — 기본 3,500 · 10,000 달러 (1회차 한 건이 들어가게)
  *   (선택) MERITZ_MAX_KRW · MERITZ_MAX_DAY_KRW     🇰🇷 1건 · 하루 매수 상한 — 기본 200만 · 500만 원
  *
- * ▣ 안전장치 (한투 실전과 같은 수준)
+ * ▣ 안전장치
  *   지정가만 · 비밀번호 · 확인 단계(confirm:true) · 같은 주문 번호표(rid) 재전송 차단 · 1건/하루 상한
  *   매수 지정가가 지금 가격 +1.5% 넘으면 · 매도 지정가가 −3% 아래면 거절 · 정규장 밖 매수 거절(218) · 지금 가격을 못 보면 거절 · 같은 미체결이 있으면 거절
  *   매도는 가진 수량(− 매도 대기) 안에서만 · 메리츠가 "경고"로 돌려주면 접수 안 된 것 → 화면에서 내용 확인 뒤 다시 보냄

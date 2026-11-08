@@ -1,4 +1,4 @@
-"""263. ④ 덧붙이는 자료 — 재무(financials_us.json) · 실적일 · 목표가 · 분기 매출 · 종목 목록 읽기"""
+"""263. ④ 덧붙이는 자료 — 재무(financials_us.json) · 실적일 · 목표가 · 분기 매출 · 종목풀 읽기"""
 from snap.common import *  # noqa
 from snap.fetch import *  # noqa
 from snap.indicators import *  # noqa
@@ -84,7 +84,7 @@ EARN_CACHE = f"{OUT_DIR}/earnings.json"
 def attach_earnings(stocks, universe_all=None, market=None):
     """110·111. 같은 요청으로 🇺🇸 PER(최근 12개월)·예상 PER 도 받습니다 — 참고 표시용.
        종목: d["pe"] · d["fpe"] (적자·자료 없음이면 없음). 업종: 종목풀 '전체' 🇺🇸 종목의 중앙값을 market["sectors"] 에 pe·fpe·n 으로 붙입니다
-       (평일 감시 모드는 강한 종목만 보므로, 업종 중앙값은 전체 종목풀을 따로 조회해 계산). 🇰🇷 은 야후에 PER 이 없습니다.
+       (평일 간이 수집는 강한 종목만 보므로, 업종 중앙값은 전체 종목풀을 따로 조회해 계산). 🇰🇷 은 야후에 PER 이 없습니다.
        93. 다음 실적 발표일 (야후 공개 시세 API) — 참고 표시용, 매매 규칙에는 쓰지 않음 (과거 발표일 자료가 없어 검증 불가).
        한 번에 150종목씩 묶어 받습니다(약 6번 요청). 실패하면 지난번 값 중 아직 지나지 않은 날짜만 씁니다.
        날짜는 그 시장 현지 날짜 (🇺🇸 뉴욕 · 🇰🇷 서울). earnE = 회사가 확정 안 한 '예상일'"""
@@ -185,7 +185,7 @@ def attach_earnings(stocks, universe_all=None, market=None):
                 x["fpe"] = round(_st.median(g[1]), 1)
                 x["n"] = len(g[1])
     if ok:
-        keep = {t: v for t, v in (cache.get("e") or {}).items() if t not in stocks}   # 감시 모드에서 안 본 종목은 지난 값 유지
+        keep = {t: v for t, v in (cache.get("e") or {}).items() if t not in stocks}   # 간이 수집에서 안 본 종목은 지난 값 유지
         keep.update(fresh)
         _write(EARN_CACHE, {"d": datetime.now(timezone.utc).strftime("%Y-%m-%d"), "e": keep, "v": val, "p": past, "x": xdiv})
     print(f"  📅 실적 발표일: {n}종목 · PER {npe}종목")
@@ -244,13 +244,13 @@ def attach_quarterly(stocks, refresh=False):
     print(f"  📊 분기 매출 붙임: {n}종목 (캐시 {cache.get('asOf')})")
 
 def load_universe():
-    """262. ① 종목 목록 — universe.json (없으면 예전 stocks.json)"""
+    """262. ① 종목풀 — universe.json (없으면 예전 stocks.json)"""
     for f in ("universe.json", "stocks.json"):
         try:
             return json.load(open(f"{OUT_DIR}/{f}", encoding="utf-8"))
         except FileNotFoundError:
             continue
-    raise SystemExit("❌ 종목 목록(universe.json)이 없습니다 — scripts/build_universe.py 를 먼저 실행하세요")
+    raise SystemExit("❌ 종목풀(universe.json)이 없습니다 — scripts/build_universe.py 를 먼저 실행하세요")
 
 
 def load_fin():

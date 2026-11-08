@@ -1,9 +1,9 @@
 /**
- * 184. 한투 체결 → 내 종목 반영 (순수 함수 — 화면·점검 스크립트가 같이 씁니다)
+ * 184. 증권사 체결 → 내 종목 반영 (순수 함수 — 화면·점검 스크립트가 같이 씁니다)
  *
  * 입력
- *   orders  : 한투 주문 내역 [{ odno, dt:"YYYYMMDD", side:"buy"|"sell", t, n, filled, fpx, px, open, qty, state }]
- *   rows    : 한투 잔고 [{ t, n, qty, avg }]
+ *   orders  : 증권사 주문 내역 [{ odno, dt:"YYYYMMDD", side:"buy"|"sell", t, n, filled, fpx, px, open, qty, state }]
+ *   rows    : 증권사 잔고 [{ t, n, qty, avg }]
  *   pos     : 앱 내 종목 [{ id, t, role, tr:[{d, px, amt}] }]
  *   applied : 이미 반영했거나 '무시'한 주문번호 Set
  *   ignored : '이번엔 무시'한 잔고 종목 Set
@@ -12,7 +12,7 @@
  *   items   : 반영 제안 [{ key, odnos, t, n, side, qty, px, d, kind, posId, label }]
  *             kind = new(새 보유 1회차) · t2(2회차) · add(추가 매수) · close(전량 매도) · partial(일부 매도 — 자동 반영 안 함)
  *   dup     : 앱에 이미 같은 날 기록이 있어 건너뛴 주문번호 (자동으로 '반영됨' 처리)
- *   extra   : 한투엔 있는데 앱엔 없는 종목 [{ t, n, qty, avg }]
+ *   extra   : 증권사엔 있는데 앱엔 없는 종목 [{ t, n, qty, avg }]
  *   waiting : 체결 대기 중인 매수 [{ t, n, qty, open, px, d }]
  */
 const norm = (t) => String(t || "").trim().toUpperCase().replace("/", "-");

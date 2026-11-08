@@ -1,6 +1,6 @@
-"""144. 화면끼리 같은 답을 내는지 확인 — 첫 화면 · 찾기 탭 · 한투 카드(칩·매수 제안)의 "오늘 살 것"이 같은가.
+"""144. 화면끼리 같은 답을 내는지 확인 — 첫 화면 · 찾기 탭 · 증권사 카드(칩·매수 제안)의 "오늘 살 것"이 같은가.
   준비: npm run build 뒤  npx vite preview --port 4228 --strictPort  를 띄워 두고
-  실행: python3 scripts/check_screens.py        (playwright 필요 · 한투 서버는 부르지 않고 가짜 응답을 씁니다)
+  실행: python3 scripts/check_screens.py        (playwright 필요 · 증권사 서버는 부르지 않고 가짜 응답을 씁니다)
   보유는 서버 백업(watchlist.json)을 폰에 있는 것처럼 넣어 봅니다: 실제 보유 · 보유 없음 · 칸 꽉 참 · 투자금 0 · 일부 보유
 """
 import asyncio, json, re, datetime, sys
@@ -43,7 +43,7 @@ async def run(p,name,positions,plan):
         if await pg.get_by_role("button",name=f"{tk} 사기").count(): cards.append(tk)
     note=re.search(r"오늘 탭 기준[^\n]*",t)
     same= sorted(buy)==sorted(cards) and (not chips or sorted(chips)==sorted(buy))   # 210. 계좌 카드의 '오늘 살 것' 칩은 없어지고 매수 제안 '사기'만 남음
-    print(f"{'✅' if same else '❌'} {name}: 첫 화면 {home.group(0) if home else '—'} | 찾기 탭 🇺🇸 [{head.group(1) if head else ''}] 살 것 {buy} | 한투 칩 {chips} · 제안 {sorted(cards)} | {note.group(0)[:40] if note else ''} | err {errs}")
+    print(f"{'✅' if same else '❌'} {name}: 첫 화면 {home.group(0) if home else '—'} | 찾기 탭 🇺🇸 [{head.group(1) if head else ''}] 살 것 {buy} | 증권사 칩 {chips} · 제안 {sorted(cards)} | {note.group(0)[:40] if note else ''} | err {errs}")
     await b.close(); return same
 async def main():
     st=wl["settings"]; plan={"slotsUs":st["slotsUs"],"slotsKr":st["slotsKr"],"dcAmt":st["dcAmt"],"usAmt":st["usAmt"],"krAmt":st["krAmt"],"cashAmt":0}

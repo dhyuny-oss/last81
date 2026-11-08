@@ -50,7 +50,7 @@ def update_signal_log(stocks, series, idx_series):
     for x in log:
         ser = series.get(x["t"])           # build_series 는 행 목록을 바로 돌려줍니다
         rows = ser.get("rows") if isinstance(ser, dict) else ser
-        if not rows: continue              # ★ 감시 모드라 오늘 안 받은 종목은 지난 성적을 그대로 둡니다 (예전엔 여기서 지워졌음)
+        if not rows: continue              # ★ 간이 수집라 오늘 안 받은 종목은 지난 성적을 그대로 둡니다 (예전엔 여기서 지워졌음)
         x["r"] = {}
         rr = [(datetime.fromtimestamp(r[0], timezone.utc).strftime("%Y-%m-%d"), r[1]) for r in rows]
         # ★ 57. 규칙대로라면 언제 팔았나 — 신호 다음 날부터 처음으로 느린 ST 가 빨강(stDir 4비트 꺼짐)이 된 날의 종가
@@ -259,11 +259,11 @@ def build_today(stocks, market):
             "asOfUs": max((d.get("asOf") or "" for d in stocks.values() if d.get("m") == "us"), default=None),
             "asOfKr": max((d.get("asOf") or "" for d in stocks.values() if d.get("m") == "kr"), default=None),
             "rules": {"buy": "action=buy", "rev": f"🇺🇸 매출 +{rev_min:.0f}%↑ (최근 분기 전년 동기 대비 → 없으면 4분기 합계 → 연간) · 적자 제외",
-                      "order": "강세·눌림 먼저 → 강도 점수(RS 백분위와 200일선 거리 백분위의 평균) 높은 순",
+                      "order": "강세·눌림 먼저 → 강도(RS 백분위와 200일선 거리 백분위의 평균) 높은 순",
                       "sector": f"🇺🇸 같은 업종은 {SEC_CAP}개까지 — 보유 종목 업종 포함 · 최대 {slots_us} · 🇰🇷 최대 {slots_kr}",
                       "usGate": "🇺🇸 나스닥100 이 200일선 아래면 새로 사지 않음 · 보유는 트레일링선대로" + (" — 지금 작동 중" if us_gate else ""),
                       "krGate": "🇰🇷 시장 '위험'(폭 3년 하위 40% 아래 · 주 1회 계산)이면 새로 사지 않음 · 보유는 트레일링선대로" + (" — 지금 작동 중" if kr_gate else ""),
-                      "tranche": "1회차 = 한도 절반 → +3~6% 마감 & 느린ST 초록이면 나머지 절반 · 매도 = 종가 < 트레일링선"},
+                      "tranche": "1회차 = 한도 절반 → +3~6% 마감 & 느린 ST 초록이면 나머지 절반 · 매도 = 종가 < 트레일링선"},
             "market": {m: (market.get("judge") or {}).get(m, {}).get("verdict") for m in ("us", "kr")},
             "sectors": [{"tk": x["tk"], "label": x["label"], "rank": x["rank"], "score": x.get("score")} for x in (market.get("sectors") or [])[:6]],
             "cfg": {"revMin": rev_min, "slotsUs": slots_us, "slotsKr": slots_kr, "krGate": kr_gate, "usGate": us_gate, "secCap": SEC_CAP},   # 197. 그림자 기록이 같은 설정으로 고르게
