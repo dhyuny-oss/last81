@@ -37,6 +37,9 @@ async function saveFile(content, sha) {
   return r.ok;
 }
 
+import { createRequire } from "module";
+const RULES = createRequire(import.meta.url)("../config/rules.json");   // 260. 규칙 숫자 한 파일 (config/rules.json)
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
@@ -100,7 +103,7 @@ export default async function handler(req, res) {
       content.watch = watch.map(t => String(t).slice(0, 12)).filter(Boolean);
       if (req.body.settings && typeof req.body.settings === "object") {   // 61. 앱 설정 — 오늘 후보·텔레그램이 같은 값을 쓰도록
         const st = req.body.settings, num = (x, lo, hi, d) => { const v = Number(x); return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d; };
-        content.settings = { revMin: num(st.revMin, 0, 100, 10), slotsUs: Math.round(num(st.slotsUs, 1, 20, 7)), slotsKr: Math.round(num(st.slotsKr, 1, 20, 5)),
+        content.settings = { revMin: num(st.revMin, 0, 100, RULES.revMin), slotsUs: Math.round(num(st.slotsUs, 1, 20, RULES.slots.us)), slotsKr: Math.round(num(st.slotsKr, 1, 20, RULES.slots.kr)),
                              dcAmt: num(st.dcAmt, 0, 1e13, 0), dcMode: (st.dcMode === "hold" || st.dcMode === "dual") ? "hold" : "st", dcSemi: !!st.dcSemi,
                              // 98. 직투 금액 — 칸당·1회차 금액을 파이프라인(today.json)·텔레그램·AI 도구가 같은 값으로 씀. 안 보내면 이전 값 유지
                              usAmt: st.usAmt != null ? num(st.usAmt, 0, 1e9, 0) : (content.settings?.usAmt ?? null),

@@ -53,8 +53,8 @@ def symbol_of(d):
 
 
 # 휴장일 (2026) — 매년 12월에 다음 해 것을 추가하세요. 출처: 한국거래소·NYSE 공지
-KR_HOLIDAYS = {"2026-09-24", "2026-09-25", "2026-10-05", "2026-10-09", "2026-12-25", "2026-12-31"}
-US_HOLIDAYS = {"2026-11-26", "2026-12-25"}
+from rules import R as RULES                                        # 260. 규칙 숫자 한 파일
+from mktcal import KR_HOL as KR_HOLIDAYS, US_HOL as US_HOLIDAYS   # 257. 휴장일 한 파일 (config/market.json)
 
 def us_dst(now_kst):
     """미국 서머타임: 3월 둘째 일요일 ~ 11월 첫째 일요일 (예전 '3~10월' 근사는 3월 초·11월 초에 틀렸음)"""
@@ -125,8 +125,8 @@ def main():
             hits.append(("sell", f"🔴 <b>매도! 후보</b> {name} — 현재 {cur} < 트레일링선 {line_txt}\n"
                                  f"   종가가 선 아래로 마감하면 매도 (앱·텔레그램 저녁 판정과 같은 기준)"))
         tr = p.get("tr") if isinstance(p.get("tr"), list) and p.get("tr") else ([{"px": p.get("avg")}] if p.get("avg") else [])
-        if p.get("role") == "swing" and len(tr) == 1 and tr[0].get("px") and d.get("stSlow") == 1 and tr[0]["px"] * 1.03 <= px <= tr[0]["px"] * 1.06:
-            t2_px = tr[0]["px"] * 1.03
+        if p.get("role") == "swing" and len(tr) == 1 and tr[0].get("px") and d.get("stSlow") == 1 and tr[0]["px"] * RULES["tranche2"]["lo"] <= px <= tr[0]["px"] * RULES["tranche2"]["hi"]:
+            t2_px = tr[0]["px"] * RULES["tranche2"]["lo"]
             t2_txt = f"{t2_px:,.2f}" if d.get("m") != "kr" else f"{t2_px:,.0f}"
             hits.append(("t2", f"🟢 <b>2회차 조건</b> {name} — 현재 {cur} ≥ 1회차 +3% ({t2_txt}) · 나머지 절반"))
         for kind, text in hits:

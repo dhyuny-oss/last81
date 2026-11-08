@@ -3,8 +3,8 @@
 ─────────────────────────────────────────────
   ① 데이터 이상 (매일)   날짜가 멈춤 · 수집 실패 · 빈 값 · 같은 회사 중복 · 하루 ±35% 넘는 급변
   ② 대안 그림자 기록 (매일)  같은 날 후보로 '만약 이랬다면'을 따로 적어 둡니다 — 실제 추천에는 안 씀
-       기준   = 지금 규칙 (강도 순 · 🇺🇸 같은 업종 하나)
-       업종3  = 🇺🇸 같은 업종 최대 3개
+       기준   = 지금 규칙 (강도 순 · 🇺🇸 같은 업종 3개까지 · 나스닥100 필터)
+       예전   = 🇺🇸 같은 업종 1개 · 나스닥 필터 없음 (247·252 전 규칙)
        최신순 = 매수! 된 지 오래 안 된 순
        비상−10% = 기준 종목을 사고 종가가 −10% 닿으면 바로 판다면
      성적 = 그날 고른 종목을 20거래일 들고 있었을 때 평균 수익률 (기록이 쌓인 것만)
@@ -86,26 +86,33 @@ def _variants(cands, cfg):
     strength = lambda r: ((1 if r.get("why") == "trend" else 0) * 1000 - (r.get("str") or 0), r["t"])
     newest = lambda r: (r.get("age") if r.get("age") is not None else 999,) + strength(r)
 
-    def pick(order, cap):
+    ugate = cfg.get("usGate", False)          # 252. 나스닥100 200일선 아래 → 미국 새로 안 삼 (지금 규칙에만)
+    def pick(order, cap, nq=True):
         us, kr, used = [], [], {}
         for r in sorted(ok, key=order):
             if r["m"] == "us":
+                if nq and ugate: continue
                 key = r.get("sec") or f"?{r['t']}"
                 if used.get(key, 0) >= cap or len(us) >= su: continue
                 us.append(r); used[key] = used.get(key, 0) + 1
             elif not gate and len(kr) < sk:
                 kr.append(r)
         return {"us": [[r["t"], r["c"]] for r in us], "kr": [[r["t"], r["c"]] for r in kr]}
-    return {"base": pick(strength, 1), "cap3": pick(strength, 3), "newest": pick(newest, 1)}
+    # 247 · 252. 지금 규칙 = 업종 3개까지 + 나스닥100 필터 · 비교 = 예전 규칙(업종 1개 · 필터 없음)
+    cap = int(cfg.get("secCap") or 3)          # 260. today.json cfg(= config/rules.json secCap)
+    return {"base": pick(strength, cap), "cap1": pick(strength, 1, nq=False), "newest": pick(newest, cap)}
 
 
-VAR_NAME = {"base": "지금 규칙", "cap3": "같은 업종 3개까지", "newest": "최신순", "stop10": "비상 −10% 손절"}
+VAR_NAME = {"base": "지금 규칙", "cap1": "예전 규칙 (업종 1개 · 나스닥 필터 없음)", "newest": "최신순", "stop10": "비상 −10% 손절"}
 
 
 def shadow(out_dir, today_obj, series, stocks):
-    """기록 한 줄 = 그날(시장별 최신 거래일) 세 가지 고르기. 🇰🇷·🇺🇸 날짜가 달라 시장마다 따로 적습니다 ({d, m, base, cap3, newest})"""
+    """기록 한 줄 = 그날(시장별 최신 거래일) 세 가지 고르기. 🇰🇷·🇺🇸 날짜가 달라 시장마다 따로 적습니다 ({d, m, base, cap1, newest})"""
     log = _load(f"{out_dir}/{SHADOW_FILE}", [])
     if not isinstance(log, list): log = []
+    # 247. 한 번만 — 지금 규칙이 '업종 3개'가 되어, 예전 기록의 base(업종 1개)는 cap1 으로 · cap3 는 base 로 옮김
+    for x in log:
+        if "cap3" in x: x["cap1"] = x.get("base", {}); x["base"] = x.pop("cap3")
     if today_obj and today_obj.get("cfg"):
         V = _variants(today_obj.get("candidates") or [], today_obj["cfg"])
         for m in ("us", "kr"):
@@ -127,7 +134,7 @@ def shadow(out_dir, today_obj, series, stocks):
         return days_cache[t]
     for x in log:
         res = x.setdefault("r", {})
-        for v in ("base", "cap3", "newest"):
+        for v in ("base", "cap1", "newest"):
             for m in ("us", "kr"):
                 for t, c in x.get(v, {}).get(m, []):
                     key = f"{m}:{t}"
@@ -153,7 +160,7 @@ def shadow(out_dir, today_obj, series, stocks):
         return {"days": nd, "n": len(vals), "avg": _r(sum(vals) / len(vals)) if vals else None,
                 "win": _r(sum(1 for a in vals if a > 0) / len(vals) * 100, 0) if vals else None}
     summ = {}
-    for m, vs in (("us", ("base", "cap3", "newest", "stop10")), ("kr", ("base", "newest", "stop10"))):
+    for m, vs in (("us", ("base", "cap1", "newest", "stop10")), ("kr", ("base", "newest", "stop10"))):
         sc = {v: score(v, m) for v in vs}
         b = sc["base"]
         for v, s in sc.items():
@@ -167,6 +174,48 @@ def shadow(out_dir, today_obj, series, stocks):
                 s["verdict"] = f"대안이 {g:+.1f}%p — 검토 후보" if g > GAP else (f"대안이 {g:+.1f}%p — 지금 규칙 유지" if g < -GAP else f"차이 {g:+.1f}%p — 작음")
         summ[m] = sc
     return {"days": len(log), "since": log[0]["d"] if log else None, "summary": summ}
+
+
+# ─────────────────────────── ②-b 255. 하락장 QQQ 반등 — 기록만 (실제로 사지 않음)
+#   백테스트(2026-11): 나스닥100 200일선 아래일 때 RSI(2)<10 이면 사고 · 5일선 위 마감이면 팜
+#   2010–26 51번 · 이긴 비율 65% · 평균 +1.1% / 2000–09 79번 · 53% · +0.1% (최악 −19%) / 한국 코스피200 은 효과 없음
+#   → 근거가 2010년 이후에 몰려 있어 실제 규칙이 아니라 기록만 쌓아 몇 달 뒤 판단
+BOUNCE_FILE = "bounce_log.json"
+def _rsi2(c):
+    up = dn = None; out = []
+    for i in range(len(c)):
+        if i == 0: out.append(None); continue
+        d = c[i] - c[i - 1]; u, w = max(d, 0), max(-d, 0)
+        up = u if up is None else up + (u - up) / 2; dn = w if dn is None else dn + (w - dn) / 2
+        out.append(100.0 if dn == 0 else 100 - 100 / (1 + up / dn))
+    return out
+
+
+def bounce(out_dir, series, market):
+    lg = _load(f"{out_dir}/{BOUNCE_FILE}", {})
+    if not isinstance(lg, dict): lg = {}
+    trades, op = lg.get("trades") or [], lg.get("open")
+    key = "NDX" if series.get("NDX") else "QQQ"
+    rows = series.get(key) or []
+    if isinstance(rows, dict): rows = rows.get("rows") or []
+    rows = [r for r in rows if r and r[1]]
+    gate = ((market.get("judge") or {}).get("us") or {}).get("nqGate")
+    today = None
+    if len(rows) >= 10 and gate is not None:
+        d, c = _day(rows[-1][0]), rows[-1][1]
+        cl = [r[1] for r in rows]; rs = _rsi2(cl)[-1]; sma5 = sum(cl[-5:]) / 5
+        if op and d > op["d"] and (c > sma5 or not gate):
+            trades.append({**op, "out": d, "outC": _r(c), "r": _r((c / op["c"] - 1) * 100)}); op = None; today = "out"
+        elif not op and gate and rs is not None and rs < 10 and d != (trades[-1]["out"] if trades else ""):
+            op = {"d": d, "c": _r(c), "rsi2": _r(rs), "src": key}; today = "in"
+        lg["last"] = {"d": d, "rsi2": _r(rs), "sma5": _r(sma5), "c": _r(c), "gate": gate}
+    rr = [t["r"] for t in trades if t.get("r") is not None]
+    lg.update({"open": op, "trades": trades[-200:], "today": today,
+               "sum": {"n": len(rr), "win": _r(sum(1 for x in rr if x > 0) / len(rr) * 100, 0) if rr else None,
+                       "avg": _r(sum(rr) / len(rr)) if rr else None},
+               "note": "기록만 — 나스닥100 200일선 아래 · RSI(2)<10 → 5일선 위 마감까지 (종가 기준 근사)"})
+    _write(f"{out_dir}/{BOUNCE_FILE}", lg)
+    return lg
 
 
 # ─────────────────────────── ③ 3주 보고
@@ -206,6 +255,8 @@ def run(out_dir, stocks, series, market, health):
     wl = _load(f"{out_dir}/watchlist.json", {})
     an = anomalies(stocks, health, today)
     sh = shadow(out_dir, market.get("today"), series, stocks)
+    try: bn = bounce(out_dir, series, market)                 # 255. 기록만
+    except Exception as e: bn = {"err": str(e)[:120]}
     live = market.get("live") or {}
     since, sells = held_sells(stocks, wl, prev, today_s)
     nxt = next_report(today)
@@ -216,7 +267,7 @@ def run(out_dir, stocks, series, market, health):
               "signals": signal_check(live),
               "saved": {"pct": rv.get("savedPct"), "n": rv.get("judgedN"), "ruleAvg": rv.get("ruleAvg")},
               "drift": live.get("drift"),
-              "shadow": sh, "sells": sells,
+              "shadow": sh, "sells": sells, "bounce": {k: bn.get(k) for k in ("open", "today", "sum", "last")},
               # 204. 매도! 상태에서 장기로 바꾼 종목 — 규칙을 피해 간 것인지 돌아보기용
               "conv": [{"t": str(p.get("t", "")).upper(), "d": c.get("d"), "n": (stocks.get(str(p.get("t", "")).upper()) or {}).get("n")}
                        for p in (wl or {}).get("positions") or [] if p.get("role") == "long" for c in (p.get("conv") or []) if c.get("sell")]}

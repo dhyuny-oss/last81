@@ -1,12 +1,17 @@
 // 144. 서로 같아야 하는 값들이 실제로 같은지 확인합니다 (화면·서버·알림이 같은 답을 내는가).
 //   실행: node scripts/check_consistency.mjs      (저장소 맨 위 폴더에서)
 //   ❌ 가 하나라도 있으면 종료 코드 1 · ⚠ 는 "지금은 다르지만 다음 갱신 때 같아지는" 종류
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { pickToday } from "../src/picks.js";
 
 const D = "public/data";
 const J = (f) => JSON.parse(readFileSync(`${D}/${f}`, "utf-8"));
-const T = (f) => readFileSync(f, "utf-8");
+// 263. 스냅샷 파이프라인은 build_snapshot.py + scripts/snap/*.py 로 나뉨 → 그 이름으로 읽으면 전부 이어 붙여 봄
+const SNAP = ["scripts/build_snapshot.py", ...readdirSync("scripts/snap").filter((f) => f.endsWith(".py")).sort().map((f) => `scripts/snap/${f}`)];
+// 264. 앱 화면은 App.jsx + core.jsx + Tab*.jsx 로 나뉨 → "src/App.jsx" 로 읽으면 전부 이어 붙여 봄
+const APPF = ["src/App.jsx", "src/core.jsx", ...readdirSync("src").filter((f) => /^Tab\w+\.jsx$/.test(f)).sort().map((f) => `src/${f}`)];
+const T = (f) => f === "scripts/build_snapshot.py" ? SNAP.map((x) => readFileSync(x, "utf-8")).join("\n")
+  : f === "src/App.jsx" ? APPF.map((x) => readFileSync(x, "utf-8")).join("\n") : readFileSync(f, "utf-8");
 const snap = J("snapshot.json"), market = J("market.json"), today = J("today.json"), wl = J("watchlist.json");
 const stocks = snap.stocks;
 let bad = 0, warn = 0;
@@ -30,16 +35,19 @@ ok("보유 변경 뒤 추천이 다시 만들어졌는가", !stale, `watchlist $
 
 console.log("── 2. 오늘 살 것: 서버(today.json) = 앱 규칙(picks.js) = market.json 사본 ──");
 const krGate = !!(market.judge?.kr?.gate && market.judge.kr.verdict === "risk");
-const oldServer = !(today.rules && "krGate" in today.rules);       // 새 규칙(161·176) 전에 만든 today.json — 다음 갱신 때 같아짐
-const cfg = { revMin: Number((wl.settings || {}).revMin ?? 10), slotsUs: Number((wl.settings || {}).slotsUs || 7), slotsKr: Number((wl.settings || {}).slotsKr || 5), krGate };
+const usGate = !!market.judge?.us?.nqGate;                         // 252
+const oldServer = !(today.rules && "usGate" in today.rules);       // 새 규칙(247·252) 전에 만든 today.json — 다음 갱신 때 같아짐
+const cfg = { revMin: Number((wl.settings || {}).revMin ?? 10), slotsUs: Number((wl.settings || {}).slotsUs || 7), slotsKr: Number((wl.settings || {}).slotsKr || 5), krGate, usGate };
 const app = pickToday(stocks, cfg, new Set(heldWl));
 // 176. 한국 시장 위험이면 서버·앱 모두 한국 추천 0
 ok(`🇰🇷 시장 ${market.judge?.kr?.verdict || "—"} → 한국 추천 ${krGate ? "0이어야 함" : "허용"} (서버 ${(today.pickKr || []).length} · 앱 ${app.pickKr.length})`,
    !krGate || ((today.pickKr || []).length === 0 && app.pickKr.length === 0), oldServer ? "서버 today.json 이 새 규칙 전에 만들어짐 — 다음 갱신 때 같아집니다" : "", stale || oldServer);
-// 161. 미국 추천에 '이미 보유한 업종'이 없어야 함 (원칙 5)
-const heldSecs = new Set(heldWl.map((t) => stocks[t]).filter((d) => d && d.m === "us" && d.sec).map((d) => d.sec));
-const clash = (today.pickUs || []).filter((r) => heldSecs.has(r.sec)).map((r) => `${r.t}(${r.sec})`);
-ok("🇺🇸 추천에 보유 종목과 같은 업종 없음", clash.length === 0, clash.join(","), stale);
+// 161 · 247. 미국 추천 + 보유가 같은 업종 3개를 넘지 않아야 함 (원칙 5)
+const secN = {}; [...heldWl.map((t) => stocks[t]).filter((d) => d && d.m === "us" && d.sec), ...(today.pickUs || [])].forEach((d) => { secN[d.sec] = (secN[d.sec] || 0) + 1; });
+const clash = Object.entries(secN).filter(([, v]) => v > 3).map(([k, v]) => `${k} ${v}개`);
+ok("🇺🇸 추천 + 보유가 같은 업종 3개 이하", clash.length === 0, clash.join(","), stale || oldServer);
+ok(`🇺🇸 나스닥100 200일선 ${usGate ? "아래 → 미국 추천 0이어야 함" : "위(또는 자료 없음) → 허용"} (서버 ${(today.pickUs || []).length} · 앱 ${app.pickUs.length})`,
+   !usGate || ((today.pickUs || []).length === 0 && app.pickUs.length === 0), "", stale || oldServer);
 ok(`🇺🇸 추천  서버 [${ids(today.pickUs)}] = 앱 [${ids(app.pickUs)}]`, ids(today.pickUs) === ids(app.pickUs), "", stale || oldServer);
 ok(`🇰🇷 추천  서버 [${ids(today.pickKr)}] = 앱 [${ids(app.pickKr)}]`, ids(today.pickKr) === ids(app.pickKr), "", stale || oldServer);
 ok("market.json 안의 today = today.json", eq(market.today, today));
@@ -74,37 +82,42 @@ const secA = ids((today.sectors || []).map((x) => ({ t: x.tk ?? x.t }))), secB =
 ok("업종 순위 today = market (앞쪽)", secA === secB, `${secA} / ${secB}`, true);
 
 console.log("── 5. 코드에 여러 번 적힌 같은 값 ──");
-const hol = (txt, name) => { const m = new RegExp(name + "[^\\n]*?[\\[{(]([^\\]})]*)").exec(txt); return m ? (m[1].match(/\d{4}-\d\d-\d\d/g) || []).sort().join(",") : null; };
-const files = { "src/App.jsx": ["KR_HOLIDAYS", "US_HOLIDAYS"], "scripts/watch_alert.py": ["KR_HOLIDAYS", "US_HOLIDAYS"], "api/watch.py": ["KR_HOLIDAYS", "US_HOLIDAYS"], ".github/workflows/daily.yml": ["KR_HOL", "US_HOL"] };
-for (const i of [0, 1]) {
-  const got = Object.entries(files).map(([f, names]) => [f, hol(T(f), names[i] + " = ")]);
-  ok(`${i ? "🇺🇸" : "🇰🇷"} 휴장일 4곳 동일 (${got[0][1]})`, got.every((g) => g[1] && g[1] === got[0][1]), got.map((g) => `${g[0]}: ${g[1]}`).join("\n     "));
+// 257. 휴장일은 config/market.json 한 파일 — 코드에 날짜 목록을 다시 적지 않았는지
+{ const cal = JSON.parse(T("config/market.json"));
+  const users = { "src/App.jsx": /config\/market\.json/, "src/order.js": /config\/market\.json/, "api/_lib/meritz.js": /config\/market\.json/,
+                  "scripts/notify.py": /from mktcal import/, "scripts/watch_alert.py": /from mktcal import/, "scripts/build_snapshot.py": /from mktcal import/, ".github/workflows/daily.yml": /config\/market\.json/ };
+  const bad_ = Object.entries(users).filter(([f, re]) => !re.test(T(f)) || /"20\d\d-\d\d-\d\d", "20\d\d-\d\d-\d\d", "20\d\d-\d\d-\d\d"/.test(T(f))).map(([f]) => f);
+  ok(`휴장일 한 파일(config/market.json · 🇰🇷 ${Object.keys(cal.kr).length} · 🇺🇸 ${Object.keys(cal.us).length}) — 7곳이 모두 그 파일을 읽음`, bad_.length === 0, bad_.join(", "));
+  const yr = new Date().getFullYear(), mo = new Date().getMonth() + 1;
+  ok(`휴장일이 내년(${yr + 1})까지 있음`, cal.lastYear >= (mo >= 11 ? yr + 1 : yr), "config/market.json 에 다음 해 휴장일을 넣으세요", true);
 }
 const py = T("scripts/build_snapshot.py"), app_ = T("src/App.jsx"), picksJs = T("src/picks.js"), notify = T("scripts/notify.py");
 const n = (re, txt) => { const m = re.exec(txt); return m ? Number(m[1]) : null; };
-ok("매출 필터 기본값 10 (서버·앱 규칙·앱 설정)", n(/^REV_MIN = (\d+)/m, py) === 10 && n(/revMin = (\d+)/, picksJs) === 10 && n(/getRevMin[^\n]*v == null \? (\d+)/, app_) === 10);
-ok("칸 수 기본값 🇺🇸7 · 🇰🇷5 (서버·알림·서버 저장·앱 규칙) — 168", /slotsUs"\) or 7\)/.test(py) && /slotsKr"\) or 5\)/.test(py) && /slotsUs"\) or 7\)/.test(notify) && /slotsKr"\) or 5\)/.test(notify)
-  && /SLOTS_DEFAULT = \{ us: 7, kr: 5 \}/.test(picksJs) && !/plan\.slotsUs \|\| \d/.test(app_) && !/plan\.slotsKr \|\| \d/.test(app_)
-  && /num\(st\.slotsUs, 1, 20, 7\)/.test(T("api/watchlist.js")) && /num\(st\.slotsKr, 1, 20, 5\)/.test(T("api/watchlist.js")));
+// 260. 규칙 숫자는 config/rules.json 한 파일 — 각 파일이 그 파일을 읽고, 같은 숫자를 다시 적지 않았는지
+{ const R = JSON.parse(T("config/rules.json"));
+  const users = { "src/picks.js": /from "\.\/rules\.js"/, "src/App.jsx": /from "\.\/rules\.js"/, "src/OrderSheet.jsx": /from "\.\/rules\.js"/, "src/Kis.jsx": /from "\.\/rules\.js"/,
+                  "api/_lib/resv.js": /config\/rules\.json/, "api/_lib/meritz.js": /config\/rules\.json/, "api/watchlist.js": /config\/rules\.json/,
+                  "scripts/build_snapshot.py": /from rules import/, "scripts/notify.py": /from rules import/, "scripts/watch_alert.py": /from rules import/ };
+  const miss = Object.entries(users).filter(([f, re]) => !re.test(T(f))).map(([f]) => f);
+  ok(`규칙 숫자 한 파일(config/rules.json · 칸 ${R.slots.us}/${R.slots.kr} · 업종 ${R.secCap} · 매출 ${R.revMin} · 거래대금 ${R.tvrMin}) — 10곳이 읽음`, miss.length === 0, miss.join(", "));
+  const lit = [["src/picks.js", /tvr \?\? 0\) >= 40|SEC_CAP = 3|us: 7, kr: 5/], ["src/App.jsx", /tvr \?\? 0\) >= 40|px \* 1\.0[36]\b/], ["scripts/build_snapshot.py", /tvr"\) or 0\) >= 40|\* 1\.0[36]\b|^SEC_CAP = 3/m],
+               ["scripts/notify.py", /tvr"\) or 0\) >= 40|\* 1\.0[36]\b|or [75]\)/], ["scripts/watch_alert.py", /\* 1\.0[36]\b/]].filter(([f, re]) => re.test(T(f))).map(([f]) => f);
+  ok("규칙 숫자를 코드에 다시 적은 곳 없음", lit.length === 0, lit.join(", "));
+  ok(`계좌 지정가 여유(+${R.guard.slip}%)가 서버 매수 거절선(${R.guard.buyBand}%)보다 작음`, R.guard.slip < R.guard.buyBand && /RULES\.guard\.buyBand/.test(T("api/_lib/meritz.js")));
+}
+ok("나스닥100 게이트를 서버·앱·알림이 같은 판정으로 씀 — 252", /us_gate = bool\(\(\(market\.get\("judge"\) or \{\}\)\.get\("us"\) or \{\}\)\.get\("nqGate"\)\)/.test(py)
+  && /usGateOf = \(market\) => !!market\?\.judge\?\.us\?\.nqGate/.test(app_) && /_ju\.get\("nqGate"\) and _open\.get\("us"\)/.test(notify));
 ok("한국 시장 게이트를 서버·앱·알림이 같은 판정으로 씀 — 176", /kr_gate = bool\(_jk\.get\("gate"\) and _jk\.get\("verdict"\) == "risk"\)/.test(py)
   && /krGateOf = \(market\) => !!\(market\?\.judge\?\.kr\?\.gate && market\.judge\.kr\.verdict === "risk"\)/.test(app_) && /_jk\.get\("gate"\) and _jk\.get\("verdict"\) == "risk"/.test(notify));
 ok("화면에 '판정은 DC에만 사용'·근거 없는 16.9% 같은 옛 문구 없음 — 160", !/DC 판단에만 사용|ETF 배분\(DC\)에만|\+16\.9%·최대낙폭 −28%/.test(app_));
 ok("폭 계산 날짜(breadthAsOf)가 데이터에 있음 — 171", !!market.breadthAsOf, "", true);
-ok("거래대금 순위 하한 40 (서버·앱 규칙)", /tvr \?\? 0\) >= 40/.test(picksJs) && /tvr"\)? or 0\) >= 40|tvr.*>= 40/.test(py));
-const kisJs = T("api/_lib/kis.js") + T("api/_lib/meritz.js"), kisUi = T("src/Kis.jsx");
-ok("미국 개장 22:30/23:30 · 마감 05:00/06:00 (앱·감시 2곳)", /dst \? 1350 : 1410/.test(app_) && /dst \? 300 : 360/.test(app_)
-  && [T("scripts/watch_alert.py"), T("api/watch.py")].every((t) => /\(22 \* 60 \+ 30, 5 \* 60\) if dst else \(23 \* 60 \+ 30, 6 \* 60\)/.test(t)));
+const kisJs = T("api/_lib/meritz.js"), kisUi = T("src/Kis.jsx");
+ok("미국 개장 22:30/23:30 · 마감 05:00/06:00 (앱·감시)", /dst \? 1350 : 1410/.test(app_) && /dst \? 300 : 360/.test(app_)
+  && [T("scripts/watch_alert.py")].every((t) => /\(22 \* 60 \+ 30, 5 \* 60\) if dst else \(23 \* 60 \+ 30, 6 \* 60\)/.test(t)));
 ok("한투 카드는 오늘 탭과 같은 선정 함수 사용", /kisPicks\(stocks, pos, genDay/.test(app_) && !/picks=\{today\?\.pickUs/.test(app_));
-ok("계좌 지정가 여유(+0.5%)가 서버 매수 거절선(메리츠 1.5%)보다 작음", (n(/slip: ([\d.]+)/, kisUi) ?? 99) < 1.5 && /q\.last \* 1\.015/.test(T("api/_lib/meritz.js")));
-
-// 자동 수집이 새로 쓰는 파일은 저장(커밋) 목록에 있어야 함 — 빠지면 저장 단계가 통째로 실패 (2026-10-10 picks_log.json 사고)
-{ const bs = T("scripts/build_snapshot.py"), yml = T(".github/workflows/daily.yml");
-  const consts = Object.fromEntries([...bs.matchAll(/^(\w+) = f"\{OUT_DIR\}\/([\w.]+\.json)"/gm)].map((m) => [m[1], m[2]]));
-  const written = new Set([...bs.matchAll(/_write\(f"\{OUT_DIR\}\/([\w.]+\.json)"/g)].map((m) => m[1]));
-  for (const [k, f] of Object.entries(consts)) if (new RegExp(`_write\\(${k}\\b`).test(bs) || new RegExp(`open\\(${k}, "w"`).test(bs)) written.add(f);
-  const listed = new Set((/for f in ([^;]+); do/.exec(yml)?.[1] || "").trim().split(/\s+/));
-  const miss = [...written].filter((f) => !listed.has(f));
-  ok(`자동 수집이 쓰는 파일 ${written.size}개가 모두 저장 목록에 있음`, miss.length === 0, `빠짐: ${miss.join(", ")} → .github/workflows/daily.yml 의 for f in 목록에 넣어야 저장 단계가 실패하지 않습니다`);
+// 259. 저장 단계 — 폴더 전체를 담고 내 기록(watchlist · resv)만 뺌
+{ const yml = T(".github/workflows/daily.yml");
+  ok("자동 수집 저장: public/data 전체 + watchlist·resv 제외", /git add -A public\/data\n/.test(yml) && /git reset -q -- public\/data\/watchlist\.json public\/data\/resv\.json/.test(yml));
   ok("저장 전 pull 이 바뀐 파일 때문에 멈추지 않음(--autostash)", /git pull --rebase --autostash origin main/.test(yml));
 }
 

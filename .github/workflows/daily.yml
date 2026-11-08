@@ -1,23 +1,17 @@
 name: Daily Data Update
 
 # ─────────────────────────────────────────────────────────────
-# ★ 이 파일 하나가 앱의 모든 데이터를 만듭니다 (무료 한도 안에서 돌도록 짰습니다)
+# ★ 이 파일 하나가 앱의 모든 데이터를 만듭니다
 #
-#   문제였던 것: 예전엔 fetch_yahoo.py 만 돌아서 stocks.json 은 갱신됐지만
-#   앱이 실제로 읽는 snapshot.json / market.json / bars/ 는 아무도 안 만들었습니다.
-#   → build_snapshot.py 와 notify.py 를 같은 job 에 이어 붙였습니다.
-#
-#   순서: fetch_yahoo(유니버스·종목명) → build_snapshot(지표) → notify(텔레그램) → 커밋 1회
-#   한 job 안에서 순서대로 도니 두 워크플로가 동시에 push 하는 충돌이 없습니다.
-#
-# ★ 무료 한도(비공개 저장소 월 2,000분) 설계
-#   KST 16:00  한국 확정 종가 → 유니버스 갱신 + 스냅샷  (약 30분)
-#   KST 06:30  미국 확정 종가 → 스냅샷만              (약 18분)
-#   KST 토 09:00 주간 백업     → 유니버스 갱신 + 스냅샷  (약 30분)
-#   → 월 약 (30+18)×22 + 30×4 = 1,176분. 수동 실행 여유까지 남습니다.
-#
-#   유니버스(stocks.json)는 하루 한 번이면 충분합니다. 종목 목록과 이름은
-#   자주 바뀌지 않는데 수집에만 10분 넘게 쓰므로, 06:30 슬롯에서는 건너뜁니다.
+#   순서(262 · 단계마다 파일 하나 — 바꿔 끼울 땐 그 단계 파일만):
+#     ① build_universe.py      → universe.json      종목 목록 (주 1회 · 토요일·수동 full)
+#     ② fetch_financials_us.py → financials_us.json 미국 재무 (주 1회 · quarterly-us.yml)
+#     ③ build_snapshot.py      → snapshot · market · today · bars   시세·지표·판단 (매번)
+#                                 └ 오늘 살 것은 앱과 같은 함수(src/picks.js · scripts/pick_cli.mjs)
+#     ④ notify.py              → 텔레그램
+#     ⑤ 커밋 1회
+#   공통 설정: config/rules.json(규칙 숫자) · config/market.json(휴장일)
+#   한 job 안에서 순서대로 도니 두 워크플로가 동시에 push 하는 충돌이 없습니다. (공개 저장소라 실행 시간 무료)
 #
 # ★ 매매 결정은 이 두 시각 이후 값으로 하세요.
 #   장중 갱신본은 아직 안 끝난 봉이라 흔들립니다. 검증에서도 확인 주기는
@@ -61,13 +55,6 @@ jobs:
     timeout-minutes: 60     # 코스닥 거래소 확인(.KS→.KQ 재조회)으로 2~4분 늘어납니다
     permissions:
       contents: write
-    env:
-      COLLECT_MODE: daily
-      KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
-      KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
-      KIS_ACCOUNT: ${{ secrets.KIS_ACCOUNT }}
-      # ★ TELEGRAM_* 를 여기 두지 않습니다 → fetch_yahoo.py 가 보내던
-      #   옛 리포트(폐지한 점수 체계·다른 RSI)가 자동으로 멈춥니다.
     steps:
       - uses: actions/checkout@v4
 
@@ -87,9 +74,9 @@ jobs:
               # ★ 102. '가장 최근에 지난' 수집 시각과 비교 (예전엔 00~06시에 돌면 아직 안 온 오늘 06:23 과 비교해 늘 다시 돌았고,
               #        늦게 돈 예약이 미국 장중 값을 만들었습니다). 한국 16:17 · 미국 06:23 · 어제 16:17 중 지금보다 앞선 것
               # ★ 121. 휴장일의 수집 시각은 후보에서 뺍니다 (예전엔 휴일마다 "종가가 아직 오늘이 아님"으로 예약 때마다 다시 돌고 텔레그램도 그만큼 갔음)
-              #        매년 12월에 다음 해 휴장일을 추가 — App.jsx · watch_alert.py · api/watch.py 와 같은 목록
-              KR_HOL = {"2026-09-24", "2026-09-25", "2026-10-05", "2026-10-09", "2026-12-25", "2026-12-31"}
-              US_HOL = {"2026-11-26", "2026-12-25"}
+              # ★ 257. 휴장일은 config/market.json 한 파일 (앱·서버·파이프라인 공통)
+              _cal = json.load(open("config/market.json", encoding="utf-8"))
+              KR_HOL, US_HOL = set(_cal["kr"]), set(_cal["us"])
               z = dict(second=0, microsecond=0)
               cands = []
               for back in range(0, 8):
@@ -123,17 +110,19 @@ jobs:
         with:
           python-version: '3.11'
 
-      # ① 유니버스·종목명 — 16:00 과 토요일, 그리고 수동 실행에서만
-      - name: Install dependencies
-        if: steps.fresh.outputs.skip != 'true' && ((github.event_name == 'workflow_dispatch' && inputs.mode != 'daily' && inputs.mode != 'quick') || github.event.schedule == '13 0 * * 6')
-        run: pip install yfinance requests
+      # 261. '오늘 살 것'은 앱과 같은 함수(src/picks.js)를 node 로 부름 — config/rules.json 을 읽으려면 node 20.10 이상
+      - uses: actions/setup-node@v4
+        if: steps.fresh.outputs.skip != 'true'
+        with:
+          node-version: '20'
 
+      # ① 유니버스·종목명 — 16:00 과 토요일, 그리고 수동 실행에서만
       # ★ 종목풀은 주 1회만 새로 뽑습니다 (토요일 + 수동 실행)
       #   예전엔 평일마다 730종목을 6개월치로 다시 받아 실행 시간의 대부분을 썼습니다.
       #   풀이 매일 바뀌면 신호도 따라 흔들려서, 주 단위로 정리하는 편이 낫습니다.
-      - name: Fetch universe (stocks.json) — 주간 1회
+      - name: ① 종목 목록 (universe.json) — 주간 1회
         if: steps.fresh.outputs.skip != 'true' && ((github.event_name == 'workflow_dispatch' && inputs.mode != 'daily' && inputs.mode != 'quick') || github.event.schedule == '13 0 * * 6')
-        run: python scripts/fetch_yahoo.py
+        run: python scripts/build_universe.py
 
       # ② 앱이 읽는 지표 스냅샷 — 매번. 외부 라이브러리 없이 표준 라이브러리만 씁니다
       #    종목의 80% 미만만 수집되면 일부러 실패하고 기존 데이터를 지킵니다
@@ -161,20 +150,17 @@ jobs:
           WEEKLY: ${{ (github.event.schedule == '13 0 * * 6') && '1' || '0' }}
         run: python scripts/notify.py
 
-      # ④ 커밋 1회 — 스냅샷이 실패해도 stocks.json 은 살립니다
+      # ⑤ 커밋 1회 — 스냅샷이 실패해도 universe.json 은 살립니다
       - name: Commit and push
         if: always() && steps.fresh.outputs.skip != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          rm -f public/data/candles.json
-          git rm --cached --ignore-unmatch public/data/candles.json >/dev/null 2>&1 || true
-          # ★ git add 는 없는 파일을 지정하면 통째로 실패합니다
-          #   (notified.json 은 텔레그램 첫 발송 전엔 없습니다) → 있는 것만 담습니다
-          # ★ alloc_state.json 을 빼먹으면 배분탭 '분기 고정'이 매번 초기화됩니다
-          for f in stocks.json alpha_hits.json snapshot.json market.json notified.json alloc_state.json data_health.json universe_log.json signals_log.json today.json picks_log.json self_check.json shadow_log.json sec_rev.json targets.json earnings.json bars; do
-            [ -e "public/data/$f" ] && git add -A "public/data/$f"
-          done
+          # ★ 259. 폴더 전체를 담고, 파이프라인이 건드리면 안 되는 파일만 뺍니다
+          #   예전엔 담을 파일을 하나씩 적어 새 파일을 빠뜨리면 저장이 안 됐음 (2026-10-10 picks_log.json · 11-08 bounce_log.json)
+          #   watchlist.json(내 기록) · resv.json(매수 예약)은 앱·서버(api)가 직접 저장 → 여기서 덮어쓰면 안 됨
+          git add -A public/data
+          git reset -q -- public/data/watchlist.json public/data/resv.json 2>/dev/null || true
           git diff --staged --quiet || (
             git commit -m "📊 $(date -u -d '+9 hours' +%Y-%m-%d_%H:%M) 데이터 + 스냅샷"
             # ★ --autostash: 목록에 없는 파일이 바뀌어 있어도 pull 이 멈추지 않게 (2026-10-10 picks_log.json 로 사흘 저장 실패)

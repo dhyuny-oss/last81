@@ -1,7 +1,8 @@
+import { createRequire } from "module";
 /**
  * 메리츠증권 Open API 어댑터 — /api/broker 가 BROKER=meritz(기본값)일 때 씁니다
  * ════════════════════════════════════════════════════════════
- * 한투 어댑터(api/_lib/kis.js)와 "같은 약속"으로 답합니다. 그래서 화면(src/Kis.jsx)은 증권사를 몰라도 됩니다.
+ * 증권사 어댑터 약속(what = balance·orders·order·cancel·quote)대로 답합니다. 그래서 화면(src/Kis.jsx)은 증권사를 몰라도 됩니다.
  *   what = balance · orders · order · cancel · quote      (mk:"kr" 이면 🇰🇷 국내 · 없으면 🇺🇸 미국)
  *
  * ▣ Vercel 환경변수 (채팅·깃허브에 적지 마세요)
@@ -272,10 +273,9 @@ function accepted(j, overseas) {
   return String(d.oder_no || "").trim();
 }
 /* 223. 휴장일 — 예약 날짜를 다음 개장일로 잡을 때만 씀 (src/App.jsx · scripts/watch_alert.py 와 같은 목록 + 2027 미국) */
-const HOL = {
-  kr: new Set(["2026-09-24", "2026-09-25", "2026-10-05", "2026-10-09", "2026-12-25", "2026-12-31", "2027-01-01"]),
-  us: new Set(["2026-11-26", "2026-12-25", "2027-01-01", "2027-01-18", "2027-02-15", "2027-03-26", "2027-05-31", "2027-06-18", "2027-07-05", "2027-09-06", "2027-11-25", "2027-12-24"]),
-};
+const MKT_CAL = createRequire(import.meta.url)("../../config/market.json");
+const RULES = createRequire(import.meta.url)("../../config/rules.json");   // 260   // 257. 휴장일 한 파일 (앱과 같은 파일)
+const HOL = { kr: new Set(Object.keys(MKT_CAL.kr)), us: new Set(Object.keys(MKT_CAL.us)) };
 /** 다음 정규장이 열리는 날 (YYYYMMDD) — 🇺🇸 은 뉴욕 날짜 = 한국에서 그날 밤 개장하는 날짜. 지금 장 시작 전이면 오늘 */
 export function nextOpenDay(KR, now = Date.now()) {
   const z = KR ? "Asia/Seoul" : "America/New_York", open = KR ? 540 : 570;
@@ -331,8 +331,8 @@ async function placeOrder(c, ctx, b, KR) {
   let q = null; try { q = KR ? await krQuoteOne(c, ctx, t) : await usQuoteOne(c, ctx, t, ex, { n: 0 }); } catch { q = null; }
   if (!q) fail("지금 가격을 확인하지 못해 주문을 보내지 않았습니다 — 잠시 뒤 다시 눌러 주세요");
   if (!KR && q.ex !== ex) fail(`${t} 은(는) ${{ NASD: "나스닥", NYSE: "뉴욕", AMEX: "아멕스" }[q.ex]} 종목입니다 — 거래소를 바꿔 주세요`);
-  if (side === "buy" && px > q.last * 1.015) fail(`지정가 ${M(px)} 가 지금 가격 ${M(q.last)} 보다 1.5% 넘게 높습니다 — 가격을 다시 보고 넣어 주세요`);   // 218. 매수는 좁게
-  if (side === "sell" && px < q.last * 0.97) fail(`지정가 ${M(px)} 가 지금 가격 ${M(q.last)} 보다 3% 넘게 낮습니다`);
+  if (side === "buy" && px > q.last * (1 + RULES.guard.buyBand / 100)) fail(`지정가 ${M(px)} 가 지금 가격 ${M(q.last)} 보다 ${RULES.guard.buyBand}% 넘게 높습니다 — 가격을 다시 보고 넣어 주세요`);   // 218. 매수는 좁게
+  if (side === "sell" && px < q.last * (1 - RULES.guard.sellBand / 100)) fail(`지정가 ${M(px)} 가 지금 가격 ${M(q.last)} 보다 ${RULES.guard.sellBand}% 넘게 낮습니다`);
   if (side === "sell") {
     await sleep(GAP);
     const have = (KR ? await krBalance(c, ctx) : await usBalance(c, ctx)).rows.find((r) => r.t === t);
@@ -464,3 +464,6 @@ export default async function meritz(req, res) {
       msg: String(e?.message || e).slice(0, 300), tok: ctx.tok ? seal(c, ctx.tok) : undefined });
   }
 }
+
+/* 249. 매수 예약(api/_lib/resv.js)이 같은 함수를 씀 — 검사·상한·번호표가 화면 주문과 똑같이 걸림 */
+export const INT = { getToken, seal, usBalance, usOrders, usQuotes, krBalance, krOrders, krQuotes, placeOrder, regularNow, nextOpenDay, tickKr, pinOk, GAP, sleep };

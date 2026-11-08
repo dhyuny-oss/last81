@@ -3,10 +3,8 @@
 export const openOrder = (d) => { try { window.dispatchEvent(new CustomEvent("order-open", { detail: d })); } catch {} };
 
 /* 223. 다음 정규장이 열리는 날 — 예약 매도가 언제 나가는지 보여 줄 때 (서버 api/_lib/meritz.js nextOpenDay 와 같은 계산 · 같은 휴장일) */
-const HOL = {
-  kr: new Set(["2026-09-24", "2026-09-25", "2026-10-05", "2026-10-09", "2026-12-25", "2026-12-31", "2027-01-01"]),
-  us: new Set(["2026-11-26", "2026-12-25", "2027-01-01", "2027-01-18", "2027-02-15", "2027-03-26", "2027-05-31", "2027-06-18", "2027-07-05", "2027-09-06", "2027-11-25", "2027-12-24"]),
-};
+import MKT_CAL from "../config/market.json";          // 257. 휴장일 한 파일
+const HOL = { kr: new Set(Object.keys(MKT_CAL.kr)), us: new Set(Object.keys(MKT_CAL.us)) };
 /** → { d: "2026-11-02", label: "11/2(월) 밤 개장 때" } · 🇺🇸 은 뉴욕 날짜(= 한국에서 그날 밤 개장) */
 export function nextOpen(KR, now = Date.now()) {
   const z = KR ? "Asia/Seoul" : "America/New_York", open = KR ? 540 : 570;

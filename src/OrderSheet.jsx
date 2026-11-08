@@ -7,18 +7,21 @@
  *   지정가: 매수 = 지금 가격 +0.5% · 매도 = 지금 가격 −0.5% (고칠 수 있음)
  *   검사(오늘 매수 제안과 같은 기준):
  *     막음 — 주문 꺼짐 · 정규장 밖 매수 · 매수 지정가가 지금 +1.5% 초과 / 매도 −3% 미만 · 1건 상한 초과 · 지금 가격 확인 안 됨
- *     빨간 경고(체크해야 보냄) — 시장 급락(−2%↓) · 종목 −5%↓ · +4%↑ 추격 · 손절선 아래 · 앱 신호가 매수!/매도! 아님 · 이미 보유 중
- *     안내 — 개장 직후 5분 · 실적 발표 가까움
+ *     빨간 경고(체크해야 보냄) — 시장 급락(−2%↓) · 종목 −5%↓ · 손절선 아래 · 앱 신호가 매수!/매도! 아님 · 이미 보유 중
+ *     안내(노란 글씨) — +4%↑ 추격(248) · 개장 직후 5분 · 실적 발표 가까움
+ *   249. 장이 닫혀 있을 때 매수 = 매수 예약 — 장이 열린 뒤 서버가 조건을 다시 보고 지정가로 삼 (src/resv.js · api/_lib/resv.js)
  *   보내면: 결과를 보여 주고 'broker-changed' 를 알림 → 계좌 카드가 주문 내역을 다시 불러옴
  * 여는 법: import { openOrder } from "./order.js";  openOrder({ t, side: "buy"|"sell", qty, m: "us"|"kr" })
  */
 import React, { useEffect, useMemo, useState } from "react";
 import { nextOpen } from "./order.js";
+import { resvCall } from "./resv.js";
+import RULES from "./rules.js";
 
 const K = { panel: "#0F1420", panel2: "#161B2E", border: "rgba(255,255,255,.09)", text: "#E5E7EB", dim: "#9CA3AF", gold: "#F59E0B", up: "#30D158", down: "#FF453A", cyan: "#06B6D4" };
 const MONO = "ui-monospace,SFMono-Regular,Menlo,monospace";
 const TOK = "v7.kis.tok", PIN = "v7.kis.pin";
-const G = { mktDown: -2, stDown: -5, stUp: 4, slip: 0.5, buyBand: 1.5, sellBand: 3 };   // 계좌 카드(src/Kis.jsx GUARD) · 서버(api/_lib/meritz.js)와 같은 숫자
+const G = RULES.guard;   // 260. config/rules.json — 계좌 카드(src/Kis.jsx GUARD) · 서버(api/_lib/meritz.js)와 같은 숫자
 const EX = { NMS: "NASD", NGM: "NASD", NCM: "NASD", NYQ: "NYSE", ASE: "AMEX", PCX: "AMEX", BTS: "AMEX" };
 const IDX = { us: [["QQQ", "나스닥100"], ["SPY", "S&P500"]], kr: [["KOSPI", "코스피"], ["KOSDAQ", "코스닥"]] };
 const ls = { get: (k) => { try { return localStorage.getItem(k) || ""; } catch { return ""; } }, set: (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch {} } };
@@ -90,6 +93,8 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
     window.addEventListener("keydown", esc); return () => window.removeEventListener("keydown", esc);
   }, []);                                                                       // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (info?.configured && pin && !needPin) loadQuote(); }, [info]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // 249. 장 밖이라 지금 가격이 없어도 예약 수량은 기준 종가로 (1회차 금액 ÷ 종가)
+  useEffect(() => { if (side === "buy" && !qty && !busy && (s?.c || 0) > 0) { const h = Number(half?.[mk]) || 0; if (h > 0) setQty(String(Math.max(1, Math.floor(h / s.c)))); } }, [busy, side]);   // eslint-disable-line react-hooks/exhaustive-deps
   const flip = (sd) => { if (sd === side) return; setSide(sd); setAck(false); setPx(""); setQty(sd === "sell" && heldQty ? String(heldQty) : qty); if (info?.configured && pin) loadQuote(sd); };
 
   const sess = session(KR);
@@ -109,13 +114,19 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
 
   // 189. 장이 닫혀 있을 때 매도 = 다음 개장 때 매도 예약 (🇺🇸 장 시작 시장가 MOO · 🇰🇷 다음 영업일 시작 시장가)
   const resvMode = side === "sell" && !sess.open;
-  const nxo = resvMode ? nextOpen(KR) : null;                                                   // 223. 언제 나가는지
+  // 249. 장이 닫혀 있을 때 매수 = 매수 예약 (장이 열린 뒤 서버가 조건 확인 → 지정가)
+  const buyResv = side === "buy" && !sess.open;
+  const nxo = resvMode || buyResv ? nextOpen(KR) : null;                                        // 223. 언제 나가는지
+  const resvAmt = nQty * base * 1.03;                                                           // 예약은 '기준 종가 +3%'까지 사므로 그 값으로 상한을 봄
   // 막음 (넘어갈 수 없음)
   const block = !info ? "불러오는 중…"
     : !info.configured ? "계좌가 연결되어 있지 않습니다"
     : !info.canOrder ? "주문이 꺼져 있습니다 (조회 전용)"
     : !pin || needPin ? "앱 비밀번호를 넣어 주세요"
     : resvMode ? (!(nQty >= 1) ? "수량은 1주 이상" : heldQty && nQty > heldQty ? `보유 ${heldQty}주보다 많습니다` : "")
+    : buyResv ? (info.broker !== "meritz" ? "장 밖 매수 예약은 메리츠 연결에서만 됩니다" : held || req.tranche2 ? "이미 보유한 종목(2회차)은 예약이 안 됩니다 — 장 중에 사 주세요"
+        : !(base > 0) ? "기준 종가가 없습니다 — 앱 데이터를 새로 고친 뒤" : !(nQty >= 1) ? "수량은 1주 이상"
+        : cap1 && resvAmt > cap1 ? `기준 종가 +3%로 1건 상한 ${M(cap1, 0)}을 넘을 수 있습니다 — 수량을 줄여 주세요` : "")
     : !(last > 0) ? (busy ? "지금 가격 받는 중…" : "지금 가격을 확인하지 못했습니다 — 다시 보기")
     : side === "buy" && !sess.open ? (KR ? "한국 정규장(09:00~15:30)에만 매수합니다" : "미국 정규장에만 매수합니다 — 장 밖 주문은 보내지 않음")
     : !(nQty >= 1) ? "수량은 1주 이상"
@@ -128,18 +139,21 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
     : "";
   // 빨간 경고 (알고도 하려면 체크)
   const warns = [];
-  if (side === "buy") {
+  if (buyResv) {
+    if (s && s.action !== "buy") warns.push(`앱 신호가 매수!가 아닙니다 (지금: ${s.action === "sell" ? "매도!" : "관망"} · ${md(s.asOf)} 종가 기준) — 서버도 다음 종가에서 신호가 꺼지면 사지 않습니다`);
+    if (!s) warns.push("앱 종목풀에 없는 종목입니다 — 신호를 확인할 수 없음");
+  } else if (side === "buy") {
     if (halt) warns.push(`시장 급락 중 — ${idxR.map(([l, v]) => `${l} ${pct(v)}`).join(" · ")} (기준 ${G.mktDown}%)`);
     if (s && s.action !== "buy") warns.push(`앱 신호가 매수!가 아닙니다 (지금: ${s.action === "sell" ? "매도!" : "관망"} · ${md(s.asOf)} 종가 기준)`);
     if (!s) warns.push("앱 종목풀에 없는 종목입니다 — 신호를 확인할 수 없음");
     if (line && last > 0 && last <= line) warns.push(`지금 가격이 손절선 ${M(line)} 아래 — 신호가 깨졌습니다`);
     if (ch != null && ch <= G.stDown) warns.push(`기준 종가보다 ${pct(ch)} — 급락 중`);
-    if (ch != null && ch >= G.stUp) warns.push(`기준 종가보다 ${pct(ch)} — 이미 많이 올라 추격`);
     if (held && !req.tranche2) warns.push("이미 보유 중인 종목입니다 — 2회차인지 확인");
   } else {
     if (s && s.action !== "sell") warns.push(`앱 신호는 매도!가 아닙니다 (지금: ${s.action === "buy" ? "매수!" : "들고 있기"} · 손절선 ${line ? M(line) : "—"}) — 규칙보다 일찍 파는 것`);
   }
   const notes = [];
+  if (side === "buy" && !buyResv && ch != null && ch >= G.stUp) notes.push(`기준 종가보다 ${pct(ch)} — 이미 많이 올랐습니다 (추격 주의 · 사도 되지만 손절선까지 거리가 멀어짐)`);   // 248. 빨간 체크 → 노란 안내
   if (sess.early) notes.push("개장 직후 5분 — 가격이 크게 흔들리는 시간입니다. 몇 분 뒤가 안전합니다");
   if (side === "buy" && s?.earn) { const d = Math.round((Date.parse(s.earn) - Date.now()) / 864e5); if (d >= 0 && d <= 3) notes.push(`실적 발표 ${d === 0 ? "오늘" : `D-${d}`} — 발표 전후 크게 움직일 수 있음`); }
   const needAck = warns.length > 0;
@@ -166,6 +180,16 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
     if (!canSend) return;
     if (t !== String(req.t || "").toUpperCase()) { setMsg("주문 창 종목이 바뀌었습니다 — 닫고 다시 열어 주세요"); return; }   // 222. 연 종목 = 보내는 종목
     setBusy("send"); setMsg("");
+    if (buyResv) {                                                                             // 249. 매수 예약
+      try {
+        const j = await resvCall({ what: "resvBuyAdd", t, m: mk, n: s?.n || "", ex: KR ? "KRX" : (EX[s?.ex] || q?.ex || ""), qty: nQty, base, line: line || 0, asOf: s?.asOf || "" });
+        if (j.code === "pin") { setNeedPin(true); setMsg("비밀번호가 맞지 않습니다"); setBusy(""); return; }
+        if (!j.ok) { setMsg(j.msg || "예약을 넣지 못했습니다"); setBusy(""); return; }
+        setDone({ resvBuy: true, side, qty: nQty, day: j.added?.day || "" });
+        try { window.dispatchEvent(new Event("resv-changed")); } catch {}
+      } catch { setMsg("연결이 끊겼습니다 — 내 종목 탭 '매수 예약'에서 들어갔는지 먼저 확인해 주세요"); }
+      setBusy(""); return;
+    }
     if (resvMode) {                                                                            // 189. 다음 개장 때 매도 예약
       try {
         const j = await call({ what: "resv", t, qty: nQty, rid: rid(), confirm: true, ...(warnOk ? { warnOk: true } : {}) });
@@ -193,7 +217,8 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
   const step = (d) => setQty(String(Math.max(1, (Math.floor(Number(qty) || 0)) + d)));
   const BK = info?.label || "계좌";
   const sideC = side === "buy" ? K.up : K.down;
-  const half1 = last > 0 && halfAmt > 0 ? Math.max(1, Math.floor(Math.min(halfAmt, cap1 || halfAmt) / last)) : null;
+  const pxRef = buyResv ? base : last;                                                           // 249. 예약은 기준 종가로 주수
+  const half1 = pxRef > 0 && halfAmt > 0 ? Math.max(1, Math.floor(Math.min(halfAmt, cap1 || halfAmt) / pxRef)) : null;
 
   return (
     <div role="dialog" aria-modal="true" aria-label="주문" onClick={onClose}
@@ -242,9 +267,9 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
               <button type="button" onClick={() => step(1)} style={{ ...btn, padding: 0 }} aria-label="수량 늘리기">＋</button>
             </div>
           </label>
-          {resvMode
+          {resvMode || buyResv
             ? <div style={{ display: "grid", gap: 4, color: K.dim, fontSize: 12 }}>가격
-                <div style={{ ...inp, display: "flex", alignItems: "center", fontFamily: "inherit", fontSize: 13, color: K.text }}>{KR ? "다음 영업일 시작 시장가" : "장 시작 시장가 (MOO)"}</div></div>
+                <div style={{ ...inp, display: "flex", alignItems: "center", fontFamily: "inherit", fontSize: 13, color: K.text }}>{buyResv ? "그때 가격 +0.5% (지정가)" : KR ? "다음 영업일 시작 시장가" : "장 시작 시장가 (MOO)"}</div></div>
             : <label style={{ display: "grid", gap: 4, color: K.dim, fontSize: 12 }}>지정가 ({KR ? "원" : "$"})
                 <input value={px} inputMode="decimal" onChange={(e) => setPx(e.target.value.replace(/[^0-9.]/g, ""))} style={inp} aria-label="지정가" />
               </label>}
@@ -253,11 +278,17 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
           {side === "buy" && half1 && <button type="button" onClick={() => setQty(String(half1))} style={{ ...btn, minHeight: 32, padding: "0 10px", fontSize: 12 }}>1회차 {half1}주</button>}
           <button type="button" onClick={() => setQty("1")} style={{ ...btn, minHeight: 32, padding: "0 10px", fontSize: 12 }}>1주</button>
           {side === "sell" && heldQty && <button type="button" onClick={() => setQty(String(heldQty))} style={{ ...btn, minHeight: 32, padding: "0 10px", fontSize: 12 }}>보유 전부 {heldQty}주</button>}
-          {last > 0 && !resvMode && <button type="button" onClick={() => { const raw = side === "buy" ? last * (1 + G.slip / 100) : last * (1 - G.slip / 100);
+          {last > 0 && !resvMode && !buyResv && <button type="button" onClick={() => { const raw = side === "buy" ? last * (1 + G.slip / 100) : last * (1 - G.slip / 100);
               setPx(String(KR ? (side === "buy" ? upTick(raw) : downTick(raw)) : (side === "buy" ? Math.ceil(raw * 100) / 100 : Math.floor(raw * 100) / 100))); }}
             style={{ ...btn, minHeight: 32, padding: "0 10px", fontSize: 12 }}>지정가 = 지금 {side === "buy" ? "+" : "−"}{G.slip}%</button>}
         </div>
-        {resvMode ? (
+        {buyResv ? (
+          <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 10, background: "rgba(6,182,212,.08)", border: `1px solid ${K.cyan}66`, fontSize: 12, lineHeight: 1.6 }}>
+            <b style={{ color: K.cyan }}>지금은 장이 닫혀 있어 매수 예약으로 넣습니다 — {nxo?.label.replace(" 때", "")}{KR ? " · 09:30 뒤" : " 5분 뒤"}부터 서버가 확인</b><br />
+            그때 <b>시장 −2% 이하 · 손절선 아래 · 기준 종가({base > 0 ? M(base) : "—"})보다 +3% 넘게 또는 −5% 넘게 · 새 종가에서 매수! 꺼짐{KR ? " · 한국 시장 위험" : " · 나스닥100 200일선 아래"} · 이미 보유</b>면 사지 않습니다.
+            아니면 그때 가격 +0.5% 지정가로 삽니다. <b>하루만</b> 유효 — 그날 확인하지 못하면 자동 취소.
+            <span style={{ display: "block", color: K.dim }}>예약 확인은 무료 서버 예약이라 개장 뒤 몇 분~1시간쯤 늦을 수 있습니다 · 결과는 텔레그램과 내 종목 탭 '매수 예약' · 그 전에 취소 가능{cap1 ? ` · 최대 약 ${M(resvAmt, 0)}` : ""}</span>
+          </div>) : resvMode ? (
           <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 10, background: "rgba(6,182,212,.08)", border: `1px solid ${K.cyan}66`, fontSize: 12, lineHeight: 1.6 }}>
             <b style={{ color: K.cyan }}>지금은 장이 닫혀 있어 예약으로 보냅니다 — {nxo?.label} 시장가로 매도</b><br />
             규칙(종가가 선 아래 → 다음 장 시작에 판다) 그대로입니다. 갭 하락이면 그만큼 낮게 팔릴 수 있습니다.
@@ -287,7 +318,10 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
         {/* 보내기 / 결과 */}
         {done ? (
           <div role="status" style={{ marginTop: 12, padding: "12px", borderRadius: 10, background: "rgba(48,209,88,.10)", border: `1px solid ${K.up}`, lineHeight: 1.6 }}>
-            {done.resv ? <>
+            {done.resvBuy ? <>
+              <b style={{ color: K.up }}>✓ 매수 예약을 넣었습니다</b> — {KR ? (s?.n || t) : t} {done.qty}주 · {done.day ? `${+done.day.slice(4, 6)}/${+done.day.slice(6, 8)}` : ""} {KR ? "09:30 뒤" : "미국 장 시작 뒤"} 확인
+              <div style={{ color: K.dim, fontSize: 12 }}>조건이 맞으면 그때 가격 +0.5% 지정가로 삽니다. 결과는 텔레그램 · 내 종목 탭 '매수 예약'에서 봅니다(취소도 거기서). 체결되면 내 종목에 자동으로 들어옵니다.</div>
+            </> : done.resv ? <>
               <b style={{ color: K.up }}>✓ 매도 예약을 접수했습니다</b> — {t} {done.qty}주 · {done.how}{done.no ? ` · 예약번호 ${done.no}` : ""}
               <div style={{ color: K.dim, fontSize: 12 }}>장이 열리면 주문이 나갑니다. 확인·취소는 {BK} 앱 '예약주문' 화면에서 합니다. 팔리면 다음에 내 종목 탭을 열 때 자동으로 정리됩니다.</div>
             </> : <>
@@ -301,7 +335,7 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
                   : `지정가에 안 닿으면 대기로 남았다가 장이 끝나면 사라집니다. 내 종목 → ${BK} 카드 '최근 주문'에서 취소할 수 있습니다.`}</div>
             </>}
             <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-              {(done.st === "체결" || done.resv) && <button type="button" onClick={() => { try { window.dispatchEvent(new Event("go-track")); } catch {} onClose(); }} style={{ ...btn, flex: 1, borderColor: K.up }}>내 종목으로</button>}
+              {(done.st === "체결" || done.resv || done.resvBuy) && <button type="button" onClick={() => { try { window.dispatchEvent(new Event("go-track")); } catch {} onClose(); }} style={{ ...btn, flex: 1, borderColor: K.up }}>내 종목으로</button>}
               <button type="button" onClick={onClose} style={{ ...btn, flex: 1, borderColor: K.up }}>닫기</button>
             </div>
           </div>
@@ -312,6 +346,7 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
               style={{ ...btn, width: "100%", marginTop: 6, minHeight: 50, fontSize: 16, color: "#111", background: canSend ? (needAck ? K.down : sideC) : "rgba(255,255,255,.12)", borderColor: "transparent" }}>
               {busy === "send" ? "보내는 중…" : warnOk ? "경고 확인 — 다시 보내기"
                 : resvMode ? `${KR ? (s?.n || t) : t} 다음 개장 때 매도 예약 · ${nQty || 0}주`
+                : buyResv ? `${KR ? (s?.n || t) : t} 매수 예약 · ${nQty || 0}주`
                 : `${KR ? (s?.n || t) : t} ${side === "buy" ? "매수" : "매도"} 보내기${nQty >= 1 && nPx > 0 ? ` · ${nQty}주 ${M(amount, 0)}` : ""}`}</button>
             <div style={{ color: K.dim, fontSize: 11, marginTop: 6, textAlign: "center" }}>{info?.env === "real" ? "실제 계좌에서 실제 돈으로 주문됩니다 · " : ""}같은 주문은 한 번만 전송됩니다</div>
           </>)}

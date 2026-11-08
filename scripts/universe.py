@@ -1,5 +1,5 @@
 """
-종목풀 기준 — 주간 수집(fetch_yahoo)과 매일 계산(build_snapshot)이 같은 기준을 씁니다.
+종목풀 기준 — 주간 목록(build_universe)과 매일 계산(build_snapshot)이 같은 기준을 씁니다.
 
 출처 (모두 무료·키 없음)
   🇰🇷 한국투자증권 공개 종목 마스터  — 공식 한글명 · 시가총액 · 거래정지 · 관리종목 · 시장경고 · 정리매매 · 우선주 · SPAC · 리츠/ETF 구분 · 전일 거래량
@@ -112,7 +112,10 @@ def sp500():
     """{티커: GICS 업종} — 위키백과. 실패하면 {}"""
     try:
         html = _get("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies").decode("utf-8", "replace")
-        rows = re.findall(r'<a[^>]+>([A-Z.]{1,6})</a></td>\s*<td[^>]*><a[^>]+>([^<]+)</a></td>\s*<td[^>]*>([^<]+)</td>', html)
+        html = re.sub(r"<!--.*?-->", "", html, flags=re.S)          # 253. BRK.B · BF.B 칸 안의 편집 주석 때문에 줄을 놓쳤음
+        # 253. 이름 칸 뒤에 ' (Class A)' 처럼 글자가 붙은 줄도 읽음 — 예전엔 9줄을 놓쳐 BF-B·NWSA 가 빠졌음
+        rows = re.findall(r'<a[^>]+>([A-Z.]{1,6})</a></td>\s*<td[^>]*><a[^>]+>([^<]+)</a>([^<]*)</td>\s*<td[^>]*>([^<]+)</td>', html)
+        rows = [(t, (n + x).strip(), s) for t, n, x, s in rows]
         return {t.replace(".", "-"): (_htmllib.unescape(n).strip(), _htmllib.unescape(s).strip()) for t, n, s in rows}   # 135. 위키 이름의 &amp; → &
     except Exception as e:
         print(f"  ⚠️ S&P500 목록 실패: {e}"); return {}
@@ -127,7 +130,7 @@ NASDAQ_TO_GICS = {   # 나스닥 스크리너 업종 → GICS 이름 (섹터 ETF
 #      버크셔는 위키 표에서 빠지는 일이 있어 업종이 비었음. 같은 업종 규칙·섹터 순위가 틀리지 않게 고칩니다.
 SECTOR_FIX = {"BRK-B": "Financials", "BRK-A": "Financials", "LNG": "Energy"}
 # 191. 같은 회사의 다른 주식 종류 — 하나만 남깁니다 (BRK-A 는 1주가 수십만 달러라 살 수 없음 · GOOG 는 GOOGL 과 같은 회사)
-SAME_CO_DROP = {"BRK-A": "BRK-B", "GOOG": "GOOGL"}
+SAME_CO_DROP = {"BRK-A": "BRK-B", "GOOG": "GOOGL", "FOX": "FOXA", "NWS": "NWSA"}   # 253. 폭스·뉴스코프도 B주는 뺌 (거래가 많은 A주만)
 def _gics_of(t, x):
     if t in SECTOR_FIX: return SECTOR_FIX[t]
     if x.get("sector") == "Utilities" and "Oil/Gas" in (x.get("industry") or ""): return "Energy"

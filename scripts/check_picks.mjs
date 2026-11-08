@@ -13,15 +13,23 @@ const wl = JSON.parse(wlRaw);
 const held = new Set((wl.positions || []).map(p => String(p.t || "").toUpperCase()));
 const secRank = Object.fromEntries((market.sectors || []).map(x => [x.tk, [x.rank, x.label]]));
 const krGate = !!(market.judge?.kr?.gate && market.judge.kr.verdict === "risk");      // 176
+const usGate = !!market.judge?.us?.nqGate;                                              // 252
+// 247. 같은 업종 3개 — 보유 종목 업종도 셈: 매수! 종목 중 같은 업종 둘을 보유한 것처럼 넣어 본 경우도 비교
+const bySec = {}; Object.values(snap.stocks).filter(d => d.m === "us" && d.action === "buy" && d.sec).forEach(d => (bySec[d.sec] = bySec[d.sec] || []).push(d.t));
+const twoHeld = (Object.values(bySec).find(a => a.length >= 3) || []).slice(0, 2);
 
 const cases = [
   { revMin: 10, slotsUs: 7, slotsKr: 5 }, { revMin: 0, slotsUs: 5, slotsKr: 3 },
   { revMin: 20, slotsUs: 3, slotsKr: 10 }, { revMin: 5, slotsUs: 10, slotsKr: 1 },
+  ...(twoHeld.length === 2 ? [{ revMin: 0, slotsUs: 10, slotsKr: 5, held: twoHeld }] : []),
 ];
 let bad = 0;
 try {
   for (const cfg of cases) {
-    writeFileSync(`${D}/watchlist.json`, JSON.stringify({ ...wl, settings: { ...(wl.settings || {}), ...cfg } }));
+    const { held: hx, ...sc } = cfg;
+    const pos = hx ? [...(wl.positions || []), ...hx.map(t => ({ t, role: "swing", avg: 1 }))] : (wl.positions || []);
+    // 보유를 넣어 보는 경우엔 메리츠 잔고 요약을 빼야 함 (안 그러면 '메리츠에 없는 기록'으로 빠짐 · 234)
+    writeFileSync(`${D}/watchlist.json`, JSON.stringify({ ...wl, positions: pos, ...(hx ? { broker: null } : {}), settings: { ...(wl.settings || {}), ...sc } }));
     const py = JSON.parse(execFileSync("python3", ["-c", `
 import json, sys
 sys.path.insert(0, "scripts")
@@ -30,11 +38,11 @@ s = json.load(open("${D}/snapshot.json")); m = json.load(open("${D}/market.json"
 t = B.build_today(s["stocks"], m)
 print(json.dumps({"us": [r["t"] for r in t["pickUs"]], "kr": [r["t"] for r in t["pickKr"]]}))
 `], { encoding: "utf-8" }).trim().split("\n").pop());
-    const js = pickToday(snap.stocks, { ...cfg, krGate }, held, { secRank });
+    const js = pickToday(snap.stocks, { ...sc, krGate, usGate }, new Set([...held, ...(hx || [])]), { secRank });
     const a = { us: js.pickUs.map(r => r.t), kr: js.pickKr.map(r => r.t) };
     const same = JSON.stringify(a) === JSON.stringify(py);
     if (!same) bad++;
-    console.log(`${same ? "✅ 같음" : "❌ 다름"}  매출 ${cfg.revMin}% · 🇺🇸 ${cfg.slotsUs}칸 · 🇰🇷 ${cfg.slotsKr}칸`,
+    console.log(`${same ? "✅ 같음" : "❌ 다름"}  매출 ${cfg.revMin}% · 🇺🇸 ${cfg.slotsUs}칸 · 🇰🇷 ${cfg.slotsKr}칸${hx ? ` · 같은 업종 보유 ${hx.join("·")}` : ""}${usGate ? " · 나스닥 필터 작동" : ""}`,
       same ? `🇺🇸 ${a.us.join(",")} | 🇰🇷 ${a.kr.join(",")}` : `\n   앱   ${JSON.stringify(a)}\n   파이프라인 ${JSON.stringify(py)}`);
   }
 } finally {
