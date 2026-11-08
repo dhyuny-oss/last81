@@ -120,8 +120,9 @@ export function DcTab({ etfs, market, pos, setPos, openStock, sizer }) {
       <Sec right={<Grade k="mid" />}>오늘 규칙</Sec>
       {cores.map(c => {
         const hold = c.state === "hold";
+        const sell = c.state === "wait" && c.n > 0;   // 285. 신호는 빨강인데 보유 기록이 남음 → 팔아야 함
         return (
-          <Card key={c.key} style={{ marginBottom: 8, borderColor: hold ? "rgba(48,209,88,.35)" : "rgba(245,158,11,.35)" }}>
+          <Card key={c.key} style={{ marginBottom: 8, borderColor: hold ? "rgba(48,209,88,.35)" : sell ? "rgba(255,69,58,.55)" : "rgba(245,158,11,.35)" }}>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: FS.lg, fontWeight: 800 }}>{c.label} <span style={{ fontSize: FS.sm, color: C.muted, fontWeight: 500 }}>{Math.round(c.w * 100)}%</span></div>
@@ -132,8 +133,8 @@ export function DcTab({ etfs, market, pos, setPos, openStock, sizer }) {
                   판단 {c.d?.asOf || "—"} 종가{c.buy?.asOf ? ` · 국내가 ${c.buy.asOf}` : ""}
                 </div>
               </div>
-              <span style={{ fontSize: FS.md, fontWeight: 800, color: hold ? C.emerald : C.gold, whiteSpace: "nowrap" }}>
-                {hold ? "🟢 보유" : c.state === "wait" ? "🟡 대기" : "⚪ 확인 불가"}</span>
+              <span style={{ fontSize: FS.md, fontWeight: 800, color: hold ? C.emerald : sell ? C.red : C.gold, whiteSpace: "nowrap" }}>
+                {hold ? "🟢 보유" : sell ? "🔴 매도 필요" : c.state === "wait" ? "🟡 대기" : "⚪ 확인 불가"}</span>
             </div>
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 7 }}>
               <St d={c.d} />

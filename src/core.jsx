@@ -262,6 +262,9 @@ export const StaleWarn = ({ info, m }) => (info && (m ? !(m === "kr" ? info.okKr
 export const NOTES_REF = { cur: {} };     // 행 표시용 — App 이 그릴 때마다 최신으로 맞춤
 export const tgtOf = (t, notes, s) => { const my = notes?.[t]?.tg; return my ? { v: my, mine: true } : (s?.tgt?.a ? { v: s.tgt.a, mine: false } : null); };
 export const tgtGap = (tg, c) => (tg && c) ? (tg / c - 1) * 100 : null;
+/* 286. 목표가 표기 한 곳 — "현재가 → 목표 (남은 %)" 로 숫자 두 개를 같이 보여 줌. who = "내 목표" | "애널 평균 목표" */
+export const tgtText = (who, tv, c, m) => { const g = tgtGap(tv, c); if (g == null) return null;
+  return g <= 0 ? `${who} ${price(tv, m)} 도달 · 현재가 ${price(c, m)} (목표보다 ${(-g / (1 + g / 100)).toFixed(0)}% 위)` : `${who} ${price(tv, m)} · 현재가 ${price(c, m)} → 목표까지 +${g.toFixed(0)}% 남음`; };
 
 /** 62. 트레일링선 거리 — 앱 전체에서 한 가지 뜻: '선에 닿으면 잃는 폭'(%) 양수. 화면에는 "선까지 −17%" */
 export const lossOf = (s) => (s?.stLine && s?.c) ? (1 - s.stLine / s.c) * 100 : null;
@@ -425,7 +428,7 @@ export function subLine(s, sizer, market, extra = []) {
     s.mcap ? `시총 ${s.m === "kr" ? (s.mcap >= 10000 ? `${(s.mcap / 10000).toFixed(1)}조` : `${s.mcap.toLocaleString()}억`) : `$${s.mcap >= 1e12 ? (s.mcap / 1e12).toFixed(1) + "T" : (s.mcap / 1e9).toFixed(0) + "B"}`}` : null,
     `하루 거래 ${money(s.tv, s.m)}`,
     (() => { const tg = tgtOf(s.t, NOTES_REF.cur, s); const g = tg && tgtGap(tg.v, s.c);
-             return g == null ? null : tg.mine ? (g <= 0 ? "내 목표 도달" : `내 목표까지 +${g.toFixed(0)}%`) : (g <= 0 ? "애널 목표보다 위" : `애널 목표까지 +${g.toFixed(0)}%`); })(),
+             return g == null ? null : tgtText(tg.mine ? "내 목표" : "애널 평균 목표", tg.v, s.c, s.m); })(),
     // 188. 몇 주 살 수 있는지는 고르는 단계에선 필요 없어 뺌 — 주수는 주문하는 곳(차트 1회차 등록·증권사 주문·2회차 안내)에만
     s.rsi != null ? `RSI ${s.rsi.toFixed(0)}(3일${s.rsiUp ? "↑" : "↓"})` : null,
     secRank ? `업종 ${secRank.label} ${secRank.rank}위` : null,

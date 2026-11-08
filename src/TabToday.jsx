@@ -164,6 +164,8 @@ export function MarketTab({ market, setTab, onShowRules, list, pos, stocks, item
   const dcWait = (market.dc?.core || []).filter(c => c.state === "wait").length;
   // 99. DC 탭에서 고른 규칙으로 말함 (182: 3지수 보유면 1월 첫 거래일에만 할 일)
   const dcHold3 = dcModeOf() === "hold";
+  const dcSell = (() => { try { const dn = JSON.parse(localStorage.getItem("v6.dc.done") || "{}");   // 285. 신호 빨강인데 보유 기록이 남은 몫
+    return (market.dc?.core || []).filter(c => c.state === "wait" && (dn[c.key] || []).length > 0).map(c => c.label.replace(/^(미국|한국) /, "")); } catch { return []; } })();
   const S = sessions(Date.now());
   const kst = new Date(Date.now() + 9 * 3600000), mins = kst.getUTCHours() * 60 + kst.getUTCMinutes(), wd = kst.getUTCDay() >= 1 && kst.getUTCDay() <= 5;
   const nowSeg = wd && ([...S.kr.map(x => ["🇰🇷 " + x[0], x[1], x[2]]), ...S.us.map(x => ["🇺🇸 " + x[0], x[1], x[2]])].find(([, a, b]) => inSpan(mins, a, b)) || null);
@@ -257,6 +259,7 @@ export function MarketTab({ market, setTab, onShowRules, list, pos, stocks, item
         {TodoRow(["2", t2N ? `2회차 ${t2L.map(x => nm(x.p.t)).join(" · ")}` : "2회차 0건", t2N ? `1회차 +3~6% 마감 — 나머지 절반 · ${t2L.map(x => `${nm(x.p.t)} ${x.q ?? "—"}주`).join(" · ")}` : "없음", "track", t2N ? C.emerald : C.muted])}
         <BuyBlock />
         {TodoRow(dcHold3 ? ["4", "DC 그대로 보유", "3지수 보유 · 1년에 한 번(1월 첫 거래일) 비중만 맞춤", "alloc", C.dim]
+                 : dcSell.length ? ["4", `DC 매도 필요 — ${dcSell.join("·")}`, "신호가 빨강인데 보유 기록이 남아 있습니다 · DC 탭에서 매도 후 '매도 완료 기록'", "alloc", C.red]
                  : ["4", `DC ${dcWait === 0 ? "모두 보유" : dcWait === (market.dc?.core || []).length ? "모두 대기(안전자산)" : `${(market.dc?.core || []).filter(c => c.state === "wait").map(c => c.label.replace(/^(미국|한국) /, "")).join("·")} 대기`}`, "느린 ST · 색이 바뀌면 알림", "alloc", C.dim])}
       </Card>
 

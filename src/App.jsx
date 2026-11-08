@@ -188,8 +188,7 @@ const brokerPicks = (stocks, pos, genDay, fx, m = "us", market = null) => {
   if (m === "us" && usGateOf(market)) return { list: [], note: `오늘 탭 기준: 나스닥100 이 200일선 아래(${pct(market.judge.us.nq200, 1)})라 미국은 새로 사지 않습니다` };
   const sl = slotInfo(pos, m), pa = planAmounts(plan, fx), flag = m === "kr" ? "한국" : "미국";
   if (!pa || !((m === "kr" ? pa.kr : pa.us) > 0))                       // 오늘 탭과 같은 판정 — 투자금 0이면 살 것 없음
-    return { list: [], note: `오늘 탭 기준: ${flag} 투자금이 0이라 살 것이 없습니다`,
-             test: m === "kr" && all.length ? { list: all.slice(0, Math.max(1, sl.free)), note: `모의 시험용: 한국 투자금이 0원이라 오늘 탭에는 없지만, 모의 계좌에서만 한국 추천 ${Math.min(all.length, Math.max(1, sl.free))}개를 보여 줍니다` } : null };
+    return { list: [], note: `오늘 탭 기준: ${flag} 투자금이 0이라 살 것이 없습니다` };
   const list = all.slice(0, sl.free);
   return { list, note: sl.free === 0 ? `오늘 탭 기준: 칸이 다 차서(보유 ${sl.held}/${sl.n}칸) 살 것이 없습니다` : all.length > list.length ? `오늘 탭 기준: 빈 칸 ${sl.free}개만큼만 · 대기 ${all.length - list.length}개는 빼고 보여 줍니다` : all.length === 0 ? "오늘 탭 기준: 조건에 맞는 종목이 없습니다" : "" };
 };

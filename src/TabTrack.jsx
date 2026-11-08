@@ -11,7 +11,7 @@ import {
 import { openOrder, nextOpen } from "./order.js";
 import { useResv, resvOf, resvDay, resvCall, RESV_ST } from "./resv.js";
 import { AboutCard, AboutLine, SchedLine, WeekSched, pastEarnTxt } from "./Info.jsx";
-import { C, Card, Chip, CopyBtn, DipTag, Empty, FS, InfoLink, LiveTag, MONO, NOTES_REF, ONE, PLAN_KEY, Sec, Seg, StockRow, actionOf, avgOf, btn, budgetOf, col, dcModeOf, earnDays, earnTxt, getRevMin, inp, investedIn, investedOf, kstDay, linkBtn, liveOf, loadJSON, loadPlan, localToday, lossOf, lossTxt, md, mktOfT, money, nextTrancheOf, pct, pickCfg, planAmounts, postWatch, price, relOf, roomFor, settingsChanged, shortName, slotInfo, subLine, tgtGap, tgtOf, trOf, usDST, useBroker, useLive } from "./core.jsx";
+import { C, Card, Chip, CopyBtn, DipTag, Empty, FS, InfoLink, LiveTag, MONO, NOTES_REF, ONE, PLAN_KEY, Sec, Seg, StockRow, actionOf, avgOf, btn, budgetOf, col, dcModeOf, earnDays, earnTxt, getRevMin, inp, investedIn, investedOf, kstDay, linkBtn, liveOf, loadJSON, loadPlan, localToday, lossOf, lossTxt, md, mktOfT, money, nextTrancheOf, pct, pickCfg, planAmounts, postWatch, price, relOf, roomFor, settingsChanged, shortName, slotInfo, subLine, tgtGap, tgtText, tgtOf, trOf, usDST, useBroker, useLive } from "./core.jsx";
 
 
 /** 보유 평가 — 회차 합산 (시장 통화 그대로) */
@@ -118,7 +118,7 @@ export function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, m
     const done = new Set(applied);
     fillPlan.forEach(x => {
       const pick = x.items.filter(i => i.kind !== "partial" && !fillOff[i.key]);
-      const r = applyFills(cur, pick, { src: x.env === "real" ? (x.broker || "kis") : "kis-demo", mOf: mktOfT, nameOf: t => stocks[t]?.n });
+      const r = applyFills(cur, pick, { src: (x.broker || "kis"), mOf: mktOfT, nameOf: t => stocks[t]?.n });
       cur = r.pos; tradesAdd = [...tradesAdd, ...r.trades];
       x.items.forEach(i => i.odnos.forEach(o => done.add(o)));      // 체크를 뺀 것·일부 매도도 목록에서 지움
     });
@@ -126,7 +126,7 @@ export function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, m
     setApplied(done); saveSet("v13.kis.applied", done); setFillOpen(false); setFillOff({});
   };
   const addExtra = (x, e, role = "long") => {
-    setPos(v => [...v, { id: Date.now(), t: e.t, role, date: kstDay(), tr: [{ d: kstDay(), px: e.avg || 0, amt: Math.round((e.avg || 0) * e.qty * 100) / 100 }], src: x.env === "real" ? (x.broker || "kis") : "kis-demo" }]);
+    setPos(v => [...v, { id: Date.now(), t: e.t, role, date: kstDay(), tr: [{ d: kstDay(), px: e.avg || 0, amt: Math.round((e.avg || 0) * e.qty * 100) / 100 }], src: (x.broker || "kis") }]);
   };
   /* ★ 228. 내 종목 = 메리츠(실계좌) 기준 — 체결된 매수·매도는 열 때 자동으로 반영. 반영한 내용은 한 번 알리고 되돌릴 수 있음
    *   (일부 매도·메리츠에만 있는 종목은 지금처럼 골라서) · 서버와 맞추기가 끝난 뒤에만(다른 기기 기록과 겹쳐 두 번 들어가지 않게) */
@@ -162,7 +162,7 @@ export function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, m
         {fillPlan.map(x => (
           <div key={x.m} style={{ marginTop: 10 }}>
             {(x.items.length > 0 || x.extra.length > 0) && <div style={{ fontSize: FS.sm, fontWeight: 700, marginBottom: 4 }}>{x.m === "us" ? "🇺🇸 미국" : "🇰🇷 한국"}
-              {x.env !== "real" && <span style={{ fontSize: FS.xs, color: C.gold, fontWeight: 400 }}> · 모의투자 체결 — 반영하면 내 종목에 '모의'로 표시됩니다</span>}</div>}
+</div>}
             {x.items.map(i => {
               const off = fillOff[i.key] || i.kind === "partial"; const sell = i.side === "sell";
               return (
@@ -401,8 +401,8 @@ export function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, m
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <div onClick={() => openStock(p.t)} style={{ flex: 1, minWidth: 0, cursor: "pointer", fontSize: 15, fontWeight: 700, ...ONE }}>
                   <Chip tone={rt}>{rl}</Chip> {s.m === "kr" ? <b>{s.n}</b> : <b style={{ fontFamily: MONO }}>{p.t}</b>} <span style={{ color: C.dim, fontWeight: 400, fontSize: FS.sm }}>{s.m === "kr" ? p.t : shortName(s.n)}</span></div>
-                {p.src === "kis-demo" && <Chip tone="w">모의</Chip>}
-                {kq && <span style={{ fontSize: 10.5, color: C.cyan, whiteSpace: "nowrap" }}>{kq.label || BK}{kq.env !== "real" ? " 모의" : ""} {kq.qty}주</span>}
+                
+                {kq && <span style={{ fontSize: 10.5, color: C.cyan, whiteSpace: "nowrap" }}>{kq.label || BK} {kq.qty}주</span>}
                 {!kq && p.role !== "etf" && Object.values(brokerSync).some(k => k && k.env === "real" && k.mk === s.m && Array.isArray(k.rows)) &&
                   <span title="계좌 잔고에 없음 — 이미 팔았거나 다른 곳에서 산 종목" style={{ fontSize: 10.5, color: C.gold, whiteSpace: "nowrap" }}>{BK}에 없음</span>}
                 <button onClick={() => closePos(p, s)} aria-label="매도 기록"
@@ -442,8 +442,7 @@ export function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, m
                   {earnTxt(s) && <><br /><b style={{ color: earnDays(s) <= 7 ? C.gold : C.dim }}>📅 {earnTxt(s)}</b></>}
                   {pastEarnTxt(s) && <><br />{pastEarnTxt(s)}</>}
                   {(() => { const tg = tgtOf(p.t, NOTES_REF.cur, s); const g = tg && tgtGap(tg.v, s.c);
-                    return g == null ? null : <><br />{tg.mine ? (g <= 0 ? `🎯 내 목표 ${price(tg.v, s.m)} 도달 (매도 신호 아님)` : `내 목표 ${price(tg.v, s.m)}까지 +${g.toFixed(0)}%`)
-                      : (g <= 0 ? `애널 평균 목표 ${price(tg.v, s.m)} — 지금보다 낮음 (참고 · 매도 신호 아님)` : `애널 평균 목표 ${price(tg.v, s.m)}까지 +${g.toFixed(0)}%`)}</>; })()}
+                    return g == null ? null : <><br />{g <= 0 ? "🎯 " : ""}{tgtText(tg.mine ? "내 목표" : "애널 평균 목표", tg.v, s.c, s.m)}{g <= 0 ? " (매도 신호 아님)" : ""}</>; })()}
                   {!isSell && s.stLine && (
                     <div style={{ height: 6, borderRadius: 4, background: "rgba(255,255,255,.07)", marginTop: 6, overflow: "hidden" }}>
                       <div style={{ height: "100%", width: `${Math.max(0, Math.min(100, (lossOf(s) ?? 0) * 4))}%`, background: `linear-gradient(90deg,${C.gold},${C.emerald})` }} />
