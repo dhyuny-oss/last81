@@ -112,7 +112,7 @@ export function MarketLine({ market, setTab }) {
                                   background: C.panel, border: `1px solid ${usG || krG ? C.red + "55" : C.border}`, color: C.text, cursor: "pointer", minHeight: 44 }}>
       <b style={{ fontSize: FS.sm, flexShrink: 0 }}>🌐 시장</b>
       <span style={{ flex: 1, minWidth: 0, fontSize: FS.xs, lineHeight: 1.5 }}>
-        🇺🇸 {ju?.nqGate == null ? <span style={{ color: C.muted }}>나스닥100 다음 수집 때 판단</span>
+        🇺🇸 {(ju?.blocked ?? ju?.nqGate) == null ? <span style={{ color: C.muted }}>나스닥100 다음 수집 때 판단</span>
           : <><Tag ok={!usG}>{usG ? "새로 안 삼" : "새로 사기 가능"}</Tag><span style={{ color: C.muted }}> (나스닥100 200일선 {pct(ju.nq200, 1)})</span></>}
         {" · "}🇰🇷 <Tag ok={!krG}>{krG ? "새로 안 삼" : "새로 사기 가능"}</Tag>
         <span style={{ color: C.muted }}> (폭 3년 하위 {jk?.breadthPct ?? "—"}%)</span>

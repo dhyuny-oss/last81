@@ -425,9 +425,9 @@ export const benchName = (s) => s?.m === "kr" ? "코스피" : (NASDAQ.has(s?.ex)
 export const REV_KEY = "v9.revMin";
 export const getRevMin = () => { try { const v = localStorage.getItem(REV_KEY); return v == null ? RULES.revMin : Number(v); } catch { return RULES.revMin; } };
 /** 176. 한국 시장 '위험'(폭 3년 하위 40% 아래)이면 한국은 새로 사지 않음 — 오늘·찾기·한투·선정·파이프라인이 같은 판정을 씀 */
-export const krGateOf = (market) => !!(market?.judge?.kr?.gate && market.judge.kr.verdict === "risk");
+export const krGateOf = (market) => { const j = market?.judge?.kr; return !!(j && (j.blocked ?? (j.gate && j.verdict === "risk"))); };   // blocked = 새로 사지 않음 (옛 market.json 은 gate+risk)
 /** 252. 🇺🇸 나스닥100 이 200일선 아래면 미국은 새로 사지 않음 — 파이프라인 judge.us.nqGate (오늘·찾기·계좌·텔레그램 같은 판정) */
-export const usGateOf = (market) => !!market?.judge?.us?.nqGate;
+export const usGateOf = (market) => { const j = market?.judge?.us; return !!(j && (j.blocked ?? j.nqGate)); };
 export const US_GATE_TXT = "나스닥100 200일선 아래 — 새로 안 삼";
 /** 254. 하락장(게이트) 동안 남는 돈 · DC 안전자산 — 2026-11 비교: 단기채 5년 최대낙폭 −0.5% · 장기채 −44~48%(2022 금리 급등) */
 export const SPARE_TXT = { us: "남는 달러는 단기 국채 ETF(SGOV·BIL)에", kr: "남는 원화는 단기채·국고채3년 ETF에" };

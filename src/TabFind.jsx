@@ -170,17 +170,18 @@ export function MarketInfo({ market, setTab, list, pos, stocks, items, sizer, op
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <b style={{ fontSize: FS.lg }}>{m === "us" ? "🇺🇸 미국" : "🇰🇷 한국"}</b>
           <span style={{ fontSize: FS.sm, fontWeight: 800, color: c, background: `${c}1f`, border: `1px solid ${c}55`, borderRadius: 99, padding: "1px 10px" }}>{t}</span>
-          <span style={{ marginLeft: "auto", fontSize: 10.5, color: C.muted, textAlign: "right" }}>판정 근거: {j.gate ? "폭 3년 하위 40%" : "S&P500 200일선 · 급락"}</span>
+          <span style={{ marginLeft: "auto", fontSize: 10.5, color: C.muted, textAlign: "right" }}>판정 근거: {j.basis || (m === "kr" ? "폭 3년 하위 40%" : "나스닥100 200일선")}</span>
         </div>
         <div style={{ fontSize: FS.sm, color: C.dim, marginTop: 5 }}>{j.why}</div>
-        <div style={{ fontSize: FS.xs, marginTop: 2, color: j.gate ? (j.verdict === "risk" ? C.red : C.cyan) : C.muted, fontWeight: j.gate ? 700 : 400 }}>
-          {j.gate ? (j.verdict === "risk" ? `→ 한국은 새로 사지 않음 · 가진 종목은 트레일링선대로 · ${SPARE_TXT.kr}` : "→ 한국 새로 사기 가능 (이 판정으로 정함)") : "→ 이 색은 참고 · 미국 새로 사기는 아래 나스닥100 200일선으로 정함"}</div>
+        {(() => { const bl = j.blocked ?? (m === "kr" ? (j.gate && j.verdict === "risk") : j.nqGate); const nm = m === "kr" ? "한국" : "미국";
+          return bl == null ? null : <div style={{ fontSize: FS.xs, marginTop: 2, color: bl ? C.red : C.cyan, fontWeight: 700 }}>
+            {bl ? `→ ${nm}은 새로 사지 않음 · 가진 종목은 트레일링선대로${m === "kr" ? ` · ${SPARE_TXT.kr}` : ""}` : `→ ${nm} 새로 사기 가능`}</div>; })()}
         <div style={{ marginTop: 6 }}>
           <Head cols={["지수", "종가", "3일", "5일", "1달", "200일선"]} grid={IDX_GRID6} />
           {rows.map(idxRow)}
         </div>
         {m === "us" && (() => {     // 252. 나스닥100 200일선 — 미국 새로 사기 규칙
-          const g = j.nqGate, v = j.nq200 ?? nq?.ma200p, run = (j.nqRun ?? nq?.run200);
+          const g = j.blocked ?? j.nqGate, v = j.nq200 ?? nq?.ma200p, run = (j.nqRun ?? nq?.run200);
           if (g == null) return <div style={{ marginTop: 8, fontSize: FS.xs, color: C.gold }}>나스닥100 자료를 받지 못해 오늘은 막지 않습니다 (다음 수집 때 다시 판단)</div>;
           return <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 9, fontSize: FS.xs, lineHeight: 1.6,
                                background: g ? "rgba(255,69,58,.10)" : "rgba(48,209,88,.08)", border: `1px solid ${g ? C.red : C.emerald}55`, color: C.dim }}>

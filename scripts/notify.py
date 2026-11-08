@@ -192,12 +192,11 @@ def build(snap, mkt, state, now):
     for k, flag, name in (("us", "🇺🇸", "미국"), ("kr", "🇰🇷", "한국")):
         j = judge.get(k)
         if j:
-            tail = "" if j.get("gate") else " <i>(참고용)</i>"
-            L.append(f"{flag} <b>{name} {VERDICT.get(j['verdict'], j['verdict'])}</b>{tail} "
+            L.append(f"{flag} <b>{name} {VERDICT.get(j['verdict'], j['verdict'])}</b> "
                      f"<i>— {j.get('why','')}</i>")
-            if k == "us" and j.get("nqGate") is not None:      # 252. 미국 새로 사기는 나스닥100 200일선으로
-                L.append(f"   {'⛔ <b>나스닥100 200일선 아래' if j['nqGate'] else '✅ 나스닥100 200일선 위'}"
-                         f"({(j.get('nq200') or 0):+.1f}%) → 미국 {'새로 안 삼</b>' if j['nqGate'] else '새로 사기 가능'}")
+            if k == "us" and j.get("blocked") is not None:      # 252. 미국 새로 사기는 나스닥100 200일선으로
+                L.append(f"   {'⛔ <b>나스닥100 200일선 아래' if j['blocked'] else '✅ 나스닥100 200일선 위'}"
+                         f"({(j.get('nq200') or 0):+.1f}%) → 미국 {'새로 사지 않음</b>' if j['blocked'] else '새로 사기 가능'}")
                 # 255. 하락장 QQQ 반등 — 기록만 (실제 규칙 아님 · 신호가 생기거나 끝난 날만 한 줄)
                 try:
                     _b = ((json.load(open(f"{DATA}/self_check.json", encoding="utf-8")).get("report") or {}).get("bounce") or {})
@@ -383,12 +382,12 @@ def build(snap, mkt, state, now):
             _freeN[_m] = max(0, _n - _h)
         # 176. 한국 시장 '위험'이면 한국은 새로 사지 않음 (앱 '오늘 살 것'·today.json 과 같은 규칙)
         _jk = ((mkt or {}).get("judge") or {}).get("kr") or {}
-        if _jk.get("gate") and _jk.get("verdict") == "risk" and _open.get("kr"):
+        if _jk.get("blocked") and _open.get("kr"):
             _open["kr"] = False
             _note = [x if not x.startswith("🇰🇷") else "🇰🇷 <b>시장 위험 — 새로 사지 않음</b> · 남는 원화는 단기채·국고채3년" for x in _note]
         # 252. 🇺🇸 나스닥100 이 200일선 아래면 미국은 새로 사지 않음 (앱·today.json 과 같은 규칙 · 보유는 트레일링선대로)
         _ju = ((mkt or {}).get("judge") or {}).get("us") or {}
-        if _ju.get("nqGate") and _open.get("us"):
+        if _ju.get("blocked") and _open.get("us"):
             _open["us"] = False
             _note = [x if not x.startswith("🇺🇸") else f"🇺🇸 <b>나스닥100 200일선 아래({_ju.get('nq200'):+.1f}%) — 새로 사지 않음</b> · 남는 달러는 SGOV·BIL" for x in _note]
         L.append("   " + " · ".join(_note) + " — <i>빈 칸만큼만 삽니다</i>")

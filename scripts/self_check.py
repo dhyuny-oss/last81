@@ -199,7 +199,7 @@ def bounce(out_dir, series, market):
     rows = series.get(key) or []
     if isinstance(rows, dict): rows = rows.get("rows") or []
     rows = [r for r in rows if r and r[1]]
-    gate = ((market.get("judge") or {}).get("us") or {}).get("nqGate")
+    gate = ((market.get("judge") or {}).get("us") or {}).get("blocked")
     today = None
     if len(rows) >= 10 and gate is not None:
         d, c = _day(rows[-1][0]), rows[-1][1]

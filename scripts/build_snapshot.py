@@ -492,13 +492,14 @@ def main():
     market["judge"]   = decide_judge(market["indices"], breadth)
     # 252. 나스닥100 을 못 받은 날은 지난 판정을 그대로 (하루 수집 실패로 필터가 풀리지 않게)
     _ju, _pj = market["judge"].get("us") or {}, ((prev_mkt or {}).get("judge") or {}).get("us") or {}
-    if _ju and _ju.get("nqGate") is None and _pj.get("nqGate") is not None:
-        _ju.update({"nqGate": _pj["nqGate"], "nq200": _pj.get("nq200"), "nqRun": _pj.get("nqRun"), "nqStale": True})
+    if _ju and _ju.get("blocked") is None and _pj.get("blocked") is not None:
+        _ju.update({"blocked": _pj["blocked"], "verdict": _pj.get("verdict", _ju["verdict"]), "why": _pj.get("why", _ju["why"]),
+                    "nq200": _pj.get("nq200"), "nqRun": _pj.get("nqRun"), "nqStale": True})
         print(f"  ⚠️ 나스닥100 수집 실패 — 지난 판정 유지 (200일선 {_pj.get('nq200')}%)")
     market["ref"]     = ref if ref else prev_mkt.get("ref") or {}     # 평일 감시 모드가 쓸 분포
     for mkt, j in market["judge"].items():
         print(f"  판단 {mkt}: {j['verdict']} — {j['why']}"
-              f"{'' if j['gate'] else '  (색은 참고 · 새로 사기는 나스닥100 200일선)'}")
+              f"  → {'새로 사지 않음' if j.get('blocked') else '새로 사기 가능' if j.get('blocked') is False else '확인 안 됨'}")
 
     # 실전 장부 갱신 (지수는 market 의 idxbars 를 날짜 문자열로 바꿔서)
     try:

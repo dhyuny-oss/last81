@@ -12,8 +12,8 @@ const wlRaw = readFileSync(`${D}/watchlist.json`, "utf-8");
 const wl = JSON.parse(wlRaw);
 const held = new Set((wl.positions || []).map(p => String(p.t || "").toUpperCase()));
 const secRank = Object.fromEntries((market.sectors || []).map(x => [x.tk, [x.rank, x.label]]));
-const krGate = !!(market.judge?.kr?.gate && market.judge.kr.verdict === "risk");      // 176
-const usGate = !!market.judge?.us?.nqGate;                                              // 252
+const krGate = !!market.judge?.kr?.blocked;
+const usGate = !!market.judge?.us?.blocked;
 // 247. 같은 업종 3개 — 보유 종목 업종도 셈: 매수! 종목 중 같은 업종 둘을 보유한 것처럼 넣어 본 경우도 비교
 const bySec = {}; Object.values(snap.stocks).filter(d => d.m === "us" && d.action === "buy" && d.sec).forEach(d => (bySec[d.sec] = bySec[d.sec] || []).push(d.t));
 const twoHeld = (Object.values(bySec).find(a => a.length >= 3) || []).slice(0, 2);

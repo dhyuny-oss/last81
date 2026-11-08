@@ -180,10 +180,10 @@ def build_today(stocks, market):
     held = {str(p.get("t", "")).upper() for p in (wl.get("positions") or [])}
     cfg = wl.get("settings") or {}
     rev_min = float(cfg.get("revMin", REV_MIN)); slots_us = int(cfg.get("slotsUs") or RULES["slots"]["us"]); slots_kr = int(cfg.get("slotsKr") or RULES["slots"]["kr"])   # 168. 기본 = 권장 7·5 (src/picks.js SLOTS_DEFAULT)
-    # 176. 한국 시장 '위험'(폭 3년 하위 40% 아래)이면 한국은 새로 사지 않음 — 2010–26 검증 연 11.4% → 24.1% (주 1회 폭 · 보유는 그대로)
+    # 새로 사지 않는 나라 — judge.{kr,us}.blocked (scripts/snap/market.py decide_judge). 근거 수치는 config/rules.json _why
     _jk = (market.get("judge") or {}).get("kr") or {}
-    kr_gate = bool(_jk.get("gate") and _jk.get("verdict") == "risk")
-    us_gate = bool(((market.get("judge") or {}).get("us") or {}).get("nqGate"))   # 252. 나스닥100 200일선 아래 → 미국 새로 안 삼
+    kr_gate = bool(_jk.get("blocked"))
+    us_gate = bool(((market.get("judge") or {}).get("us") or {}).get("blocked"))
     # 98. 1회차 금액 — 앱 💰 투자금(직투 금액 ÷ 칸 수의 절반). 앱이 금액을 보낸 적이 없으면 넣지 않음
     size = {}
     for _m, _amt, _n in (("us", cfg.get("usAmt"), slots_us), ("kr", cfg.get("krAmt"), slots_kr)):
