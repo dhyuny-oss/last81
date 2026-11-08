@@ -63,10 +63,15 @@
   ],
   "functions": {
     "api/broker.js": {
-      "maxDuration": 60
+      "maxDuration": 60,
+      "includeFiles": "config/**"
     },
     "api/cron/*.js": {
-      "maxDuration": 60
+      "maxDuration": 60,
+      "includeFiles": "config/**"
+    },
+    "api/watchlist.js": {
+      "includeFiles": "config/**"
     }
   }
 }
