@@ -19,8 +19,24 @@
   "extras": [
     "GH"
   ],
-  "trades": [],
-  "updatedAt": "2026-11-08T13:10:10.555Z",
+  "trades": [
+    {
+      "t": "SOXL",
+      "n": "DIREXION SEMICONDUCTOR DAILY 3X",
+      "m": "us",
+      "role": "swing",
+      "buy": 46.5015824915825,
+      "sell": 48.9,
+      "in": "2026-11-05",
+      "out": "2026-11-06",
+      "days": 1,
+      "pl": 5.157711587238256,
+      "k": 1,
+      "inv": 41432.91,
+      "src": "meritz"
+    }
+  ],
+  "updatedAt": "2026-11-08T13:10:21.564Z",
   "settings": {
     "revMin": 20,
     "slotsUs": 7,
@@ -33,11 +49,23 @@
   },
   "excludes": [],
   "backup": {
-    "at": "2026-11-08T13:10:10.555Z",
-    "positions": [],
-    "watch": [
-      "APH"
+    "at": "2026-11-08T13:10:21.564Z",
+    "positions": [
+      {
+        "t": "SN",
+        "avg": 222.95,
+        "tr": [
+          {
+            "d": "2026-11-08",
+            "px": 222.95,
+            "amt": 3121.3
+          }
+        ],
+        "role": "swing",
+        "date": "2026-11-08"
+      }
     ],
+    "watch": [],
     "notes": {}
   },
   "notes": {},
