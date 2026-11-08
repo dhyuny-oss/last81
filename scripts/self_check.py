@@ -283,7 +283,7 @@ def run(out_dir, stocks, series, market, health):
 # ─────────────────────────── 텔레그램 글 (notify.py 가 씀)
 def report_text(o):
     r = o.get("report") or {}
-    L = ["<b>🔎 알파터미널 3주 점검</b>", "<i>보고만 합니다 — 규칙은 자동으로 바뀌지 않습니다</i>", ""]
+    L = ["<b>🔎 Alpha Terminal 3주 점검</b>", "<i>보고만 합니다 — 규칙은 자동으로 바뀌지 않습니다</i>", ""]
     L.append("<b>① 신호별 성적 (20거래일 · 쌓인 기록만)</b>")
     for s in r.get("signals") or []:
         L.append(f"· {s['k']} {s['n']}건" + (f" 평균 {s['avg']:+.1f}% · 승률 {s['win']:.0f}% · 지수대비 {s['excess']:+.1f}%p" if s.get("excess") is not None and s['n'] >= MIN_PICKS else "") + f" → {s['verdict']}")
@@ -307,7 +307,7 @@ def report_text(o):
 def anomaly_text(o):
     an = [a for a in (o.get("anomalies") or []) if a["lvl"] in ("err", "warn")]
     if not an: return None
-    return "\n".join(["<b>⚠️ 알파터미널 데이터 점검</b>"] + [f"· {a['msg']}" for a in an] + ["", "<i>앱 점검 탭에서도 볼 수 있습니다</i>"])
+    return "\n".join(["<b>⚠️ Alpha Terminal 데이터 점검</b>"] + [f"· {a['msg']}" for a in an] + ["", "<i>앱 점검 탭에서도 볼 수 있습니다</i>"])
 
 
 def _write(path, obj):

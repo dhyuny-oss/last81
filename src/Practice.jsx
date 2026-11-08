@@ -260,7 +260,7 @@ export default function Practice({ onClose }) {
 
           <details style={{ color: K.dim, fontSize: 13 }}>
             <summary style={{ cursor: "pointer" }}>이 연습의 규칙과 한계</summary>
-            <p style={{ margin: "6px 0", maxWidth: "65ch" }}>문제는 실제 과거 시세로 만든 {R.length}개입니다(미국 {R.filter((x) => x.m === "us").length} · 한국 {R.filter((x) => x.m === "kr").length}, 2010년 6월~2026년 3월). 그날 알파터미널 규칙으로 처음 "매수!"가 된 종목 중 3개를 보여줍니다. 하나는 앱이 고르는 종목(강세·눌림 먼저, 그다음 강도 높은 순)이고 나머지 둘은 같은 날 후보 중 무작위입니다.</p>
+            <p style={{ margin: "6px 0", maxWidth: "65ch" }}>문제는 실제 과거 시세로 만든 {R.length}개입니다(미국 {R.filter((x) => x.m === "us").length} · 한국 {R.filter((x) => x.m === "kr").length}, 2010년 6월~2026년 3월). 그날 Alpha Terminal 규칙으로 처음 "매수!"가 된 종목 중 3개를 보여줍니다. 하나는 앱이 고르는 종목(강세·눌림 먼저, 그다음 강도 높은 순)이고 나머지 둘은 같은 날 후보 중 무작위입니다.</p>
             <p style={{ margin: "6px 0", maxWidth: "65ch" }}>성적은 앱과 같은 방식으로 셉니다. 다음 날 시가에 사고, 종가가 트레일링선 아래로 마감하면 그다음 날 시가에 팝니다. 수수료·세금·환율은 뺐습니다. 그래프 값은 6개월 전을 100으로 맞춘 지수이고, 카드의 숫자는 모두 신호일 기준입니다.</p>
             <p style={{ margin: "6px 0", maxWidth: "65ch" }}>업종과 회사 설명은 지금 기준이라 신호일 당시와 다를 수 있습니다. 지금 종목풀에 남아 있는 종목만 들어 있어 상장폐지된 종목이 빠져 있고, 그래서 실제보다 성적이 좋게 나옵니다. 한 판의 결과는 운이 크니 여러 판의 평균으로 보세요.</p>
             <button type="button" style={{ ...seg(false), marginTop: 4 }} onClick={reset}>기록 지우고 처음부터</button>

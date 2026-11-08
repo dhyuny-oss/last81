@@ -113,49 +113,6 @@ export function marketState(nowMs = Date.now()) {
   return { krRegular, krExt, usRegular, usPre, usAfter, weekend, anyOpen, next, dst, krLabel, usLabel, krHol, usHol };
 }
 
-/* ══════════════ 검증 결과 — 시장별 근거 등급 ══════════════
-   백테스트(미국 416종목·한국 294종목, 1996~2026)에서 시장마다 답이 달랐습니다.
-   같은 규칙을 두 시장에 쓰면 한쪽이 반드시 틀리므로, 여기 한 곳에 적어 두고
-   화면·알림이 모두 이 표를 따릅니다.                                        */
-export const EVIDENCE = {
-  find: {                                   // 가격구조 + RS 상위
-    kr: { ok: true,  note: "한국 2010–18 +1.82% · 2019–23 +2.39% · 2024–26 +3.98% 모두 유의" },
-    us: { ok: false, note: "미국 최근 2년은 +0.12%로 유의하지 않음 (2019–23까지는 유의했음)" },
-  },
-  oversold: {                               // 고점 −40% + 3년 건강 60%
-    us: { ok: true,  note: "미국 +10.57% 유의 (252일 보유)" },
-    kr: { ok: false, note: "한국 −7.24%로 유의하게 손해. 낙폭이 클수록 더 나빴고, 백분위·변동성 조정으로 바꿔도 살아나지 않았습니다" },
-  },
-  vol: {                                    // 변동성 상위
-    us: { ok: true,  note: "미국 최근 2년 +4.10% 유의 — 지금 가장 강한 신호" },
-    kr: { ok: false, note: "한국 −1.95%로 신호가 되지 않음" },
-  },
-  ma200: {
-    kr: { ok: true,  note: "한국 최근 2년 판별력 +6.98%p — 아래면 실제로 위험" },
-    us: { ok: false, note: "미국 최근 2년은 판별력이 뒤집힘. 7년간 제대로 맞은 건 2022년 한 번" },
-  },
-};
-
-/* ══════════════ 판단 규칙 (스펙 3요소) ══════════════ */
-/** 발굴탭 판단 — 추세템플릿 · RS70 · 돌파(재돌파 or ST전환) */
-/** 진입 판단 — ★ 돌파(재돌파·ST전환)를 필수 조건에서 뺐습니다.
- *  검증: 돌파를 요구하면 후보가 85% 줄고 목록이 하루 사이 100% 교체되는데,
- *        성과 차이는 없었습니다(+1.41% vs +1.20%, 표본은 12배 차이).
- *  이제 핵심은 가격구조 + RS 이고, 돌파는 '오늘 움직임' 참고 표시입니다. */
-/** 시장 판단을 '관망 전환'에 쓸 수 있는 시장인지.
- *  파이프라인이 gate=true 로 표시한 시장(한국)만 게이트로 씁니다.
- *  미국은 검증을 통과한 타이밍 지표가 없어(15개 후보 전부 2010년 이후 −)
- *  판단을 화면에 보여주기만 하고 후보를 관망으로 바꾸지 않습니다. */
-/** 과매도탭 판단 — 논리가 반대라 라벨을 일부러 다르게 (발굴탭과 혼동 방지) */
-export function verdictOversold(s) {
-  if (!s) return null;
-  const deep = (s.w52p ?? 0) <= -40, mid = (s.w52p ?? 0) <= -25;
-  const healthy = (s.hlt ?? 0) >= 0.6;
-  if (deep && healthy) return { k: "watch", t: "🔵 관찰후보", c: C.cyan, why: "깊은 낙폭 + 장기 추세 건강" };
-  if (mid && healthy) return { k: "soft", t: "🔷 관찰", c: "#3B82F6", why: "낙폭 진행 중" };
-  return { k: "no", t: "⚪ 제외", c: C.muted, why: healthy ? "낙폭 부족" : "장기 추세 훼손" };
-}
-
 /* ══════════════ 공통 UI (휴대폰 우선) ══════════════
    원칙 — 한 손 엄지로 쓰는 화면
    · 글자는 11px 아래로 내리지 않습니다 (예전 8~9px 은 휴대폰에서 읽히지 않았습니다)
@@ -240,7 +197,6 @@ export const DipTag = ({ s, big }) => {
   const [t, c] = DIP[k];
   return <span style={{ fontSize: big ? FS.lg : FS.xs, fontWeight: 800, color: c, whiteSpace: "nowrap" }}>{t}</span>;
 };
-export const SigChip = ({ s }) => <ActionTag s={s} />;
 
 /* ══════════════ 종목 행 (모든 탭 공통) ══════════════ */
 export const ONE = { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
@@ -482,21 +438,7 @@ export function subLine(s, sizer, market, extra = []) {
   ].filter(Boolean).join(" · ");
 }
 
-/* ══════════════ 1. 시장 ══════════════ */
-/** 폭 추이 미니 차트 — 판정 줄 오른쪽. 점선 = 3년 백분위 40 근처(위험 경계) */
-export function Spark({ b, c }) {
-  const hist = b?.hist || [];
-  if (hist.length < 5) return <span />;
-  const W = 84, H = 30, ys = hist.map(r => r[1]);
-  const lo = Math.min(...ys), hi = Math.max(...ys), sp = Math.max(hi - lo, 1);
-  const d = hist.map((r, i) => `${i ? "L" : "M"}${(i / (hist.length - 1) * W).toFixed(1)},${(H - 2 - (r[1] - lo) / sp * (H - 4)).toFixed(1)}`).join("");
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: W, height: H, display: "block" }} aria-label="폭 추이">
-      <path d={d} fill="none" stroke={c} strokeWidth="1.5" />
-      <circle cx={W} cy={H - 2 - (ys[ys.length - 1] - lo) / sp * (H - 4)} r="2.5" fill={c} />
-    </svg>);
-}
-
+/* ══════════════ 공통 머리글 · 표 ══════════════ */
 /** 159. 칸 머리 — 번호 · 제목 · 이 칸이 답하는 질문 (오늘 탭 흐름: 할 일 → 시장 → 위험 → 섹터 → 종목) */
 export const Step = ({ n, children, q, right }) => (
   <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "18px 2px 8px" }}>
@@ -507,8 +449,6 @@ export const Step = ({ n, children, q, right }) => (
     {right && <span style={{ marginLeft: "auto", flexShrink: 0, fontSize: FS.xs, color: C.muted }}>{right}</span>}
   </div>);   // 252. 이름 칸 넓힘 (나스닥100 이 잘렸음)
 
-// 칸 폭은 고정 픽셀 대신 비율로 — 글자를 키운 좁은 화면에서도 이름 칸이 뭉개지지 않게
-export const IDX_GRID = "minmax(0,1.5fr) minmax(0,1.1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)";
 /** 표 머리글 — 칸 이름을 행마다 반복하지 않고 한 번만 적습니다 */
 // 좁은 화면에서 숫자가 잘리지 않도록 글자 크기를 화면 폭에 맞춰 줄입니다
 export const FIT = { fontSize: "clamp(10.5px, 3.1vw, 12px)", fontFamily: MONO, whiteSpace: "nowrap", letterSpacing: -0.4 };

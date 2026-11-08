@@ -8,7 +8,7 @@
   안전   이번에 못 받은 종목은 지난 값을 그대로 둠
 
 처리량:
-  - 미국 종목 ~500개 예상 (알파 daily가 수집한 풀)
+  - 미국 종목 ~500개 예상 (universe.json 의 미국 종목)
   - yfinance 호출 평균 1초/종목 → 약 8~10분
   - 한국 종목은 이번 단계에서 스킵 (PR #3d 별도 진행)
 
@@ -260,7 +260,7 @@ def is_complete(result):
 
 def main():
     print("=" * 70)
-    print(f"Beta Terminal v0.4 — 미국 풀 재무 수집")
+    print(f"Alpha Terminal — 미국 재무 수집")
     print(f"yfinance: {yf.__version__}")
     print(f"시작: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 70)

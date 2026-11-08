@@ -35,8 +35,8 @@ def _load(path, default):
 
 
 def previous():
-    """지난주 목록 — universe.json, 없으면 예전 stocks.json (처음 한 번 옮길 때)"""
-    src = _load(OUT, None) or _load(os.path.join(DATA, "stocks.json"), {})
+    """지난주 목록 — universe.json"""
+    src = _load(OUT, None) or {}
     out = {}
     for t, v in (src.get("stocks") or {}).items():
         sec = v.get("sector") or ""

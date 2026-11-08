@@ -244,21 +244,16 @@ def attach_quarterly(stocks, refresh=False):
     print(f"  📊 분기 매출 붙임: {n}종목 (캐시 {cache.get('asOf')})")
 
 def load_universe():
-    """262. ① 종목풀 — universe.json (없으면 예전 stocks.json)"""
-    for f in ("universe.json", "stocks.json"):
-        try:
-            return json.load(open(f"{OUT_DIR}/{f}", encoding="utf-8"))
-        except FileNotFoundError:
-            continue
-    raise SystemExit("❌ 종목풀(universe.json)이 없습니다 — scripts/build_universe.py 를 먼저 실행하세요")
+    """① 종목풀 — universe.json (scripts/build_universe.py 가 만듦)"""
+    try:
+        return json.load(open(f"{OUT_DIR}/universe.json", encoding="utf-8"))
+    except FileNotFoundError:
+        raise SystemExit("❌ 종목풀(universe.json)이 없습니다 — scripts/build_universe.py 를 먼저 실행하세요")
 
 
 def load_fin():
-    """262. ② 미국 재무 — financials_us.json 의 data (없으면 예전 stocks.json 의 financials)"""
-    try:
-        return json.load(open(f"{OUT_DIR}/financials_us.json", encoding="utf-8")).get("data") or {}
-    except FileNotFoundError:
-        return (json.load(open(f"{OUT_DIR}/stocks.json", encoding="utf-8")).get("financials") or {})
+    """② 미국 재무 — financials_us.json 의 data (scripts/fetch_financials_us.py 가 만듦)"""
+    return json.load(open(f"{OUT_DIR}/financials_us.json", encoding="utf-8")).get("data") or {}
 
 
 def fin_flags(stocks):

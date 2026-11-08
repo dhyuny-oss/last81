@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Alpha Terminal v4 — 지표 스냅샷 파이프라인
+Alpha Terminal — 지표 스냅샷 파이프라인
 ════════════════════════════════════════════════════════════════
 핵심 원칙: "한 번 계산, 어디서나 표시"
   · 모든 지표를 여기서 한 번만 계산해 snapshot.json 에 저장
@@ -107,7 +107,7 @@ def main():
     t0 = time.time()
     print("="*64); print(f"  Alpha Terminal 스냅샷 파이프라인 v{VERSION}"); print("="*64)
 
-    # 종목풀 — ① 종목 목록 단계(build_universe.py)의 universe.json + 내가 직접 넣은 종목(EXTRA_FILE)
+    # 종목풀 — ① 종목풀 단계(build_universe.py)의 universe.json + 내가 직접 넣은 종목(EXTRA_FILE)
     src = load_universe()
     universe = {}
     for tk, s in (src.get("stocks") or {}).items():
@@ -472,7 +472,7 @@ def main():
     # 변동성 백분위 — 시장 안에서 줄세우기 (미국 진입 신호로 사용)
     pct_fill(stocks, "atrp", "atrr", ref, focus)
     # 화면·알림 어디서도 쓰지 않는 중간값 제거는 모든 백분위 계산이 끝난 '뒤'에
-    DROP = ("atrp", "macdX", "stPrev", "vr", "vr5", "rsi45", "upTrend")
+    DROP = ("atrp", "d200r", "rsi45", "upTrend")
     for d in stocks.values():
         for k in DROP: d.pop(k, None)
 

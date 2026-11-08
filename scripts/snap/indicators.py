@@ -134,16 +134,6 @@ def trend_template(cd):
         (px/lo252-1)*100 >= 30 and (px/hi252-1)*100 >= -25
     )
 
-def rebreak(cd, win=252):
-    """★ 재돌파 — 고점 대비 5%↓ 눌린 뒤 신고가 (백테스트 초과 +1.84%, 단순 신고가의 3배)"""
-    if len(cd) < win+11: return None
-    c=[x["c"] for x in cd]
-    hi_prev = max(c[-(win+1):-1])
-    if c[-1] <= hi_prev: return False
-    hi_at10 = max(c[-(win+11):-11])
-    dist10 = (c[-11]/hi_at10-1)*100 if hi_at10 else 0
-    return bool(dist10 < -5)
-
 def healthy_ratio(cd, years=3):
     """3년 중 200일선 위에 있던 비율 — 과매도 탭의 '우량' 판정 (12개월 중앙 +10.1%·승률 60%)"""
     need = 200 + 252          # 최소 1년치 창은 확보
@@ -256,7 +246,7 @@ def build_series(cd, keep, nd):
 
 def build_stock(ticker, cd, meta, name, market, sector):
     if len(cd) < 30: return None
-    # ★ 종목명 — stocks.json 의 label 이 티커와 같으면(미국 425종목이 전부 그랬음)
+    # ★ 종목명 — universe.json 의 label 이 티커와 같으면(미국 425종목이 전부 그랬음)
     #   야후 meta 의 회사명으로 채웁니다. 추가 요청 0회 (이미 받아둔 응답).
     if not name or name == ticker:
         name = meta.get("longName") or meta.get("shortName") or ticker
@@ -264,7 +254,7 @@ def build_stock(ticker, cd, meta, name, market, sector):
     c = [x["c"] for x in cd]; v = [x["v"] for x in cd]
     px = c[-1]
     ma200 = sma(c, 200)
-    v20 = sma(v, 20); v5 = sma(v, 5)
+    v5 = sma(v, 5)
     _v50 = sma(v, 50)
     # ★ 52주 고점은 장중 고가 기준 — 증권사·차트사이트와 같은 정의입니다.
     #   종가만 쓰면 INFY 가 -45% 로 나오지만 실제 고점 대비로는 -63% 입니다.
@@ -280,25 +270,18 @@ def build_stock(ticker, cd, meta, name, market, sector):
         "c": round(px, 4),
         "d1": _r(chg(cd,1)), "d3": _r(chg(cd,3)), "d5": _r(chg(cd,5)), "d21": _r(chg(cd,21)),
         "rsi": _r(rsi_wilder(c)),
-        "macdH": _r(hist, 4), "macdX": (hist is not None and prevh is not None and prevh < 0 <= hist),
+        "macdH": _r(hist, 4),
         "st": st_count(cd),
-        "stPrev": st_count(cd[:-1]) if len(cd) > 21 else None,
         "cloud": ichimoku_pos(cd),
-        "vr":  _r(v[-1]/v20, 3) if v20 else None,          # 당일 ÷ 20일평균
-        "vr5": _r(v5/v20, 3) if (v5 and v20) else None,    # 5일 ÷ 20일평균 ★ 신호용
         "tv":  int(turn20) if turn20 else None,            # 거래대금 20일평균
         "ma200p": _r((px/ma200-1)*100) if ma200 else None,
         "w52p":   _r((px/hi252-1)*100) if hi252 else None,
         "tmpl": trend_template(cd),
-        "brk":  rebreak(cd),
         "hlt":  (healthy_ratio(cd) or (None,None))[0],
         "hltY": (healthy_ratio(cd) or (None,None))[1],   # 실제 관측 연수 (3년 미만이면 그대로 표시)
         "bars": len(cd),
         "asOf": datetime.fromtimestamp(cd[-1]["t"], timezone.utc).strftime("%Y-%m-%d"),
     }
-    # ★ ST 0→3 전환 = 진입 트리거 (기존 App.jsx 는 이 계산이 불가능했음)
-    d["stFlip"] = bool(d["st"] == 3 and d["stPrev"] is not None and d["stPrev"] < 3)
-
     # ★ 추세 매매 신호 재료 (2026-09 검증)
     #   매도 기준 = 느린 슈퍼트렌드(12,3) 빨강. "셋 중 하나라도 빨강"으로 팔면 평균 7일 보유에
     #   비용 빼면 남는 게 없었고, 느린 선 기준은 약 30일 보유·손익비 1.4~1.7 이었습니다.
