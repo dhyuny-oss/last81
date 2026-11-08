@@ -1,27 +1,39 @@
 {
   "stocks": {},
-  "positions": [],
-  "watch": [
-    "APH"
+  "positions": [
+    {
+      "t": "SN",
+      "avg": 222.95,
+      "tr": [
+        {
+          "d": "2026-11-08",
+          "px": 222.95,
+          "amt": 3121.3
+        }
+      ],
+      "role": "swing",
+      "date": "2026-11-08"
+    }
   ],
+  "watch": [],
   "extras": [
     "GH"
   ],
   "trades": [],
-  "updatedAt": "2026-11-08T05:53:21.649Z",
+  "updatedAt": "2026-11-08T13:10:10.555Z",
   "settings": {
     "revMin": 20,
     "slotsUs": 7,
     "slotsKr": 5,
     "dcAmt": 100000000,
-    "dcMode": "hold",
+    "dcMode": "st",
     "dcSemi": false,
     "usAmt": 45000,
     "krAmt": 10000000
   },
   "excludes": [],
   "backup": {
-    "at": "2026-11-08T05:53:21.649Z",
+    "at": "2026-11-08T13:10:10.555Z",
     "positions": [],
     "watch": [
       "APH"
