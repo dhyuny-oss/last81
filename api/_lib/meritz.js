@@ -1,3 +1,4 @@
+import { createRequire } from "module";
 /**
  * 메리츠증권 Open API 어댑터 — /api/broker 가 BROKER=meritz(기본값)일 때 씁니다
  * ════════════════════════════════════════════════════════════
@@ -272,10 +273,8 @@ function accepted(j, overseas) {
   return String(d.oder_no || "").trim();
 }
 /* 223. 휴장일 — 예약 날짜를 다음 개장일로 잡을 때만 씀 (src/App.jsx · scripts/watch_alert.py 와 같은 목록 + 2027 미국) */
-const HOL = {
-  kr: new Set(["2026-09-24", "2026-09-25", "2026-10-05", "2026-10-09", "2026-12-25", "2026-12-31", "2027-01-01"]),
-  us: new Set(["2026-11-26", "2026-12-25", "2027-01-01", "2027-01-18", "2027-02-15", "2027-03-26", "2027-05-31", "2027-06-18", "2027-07-05", "2027-09-06", "2027-11-25", "2027-12-24"]),
-};
+const MKT_CAL = createRequire(import.meta.url)("../../config/market.json");   // 257. 휴장일 한 파일 (앱과 같은 파일)
+const HOL = { kr: new Set(Object.keys(MKT_CAL.kr)), us: new Set(Object.keys(MKT_CAL.us)) };
 /** 다음 정규장이 열리는 날 (YYYYMMDD) — 🇺🇸 은 뉴욕 날짜 = 한국에서 그날 밤 개장하는 날짜. 지금 장 시작 전이면 오늘 */
 export function nextOpenDay(KR, now = Date.now()) {
   const z = KR ? "Asia/Seoul" : "America/New_York", open = KR ? 540 : 570;

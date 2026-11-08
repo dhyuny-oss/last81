@@ -1,0 +1,40 @@
+name: Check
+
+# ★ 265. 자동 점검 — PR 을 올리거나 고칠 때마다 빌드 + 시험 + 화면 점검을 돌립니다
+#   하나라도 실패하면 PR 에 빨간 X 가 붙습니다 → 합치기 전에 알 수 있음 (공개 저장소라 무료)
+#   시험 목록: package.json 의 "check" (주문 체결 반영 · 매수 예약 · 앱=파이프라인 오늘 살 것 · 여러 곳 같은 값) + 화면 5개
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'npm' }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: 설치
+        run: npm ci
+      - name: 파이썬 문법
+        run: python -m py_compile scripts/*.py
+      - name: 빌드
+        run: npm run build
+      - name: 시험
+        run: npm run check
+      - name: 화면 점검 준비
+        run: |
+          pip install playwright==1.48.0
+          python -m playwright install --with-deps chromium
+      - name: 화면 점검
+        run: |
+          npx vite preview --port 4228 --strictPort &
+          sleep 4
+          python scripts/check_screens.py

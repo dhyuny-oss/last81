@@ -87,9 +87,9 @@ jobs:
               # ★ 102. '가장 최근에 지난' 수집 시각과 비교 (예전엔 00~06시에 돌면 아직 안 온 오늘 06:23 과 비교해 늘 다시 돌았고,
               #        늦게 돈 예약이 미국 장중 값을 만들었습니다). 한국 16:17 · 미국 06:23 · 어제 16:17 중 지금보다 앞선 것
               # ★ 121. 휴장일의 수집 시각은 후보에서 뺍니다 (예전엔 휴일마다 "종가가 아직 오늘이 아님"으로 예약 때마다 다시 돌고 텔레그램도 그만큼 갔음)
-              #        매년 12월에 다음 해 휴장일을 추가 — App.jsx · watch_alert.py · api/watch.py 와 같은 목록
-              KR_HOL = {"2026-09-24", "2026-09-25", "2026-10-05", "2026-10-09", "2026-12-25", "2026-12-31"}
-              US_HOL = {"2026-11-26", "2026-12-25"}
+              # ★ 257. 휴장일은 config/market.json 한 파일 (앱·서버·파이프라인 공통)
+              _cal = json.load(open("config/market.json", encoding="utf-8"))
+              KR_HOL, US_HOL = set(_cal["kr"]), set(_cal["us"])
               z = dict(second=0, microsecond=0)
               cands = []
               for back in range(0, 8):
@@ -169,12 +169,11 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           rm -f public/data/candles.json
           git rm --cached --ignore-unmatch public/data/candles.json >/dev/null 2>&1 || true
-          # ★ git add 는 없는 파일을 지정하면 통째로 실패합니다
-          #   (notified.json 은 텔레그램 첫 발송 전엔 없습니다) → 있는 것만 담습니다
-          # ★ alloc_state.json 을 빼먹으면 배분탭 '분기 고정'이 매번 초기화됩니다
-          for f in stocks.json alpha_hits.json snapshot.json market.json notified.json alloc_state.json data_health.json universe_log.json signals_log.json today.json picks_log.json self_check.json shadow_log.json bounce_log.json sec_rev.json targets.json earnings.json bars; do
-            [ -e "public/data/$f" ] && git add -A "public/data/$f"
-          done
+          # ★ 259. 폴더 전체를 담고, 파이프라인이 건드리면 안 되는 파일만 뺍니다
+          #   예전엔 담을 파일을 하나씩 적어 새 파일을 빠뜨리면 저장이 안 됐음 (2026-10-10 picks_log.json · 11-08 bounce_log.json)
+          #   watchlist.json(내 기록) · resv.json(매수 예약)은 앱·서버(api)가 직접 저장 → 여기서 덮어쓰면 안 됨
+          git add -A public/data
+          git reset -q -- public/data/watchlist.json public/data/resv.json 2>/dev/null || true
           git diff --staged --quiet || (
             git commit -m "📊 $(date -u -d '+9 hours' +%Y-%m-%d_%H:%M) 데이터 + 스냅샷"
             # ★ --autostash: 목록에 없는 파일이 바뀌어 있어도 pull 이 멈추지 않게 (2026-10-10 picks_log.json 로 사흘 저장 실패)

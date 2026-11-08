@@ -77,11 +77,14 @@ const secA = ids((today.sectors || []).map((x) => ({ t: x.tk ?? x.t }))), secB =
 ok("업종 순위 today = market (앞쪽)", secA === secB, `${secA} / ${secB}`, true);
 
 console.log("── 5. 코드에 여러 번 적힌 같은 값 ──");
-const hol = (txt, name) => { const m = new RegExp(name + "[^\\n]*?[\\[{(]([^\\]})]*)").exec(txt); return m ? (m[1].match(/\d{4}-\d\d-\d\d/g) || []).sort().join(",") : null; };
-const files = { "src/App.jsx": ["KR_HOLIDAYS", "US_HOLIDAYS"], "scripts/watch_alert.py": ["KR_HOLIDAYS", "US_HOLIDAYS"], "api/watch.py": ["KR_HOLIDAYS", "US_HOLIDAYS"], ".github/workflows/daily.yml": ["KR_HOL", "US_HOL"] };
-for (const i of [0, 1]) {
-  const got = Object.entries(files).map(([f, names]) => [f, hol(T(f), names[i] + " = ")]);
-  ok(`${i ? "🇺🇸" : "🇰🇷"} 휴장일 4곳 동일 (${got[0][1]})`, got.every((g) => g[1] && g[1] === got[0][1]), got.map((g) => `${g[0]}: ${g[1]}`).join("\n     "));
+// 257. 휴장일은 config/market.json 한 파일 — 코드에 날짜 목록을 다시 적지 않았는지
+{ const cal = JSON.parse(T("config/market.json"));
+  const users = { "src/App.jsx": /config\/market\.json/, "src/order.js": /config\/market\.json/, "api/_lib/meritz.js": /config\/market\.json/,
+                  "scripts/notify.py": /from mktcal import/, "scripts/watch_alert.py": /from mktcal import/, "scripts/build_snapshot.py": /from mktcal import/, ".github/workflows/daily.yml": /config\/market\.json/ };
+  const bad_ = Object.entries(users).filter(([f, re]) => !re.test(T(f)) || /"20\d\d-\d\d-\d\d", "20\d\d-\d\d-\d\d", "20\d\d-\d\d-\d\d"/.test(T(f))).map(([f]) => f);
+  ok(`휴장일 한 파일(config/market.json · 🇰🇷 ${Object.keys(cal.kr).length} · 🇺🇸 ${Object.keys(cal.us).length}) — 7곳이 모두 그 파일을 읽음`, bad_.length === 0, bad_.join(", "));
+  const yr = new Date().getFullYear(), mo = new Date().getMonth() + 1;
+  ok(`휴장일이 내년(${yr + 1})까지 있음`, cal.lastYear >= (mo >= 11 ? yr + 1 : yr), "config/market.json 에 다음 해 휴장일을 넣으세요", true);
 }
 const py = T("scripts/build_snapshot.py"), app_ = T("src/App.jsx"), picksJs = T("src/picks.js"), notify = T("scripts/notify.py");
 const n = (re, txt) => { const m = re.exec(txt); return m ? Number(m[1]) : null; };
@@ -97,19 +100,14 @@ ok("화면에 '판정은 DC에만 사용'·근거 없는 16.9% 같은 옛 문구
 ok("폭 계산 날짜(breadthAsOf)가 데이터에 있음 — 171", !!market.breadthAsOf, "", true);
 ok("거래대금 순위 하한 40 (서버·앱 규칙)", /tvr \?\? 0\) >= 40/.test(picksJs) && /tvr"\)? or 0\) >= 40|tvr.*>= 40/.test(py));
 const kisJs = T("api/_lib/kis.js") + T("api/_lib/meritz.js"), kisUi = T("src/Kis.jsx");
-ok("미국 개장 22:30/23:30 · 마감 05:00/06:00 (앱·감시 2곳)", /dst \? 1350 : 1410/.test(app_) && /dst \? 300 : 360/.test(app_)
-  && [T("scripts/watch_alert.py"), T("api/watch.py")].every((t) => /\(22 \* 60 \+ 30, 5 \* 60\) if dst else \(23 \* 60 \+ 30, 6 \* 60\)/.test(t)));
+ok("미국 개장 22:30/23:30 · 마감 05:00/06:00 (앱·감시)", /dst \? 1350 : 1410/.test(app_) && /dst \? 300 : 360/.test(app_)
+  && [T("scripts/watch_alert.py")].every((t) => /\(22 \* 60 \+ 30, 5 \* 60\) if dst else \(23 \* 60 \+ 30, 6 \* 60\)/.test(t)));
 ok("한투 카드는 오늘 탭과 같은 선정 함수 사용", /kisPicks\(stocks, pos, genDay/.test(app_) && !/picks=\{today\?\.pickUs/.test(app_));
 ok("계좌 지정가 여유(+0.5%)가 서버 매수 거절선(메리츠 1.5%)보다 작음", (n(/slip: ([\d.]+)/, kisUi) ?? 99) < 1.5 && /q\.last \* 1\.015/.test(T("api/_lib/meritz.js")));
 
-// 자동 수집이 새로 쓰는 파일은 저장(커밋) 목록에 있어야 함 — 빠지면 저장 단계가 통째로 실패 (2026-10-10 picks_log.json 사고)
-{ const bs = T("scripts/build_snapshot.py"), yml = T(".github/workflows/daily.yml");
-  const consts = Object.fromEntries([...bs.matchAll(/^(\w+) = f"\{OUT_DIR\}\/([\w.]+\.json)"/gm)].map((m) => [m[1], m[2]]));
-  const written = new Set([...bs.matchAll(/_write\(f"\{OUT_DIR\}\/([\w.]+\.json)"/g)].map((m) => m[1]));
-  for (const [k, f] of Object.entries(consts)) if (new RegExp(`_write\\(${k}\\b`).test(bs) || new RegExp(`open\\(${k}, "w"`).test(bs)) written.add(f);
-  const listed = new Set((/for f in ([^;]+); do/.exec(yml)?.[1] || "").trim().split(/\s+/));
-  const miss = [...written].filter((f) => !listed.has(f));
-  ok(`자동 수집이 쓰는 파일 ${written.size}개가 모두 저장 목록에 있음`, miss.length === 0, `빠짐: ${miss.join(", ")} → .github/workflows/daily.yml 의 for f in 목록에 넣어야 저장 단계가 실패하지 않습니다`);
+// 259. 저장 단계 — 폴더 전체를 담고 내 기록(watchlist · resv)만 뺌
+{ const yml = T(".github/workflows/daily.yml");
+  ok("자동 수집 저장: public/data 전체 + watchlist·resv 제외", /git add -A public\/data\n/.test(yml) && /git reset -q -- public\/data\/watchlist\.json public\/data\/resv\.json/.test(yml));
   ok("저장 전 pull 이 바뀐 파일 때문에 멈추지 않음(--autostash)", /git pull --rebase --autostash origin main/.test(yml));
 }
 

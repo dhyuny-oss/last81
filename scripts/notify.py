@@ -501,7 +501,7 @@ def send(text):
 
 def _first_trading_day(now):
     """이 달의 첫 거래일(주말·휴장일 제외)인가 — 06:23 미국 발송분 기준으로 판단"""
-    KR_HOL = {"2026-09-24", "2026-09-25", "2026-10-05", "2026-10-09", "2026-12-25", "2026-12-31"}
+    from mktcal import KR_HOL                      # 257. 휴장일 한 파일
     d = now.date()
     from datetime import date, timedelta
     x = date(d.year, d.month, 1)

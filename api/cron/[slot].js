@@ -10,6 +10,8 @@
  *
  * 249. resv-us1·us2 (UTC 14시대 · 15시대 = 한국 23시대 · 00시대) · resv-kr1·kr2 (UTC 00시대 · 01시대 = 한국 09시대 · 10시대) — 매수 예약 확인
  *      서머타임에 따라 둘 중 하나가 확인 시간(🇺🇸 개장 5분~2시간 30분 · 🇰🇷 09:30~11:30)에 걸립니다
+ * 258. watch-kr (UTC 02시대 = 한국 11시대) · watch-us (UTC 15시대 = 한국 00시대) — 장중 감시(watch.yml)를 시작만 시킴
+ *      예전엔 깃허브 예약(하루 6번)이 몇 시간씩 밀려 실제로는 장이 끝난 뒤(16시대·04~07시대)에만 돌았음
  * 보호: Vercel 예약(User-Agent vercel-cron) 또는 CRON_SECRET 이 맞는 요청만 받습니다.
  *       이미 돌고 있거나 20분 안에 평일 갱신을 시작했으면 다시 시작하지 않습니다.
  */
@@ -36,6 +38,12 @@ export default async function handler(req, res) {
   if (/^resv-(us|kr)\d?$/.test(slot)) {
     try { const r = await runResv({ only: slot.slice(5, 7) }); return res.status(200).json({ ok: true, slot, done: r.done.map(x => ({ t: x.t, status: x.status, why: x.why })) }); }
     catch (e) { return res.status(200).json({ ok: false, slot, msg: String(e?.message || e).slice(0, 300) }); }
+  }
+  if (/^watch-(us|kr)$/.test(slot)) {
+    try {
+      const r = await gh(`/repos/${REPO}/actions/workflows/watch.yml/dispatches`, { method: "POST", body: JSON.stringify({ ref: "main" }) });
+      return res.status(r.status === 204 ? 200 : 502).json({ ok: r.status === 204, slot, started: r.status === 204 });
+    } catch (e) { return res.status(502).json({ ok: false, slot, msg: String(e).slice(0, 200) }); }
   }
   try {
     const cur = await gh(`/repos/${REPO}/actions/workflows/${WF}/runs?per_page=20`);

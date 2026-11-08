@@ -12,6 +12,7 @@
  * 전역 상태 하나로 탭 간 연계 (종목 클릭 → 차트 / 관심 토글 즉시 반영 / 검색)
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import MKT_CAL from "../config/market.json";
 import { pickToday, SLOTS_DEFAULT, KR_GATE_WHY, US_GATE_WHY, SEC_FULL_WHY, SEC_CAP } from "./picks.js";
 import { planFills, applyFills } from "./fills.js";
 import {
@@ -96,11 +97,10 @@ function usDST(nowMs) {
   } catch { return true; }
 }
 
-/* 휴장일 (2026) — 매년 12월에 다음 해 것을 추가합니다. 장중 감시 스크립트와 같은 목록 */
-const KR_HOLIDAYS = new Set(["2026-09-24", "2026-09-25", "2026-10-05", "2026-10-09", "2026-12-25", "2026-12-31"]);
-const US_HOLIDAYS = new Set(["2026-11-26", "2026-12-25"]);
-const HOLI_NAME = { "2026-09-24": "추석", "2026-09-25": "추석", "2026-10-05": "개천절 대체", "2026-10-09": "한글날",
-                    "2026-12-25": "성탄절", "2026-12-31": "연말", "2026-11-26": "추수감사절" };
+/* 257. 휴장일 — config/market.json 한 파일 (앱·서버·파이프라인 공통) */
+const KR_HOLIDAYS = new Set(Object.keys(MKT_CAL.kr));
+const US_HOLIDAYS = new Set(Object.keys(MKT_CAL.us));
+const HOLI_NAME = { ...MKT_CAL.us, ...MKT_CAL.kr };
 /** 오늘 날짜 (한국 시간) — 매수·매도 기록 날짜에 씁니다. 예전엔 UTC 날짜라 오전 9시 전 기록이 하루 전으로 찍혔습니다 */
 const kstDay = () => new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
 function marketState(nowMs = Date.now()) {

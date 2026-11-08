@@ -694,11 +694,14 @@ REBAL_MONTHS = (1, 4, 7, 10)
 
 def _q(d):  return f"{d.year}Q{(d.month-1)//3 + 1}"
 
+from mktcal import LAST_YEAR as LAST_CAL_YEAR
+
 def _next_rebal(d):
     """다음 비중 점검일 = 그 달 첫 '거래일' (239: 예전엔 1일이라 1/1 휴장일이 그대로 나왔음 · 주말·고정 공휴일을 건너뜀)"""
     def first_trading(y, m):
         x = datetime(y, m, 1, tzinfo=timezone.utc)
-        while x.weekday() >= 5 or x.strftime("%m-%d") in ("01-01", "03-01", "05-05", "06-06", "08-15", "10-03", "10-09", "12-25"):
+        from mktcal import KR_HOL                  # 257. 휴장일 한 파일 (예전엔 고정 공휴일만 · 설·추석·대체공휴일 빠짐)
+        while x.weekday() >= 5 or x.strftime("%Y-%m-%d") in KR_HOL or (x.year > LAST_CAL_YEAR and x.strftime("%m-%d") in ("01-01", "03-01", "05-05", "06-06", "08-15", "10-03", "10-09", "12-25")):
             x += timedelta(days=1)
         return x
     for m in REBAL_MONTHS:

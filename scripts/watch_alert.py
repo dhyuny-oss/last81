@@ -53,8 +53,7 @@ def symbol_of(d):
 
 
 # 휴장일 (2026) — 매년 12월에 다음 해 것을 추가하세요. 출처: 한국거래소·NYSE 공지
-KR_HOLIDAYS = {"2026-09-24", "2026-09-25", "2026-10-05", "2026-10-09", "2026-12-25", "2026-12-31"}
-US_HOLIDAYS = {"2026-11-26", "2026-12-25"}
+from mktcal import KR_HOL as KR_HOLIDAYS, US_HOL as US_HOLIDAYS   # 257. 휴장일 한 파일 (config/market.json)
 
 def us_dst(now_kst):
     """미국 서머타임: 3월 둘째 일요일 ~ 11월 첫째 일요일 (예전 '3~10월' 근사는 3월 초·11월 초에 틀렸음)"""
