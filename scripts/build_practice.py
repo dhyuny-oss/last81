@@ -53,7 +53,7 @@ def load(tk, m, cache):
     if os.path.exists(f):
         try: return json.load(open(f))
         except Exception: pass
-    if m == "kr": cd, meta, _ = fetch_kr(tk)
+    if m == "kr" and not tk.startswith("^"): cd, meta, _ = fetch_kr(tk)      # 지수(^KS11)는 거래소 확정 없이 그대로
     else: cd, meta = fetch_candles(tk)
     out = {"cd": cd, "name": (meta or {}).get("longName") or (meta or {}).get("shortName") or tk}
     if cd: json.dump(out, open(f, "w"))
@@ -193,7 +193,7 @@ def main():
     pools = {}
     for m, n in (("us", a.pool_us), ("kr", a.pool_kr)):
         tks = sorted(t for t, u in uni.items() if u.get("market") == m)
-        rng.shuffle(tks); pools[m] = tks[:int(n * 1.4)]      # 이력이 모자란 종목을 빼도 n 개가 남도록 여유
+        rng.shuffle(tks); pools[m] = tks[:int(n * (2.0 if m == 'kr' else 1.4))]      # 이력이 모자라거나 거래소를 못 가린 종목을 빼도 n 개가 남도록 여유 (한국은 더 많이)
     print(f"📥 시세 받기: 🇺🇸 {len(pools['us'])} · 🇰🇷 {len(pools['kr'])} + 지수")
     jobs = [(t, m) for m in ("us", "kr") for t in pools[m]] + [("^GSPC", "us"), ("^NDX", "us"), ("^KS11", "kr")]
     with ThreadPoolExecutor(4) as ex:
