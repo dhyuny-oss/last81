@@ -1,12 +1,17 @@
 // 144. 서로 같아야 하는 값들이 실제로 같은지 확인합니다 (화면·서버·알림이 같은 답을 내는가).
 //   실행: node scripts/check_consistency.mjs      (저장소 맨 위 폴더에서)
 //   ❌ 가 하나라도 있으면 종료 코드 1 · ⚠ 는 "지금은 다르지만 다음 갱신 때 같아지는" 종류
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { pickToday } from "../src/picks.js";
 
 const D = "public/data";
 const J = (f) => JSON.parse(readFileSync(`${D}/${f}`, "utf-8"));
-const T = (f) => readFileSync(f, "utf-8");
+// 263. 스냅샷 파이프라인은 build_snapshot.py + scripts/snap/*.py 로 나뉨 → 그 이름으로 읽으면 전부 이어 붙여 봄
+const SNAP = ["scripts/build_snapshot.py", ...readdirSync("scripts/snap").filter((f) => f.endsWith(".py")).sort().map((f) => `scripts/snap/${f}`)];
+// 264. 앱 화면은 App.jsx + core.jsx + Tab*.jsx 로 나뉨 → "src/App.jsx" 로 읽으면 전부 이어 붙여 봄
+const APPF = ["src/App.jsx", "src/core.jsx", ...readdirSync("src").filter((f) => /^Tab\w+\.jsx$/.test(f)).sort().map((f) => `src/${f}`)];
+const T = (f) => f === "scripts/build_snapshot.py" ? SNAP.map((x) => readFileSync(x, "utf-8")).join("\n")
+  : f === "src/App.jsx" ? APPF.map((x) => readFileSync(x, "utf-8")).join("\n") : readFileSync(f, "utf-8");
 const snap = J("snapshot.json"), market = J("market.json"), today = J("today.json"), wl = J("watchlist.json");
 const stocks = snap.stocks;
 let bad = 0, warn = 0;
@@ -106,7 +111,7 @@ ok("한국 시장 게이트를 서버·앱·알림이 같은 판정으로 씀 �
   && /krGateOf = \(market\) => !!\(market\?\.judge\?\.kr\?\.gate && market\.judge\.kr\.verdict === "risk"\)/.test(app_) && /_jk\.get\("gate"\) and _jk\.get\("verdict"\) == "risk"/.test(notify));
 ok("화면에 '판정은 DC에만 사용'·근거 없는 16.9% 같은 옛 문구 없음 — 160", !/DC 판단에만 사용|ETF 배분\(DC\)에만|\+16\.9%·최대낙폭 −28%/.test(app_));
 ok("폭 계산 날짜(breadthAsOf)가 데이터에 있음 — 171", !!market.breadthAsOf, "", true);
-const kisJs = T("api/_lib/kis.js") + T("api/_lib/meritz.js"), kisUi = T("src/Kis.jsx");
+const kisJs = T("api/_lib/meritz.js"), kisUi = T("src/Kis.jsx");
 ok("미국 개장 22:30/23:30 · 마감 05:00/06:00 (앱·감시)", /dst \? 1350 : 1410/.test(app_) && /dst \? 300 : 360/.test(app_)
   && [T("scripts/watch_alert.py")].every((t) => /\(22 \* 60 \+ 30, 5 \* 60\) if dst else \(23 \* 60 \+ 30, 6 \* 60\)/.test(t)));
 ok("한투 카드는 오늘 탭과 같은 선정 함수 사용", /kisPicks\(stocks, pos, genDay/.test(app_) && !/picks=\{today\?\.pickUs/.test(app_));

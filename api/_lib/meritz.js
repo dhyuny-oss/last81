@@ -2,7 +2,7 @@ import { createRequire } from "module";
 /**
  * 메리츠증권 Open API 어댑터 — /api/broker 가 BROKER=meritz(기본값)일 때 씁니다
  * ════════════════════════════════════════════════════════════
- * 한투 어댑터(api/_lib/kis.js)와 "같은 약속"으로 답합니다. 그래서 화면(src/Kis.jsx)은 증권사를 몰라도 됩니다.
+ * 증권사 어댑터 약속(what = balance·orders·order·cancel·quote)대로 답합니다. 그래서 화면(src/Kis.jsx)은 증권사를 몰라도 됩니다.
  *   what = balance · orders · order · cancel · quote      (mk:"kr" 이면 🇰🇷 국내 · 없으면 🇺🇸 미국)
  *
  * ▣ Vercel 환경변수 (채팅·깃허브에 적지 마세요)

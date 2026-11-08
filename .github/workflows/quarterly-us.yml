@@ -1,7 +1,6 @@
 name: Beta Quarterly US (Full Pool)
 # Beta Terminal v0.5 — 미국 풀 전체 재무 수집
-# stocks.json의 pool에서 미국 종목 전부 추출 → financials_us.json 별도 저장
-# 알파 stocks.json 안 건드림 → 알파 영향 0%
+# 262. ② 미국 재무 — universe.json 의 미국 종목 → financials_us.json (build_snapshot 이 바로 읽음 · 예전 stocks.json 병합 단계 없앰)
 # 시간: ~10분 (500종목 × 1.2초)
 
 on:
@@ -39,11 +38,3 @@ jobs:
             git pull --rebase --autostash origin main
             git push
           )
-
-      # ★ v0.5: 자동으로 merge 워크플로 트리거
-      - name: Trigger merge workflow
-        if: success()
-        uses: peter-evans/repository-dispatch@v3
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          event-type: financials-updated

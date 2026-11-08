@@ -414,7 +414,8 @@ def build(snap, mkt, state, now):
             rows = _pk
             L.append(f"🛒 <b>오늘 살 것 {len(rows)}</b> <i>(앱 '오늘 살 것'과 같은 목록)</i>")
         if not rows:
-            L.append("   <i>지금 살 수 있는 칸이 없어 목록은 접었습니다 · 전체는 앱 찾기 탭</i>")
+            _why0 = "두 시장 모두 새로 사지 않는 날이라" if not any(_open.values()) else "지금 살 수 있는 칸이 없어"
+            L.append(f"   <i>{_why0} 목록은 접었습니다 · 전체는 앱 찾기 탭</i>")
         for s in rows[:MAX_ROWS]:
             mark = "🆕 " if is_new("entry", s["t"]) else ""
             flag = "🇰🇷" if s["m"] == "kr" else "🇺🇸"

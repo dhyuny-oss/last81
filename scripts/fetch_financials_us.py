@@ -39,7 +39,7 @@ except ImportError:
 
 
 WORKSPACE = os.environ.get("GITHUB_WORKSPACE", ".")
-STOCKS_PATH = os.path.join(WORKSPACE, "public", "data", "stocks.json")
+STOCKS_PATH = os.path.join(WORKSPACE, "public", "data", "universe.json")   # 262. ① 종목 목록 단계의 결과
 OUTPUT_PATH = os.path.join(WORKSPACE, "public", "data", "financials_us.json")
 LOG_PATH = os.path.join(WORKSPACE, "public", "data", "financials_us_log.txt")
 
@@ -279,9 +279,10 @@ def main():
     with open(STOCKS_PATH, "r", encoding="utf-8") as f:
         stocks_data = json.load(f)
 
-    pool = stocks_data.get("pool", {})
+    # 262. 종목 목록은 universe.json (예전 stocks.json 의 pool)
+    pool = stocks_data.get("stocks") or stocks_data.get("pool") or {}
     if not pool:
-        print("❌ pool 데이터 없음 — daily 워크플로 먼저 실행 필요")
+        print("❌ 종목 목록이 비어 있음 — build_universe.py 먼저 실행 필요")
         sys.exit(1)
 
     # 미국 종목만 추출
@@ -345,6 +346,14 @@ def main():
         time.sleep(0.5)  # rate limit 방지
 
     # ─── 결과 저장 ───
+    # 262. 이번에 못 받은 종목은 지난 값을 그대로 둠 (예전엔 stocks.json 병합 단계가 하던 일 — 한 번 실패로 '재무 없음'이 되지 않게)
+    try:
+        _prev = (json.load(open(OUTPUT_PATH, encoding="utf-8")).get("data") or {})
+    except Exception:
+        _prev = {}
+    kept = [t for t in us_tickers if t not in results and t in _prev]
+    for t in kept: results[t] = _prev[t]
+    if kept: print(f"  ↩︎ 이번에 못 받은 {len(kept)}종목은 지난 값 유지: {', '.join(kept[:10])}")
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
     output = {
         "_meta": {
@@ -352,7 +361,7 @@ def main():
             "version": "v0.4",
             "yfinance_version": yf.__version__,
             "generated": datetime.now().isoformat(),
-            "warning": "이 파일은 베타 전용. stocks.json과 별개. 알파 영향 없음.",
+            "note": "262. 미국 재무 — build_snapshot 이 이 파일을 바로 읽음 (예전 stocks.json 병합 단계 없앰)",
             "stats": {
                 "total": total,
                 "full_complete": full_count,
