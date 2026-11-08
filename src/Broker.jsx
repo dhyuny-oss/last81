@@ -119,7 +119,7 @@ export default function BrokerPanel({ held = [], stocks = {}, picks: picksUs = [
   };
   const amount = (Number(form.qty) || 0) * (Number(form.px) || 0);
   const M = (v, d = 0) => (KR ? won(v) : usd(v, d));                // 금액 표시: 🇰🇷 원 · 🇺🇸 달러
-  const cap1 = KR ? (info?.maxKrw || 5000000) : (info?.maxUsd || 5000), capDay = KR ? (info?.maxDayKrw || 20000000) : (info?.maxDay || 20000);
+  const cap1 = KR ? (info?.maxKrw || 0) : (info?.maxUsd || 0), capDay = KR ? (info?.maxDayKrw || 0) : (info?.maxDay || 0);   // 상한은 서버가 알려 준 값만 씀 (화면에 숫자를 따로 적지 않음)
   // 종목당 예산: 직접 넣은 값이 없으면 앱 1회차 금액(💰 투자금 ÷ 칸 ÷ 2) — 1건 상한을 넘지 않게
   const halfM = Math.floor(Number(half?.[mk]) || 0);
   const budgetAuto = halfM > 0 ? Math.min(halfM, cap1) : 0;

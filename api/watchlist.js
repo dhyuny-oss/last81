@@ -14,6 +14,7 @@ async function getFile() {
     }
   });
   if (r.status === 404) return { content: { stocks: {} }, sha: null };
+  if (!r.ok) throw new Error(`깃허브 읽기 실패 (${r.status}) — GH_TOKEN 확인`);
   const data = await r.json();
   const content = JSON.parse(Buffer.from(data.content, "base64").toString("utf-8"));
   return { content, sha: data.sha };
