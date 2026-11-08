@@ -1,159 +1,28 @@
 #!/usr/bin/env python3
 """
-Alpha Terminal — 텔레그램 리포트
-════════════════════════════════════════════════════════════════
-이 파일은 지표를 하나도 계산하지 않습니다.
-build_snapshot.py 가 만든 snapshot.json / market.json 을 "읽기만" 합니다.
-→ 텔레그램에 찍히는 숫자와 앱 화면의 숫자가 어긋날 수 없습니다.
+Alpha Terminal — 텔레그램 리포트 (매일)
+════════════════════════════════════════
+이 파일은 지표를 하나도 계산하지 않습니다. build_snapshot.py 가 만든 snapshot.json · market.json · today.json 을
+"읽기만" 합니다 → 텔레그램 숫자와 앱 화면 숫자가 어긋날 수 없습니다.
 
-  ※ 옛 fetch_yahoo.py 의 리포트는 RSI 를 단순평균으로 다시 계산해서
-    앱(Wilder)과 값이 달랐습니다. 그래서 여기로 옮겼습니다.
+  notify.py          매일 리포트(build) + 발송 흐름(main)
+  notify_lib.py      읽기 도우미 · 숫자 표기 · 후보 고르기 · 발송(send)
+  notify_weekly.py   토요일 주간 리포트(build_weekly) — WEEKLY=1 일 때
 
-판단 규칙도 앱과 같은 것을 씁니다 (v5 — 백테스트 반영):
-  🟢 후보     = 가격구조 + RS(6개월) 70↑ + RSI 75 이하 · 거래대금 하위 40% 제외
-                ※ 돌파(재돌파·ST전환)는 필수에서 뺐습니다 — 후보를 85% 줄이는데
-                  성과 차이가 없었고 목록이 매일 100% 뒤집혔습니다.
-  🔵 장기 관찰 = 52주 고점 −40%↓ + 3년 건강도 60%↑ · ★ 미국 종목만
-                ※ 한국은 −7.24%로 유의하게 손해라 제외합니다.
-
-같은 종목을 매번 다시 보내지 않도록 notified.json 에 기록하고
-COOLDOWN_DAYS 안에는 '신규' 로 치지 않습니다.
+리포트 순서: 시장(새로 사도 되는가) → 내 보유·관심 → 종목풀·데이터 점검 → DC → 매수 예약 결과 → 오늘 살 것 → 급락 관찰 → 청산 규칙 → 데이터 상태
+규칙 숫자는 config/rules.json (scripts/rules.py) — 여기에 숫자를 다시 적지 않습니다.
+같은 종목을 매번 다시 보내지 않도록 notified.json 에 기록하고 COOLDOWN_DAYS 안에는 '신규'로 치지 않습니다.
 
 환경변수: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
           REPORT_MODE = full(기본) | brief   ※ brief 는 신규 신호가 있을 때만 발송
 """
-import json, os, sys, html as _htmllib, urllib.request, urllib.parse
+
+import json, os, sys
 from datetime import datetime, timezone, timedelta
+from notify_lib import *  # noqa
+from notify_lib import _first_trading_day, _fix_names  # noqa
+from notify_weekly import build_weekly
 
-KST      = timezone(timedelta(hours=9))
-
-def earn_txt(d, within=7):
-    """93. 실적 발표 D-n (그 시장 현지 날짜 기준) — within 일 안일 때만. 참고용 (매매 규칙 아님)"""
-    e = (d or {}).get("earn")
-    if not e: return ""
-    try:
-        from zoneinfo import ZoneInfo
-        tz = ZoneInfo("Asia/Seoul" if d.get("m") == "kr" else "America/New_York")
-        n = (datetime.strptime(e, "%Y-%m-%d").date() - datetime.now(tz).date()).days
-    except Exception:
-        return ""
-    if n < 0 or n > within: return ""
-    return f" · 📅 실적 {'오늘' if n == 0 else f'D-{n}'}{'(예상)' if d.get('earnE') else ''}"
-DATA     = "public/data"
-STATE    = f"{DATA}/notified.json"
-TOKEN    = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-CHAT     = os.environ.get("TELEGRAM_CHAT_ID", "")
-MODE     = os.environ.get("REPORT_MODE", "full").lower()
-COOLDOWN_DAYS = 5          # 같은 종목을 며칠 안에 다시 '신규'로 알리지 않음
-MAX_ROWS = 8               # 한 섹션에 최대 몇 종목까지 적을지
-APP_URL  = "https://last81.vercel.app"
-
-VERDICT = {"safe": "🟢 안전", "warn": "🟡 주의", "risk": "🔴 위험"}
-
-
-# ══════════════════════════════════════════════════════════════
-def load(path, default=None):
-    try:
-        with open(path, encoding="utf-8") as f: return json.load(f)
-    except Exception: return default
-
-
-def money(v, m):
-    """앱과 같은 표기 — 한국은 조/억, 미국은 $B/$M"""
-    if v is None: return "—"
-    a = abs(v)
-    if m == "kr":
-        if a >= 1e12: return f"{a/1e12:.1f}조"
-        if a >= 1e8:  return f"{a/1e8:.0f}억"
-        return f"{a/1e4:.0f}만"
-    if a >= 1e9: return f"${a/1e9:.1f}B"
-    if a >= 1e6: return f"${a/1e6:.0f}M"
-    return f"${a:,.0f}"
-
-
-def price(v, m):
-    return "—" if v is None else (f"₩{v:,.0f}" if m == "kr" else f"${v:,.2f}")
-
-
-def yrs(v):
-    """3.0년 → 3년 / 1.5년 → 1.5년"""
-    if v is None: return "3"
-    return f"{v:.0f}" if abs(v - round(v)) < 0.05 else f"{v:.1f}"
-
-
-def pct(v, d=1):
-    return "—" if v is None else f"{'+' if v >= 0 else ''}{v:.{d}f}%"
-
-
-# ══════════════════════════════════════════════════════════════
-# 선정 — 급락 관찰(과매도) 판정. 앱 TabFind 의 급락 탭과 같은 규칙
-# ══════════════════════════════════════════════════════════════
-# ★ 행동 단어 — 앱과 똑같이 파이프라인 action 을 읽습니다 (여기서 다시 판정하지 않습니다)
-ACT = {"buy": "🟢 매수!", "sell": "🔴 매도!", "watch": "관망", "hold": "보유"}
-WHY = {"pull": "눌림", "strong": "강세", "trend": "추세"}
-def act_of(d, held=False):
-    a = d.get("action") or "watch"
-    if a == "sell": return "sell"
-    return "hold" if held else a
-def act_txt(d, held=False):
-    a = act_of(d, held)
-    why = WHY.get(d.get("why")) if a == "buy" else ("트레일링선 아래" if a == "sell" else None)
-    return ACT[a] + (f" ({why})" if why else "")
-
-from rules import R as RULES                                      # 260. 규칙 숫자 한 파일
-REV_MIN = float(os.environ.get("REV_MIN", RULES["revMin"]))   # 앱 '매출 필터' 기본값 — 앱이 settings.revMin 을 보내면 그 값 (61)
-try:
-    _cfg = (json.load(open(f"{DATA}/watchlist.json", encoding="utf-8")).get("settings") or {})
-    if "revMin" in _cfg: REV_MIN = float(_cfg["revMin"])
-except Exception:
-    pass
-def rev_ok(s):   # 대표 성장률(최근 분기 → 4분기 → 연간) 기준 — 앱과 같음
-    f = s.get("fin") or {}
-    g = f.get("growth", f.get("rev"))
-    return REV_MIN <= 0 or s.get("m") == "kr" or g is None or g >= REV_MIN
-
-def pick_entry(stocks, judge=None):
-    """앱 발굴탭의 '신호' 필터와 같은 목록: ⭐눌림 또는 🟢매수신호, 거래대금 하위 40% 제외.
-       예전의 '후보/관망(시장 위험이면 관망)' 개념은 없앴습니다 — 검증에서 종목 매매에 시장
-       게이트를 붙이면 성과가 절반이 됐고, 앱에서도 같은 이유로 제거했습니다."""
-    out = []
-    for s in stocks.values():
-        if (s.get("tvr") or 0) < 40:
-            continue
-        if s.get("action") != "buy" or not rev_ok(s):
-            continue
-        out.append(dict(s))
-    # 오늘 살 것과 같은 순서: 눌림·강세 → 추세, 그 안에서 강도(RS + 200일선 거리) 높은 순 (70)
-    out.sort(key=lambda x: (0 if x.get("why") in ("pull", "strong") else 1, -(x.get("str") or x.get("rs") or 0)))
-    return out
-
-
-def pick_oversold(stocks):
-    """★ 미국 종목만. 한국은 검증에서 −7.24%(유의하게 손해)라 제외합니다."""
-    # 앱 급락 탭의 '관찰' 과 같은 판정 (파이프라인 dip=watch): −25%↓ · 3년 건강 60%↑ · 흑자 · 20일선 회복
-    out = [s for s in stocks.values() if s.get("m") == "us" and (s.get("tvr") or 0) >= RULES["tvrMin"] and s.get("dip") == "watch"]
-    out.sort(key=lambda x: x.get("w52p") or 0)
-    return out
-
-
-# ══════════════════════════════════════════════════════════════
-def broker_miss(wl, today=None):
-    """234. 메리츠 잔고 요약에 없는 단기 보유 (scripts/build_snapshot.py broker_miss 와 같은 규칙)"""
-    import datetime as _dt
-    b = (wl or {}).get("broker") or {}
-    try:
-        age = ((today or _dt.date.today()) - _dt.date.fromisoformat(str(b.get("d") or ""))).days
-    except Exception:
-        return set()
-    if age > 4: return set()
-    out = set()
-    for p in (wl.get("positions") or []):
-        t = str(p.get("t", "")).upper(); m = "kr" if t.isdigit() else "us"
-        if (p.get("role") or "swing") != "swing" or m not in b: continue
-        tr = p.get("tr") or []
-        d0 = str((tr[0].get("d") if tr else None) or p.get("date") or "")
-        if t not in {str(x[0]).upper() for x in b[m]} and d0 < str(b.get("d")): out.add(t)
-    return out
 
 def build(snap, mkt, state, now):
     stocks = snap.get("stocks", {})
@@ -355,7 +224,7 @@ def build(snap, mkt, state, now):
             L.append("")
             L.append("⏰ <b>매수 예약 결과</b>")
             for x in _done:
-                L.append(f"   {_ic[x['status']]} <b>{_nm(x)}</b> " + (f"{x.get('qty')}주 지정가 {price(x.get('px'), x.get('m', 'us'))} 주문 보냄" if x["status"] == "sent" else f"안 삼 — {x.get('why') or x['status']}"))
+                L.append(f"   {_ic[x['status']]} <b>{_nm(x)}</b> " + (f"{x.get('qty')}주 지정가 {price(x.get('px'), x.get('m', 'us'))} 주문 보냄" if x["status"] == "sent" else f"사지 않음 — {x.get('why') or x['status']}"))
         if _wait:
             L.append("⏰ 예약 기다림: " + " · ".join(f"{_nm(x)} {x.get('qty')}주({str(x.get('day', ''))[4:6].lstrip('0')}/{str(x.get('day', ''))[6:8].lstrip('0')})" for x in _wait))
 
@@ -479,158 +348,6 @@ def build(snap, mkt, state, now):
         del state[k]                                    # 30일 지난 기록은 정리
 
     return "\n".join(L), len(new_entry) + len(new_over)
-
-
-# ══════════════════════════════════════════════════════════════
-def send(text):
-    if not TOKEN or not CHAT:
-        print("⚠️ TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID 가 없어 발송을 건너뜁니다.")
-        return False
-    body = urllib.parse.urlencode({
-        "chat_id": CHAT, "text": text[:4000], "parse_mode": "HTML",
-        "disable_web_page_preview": "true",
-    }).encode()
-    req = urllib.request.Request(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data=body)
-    try:
-        r = json.load(urllib.request.urlopen(req, timeout=20))
-        print("✅ 발송 완료" if r.get("ok") else f"❌ 발송 실패: {r}")
-        return bool(r.get("ok"))
-    except Exception as e:
-        print(f"❌ 발송 실패: {e}")
-        return False
-
-
-def _first_trading_day(now):
-    """이 달의 첫 거래일(주말·휴장일 제외)인가 — 06:23 미국 발송분 기준으로 판단"""
-    from mktcal import KR_HOL                      # 257. 휴장일 한 파일
-    d = now.date()
-    from datetime import date, timedelta
-    x = date(d.year, d.month, 1)
-    while x.weekday() >= 5 or x.isoformat() in KR_HOL: x += timedelta(days=1)
-    return d == x or os.environ.get("DC_MONTHLY") == "1"
-
-def build_weekly(snap, mkt, now):
-    """토요일 주간 리포트 — 점검 탭 5단계를 읽기만 해도 채울 수 있게"""
-    stocks = snap.get("stocks", {}); meta = snap.get("meta", {})
-    live = mkt.get("live") or {}
-    L = [f"📅 <b>주간 점검</b> {now.strftime('%m/%d')} (토)"]
-    # 1 종목풀
-    try: uni = json.load(open(f"{DATA}/universe_log.json", encoding="utf-8"))
-    except Exception: uni = None
-    if uni:
-        L.append(f"1️⃣ 종목풀 {uni.get('prevTotal')} → {uni.get('total')} · ➕{len(uni.get('added') or [])} ➖{len(uni.get('removed') or [])}")
-        if uni.get("added"):   L.append("   ➕ " + ", ".join(x["n"] for x in uni["added"][:6]))
-        if uni.get("removed"): L.append("   ➖ " + ", ".join(x["n"] for x in uni["removed"][:6]))
-    # 2 내 종목
-    try: wl = json.load(open(f"{DATA}/watchlist.json", encoding="utf-8"))
-    except Exception: wl = {}
-    _mw = broker_miss(wl)                    # 234
-    if _mw: wl = {**wl, "positions": [p for p in (wl.get("positions") or []) if str(p.get("t", "")).upper() not in _mw]}
-    ps = wl.get("positions") or []
-    sells = [p for p in ps if p.get("role") != "long" and (stocks.get(p["t"]) or {}).get("action") == "sell"]
-    near = []
-    for p in ps:
-        d = stocks.get(p["t"]) or {}
-        if d.get("stLine") and d.get("c") and d.get("stSlow") == 1 and (1 - d["stLine"] / d["c"]) * 100 < 5: near.append(d.get("n") or p["t"])
-    L.append(f"2️⃣ 내 종목 {len(ps)} · 매도! {len(sells)} · 선까지 −5% 이내 {len(near)}" + (f" ({', '.join(near[:4])})" if near else ""))
-    # 3 실전 성적
-    summ = live.get("summary") or {}
-    if summ:
-        parts = []
-        for k, v in summ.items():
-            if k.endswith(":all"): continue
-            kind, m = k.split(":"); parts.append(f"{ {'pull':'눌림','strong':'강세','buy':'추세'}.get(kind, kind)}{'🇰🇷' if m=='kr' else '🇺🇸'} {v['n']}건 승률{v['win']:.0f}% 지수대비{v['excess']:+.1f}%p" if v.get("excess") is not None else f"{kind}{m} {v['n']}건 승률{v['win']:.0f}%")
-        L.append("3️⃣ 실전 성적(20일): " + " · ".join(parts))
-    else:
-        L.append(f"3️⃣ 실전 성적: 기록 {live.get('n', 0)}건 · 20거래일 뒤부터 집계 (대기 {live.get('pending', 0)})")
-    dr = live.get("drift")
-    if dr and dr.get("flag"): L.append("   📊 앱 실적: " + " · ".join(dr["reasons"]) + " — 지켜보는 중 (점검 탭 앱 실적)")
-    # 4 이번 주 신호 수
-    try: log = json.load(open(f"{DATA}/signals_log.json", encoding="utf-8"))
-    except Exception: log = []
-    wk = (now - timedelta(days=7)).strftime("%Y-%m-%d")
-    week = [x for x in log if x.get("d", "") >= wk]
-    L.append(f"4️⃣ 이번 주 신호 {len(week)}건 (🇰🇷 {sum(1 for x in week if x['m']=='kr')} · 🇺🇸 {sum(1 for x in week if x['m']!='kr')})")
-    # 57. 이번 주 이탈한 신호 — 규칙대로 팔았으면 얼마였나 (공부용)
-    outs = [x for x in log if (x.get("x") or {}).get("d", "") >= wk and x.get("p")]
-    if outs:
-        L.append(f"   📉 이번 주 이탈 {len(outs)}건 (규칙 손익 평균 {sum((x['x']['p']/x['p']-1)*100 for x in outs)/len(outs):+.1f}%)")
-        for x in sorted(outs, key=lambda x: (x['x']['p']/x['p']))[:5]:
-            L.append(f"      {x.get('n') or x['t']} {x['d'][5:]}→{x['x']['d'][5:]} {(x['x']['p']/x['p']-1)*100:+.1f}%")
-    # 4.5 이번 주 5칸 추천 — 파이프라인이 확정한 today.json 을 그대로 (앱·AI 도구와 같은 목록). 없으면 같은 규칙으로 계산
-    try:
-        td = _fix_names(json.load(open(f"{DATA}/today.json", encoding="utf-8")))
-    except Exception:
-        td = None
-    if td and td.get("pickUs") is not None:
-        _sl = (td.get("slots") or {}).get("us") or {}
-        _free = _sl.get("free")
-        L.append("4️⃣½ 🇺🇸 추천 (강도 순 · 업종 분산 · 적자·매출 부진·보유 제외)"
-                 + (f" · <b>빈 칸 {_free}/{_sl.get('n')}</b>" if _free is not None else ""))
-        if _free == 0:
-            L.append(f"   ⛔ <b>칸이 다 찼습니다 (보유 {_sl.get('held')} · {_sl.get('n')}칸) — 새로 사지 않습니다.</b> 아래는 칸이 비면 살 순번")
-        elif _free is not None and _free < len(td["pickUs"]):
-            L.append(f"   위에서 {_free}개만 삽니다 — 나머지는 대기")
-        for i, r in enumerate(td["pickUs"], 1):
-            L.append(f"   {i}. <b>{r['t']}</b> {(r.get('n') or '')[:18]} · {WHY.get(r.get('why'),'')} · 강도{int(r.get('str') or 0)} · RS{int(r.get('rs') or 0)}"
-                     + (f" · 선까지 −{r['loss']:.0f}%" if r.get("loss") is not None else "") + (f" · 매출{(r.get('growth') if r.get('growth') is not None else r['rev']):+.0f}%{'↑' if r.get('accel') else ''}" if (r.get("growth") is not None or r.get("rev") is not None) else "")
-                     + (f" · 🆕{int(r['since'][5:7])}/{int(r['since'][8:10])}~ {r['age']}일째" if (r.get("age") and r.get("since")) else (f" · 🆕{r['age']}일째" if r.get("age") else ""))
-                     + (f" · 1회차 {r['sh']}주" if r.get("sh") else "")
-                     + earn_txt(r))
-        if td.get("excluded"): L.append("   <i>제외: " + ", ".join(f"{x['t']}({'·'.join(x['why'])})" for x in td["excluded"][:8]) + "</i>")
-        if ((td.get("size") or {}).get("us") or {}).get("amt"):
-            _z = td["size"]["us"]; L.append(f"   <i>🇺🇸 칸당 ${_z['slot']:,.0f} · 1회차 ${_z['half']:,.0f} ({_z['slots']}칸)</i>")
-        _krz = (td.get("size") or {}).get("kr")
-        if td.get("pickKr"): L.append("   🇰🇷 " + ", ".join(f"{r.get('n')}({WHY.get(r.get('why'),'')})" for r in td["pickKr"])
-                                     + (" — 🇰🇷 투자금 0원 (쉬는 중)" if (_krz and not _krz.get("amt")) else (" — 시장 위험이면 새로 사지 않음" if td.get("market", {}).get("kr") == "risk" else "")))
-    else:
-      # (today.json 이 없을 때의 예비 계산)
-      secrank = {x["tk"]: x["rank"] for x in (mkt.get("sectors") or [])}
-      held = {p.get("t") for p in ((wl or {}).get("positions") or [])}
-      buys = [d for d in stocks.values() if d.get("action") == "buy" and (d.get("tvr") or 0) >= RULES["tvrMin"] and d.get("m") == "us" and d.get("t") not in held]
-      def rk(d): return (1 if d.get("why") == "trend" else 0) * 1000 - (d.get("str") or 0)
-      picks, used, drop = [], set(), []
-      for d in sorted(buys, key=rk):
-          f = d.get("fin") or {}; gap = (1 - d["stLine"] / d["c"]) * 100 if d.get("stLine") and d.get("c") else None   # 선까지(닿으면 잃는 폭)
-          why = []
-          if f.get("prof") is False: why.append("적자")
-          if REV_MIN > 0 and f.get("rev") is not None and f["rev"] < REV_MIN: why.append(f"매출{f['rev']:+.0f}%")
-          if why: drop.append(f"{d['t']}({'·'.join(why)})"); continue
-          sec = d.get("sec") or f"?{d['t']}"      # 업종 정보가 없으면 분산 규칙을 적용하지 않음
-          if sec in used: continue
-          picks.append(d); used.add(sec)
-          if len(picks) >= 5: break
-      if picks:
-          L.append("4️⃣½ 🇺🇸 5칸 추천 (업종 분산 · 적자·매출 부진 제외)")
-          for i, d in enumerate(picks, 1):
-              f = d.get("fin") or {}; gap = (1 - d["stLine"] / d["c"]) * 100 if d.get("stLine") and d.get("c") else None   # 선까지(닿으면 잃는 폭)
-              L.append(f"   {i}. <b>{d['t']}</b> {d.get('n','')[:18]} · {WHY.get(d.get('why'),'')} · RS{int(d.get('rs') or 0)}"
-                       + (f" · 선까지 −{gap:.0f}%" if gap is not None else "") + (f" · 매출{f['rev']:+.0f}%" if f.get("rev") is not None else ""))
-          if drop: L.append("   <i>제외: " + ", ".join(drop[:8]) + "</i>")
-      krb = [d for d in stocks.values() if d.get("action") == "buy" and d.get("m") == "kr" and (d.get("tvr") or 0) >= RULES["tvrMin"]]
-      if krb:
-          L.append("   🇰🇷 " + ", ".join(f"{d['n']}({WHY.get(d.get('why'),'')})" for d in sorted(krb, key=rk)[:4]) + (" — 시장 위험: 새로 사지 않음" if (mkt.get("judge") or {}).get("kr", {}).get("verdict") == "risk" else ""))
-    # 5 DC
-    dc = mkt.get("dc") or {}
-    _h3 = ((wl or {}).get("settings") or {}).get("dcMode", "st") in ("hold", "dual")
-    if _h3 and (dc.get("hold3") or {}).get("items"):
-        L.append("5️⃣ DC 3지수 보유 (내 규칙): 나스닥100·S&P500·코스피200 각 23% — 1월 첫 거래일에만 비중 맞춤")
-    for c in (dc.get("core") or []):
-        L.append(f"   느린 ST 규칙{' (참고)' if _h3 else ' (내 규칙)'} {c.get('label')}: {'보유' if c.get('state')=='hold' else '대기'}")
-    h = meta.get("health") or {}
-    L.append(f"<i>🩺 {h.get('kept','?')}종목 · {meta.get('generatedKST','')} · 전략 결정은 앱 점검 탭 5번에 한 줄</i>")
-    L.append(f'<a href="{APP_URL}">점검 탭 열기 →</a>')
-    return "\n".join(L)
-
-def _fix_names(o):
-    """135. 모든 'n'(이름) 값: 한 번 풀고 → 텔레그램 HTML 용으로 한 번만 이스케이프"""
-    if isinstance(o, dict):
-        for k, v in o.items():
-            if k == "n" and isinstance(v, str): o[k] = _htmllib.escape(_htmllib.unescape(v), quote=False)
-            else: _fix_names(v)
-    elif isinstance(o, list):
-        for v in o: _fix_names(v)
-    return o
 
 def main():
     snap = load(f"{DATA}/snapshot.json")

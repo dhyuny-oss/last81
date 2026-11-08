@@ -22,7 +22,7 @@ MIN_BARS  = 130          # 이보다 적으면 지표 일부 생략
 #   검증 수치와 기간은 config/rules.json _why.krGate / _why.usGate 한 곳에만 둡니다.
 #   (예전 "미국은 게이트를 걸지 않는다"는 3개월 보유 발굴 바스켓 시험이었고, 252 에서 지금 매매 규칙 전체로 다시 시험해 바뀜)
 BREADTH_DAYS = 756       # 폭 백분위 기준 기간 (3년)
-BREADTH_GATE = 40        # 한국: 폭 백분위가 이 아래면 위험
+
 
 try:                                    # 172. 업종 고침표 — scripts/universe.py 한 곳에서
     sys.path.insert(0, SCRIPTS_DIR); from universe import SECTOR_FIX as _SECTOR_FIX
@@ -50,6 +50,7 @@ BENCH = {"us":"^GSPC", "kr":"^KS11"}
 KR_ETF = ("069500.KS", "KODEX 200")
 
 from rules import R as RULES                          # 260. 규칙 숫자 한 파일 (config/rules.json)
+BREADTH_GATE = RULES["krBreadthPct"]                   # 한국: 폭 백분위가 이 아래면 새로 사지 않음
 
 def _write(path, obj):
     with open(path,"w",encoding="utf-8") as f:

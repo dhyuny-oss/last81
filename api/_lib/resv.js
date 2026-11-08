@@ -237,7 +237,7 @@ export async function runResv({ only = null, now = Date.now(), dry = false } = {
   if (report.length && !dry) {
     const icon = { sent: "✅", skip: "⏭", expired: "⌛", fail: "⚠️", unsure: "❓" };
     const M = (x, v) => x.m === "kr" ? `${Math.round(v).toLocaleString("ko-KR")}원` : `$${v}`;
-    const lines = report.map((x) => `${icon[x.status] || "·"} <b>${x.m === "kr" ? (x.n || x.t) : x.t}</b> ` + (x.status === "sent" ? `${x.qty}주 지정가 ${M(x, x.px)} 주문 보냄${x.why ? ` · ${x.why}` : ""}` : `안 삼 — ${x.why || x.status}`));
+    const lines = report.map((x) => `${icon[x.status] || "·"} <b>${x.m === "kr" ? (x.n || x.t) : x.t}</b> ` + (x.status === "sent" ? `${x.qty}주 지정가 ${M(x, x.px)} 주문 보냄${x.why ? ` · ${x.why}` : ""}` : `사지 않음 — ${x.why || x.status}`));
     await tg(`⏰ <b>매수 예약 결과</b>\n${lines.join("\n")}\n<i>체결은 메리츠 앱 · 앱 내 종목 탭에서 확인</i>`);
   }
   return { done: report };

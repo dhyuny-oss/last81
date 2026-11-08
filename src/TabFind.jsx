@@ -191,8 +191,9 @@ export function MarketInfo({ market, setTab, list, pos, stocks, items, sizer, op
             <span style={{ display: "block", color: C.muted }}>규칙(252) · 2010–26 지금 매매 규칙 7칸 · 업종 3개: 연 15.1% → 17.2% · 최대낙폭 −37.0% → −29.8% (2010–18 · 2019–26 둘 다 나음) · 지금 살아남은 종목으로 계산해 수익률 자체는 실제보다 높게 나옴</span>
           </div>;
         })()}
-        <BreadthBar b={b} c={c} />
-        <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>폭 계산 {market.breadthAsOf ? md(market.breadthAsOf) : "—"} (토요일 전체 계산 · 평일엔 그 값)</div>
+        {m === "kr" && <>{/* 폭은 한국 새로 사기 기준 — 미국은 나스닥100 200일선이라 폭 막대를 보이지 않음 */}
+          <BreadthBar b={b} c={c} />
+          <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>폭 계산 {market.breadthAsOf ? md(market.breadthAsOf) : "—"} (토요일 전체 계산 · 평일엔 그 값)</div></>}
       </Card>);
   };
   return (

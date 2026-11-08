@@ -310,7 +310,7 @@ def build_stock(ticker, cd, meta, name, market, sector):
     ma50v, ma200v = sma(c, 50), sma(c, 200)
     r_now = rs_ser[-1] if rs_ser else None
     r_prev = rs_ser[-2] if len(rs_ser) > 1 else None
-    d["rsi45"] = bool(r_now is not None and r_prev is not None and r_prev < 45 <= r_now)
+    d["rsi45"] = bool(r_now is not None and r_prev is not None and r_prev < RULES["signal"]["pullRsi"] <= r_now)
     d["upTrend"] = bool(ma50v and ma200v and ma50v > ma200v and c[-1] > ma200v)
     return d
 

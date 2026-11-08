@@ -17,6 +17,13 @@ def _run200(c):
     while i >= 199 and side(i) == last: n += 1; i -= 1
     return n if last else -n
 
+def blocked_of(j):
+    """그 나라 판정이 '새로 사지 않음'인가. 옛 market.json(gate·nqGate 시절)도 읽도록 한 줄 호환 — 다음 갱신 뒤엔 지워도 됩니다."""
+    j = j or {}
+    if "blocked" in j: return bool(j["blocked"])
+    return bool(j.get("nqGate") or (j.get("gate") and j.get("verdict") == "risk"))
+
+
 def decide_judge(idx, breadth):
     """시장 판단 — 나라마다 '새로 사도 되는가' 한 가지를 정합니다. blocked=True 면 그 나라는 새로 사지 않음.
        한국 : 폭(200일선 위 종목 비율)의 3년 백분위가 BREADTH_GATE 아래면 막힘 (폭 자료가 없으면 코스피 200일선으로 대신)
@@ -49,9 +56,9 @@ def decide_judge(idx, breadth):
             v, why = "safe", "판단 보류 (지수 자료 없음)"
         else:
             blocked = m < 0
-            name = "나스닥100" if mkt == "us" else "코스피"
-            if blocked:  v, why = "risk", f"{name}가 200일선 아래 ({m:+.1f}%)"
-            elif crash:  v, why = "warn", f"{name}는 200일선 위지만 최근 급락"
+            name, jo, jo2 = ("나스닥100", "이", "은") if mkt == "us" else ("코스피", "가", "는")
+            if blocked:  v, why = "risk", f"{name}{jo} 200일선 아래 ({m:+.1f}%)"
+            elif crash:  v, why = "warn", f"{name}{jo2} 200일선 위지만 최근 급락"
             else:        v, why = "safe", f"{name} 200일선 위 · 급락 없음"
         judge[mkt] = {"verdict": v, "why": why, "index": tk, "blocked": blocked,
                       "breadth": bv, "breadthPct": bp,

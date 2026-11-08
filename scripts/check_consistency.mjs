@@ -11,6 +11,7 @@ const SNAP = ["scripts/build_snapshot.py", ...readdirSync("scripts/snap").filter
 // 264. 앱 화면은 App.jsx + core.jsx + Tab*.jsx 로 나뉨 → "src/App.jsx" 로 읽으면 전부 이어 붙여 봄
 const APPF = ["src/App.jsx", "src/core.jsx", ...readdirSync("src").filter((f) => /^Tab\w+\.jsx$/.test(f)).sort().map((f) => `src/${f}`)];
 const T = (f) => f === "scripts/build_snapshot.py" ? SNAP.map((x) => readFileSync(x, "utf-8")).join("\n")
+  : f === "scripts/notify.py" ? ["scripts/notify.py", "scripts/notify_lib.py", "scripts/notify_weekly.py"].map((x) => readFileSync(x, "utf-8")).join("\n")
   : f === "src/App.jsx" ? APPF.map((x) => readFileSync(x, "utf-8")).join("\n") : readFileSync(f, "utf-8");
 const snap = J("snapshot.json"), market = J("market.json"), today = J("today.json"), wl = J("watchlist.json");
 const stocks = snap.stocks;
@@ -34,8 +35,8 @@ ok(`today.json 보유(${heldToday.length}) = watchlist 보유(${heldWl.length})`
 ok("보유 변경 뒤 추천이 다시 만들어졌는가", !stale, `watchlist ${wl.updatedAt} > 데이터 ${snap.meta?.generatedAt} — 그 사이 텔레그램·서버 추천은 옛 보유 기준`, true);
 
 console.log("── 2. 오늘 살 것: 서버(today.json) = 앱 규칙(picks.js) = market.json 사본 ──");
-const krGate = !!market.judge?.kr?.blocked;
-const usGate = !!market.judge?.us?.blocked;
+const krGate = !!(market.judge?.kr?.blocked ?? (market.judge?.kr?.gate && market.judge.kr.verdict === "risk"));   // 옛 market.json 호환
+const usGate = !!(market.judge?.us?.blocked ?? market.judge?.us?.nqGate);
 const oldServer = !(today.rules && "usGate" in today.rules);       // 새 규칙(247·252) 전에 만든 today.json — 다음 갱신 때 같아짐
 const cfg = { revMin: Number((wl.settings || {}).revMin ?? 10), slotsUs: Number((wl.settings || {}).slotsUs || 7), slotsKr: Number((wl.settings || {}).slotsKr || 5), krGate, usGate };
 const app = pickToday(stocks, cfg, new Set(heldWl));
@@ -106,10 +107,10 @@ const n = (re, txt) => { const m = re.exec(txt); return m ? Number(m[1]) : null;
   ok(`계좌 지정가 여유(+${R.guard.slip}%)가 서버 매수 거절선(${R.guard.buyBand}%)보다 작음`, R.guard.slip < R.guard.buyBand && /RULES\.guard\.buyBand/.test(T("api/_lib/meritz.js")));
 }
 ok("새로 사지 않는 나라(blocked)를 서버·앱·알림이 같은 값으로 읽음 — 269",
-  /us_gate = bool\(\(\(market\.get\("judge"\) or \{\}\)\.get\("us"\) or \{\}\)\.get\("blocked"\)\)/.test(py) && /kr_gate = bool\(_jk\.get\("blocked"\)\)/.test(py)
+  /kr_gate = blocked_of\(_jk\)/.test(py) && /us_gate = blocked_of\(/.test(py)
   && /usGateOf = \(market\) =>/.test(app_) && /krGateOf = \(market\) =>/.test(app_) && /\.blocked/.test(app_)
   && /_ju\.get\("blocked"\) and _open\.get\("us"\)/.test(notify) && /_jk\.get\("blocked"\) and _open\.get\("kr"\)/.test(notify)
-  && !/\.get\("nqGate"\)|\.get\("gate"\)/.test(py + notify));
+  && !/\.get\("nqGate"\)|\.get\("gate"\)/.test(notify));
 ok("화면에 '판정은 DC에만 사용'·근거 없는 16.9% 같은 옛 문구 없음 — 160", !/DC 판단에만 사용|ETF 배분\(DC\)에만|\+16\.9%·최대낙폭 −28%/.test(app_));
 ok("폭 계산 날짜(breadthAsOf)가 데이터에 있음 — 171", !!market.breadthAsOf, "", true);
 const brokerJs = T("api/_lib/meritz.js"), brokerUi = T("src/Broker.jsx");

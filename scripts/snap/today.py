@@ -3,6 +3,7 @@ from snap.common import *  # noqa
 from snap.fetch import *  # noqa
 from snap.indicators import *  # noqa
 from snap.market import *  # noqa
+from snap.signals import *  # noqa
 from snap.extras import *  # noqa
 from snap.dc import *  # noqa
 
@@ -182,8 +183,8 @@ def build_today(stocks, market):
     rev_min = float(cfg.get("revMin", REV_MIN)); slots_us = int(cfg.get("slotsUs") or RULES["slots"]["us"]); slots_kr = int(cfg.get("slotsKr") or RULES["slots"]["kr"])   # 168. 기본 = 권장 7·5 (src/picks.js SLOTS_DEFAULT)
     # 새로 사지 않는 나라 — judge.{kr,us}.blocked (scripts/snap/market.py decide_judge). 근거 수치는 config/rules.json _why
     _jk = (market.get("judge") or {}).get("kr") or {}
-    kr_gate = bool(_jk.get("blocked"))
-    us_gate = bool(((market.get("judge") or {}).get("us") or {}).get("blocked"))
+    kr_gate = blocked_of(_jk)
+    us_gate = blocked_of((market.get("judge") or {}).get("us"))
     # 98. 1회차 금액 — 앱 💰 투자금(직투 금액 ÷ 칸 수의 절반). 앱이 금액을 보낸 적이 없으면 넣지 않음
     size = {}
     for _m, _amt, _n in (("us", cfg.get("usAmt"), slots_us), ("kr", cfg.get("krAmt"), slots_kr)):
