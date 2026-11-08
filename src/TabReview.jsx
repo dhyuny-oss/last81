@@ -65,24 +65,42 @@ export function RecentSignals({ siglog, stocks, openStock, market }) {
     </Card>);
 }
 
-/** 매매 기록 — 백테스트 숫자는 생존편향이 섞여 있습니다. 내 계좌 기록이 진짜 검증입니다 */
-export function TradeLog({ trades, setTrades }) {
+/** 매매 기록 — 백테스트 숫자는 생존편향이 섞여 있습니다. 내 계좌 기록이 진짜 검증입니다
+ *  293. 모의 기록(src "kis-demo")은 통계에서 뺌 · 시장별 · 금액 손익 · 회차 · '규칙 이탈일과 비교' */
+const dayDiff = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 86400000);
+export function TradeLog({ trades, setTrades, siglog }) {
   const [open, setOpen] = useState(false);
-  if (!trades.length) return (
+  const [mk, setMk] = useState("all");
+  const [more, setMore] = useState(false);
+  const real = (trades || []).filter(t => t.src !== "kis-demo");           // 모의투자 기록은 통계에서 뺍니다 (모의는 없앴음)
+  const demoN = (trades || []).length - real.length;
+  if (!real.length) return (
     <Card style={{ marginTop: 10 }}>
       <div style={{ fontSize: FS.sm, color: C.dim }}>매매 기록이 없습니다</div>
       <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 4 }}>
-        보유 종목의 ✕ 를 누르면 매도가를 물어봅니다. 그 기록이 쌓이면 내 실제 승률을 검증값과 비교할 수 있습니다.
+        메리츠에서 체결된 매도는 자동으로 여기에 쌓입니다. 직접 판 종목은 내 종목에서 ✕를 눌러 매도가를 적으면 같이 쌓입니다.
+        기록이 쌓이면 내 실제 승률을 규칙과 비교할 수 있습니다.{demoN > 0 && ` (모의 기록 ${demoN}건은 통계에서 제외)`}
       </div>
     </Card>);
-  const n = trades.length;
-  const win = trades.filter(t => t.pl > 0).length;
-  const avg = trades.reduce((a, t) => a + t.pl, 0) / n;
-  const med = [...trades].sort((a, b) => a.pl - b.pl)[Math.floor(n / 2)].pl;
-  const days = Math.round(trades.reduce((a, t) => a + (t.days || 0), 0) / n);
-  const gains = trades.filter(t => t.pl > 0).reduce((a, t) => a + t.pl, 0);
-  const loss = -trades.filter(t => t.pl < 0).reduce((a, t) => a + t.pl, 0);
+  const list = real.filter(t => mk === "all" || t.m === mk);
+  const n = list.length;
+  const win = list.filter(t => t.pl > 0).length;
+  const avg = n ? list.reduce((a, t) => a + t.pl, 0) / n : 0;
+  const med = n ? [...list].sort((a, b) => a.pl - b.pl)[Math.floor(n / 2)].pl : 0;
+  const days = n ? Math.round(list.reduce((a, t) => a + (t.days || 0), 0) / n) : 0;
+  const gains = list.filter(t => t.pl > 0).reduce((a, t) => a + t.pl, 0);
+  const loss = -list.filter(t => t.pl < 0).reduce((a, t) => a + t.pl, 0);
   const pf = loss > 0 ? gains / loss : null;
+  const sum = (m) => list.filter(t => t.m === m && t.inv > 0).reduce((a, t) => a + t.inv * t.pl / 100, 0);
+  const hasAmt = (m) => list.some(t => t.m === m && t.inv > 0);
+  // 규칙 이탈일과 비교 — 신호 기록(siglog)에 같은 종목의 신호가 매수 직전 7일 안에 있고 규칙 이탈일이 있으면 그날과 판 날을 비교
+  const ruleNote = (t) => {
+    const x = (siglog || []).find(z => z.t === t.t && z.d <= t.in && dayDiff(z.d, t.in) <= 7);
+    if (!x) return null;
+    if (!x.x) return { txt: "규칙 신호 전에 판 것", c: C.gold };
+    const dd = dayDiff(x.x.d, t.out);
+    return dd === 0 ? { txt: "규칙 이탈일에 판 것", c: C.emerald } : dd > 0 ? { txt: `규칙 이탈 ${dd}일 뒤에 판 것`, c: C.gold } : { txt: `규칙 이탈보다 ${-dd}일 일찍 판 것`, c: C.gold };
+  };
   const Cell = ({ k, v, c }) => (
     <div><div style={{ fontSize: 10.5, color: C.muted }}>{k}</div>
       <div style={{ fontSize: FS.md, fontWeight: 800, fontFamily: MONO, color: c || C.text }}>{v}</div></div>);
@@ -90,36 +108,54 @@ export function TradeLog({ trades, setTrades }) {
     <Card style={{ marginTop: 10 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ fontSize: FS.md, fontWeight: 800 }}>내 매매 기록</span>
+        <Seg value={mk} onChange={setMk} items={[["all", "전체"], ["us", "🇺🇸"], ["kr", "🇰🇷"]]} />
         <span style={{ marginLeft: "auto", fontSize: FS.xs, color: C.muted }}>{n}건</span>
       </div>
+      {n === 0 ? <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 8 }}>이 시장의 기록이 없습니다</div> : (<>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 6, marginTop: 8 }}>
-        <Cell k="승률" v={`${(win / n * 100).toFixed(0)}%`} c={win / n >= 0.3 ? C.emerald : C.red} />
+        <Cell k="승률" v={`${(win / n * 100).toFixed(0)}%`} />
         <Cell k="평균" v={pct(avg, 1)} c={col(avg)} />
         <Cell k="중앙" v={pct(med, 1)} c={col(med)} />
         <Cell k="보유" v={`${days}일`} />
       </div>
+      {(hasAmt("us") || hasAmt("kr")) && (
+        <div style={{ fontSize: FS.sm, marginTop: 7, display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <span style={{ color: C.muted }}>손익 합계</span>
+          {hasAmt("us") && (mk === "all" || mk === "us") && <b style={{ fontFamily: MONO, color: col(sum("us")) }}>🇺🇸 {sum("us") >= 0 ? "+" : "−"}{price(Math.abs(sum("us")), "us")}</b>}
+          {hasAmt("kr") && (mk === "all" || mk === "kr") && <b style={{ fontFamily: MONO, color: col(sum("kr")) }}>🇰🇷 {sum("kr") >= 0 ? "+" : "−"}{price(Math.abs(sum("kr")), "kr")}</b>}
+          <span style={{ color: C.muted, fontSize: FS.xs }}>(수수료·환율 제외 · 통화가 달라 더하지 않음)</span>
+        </div>)}
       <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 7, lineHeight: 1.7 }}>
-        검증값(2008–26): 승률 31% · 거래당 +3.0% · 중앙 −3.6% · 보유 15일{pf != null && ` · 내 손익비 ${pf.toFixed(2)} (검증 1.6)`}
+        손익비 {pf != null ? pf.toFixed(2) : "—"} (이익 합 ÷ 손실 합).
+        옛 백테스트(2008–26, 지금 규칙으로 다시 낸 값이 아님·생존편향 있음): 승률 31% · 거래당 +3.0% · 중앙 −3.6% · 보유 15일 · 손익비 1.6 — 참고만 하세요.
         <br />작은 손실이 잦고 큰 수익이 가끔 오는 구조라, 승률이 낮은 것 자체는 문제가 아닙니다.
+        {demoN > 0 && <><br />모의 기록 {demoN}건은 통계에서 뺐습니다.</>}
       </div>
       <button onClick={() => setOpen(v => !v)} style={{ ...btn(C.dim), width: "100%", marginTop: 8 }}>
         {open ? "닫기" : `기록 ${n}건 보기`}</button>
       {open && (
         <div style={{ marginTop: 6 }}>
-          {[...trades].reverse().slice(0, 30).map((t, i) => (
-            <div key={i} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto auto", gap: 6, alignItems: "center",
-                                  padding: "7px 0", borderTop: `1px solid ${C.border}` }}>
-              <span style={{ minWidth: 0, ...ONE }}>
-                <b style={{ fontSize: FS.sm }}>{t.n}</b>
-                <span style={{ fontSize: 10.5, color: C.muted }}> {t.in}~{t.out} · {t.days}일</span>
-              </span>
-              <span style={{ fontSize: FS.xs, color: C.muted, fontFamily: MONO }}>
-                {price(t.buy, t.m)}→{price(t.sell, t.m)}</span>
-              <span style={{ fontSize: FS.sm, fontWeight: 700, fontFamily: MONO, color: col(t.pl) }}>{pct(t.pl, 1)}</span>
-            </div>))}
+          {[...list].reverse().slice(0, more ? 300 : 30).map((t, i) => { const rn = ruleNote(t); return (
+            <div key={i} style={{ padding: "7px 0", borderTop: `1px solid ${C.border}` }}>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto auto", gap: 6, alignItems: "center" }}>
+                <span style={{ minWidth: 0, ...ONE }}>
+                  <b style={{ fontSize: FS.sm }}>{t.n}</b>
+                  <span style={{ fontSize: 10.5, color: C.muted }}> {t.m === "kr" ? "🇰🇷" : "🇺🇸"} {t.in}~{t.out} · {t.days}일{t.k > 1 ? ` · ${t.k}회차` : ""}</span>
+                </span>
+                <span style={{ fontSize: FS.xs, color: C.muted, fontFamily: MONO }}>
+                  {price(t.buy, t.m)}→{price(t.sell, t.m)}</span>
+                <span style={{ fontSize: FS.sm, fontWeight: 700, fontFamily: MONO, color: col(t.pl) }}>{pct(t.pl, 1)}</span>
+              </div>
+              {(t.inv > 0 || rn) && <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>
+                {t.inv > 0 && <>투입 {price(t.inv, t.m)} · 손익 <span style={{ color: col(t.pl) }}>{t.pl >= 0 ? "+" : "−"}{price(Math.abs(t.inv * t.pl / 100), t.m)}</span></>}
+                {rn && <span style={{ color: rn.c }}>{t.inv > 0 ? " · " : ""}{rn.txt}</span>}
+              </div>}
+            </div>); })}
+          {n > 30 && !more && <button onClick={() => setMore(true)} style={{ ...linkBtn, fontSize: FS.xs, marginTop: 6 }}>나머지 {n - 30}건 더 보기</button>}
           <button onClick={() => { if (confirm("매매 기록을 모두 지울까요? 되돌릴 수 없습니다")) setTrades([]); }}
             style={{ ...linkBtn, color: C.red, fontSize: FS.xs, marginTop: 6 }}>기록 전체 삭제</button>
         </div>)}
+      </>)}
     </Card>);
 }
 export const REVIEW_STEPS = [
@@ -324,10 +360,42 @@ export function ReviewTab({ market, uni, snap, trades, setTrades, pos, stocks, s
               <span style={{ ...FIT, textAlign: "right" }}>{v.win}%</span>
             </div>))}
           <div style={{ fontSize: FS.xs, color: C.muted, padding: "8px 0 4px", lineHeight: 1.6 }}>
-            검증값(백테스트, 20일 보유 근사): 눌림 🇰🇷 거래당 +3.0% · 승률 31% / 강세 🇺🇸 +2.8% · 40% / 강세 🇰🇷 신호 20일 뒤 평균 +2.2%(180).
-            {drift && !drift.flag && <> 최근 30건: 승률 {drift.win}% · 지수대비 {drift.excess >= 0 ? "+" : ""}{drift.excess}%p — <b style={{ color: C.emerald }}>정상</b>.</>}
-            {" "}경보 기준: 최근 30건 승률 20% 미만 또는 지수대비 −3%p 아래 · 검증 평균 승률은 31~40%라 그보다 높은 건 좋은 쪽입니다 · 30건 전에는 우연의 범위.
+            검증값(옛 백테스트, 20일 보유 근사 · 지금 규칙으로 다시 낸 값이 아님): 눌림 🇰🇷 거래당 +3.0% · 승률 31% / 강세 🇺🇸 +2.8% · 40% / 강세 🇰🇷 신호 20일 뒤 평균 +2.2%(180).
+            {drift && drift.note && <> <b style={{ color: C.gold }}>이탈 경고 판정 보류</b> — {drift.note}.</>}
+            {drift && !drift.note && !drift.flag && <> 최근 {RULES.live.recent}건(신호일 {drift.days}일): 승률 {drift.win}% · 지수대비 {drift.excess >= 0 ? "+" : ""}{drift.excess}%p — <b style={{ color: C.emerald }}>정상</b>.</>}
+            {drift && drift.flag && <> <b style={{ color: C.red }}>이탈 경고</b> — {drift.reasons.join(" · ")}.</>}
+            {" "}경보 기준: 최근 {RULES.live.recent}건이 서로 다른 신호일 {RULES.live.minDays}일 이상일 때, 승률 {RULES.live.driftWin}% 미만 또는 지수대비 {RULES.live.driftExcess}%p 아래 · 그날 '새로 사지 않음'이던 나라의 신호는 앱이 사지 않았을 것이라 빼고 계산합니다.
           </div>
+          {/* 290. 규칙대로(이탈까지 보유) — 20일 고정 성적과 다른 값: 앱 규칙은 트레일링선 아래 마감까지 들고 갑니다 */}
+          <div style={{ fontSize: FS.sm, fontWeight: 700, margin: "6px 0 2px" }}>규칙대로 (이탈까지 보유)</div>
+          <Head cols={["신호", "건수", "평균", "승률", "이탈/보유"]} grid="minmax(0,1.3fr) minmax(0,.8fr) minmax(0,1fr) minmax(0,.9fr) minmax(0,1fr)" />
+          {Object.entries(live.summary).filter(([k, v]) => !k.endsWith(":all") && v.rule).map(([k, v]) => (
+            <div key={k} style={{ display: "grid", gridTemplateColumns: "minmax(0,1.3fr) minmax(0,.8fr) minmax(0,1fr) minmax(0,.9fr) minmax(0,1fr)", gap: 5,
+                                  padding: "8px 0", borderTop: `1px solid ${C.border}`, alignItems: "center" }}>
+              <span style={{ fontSize: FS.sm, fontWeight: 700, ...ONE }}>{VAL[k]?.[0] || k}</span>
+              <span style={{ ...FIT, textAlign: "right" }}>{v.rule.n}</span>
+              <span style={{ ...FIT, textAlign: "right", color: col(v.rule.avg) }}>{pct(v.rule.avg, 1)}</span>
+              <span style={{ ...FIT, textAlign: "right" }}>{v.rule.win}%</span>
+              <span style={{ ...FIT, textAlign: "right", color: C.muted }}>{v.rule.exited}/{v.rule.open}</span>
+            </div>))}
+          <div style={{ fontSize: FS.xs, color: C.muted, padding: "6px 0 2px", lineHeight: 1.6 }}>
+            이탈한 건은 이탈가, 아직 들고 있는 건은 지금 가격 기준입니다. 추세 매매는 작게 자주 잃고 크게 가끔 이기는 구조라, 보유 중인 건이 더 쌓여야 판단할 수 있습니다.
+          </div>
+          {live.blocked && Object.keys(live.blocked).length > 0 && (<>
+            <div style={{ fontSize: FS.sm, fontWeight: 700, margin: "8px 0 2px" }}>'새로 사지 않음'이던 날의 신호 <span style={{ color: C.muted, fontWeight: 400 }}>· 앱은 사지 않았을 신호</span></div>
+            {Object.entries(live.blocked).map(([k, v]) => (
+              <div key={k} style={{ display: "grid", gridTemplateColumns: "minmax(0,1.3fr) minmax(0,.8fr) minmax(0,1fr) minmax(0,.9fr) minmax(0,1fr)", gap: 5,
+                                    padding: "8px 0", borderTop: `1px solid ${C.border}`, alignItems: "center" }}>
+                <span style={{ fontSize: FS.sm, fontWeight: 700, ...ONE }}>{VAL[k]?.[0] || k}</span>
+                <span style={{ ...FIT, textAlign: "right" }}>{v.rule?.n ?? v.n}</span>
+                <span style={{ ...FIT, textAlign: "right", color: col(v.rule?.avg) }}>{pct(v.rule?.avg, 1)}</span>
+                <span style={{ ...FIT, textAlign: "right" }}>{v.rule?.win ?? "—"}%</span>
+                <span style={{ ...FIT, textAlign: "right", color: C.muted }}>{v.rule?.exited}/{v.rule?.open}</span>
+              </div>))}
+            <div style={{ fontSize: FS.xs, color: C.muted, padding: "6px 0 2px", lineHeight: 1.6 }}>
+              필터가 막은 날의 신호가 이만큼 잃었다면, 필터가 그 손실을 피하게 해 준 겁니다.
+            </div>
+          </>)}
         </>)}
       </Card>
 
@@ -335,7 +403,7 @@ export function ReviewTab({ market, uni, snap, trades, setTrades, pos, stocks, s
       <SignalReview siglog={siglog} stocks={stocks} market={market} openStock={openStock} picksLog={picksLog} />
 
       <Step n="3" q="규칙대로 했나">내 매매 기록</Step>
-      <TradeLog trades={trades} setTrades={setTrades} />
+      <TradeLog trades={trades} setTrades={setTrades} siglog={siglog} />
       <Step n="4">설정 · 근거</Step>
       <SettingsHub sizer={sizer} setTab={setTab} syncState={syncState} onShowRules={onShowRules} />
 

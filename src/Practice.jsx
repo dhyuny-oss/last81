@@ -9,8 +9,9 @@
  *   2) src/Practice.jsx (이 파일) 삭제
  *   3) public/data/practice.json 삭제
  *
- * ▣ 데이터 (practice.json · 한 번 만들어 둔 고정 파일, 매일 수집과 무관)
- *   rounds[] = { m: us|kr, d: 신호일, nc: 그날 새 매수! 종목 수, rows[3] }
+ * ▣ 데이터 (practice.json · scripts/build_practice.py 로 만든 고정 파일, 매일 수집과 무관)
+ *   rounds[] = { m: us|kr, d: 신호일, nc: 그날 새 매수! 종목 수, rows[3], blocked?: 필터가 막은 날(앱 규칙=안 사기), gate?: 이유 }
+ *   만드는 법: python scripts/build_practice.py (앱과 같은 지표·신호 코드를 과거 날짜에 돌림 — 규칙을 바꾸면 다시 만들 것)
  *   rows[]   = 신호일 기준 값만 들어 있음(뒤 정보 없음) + 결과(ret·days·peak)
  *              c 종가 · l 트레일링선(음수 = 빨강) · ma 200일선 — 모두 6개월 전 = 100 인 지수
  *   info[티커] = [업종, 한 줄 설명]
@@ -29,6 +30,11 @@ const PRE = 126;
 const pct = (v, d = 1) => (v == null ? "—" : (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(d) + "%");
 const col = (v) => (v > 0 ? K.up : v < 0 ? K.down : K.dim);
 const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
+/* 295. '안 사기' — 필터가 막은 날 판에서 4번째 선택(번호 3). 수익 0% 로 셈 · 앱 규칙의 선택도 안 사기 */
+const NO = 3;
+const retOf = (o, k) => (k === NO ? 0 : o.rows[k].ret);
+const ruleRet = (o) => (o.blocked ? 0 : o.rows.find((r) => r.rule).ret);
+const ruleIs = (o, k) => (o.blocked ? k === NO : !!o.rows[k]?.rule);
 
 /* 씨앗으로 섞기 — 기기마다 문제 순서가 다르고, 다시 열어도 같은 순서가 유지됩니다 */
 function shuffled(n, seed) {
@@ -88,7 +94,7 @@ const Stat = ({ k, v, c }) => (
   <div style={{ minWidth: 0 }}><small style={{ display: "block", color: K.dim, fontSize: 11.5 }}>{k}</small>
     <b style={{ fontFamily: MONO, fontSize: 14.5, color: c || K.fg }}>{v}</b></div>);
 
-function Card({ r, k, picked, info, blind, onPick }) {
+function Card({ r, k, picked, info, blind, onPick, blocked }) {
   const shown = picked != null, mine = picked === k, label = "ABC"[k];
   const named = shown || !blind;                       // 이름을 보여줄지
   const [ind, desc] = info || ["", ""];
@@ -100,7 +106,7 @@ function Card({ r, k, picked, info, blind, onPick }) {
         {named && <span style={{ fontFamily: MONO, fontSize: 12, color: K.dim }}>{r.t}</span>}
         <Tag>{r.why}</Tag>
         {ind && <Tag>{ind}</Tag>}
-        {shown && r.rule && <Tag c={K.blue}>앱 규칙의 선택</Tag>}
+        {shown && r.rule && !blocked && <Tag c={K.blue}>앱 규칙의 선택</Tag>}
         {mine && <Tag c={K.gold}>내 선택</Tag>}
       </div>
       {named && desc && <div style={{ fontSize: 13.5, color: K.fg, lineHeight: 1.45 }}>{desc}</div>}
@@ -109,7 +115,7 @@ function Card({ r, k, picked, info, blind, onPick }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "6px 8px" }}>
         <Stat k="강도" v={r.str} /><Stat k="RS" v={r.rs} /><Stat k="RSI" v={r.rsi} />
         <Stat k="최근 1달" v={pct(r.m1, 0)} c={col(r.m1)} /><Stat k="3달" v={pct(r.m3, 0)} c={col(r.m3)} /><Stat k="1년" v={pct(r.m12, 0)} c={col(r.m12)} />
-        <Stat k="200일선 위" v={pct(r.ma200p, 0)} /><Stat k="선까지" v={`−${r.loss.toFixed(0)}%`} /><Stat k="거래대금 순위" v={`상위 ${Math.max(1, 100 - r.tvr)}%`} />
+        <Stat k="200일선 위" v={pct(r.ma200p, 0)} /><Stat k="선까지" v={r.loss == null ? "—" : `−${r.loss.toFixed(0)}%`} /><Stat k="거래대금 순위" v={`상위 ${Math.max(1, 100 - r.tvr)}%`} />
       </div>
       {shown
         ? <div style={{ fontSize: 14 }}><b style={{ fontFamily: MONO, fontSize: 22, color: col(r.ret) }}>{pct(r.ret)}</b>{" "}
@@ -149,25 +155,41 @@ export default function Practice({ onClose }) {
   const next = () => { setCur(null); try { document.getElementById("pp-scroll")?.scrollTo(0, 0); } catch {} };
   const reset = () => { if (window.confirm("연습 기록을 지우고 새 순서로 다시 시작할까요?")) { setCur(null); setSt((s) => ({ ...s, seed: Math.floor(Math.random() * 1e9), picks: {} })); } };
 
-  const mine = avg(done.map((i) => R[i].rows[st.picks[i]].ret));
-  const rule = avg(done.map((i) => R[i].rows.find((r) => r.rule).ret));
+  const nb = (i) => !R[i].blocked;                                   // 안 사기 판이 아닌 일반 판
+  const mine = avg(done.map((i) => retOf(R[i], st.picks[i])));
+  const rule = avg(done.map((i) => ruleRet(R[i])));
   const all3 = avg(done.map((i) => avg(R[i].rows.map((r) => r.ret))));
-  const same = done.filter((i) => R[i].rows[st.picks[i]].rule).length;
-  const wins = done.filter((i) => R[i].rows[st.picks[i]].ret > 0).length;
-  // 158. 1등 맞히기 — 앱 규칙도 3번에 1번꼴이라 '평균 수익'으로 실력을 봅니다
+  const same = done.filter((i) => ruleIs(R[i], st.picks[i])).length;
+  const wins = done.filter((i) => retOf(R[i], st.picks[i]) > 0).length;
+  // 158. 1등 맞히기 — 앱 규칙도 3번에 1번꼴이라 '평균 수익'으로 실력을 봅니다 (일반 판만)
   const isBest = (rows, r) => r.ret >= Math.max(...rows.map((x) => x.ret));
-  const bestHits = done.filter((i) => isBest(R[i].rows, R[i].rows[st.picks[i]])).length;
-  const ruleBest = R.length ? Math.round(R.filter((o) => isBest(o.rows, o.rows.find((r) => r.rule))).length / R.length * 100) : null;
+  const doneN = done.filter(nb);
+  const bestHits = doneN.filter((i) => st.picks[i] !== NO && isBest(R[i].rows, R[i].rows[st.picks[i]])).length;
+  const ruleBest = R.filter((o) => !o.blocked).length ? Math.round(R.filter((o) => !o.blocked && isBest(o.rows, o.rows.find((r) => r.rule))).length / R.filter((o) => !o.blocked).length * 100) : null;
+  // 294. 구분별 점수 — 미국 · 한국 · 안 사기 판
+  const grp = (pred) => { const L = done.filter((i) => pred(R[i])); return { n: L.length, me: avg(L.map((i) => retOf(R[i], st.picks[i]))), ru: avg(L.map((i) => ruleRet(R[i]))), r3: avg(L.map((i) => avg(R[i].rows.map((r) => r.ret)))) }; };
+  const groups = [["🇺🇸 미국", grp((o) => o.m === "us" && !o.blocked)], ["🇰🇷 한국", grp((o) => o.m === "kr" && !o.blocked)], ["안 사기 판", grp((o) => !!o.blocked)]].filter(([, g]) => g.n > 0);
+  // 294. 규칙보다 못했던 판 다시 풀기
+  const missed = done.filter((i) => retOf(R[i], st.picks[i]) < ruleRet(R[i]));
+  const retry = () => { if (!missed.length) return; if (window.confirm(`규칙보다 못했던 ${missed.length}판의 내 선택을 지우고 다시 풀까요? (점수에서도 빠집니다)`)) { setCur(null); setSt((s) => { const p = { ...s.picks }; missed.forEach((i) => { delete p[i]; }); return { ...s, picks: p }; }); } };
   const f = (v) => (v == null ? "—" : pct(v));
   const seg = (on) => ({ font: "inherit", fontSize: 13, fontWeight: on ? 700 : 500, minHeight: 36, padding: "4px 12px", borderRadius: 99, cursor: "pointer",
                          background: on ? K.pick : "transparent", color: on ? K.gold : K.dim, border: `1px solid ${on ? K.gold : K.line}` });
 
   let verdict = null;
   if (o && picked != null) {
-    const me = o.rows[picked], best = o.rows.reduce((a, b) => (b.ret > a.ret ? b : a)), ru = o.rows.find((r) => r.rule);
-    verdict = me === best ? "셋 중 가장 좋은 종목을 골랐습니다."
-      : me.rule ? `앱 규칙과 같은 선택입니다. 이번 판 1등은 ${best.n}(${pct(best.ret)})였습니다 — 1등 맞히기는 규칙도 3번에 1번꼴입니다.`
-      : `이번 판 1등은 ${best.n}(${pct(best.ret)})였습니다. 앱 규칙은 ${ru.n}(${pct(ru.ret)})를 골랐습니다 — 한 판보다 평균을 보세요.`;
+    const best = o.rows.reduce((a, b) => (b.ret > a.ret ? b : a)), ru = o.rows.find((r) => r.rule);
+    if (o.blocked) {
+      const worst = Math.min(...o.rows.map((r) => r.ret)), av = avg(o.rows.map((r) => r.ret));
+      verdict = picked === NO
+        ? `앱 규칙과 같은 선택입니다 (필터가 막은 날). 샀다면 세 종목 평균 ${pct(av)}였습니다${best.ret > 0 ? ` — 1등은 ${best.n} ${pct(best.ret)}` : ""}.`
+        : `앱 규칙은 이날 사지 않습니다(필터). 고른 종목은 ${pct(o.rows[picked].ret)}, 세 종목 평균은 ${pct(av)}였습니다. 필터는 한 날이 아니라 여러 날의 평균으로 평가합니다.`;
+    } else {
+      const me = o.rows[picked];
+      verdict = me === best ? "셋 중 가장 좋은 종목을 골랐습니다."
+        : me.rule ? `앱 규칙과 같은 선택입니다. 이번 판 1등은 ${best.n}(${pct(best.ret)})였습니다 — 1등 맞히기는 규칙도 3번에 1번꼴입니다.`
+        : `이번 판 1등은 ${best.n}(${pct(best.ret)})였습니다. 앱 규칙은 ${ru.n}(${pct(ru.ret)})를 골랐습니다 — 한 판보다 평균을 보세요.`;
+    }
   }
   const hist = [...done].reverse();
 
@@ -213,23 +235,44 @@ export default function Practice({ onClose }) {
             <b style={{ color: K.fg }}>점수는 '평균 수익'으로 봅니다.</b> 셋 중 1등 맞히기는 앱 규칙도 {ruleBest != null ? `${ruleBest}%` : "3번에 1번꼴"}(무작위 33%)라 자주 틀리는 게 정상입니다.
             내 평균이 '무작위로 골랐다면'보다 높으면 고르는 눈이 있는 것이고, '앱 규칙 평균'보다 높으면 규칙보다 나은 것입니다{done.length ? ` · 규칙과 같은 선택 ${same} / ${done.length}` : ""}.
           </div>
+          {groups.length > 0 && (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13 }}>
+                <thead><tr style={{ color: K.dim }}>{["구분", "푼 판", "내 평균", "앱 규칙", "무작위"].map((h, i) => (
+                  <th key={i} style={{ padding: "4px 8px", borderBottom: `1px solid ${K.line}`, textAlign: i ? "right" : "left", fontWeight: 500, whiteSpace: "nowrap" }}>{h}</th>))}</tr></thead>
+                <tbody>{groups.map(([nm, g]) => (<tr key={nm}>
+                  <td style={{ padding: "4px 8px", borderBottom: `1px solid ${K.line}`, whiteSpace: "nowrap" }}>{nm}</td>
+                  <td style={{ padding: "4px 8px", borderBottom: `1px solid ${K.line}`, textAlign: "right", fontFamily: MONO }}>{g.n}</td>
+                  <td style={{ padding: "4px 8px", borderBottom: `1px solid ${K.line}`, textAlign: "right", fontFamily: MONO, color: col(g.me) }}>{f(g.me)}</td>
+                  <td style={{ padding: "4px 8px", borderBottom: `1px solid ${K.line}`, textAlign: "right", fontFamily: MONO, color: col(g.ru) }}>{f(g.ru)}</td>
+                  <td style={{ padding: "4px 8px", borderBottom: `1px solid ${K.line}`, textAlign: "right", fontFamily: MONO, color: col(g.r3) }}>{f(g.r3)}</td></tr>))}</tbody>
+              </table>
+              {missed.length > 0 && <button type="button" style={{ ...seg(false), marginTop: 8 }} onClick={retry}>규칙보다 못했던 {missed.length}판 다시 풀기</button>}
+            </div>)}
 
           {o ? (<>
             <div style={{ fontSize: 16, fontWeight: 700 }}>
-              {o.m === "us" ? "🇺🇸 미국" : "🇰🇷 한국"} · {picked == null && st.blind ? "어느 날" : o.d} 새로 "매수!"가 된 {o.nc}종목 중 3개입니다. 하나만 산다면?
+              {o.m === "us" ? "🇺🇸 미국" : "🇰🇷 한국"} · {picked == null && st.blind ? "어느 날" : o.d} 새로 "매수!"가 된 {o.nc}종목 중 3개입니다. {o.blocked ? "사시겠습니까, 안 사시겠습니까?" : "하나만 산다면?"}
             </div>
+            {o.blocked && <div style={{ background: K.pick, border: `1px solid ${K.gold}`, borderRadius: 10, padding: "8px 12px", fontSize: 13.5 }}>
+              <b style={{ color: K.gold }}>⚠ 이날 시장 필터는 '새로 사지 않음'</b> — {o.gate}. 앱은 이런 날 새로 사지 않습니다. 그래도 사려면 하나를 고르고, 안 사려면 아래 '안 산다'를 누르세요.</div>}
             <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 14px", fontSize: 12, color: K.dim, marginTop: -6 }}>
               {[[K.fg, "종가", "solid"], [K.up, "트레일링선(초록=보유)", "solid"], [K.down, "트레일링선(빨강)", "solid"], [K.blue, "200일선", "dashed"]].map(([c, t, s]) => (
                 <span key={t}><i style={{ display: "inline-block", width: 16, borderTop: `2px ${s} ${c}`, verticalAlign: "middle", marginRight: 4 }} />{t}</span>))}
             </div>
             <div className="pp-cards">
-              {o.rows.map((r, k) => <Card key={idx + "-" + k} r={r} k={k} picked={picked} info={data.info?.[r.t]} blind={st.blind} onPick={pick} />)}
+              {o.rows.map((r, k) => <Card key={idx + "-" + k} r={r} k={k} picked={picked} info={data.info?.[r.t]} blind={st.blind} onPick={pick} blocked={!!o.blocked} />)}
             </div>
+            {o.blocked && (
+              <button type="button" disabled={picked != null} onClick={() => pick(NO)}
+                style={{ font: "inherit", fontWeight: 700, color: picked === NO ? K.bg : K.fg, background: picked === NO ? K.gold : "transparent", border: `1px solid ${K.gold}`, borderRadius: 10,
+                         padding: "10px 14px", minHeight: 44, cursor: picked != null ? "default" : "pointer", opacity: picked != null && picked !== NO ? .6 : 1 }}>
+                안 산다 (0%){picked != null && <span style={{ fontWeight: 500 }}> · 앱 규칙의 선택</span>}</button>)}
             {picked != null && (
               <div style={{ background: K.panel, border: `1px solid ${K.line}`, borderRadius: 12, padding: 14, display: "flex", flexWrap: "wrap", gap: "10px 16px",
                             alignItems: "center", justifyContent: "space-between" }}>
                 <p style={{ margin: 0, minWidth: 0, flex: "1 1 260px" }}>
-                  <b style={{ fontFamily: MONO, color: col(o.rows[picked].ret) }}>{pct(o.rows[picked].ret)}</b> · {verdict}</p>
+                  <b style={{ fontFamily: MONO, color: col(retOf(o, picked)) }}>{pct(retOf(o, picked))}</b> · {verdict}</p>
                 <button type="button" onClick={next}
                   style={{ font: "inherit", fontWeight: 700, background: K.gold, color: K.bg, border: `1px solid ${K.gold}`, borderRadius: 10, padding: "10px 18px", minHeight: 44, cursor: "pointer" }}>
                   {firstOpen != null ? "다음 문제" : "결과 보기"}</button>
@@ -248,11 +291,11 @@ export default function Practice({ onClose }) {
                 <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13 }}>
                   <thead><tr style={{ color: K.dim }}>{["신호일", "내 선택", "수익", "앱 규칙", "수익"].map((h, i) => (
                     <th key={i} style={{ padding: "5px 8px", borderBottom: `1px solid ${K.line}`, textAlign: i === 2 || i === 4 ? "right" : "left", whiteSpace: "nowrap", fontWeight: 500 }}>{h}</th>))}</tr></thead>
-                  <tbody>{(showAll ? hist : hist.slice(0, 15)).map((i) => { const me = R[i].rows[st.picks[i]], ru = R[i].rows.find((r) => r.rule);
+                  <tbody>{(showAll ? hist : hist.slice(0, 15)).map((i) => { const o2 = R[i], pk = st.picks[i], mr = retOf(o2, pk), ru = o2.blocked ? null : o2.rows.find((r) => r.rule);
                     const td = { padding: "5px 8px", borderBottom: `1px solid ${K.line}`, whiteSpace: "nowrap" };
-                    return (<tr key={i}><td style={td}>{R[i].m === "us" ? "🇺🇸" : "🇰🇷"} {R[i].d}</td><td style={td}>{me.n}</td>
-                      <td style={{ ...td, textAlign: "right", fontFamily: MONO, color: col(me.ret) }}>{pct(me.ret)}</td><td style={td}>{ru.n}</td>
-                      <td style={{ ...td, textAlign: "right", fontFamily: MONO, color: col(ru.ret) }}>{pct(ru.ret)}</td></tr>); })}</tbody>
+                    return (<tr key={i}><td style={td}>{o2.m === "us" ? "🇺🇸" : "🇰🇷"} {o2.d}{o2.blocked ? " ⛔" : ""}</td><td style={td}>{pk === NO ? "안 산다" : o2.rows[pk].n}</td>
+                      <td style={{ ...td, textAlign: "right", fontFamily: MONO, color: col(mr) }}>{pct(mr)}</td><td style={td}>{ru ? ru.n : "안 산다"}</td>
+                      <td style={{ ...td, textAlign: "right", fontFamily: MONO, color: col(ruleRet(o2)) }}>{pct(ruleRet(o2))}</td></tr>); })}</tbody>
                 </table>
               </div>
               {hist.length > 15 && <button type="button" style={{ ...seg(false), marginTop: 8 }} onClick={() => setShowAll((v) => !v)}>{showAll ? "최근 15판만" : `전체 ${hist.length}판 보기`}</button>}
@@ -260,9 +303,9 @@ export default function Practice({ onClose }) {
 
           <details style={{ color: K.dim, fontSize: 13 }}>
             <summary style={{ cursor: "pointer" }}>이 연습의 규칙과 한계</summary>
-            <p style={{ margin: "6px 0", maxWidth: "65ch" }}>문제는 실제 과거 시세로 만든 {R.length}개입니다(미국 {R.filter((x) => x.m === "us").length} · 한국 {R.filter((x) => x.m === "kr").length}, 2010년 6월~2026년 3월). 그날 Alpha Terminal 규칙으로 처음 "매수!"가 된 종목 중 3개를 보여줍니다. 하나는 앱이 고르는 종목(강세·눌림 먼저, 그다음 강도 높은 순)이고 나머지 둘은 같은 날 후보 중 무작위입니다.</p>
+            <p style={{ margin: "6px 0", maxWidth: "65ch" }}>문제는 실제 과거 시세에 지금 앱의 계산 코드를 그대로 돌려 만든 {R.length}개입니다(미국 {R.filter((x) => x.m === "us").length} · 한국 {R.filter((x) => x.m === "kr").length}{R.some((x) => x.blocked) ? ` · 그중 필터가 막은 날 ${R.filter((x) => x.blocked).length}` : ""}, {R.length ? `${R.reduce((m, x) => (x.d < m ? x.d : m), "9999").slice(0, 7)}~${R.reduce((m, x) => (x.d > m ? x.d : m), "0").slice(0, 7)}` : ""}). 그날 규칙으로 처음 "매수!"가 된 종목 중 3개를 보여줍니다. 하나는 앱이 고르는 종목(강세·눌림 먼저, 그다음 강도 높은 순)이고 나머지 둘은 같은 날 후보 중 무작위입니다. 시장 필터가 막은 날에는 "안 산다"가 앱 규칙의 선택이며 수익 0%로 셉니다.</p>
             <p style={{ margin: "6px 0", maxWidth: "65ch" }}>성적은 앱과 같은 방식으로 셉니다. 다음 날 시가에 사고, 종가가 트레일링선 아래로 마감하면 그다음 날 시가에 팝니다. 수수료·세금·환율은 뺐습니다. 그래프 값은 6개월 전을 100으로 맞춘 지수이고, 카드의 숫자는 모두 신호일 기준입니다.</p>
-            <p style={{ margin: "6px 0", maxWidth: "65ch" }}>업종과 회사 설명은 지금 기준이라 신호일 당시와 다를 수 있습니다. 지금 종목풀에 남아 있는 종목만 들어 있어 상장폐지된 종목이 빠져 있고, 그래서 실제보다 성적이 좋게 나옵니다. 한 판의 결과는 운이 크니 여러 판의 평균으로 보세요.</p>
+            <p style={{ margin: "6px 0", maxWidth: "65ch" }}>업종과 회사 설명은 지금 기준이라 신호일 당시와 다를 수 있습니다. 지금 종목풀에서 뽑은 표본이라 상장폐지된 종목이 빠져 있고, 그래서 실제보다 성적이 좋게 나옵니다. RS·거래대금 순위와 한국 시장 폭은 이 표본 안에서 계산한 근사값이고, 미국 매출 필터·업종 상한은 과거 재무 자료가 없어 적용하지 않았습니다. 한 판의 결과는 운이 크니 여러 판의 평균으로 보세요.</p>
             <button type="button" style={{ ...seg(false), marginTop: 4 }} onClick={reset}>기록 지우고 처음부터</button>
           </details>
         </>)}

@@ -234,7 +234,7 @@ export function StockRow({ s, rank, rel, sub, onOpen, isWatch, onToggle, dip = f
         <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, flex: 1, overflow: "hidden" }}>
           {dip ? <DipTag s={s} /> : <ActionTag s={s} held={held} />}
           {tag && <span style={{ fontSize: 10.5, fontWeight: 700, color: tag[1], background: `${tag[1]}1f`, borderRadius: 5, padding: "1px 6px", flexShrink: 0, whiteSpace: "nowrap" }}>{tag[0]}</span>}
-          <span style={{ fontSize: FS.xs, color: (rs ?? 0) >= 70 ? C.cyan : C.muted, flexShrink: 0 }}>RS<b style={{ fontFamily: MONO }}>{rs != null ? Math.floor(rs) : "—"}</b></span>
+          <span style={{ fontSize: FS.xs, color: (rs ?? 0) >= RULES.signal.rsMin ? C.cyan : C.muted, flexShrink: 0 }}>RS<b style={{ fontFamily: MONO }}>{rs != null ? Math.floor(rs) : "—"}</b></span>
           {rel != null && <span style={{ fontSize: FS.xs, color: rel >= 0 ? C.emerald : C.red, minWidth: 0, ...ONE }}>
             1달 {benchName(s)}比<b style={{ fontFamily: MONO }}>{rel >= 0 ? "+" : ""}{rel.toFixed(0)}p</b></span>}
           {!dip && <EarnTag s={s} />}
