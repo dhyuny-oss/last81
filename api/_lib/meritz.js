@@ -325,6 +325,9 @@ async function placeOrder(c, ctx, b, KR) {
   const hist = KR ? await krOrders(c, ctx) : await usOrders(c, ctx);
   const open = hist.filter((o) => o.open > 0 && !o.orgn);
   if (open.some((o) => o.t === t && o.side === side && o.qty === qty && o.px === px)) fail("같은 종목·수량·가격의 미체결 주문이 이미 있습니다");
+  // 297. 같은 종목 매수 대기 주문이 있으면 새 매수는 보내지 않음 (예약으로 나간 주문이 대기 중일 때 화면에서 또 사면 두 번 사짐)
+  if (side === "buy") { const w = open.find((o) => o.t === t && o.side === "buy");
+    if (w) fail(`${t} 매수 대기 주문이 이미 있습니다 (${w.open}주 × ${M(w.px)}) — 체결을 기다리거나 내 종목 → 메리츠 카드 '최근 주문'에서 취소한 뒤 다시`); }
   if (side === "buy") { const used = KR ? dayBuyKr(hist) : dayBuyUs(hist);
     if (used + qty * px > capDay) fail(`하루 매수 상한 ${M(capDay)} 을 넘습니다 (오늘 이미 ${M(used)} + 이번 ${M(qty * px)})`); }
   await sleep(GAP);
