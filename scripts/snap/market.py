@@ -18,10 +18,8 @@ def _run200(c):
     return n if last else -n
 
 def blocked_of(j):
-    """그 나라 판정이 '새로 사지 않음'인가. 옛 market.json(gate·nqGate 시절)도 읽도록 한 줄 호환 — 다음 갱신 뒤엔 지워도 됩니다."""
-    j = j or {}
-    if "blocked" in j: return bool(j["blocked"])
-    return bool(j.get("nqGate") or (j.get("gate") and j.get("verdict") == "risk"))
+    """그 나라 판정이 '새로 사지 않음'인가 (blocked 가 None = 자료 없음 → 막지 않음)"""
+    return bool((j or {}).get("blocked"))
 
 
 def decide_judge(idx, breadth):

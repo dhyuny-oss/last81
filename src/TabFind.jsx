@@ -173,7 +173,7 @@ export function MarketInfo({ market, setTab, list, pos, stocks, items, sizer, op
           <span style={{ marginLeft: "auto", fontSize: 10.5, color: C.muted, textAlign: "right" }}>판정 근거: {j.basis || (m === "kr" ? "폭 3년 하위 40%" : "나스닥100 200일선")}</span>
         </div>
         <div style={{ fontSize: FS.sm, color: C.dim, marginTop: 5 }}>{j.why}</div>
-        {(() => { const bl = j.blocked ?? (m === "kr" ? (j.gate && j.verdict === "risk") : j.nqGate); const nm = m === "kr" ? "한국" : "미국";
+        {(() => { const bl = j.blocked; const nm = m === "kr" ? "한국" : "미국";
           return bl == null ? null : <div style={{ fontSize: FS.xs, marginTop: 2, color: bl ? C.red : C.cyan, fontWeight: 700 }}>
             {bl ? `→ ${nm}은 새로 사지 않음 · 가진 종목은 트레일링선대로${m === "kr" ? ` · ${SPARE_TXT.kr}` : ""}` : `→ ${nm} 새로 사기 가능`}</div>; })()}
         <div style={{ marginTop: 6 }}>
@@ -181,7 +181,7 @@ export function MarketInfo({ market, setTab, list, pos, stocks, items, sizer, op
           {rows.map(idxRow)}
         </div>
         {m === "us" && (() => {     // 252. 나스닥100 200일선 — 미국 새로 사기 규칙
-          const g = j.blocked ?? j.nqGate, v = j.nq200 ?? nq?.ma200p, run = (j.nqRun ?? nq?.run200);
+          const g = j.blocked, v = j.nq200 ?? nq?.ma200p, run = (j.nqRun ?? nq?.run200);
           if (g == null) return <div style={{ marginTop: 8, fontSize: FS.xs, color: C.gold }}>나스닥100 자료를 받지 못해 오늘은 막지 않습니다 (다음 수집 때 다시 판단)</div>;
           return <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 9, fontSize: FS.xs, lineHeight: 1.6,
                                background: g ? "rgba(255,69,58,.10)" : "rgba(48,209,88,.08)", border: `1px solid ${g ? C.red : C.emerald}55`, color: C.dim }}>

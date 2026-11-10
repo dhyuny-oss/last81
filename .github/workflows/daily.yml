@@ -138,7 +138,7 @@ jobs:
           ls -lh public/data/snapshot.json public/data/market.json
           echo "차트 파일 $(ls public/data/bars | wc -l)개 · $(du -sh public/data/bars | cut -f1)"
           python -c "import json;m=json.load(open('public/data/snapshot.json'))['meta'];print('종목',m['counts']['stocks'],'· 실패',m['counts']['failed'],'· 생성',m['generatedKST']);print('실패목록:',', '.join(m.get('failed',[])) or '없음')"
-          python -c "import json;d=json.load(open('public/data/market.json'));print('판단',{k:(v['verdict'],v['gate']) for k,v in d['judge'].items()});print('폭',{k:(v['v'],v['pct']) for k,v in d.get('breadth',{}).items()})"
+          python -c "import json;d=json.load(open('public/data/market.json'));print('판단',{k:(v.get('verdict'),'새로 사지 않음' if v.get('blocked') else ('확인 안 됨' if v.get('blocked') is None else '새로 사기 가능')) for k,v in d['judge'].items()});print('폭',{k:(v['v'],v['pct']) for k,v in d.get('breadth',{}).items()})"
 
       # ③ 텔레그램 — 스냅샷이 성공했을 때만
       - name: Telegram report

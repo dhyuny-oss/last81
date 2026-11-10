@@ -25,18 +25,20 @@ const ids = (a) => (a || []).map((r) => r.t).join(",");
 const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 console.log("── 1. 보유: 폰이 보낸 것 = 서버가 쓰는 것 ──");
-const pos = wl.positions || [];
+// 234. 메리츠 잔고에 없는 기록(today.brokerMiss)은 서버가 보유·칸 계산에서 뺍니다 — 점검도 같은 규칙으로
+const miss = new Set((today.brokerMiss || []).map((t) => String(t).toUpperCase()));
+const pos = (wl.positions || []).filter((p) => !miss.has(String(p.t).toUpperCase()));
 const heldWl = pos.map((p) => String(p.t).toUpperCase()).sort();
 const heldToday = (today.held || []).map((h) => String(h.t).toUpperCase()).sort();
 const builtAt = Date.parse(snap.meta?.generatedAt || 0), wlAt = Date.parse(wl.updatedAt || 0);
 const stale = wlAt > builtAt;                      // 보유를 보낸 뒤 아직 추천을 다시 만들지 않음
-ok(`today.json 보유(${heldToday.length}) = watchlist 보유(${heldWl.length})`, eq(heldWl, heldToday),
+ok(`today.json 보유(${heldToday.length}) = watchlist 보유(${heldWl.length}${miss.size ? ` · 메리츠에 없는 ${[...miss].join(",")} 제외` : ""})`, eq(heldWl, heldToday),
   `today: ${heldToday.join(",")}\n     watchlist: ${heldWl.join(",")}${stale ? "\n     → 보유를 바꾼 뒤 아직 갱신 전입니다. 다음 갱신 때 같아집니다" : ""}`, stale);
 ok("보유 변경 뒤 추천이 다시 만들어졌는가", !stale, `watchlist ${wl.updatedAt} > 데이터 ${snap.meta?.generatedAt} — 그 사이 텔레그램·서버 추천은 옛 보유 기준`, true);
 
 console.log("── 2. 오늘 살 것: 서버(today.json) = 앱 규칙(picks.js) = market.json 사본 ──");
-const krGate = !!(market.judge?.kr?.blocked ?? (market.judge?.kr?.gate && market.judge.kr.verdict === "risk"));   // 옛 market.json 호환
-const usGate = !!(market.judge?.us?.blocked ?? market.judge?.us?.nqGate);
+const krGate = !!market.judge?.kr?.blocked;
+const usGate = !!market.judge?.us?.blocked;
 const oldServer = !(today.rules && "usGate" in today.rules);       // 새 규칙(247·252) 전에 만든 today.json — 다음 갱신 때 같아짐
 const cfg = { revMin: Number((wl.settings || {}).revMin ?? 10), slotsUs: Number((wl.settings || {}).slotsUs || 7), slotsKr: Number((wl.settings || {}).slotsKr || 5), krGate, usGate };
 const app = pickToday(stocks, cfg, new Set(heldWl));
