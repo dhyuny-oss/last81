@@ -66,7 +66,7 @@ ok(PLACED.length === 1 && PLACED[0].t === "AAA" && PLACED[0].px === 101.51 && PL
 ok(st("AAA").status === "sent", "AAA 상태 = 주문 보냄");
 ok(st("BBB").status === "skip" && /추격/.test(st("BBB").why), `BBB +3.5% → 추격 안 함 (${st("BBB").why})`);
 ok(st("CCC").status === "skip" && /급락/.test(st("CCC").why), `CCC −6% → 급락 (${st("CCC").why})`);
-ok(st("DDD").status === "skip" && /손절선/.test(st("DDD").why), `DDD 손절선 아래 (${st("DDD").why})`);
+ok(st("DDD").status === "skip" && /트레일링선/.test(st("DDD").why), `DDD 트레일링선 아래 (${st("DDD").why})`);
 ok(st("EEE").status === "skip" && /이미/.test(st("EEE").why), `EEE 이미 보유 (${st("EEE").why})`);
 r = await runResv({ only: "us" }); ok(PLACED.length === 1, "다시 불러도 두 번 사지 않음");
 

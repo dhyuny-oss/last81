@@ -1,17 +1,13 @@
 /* 264. Chart 탭 — 이 탭만 쓰는 화면 (App.jsx 에서 자동으로 나눔 · 다른 탭과 같이 쓰는 건 core.jsx) */
-import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import MKT_CAL from "../config/market.json";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import RULES from "./rules.js";
-import { pickToday, SLOTS_DEFAULT, KR_GATE_WHY, US_GATE_WHY, SEC_FULL_WHY, SEC_CAP } from "./picks.js";
-import { planFills, applyFills } from "./fills.js";
 import {
   ComposedChart, Line, Area, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot,
 } from "recharts";
-import { openOrder, nextOpen } from "./order.js";
-import { useResv, resvOf, resvDay, resvCall, RESV_ST } from "./resv.js";
-import { AboutCard, AboutLine, SchedLine, WeekSched, pastEarnTxt } from "./Info.jsx";
-import { ActionTag, C, Card, DipTag, Empty, FS, Info, LiveTag, MONO, ONE, Seg, StaleWarn, Star, Toggle, WHY, btn, col, earnDays, infoUrl, inp, kstDay, linkBtn, liveOf, lossOf, lossTxt, md, money, pct, pctFit, pickedDays, price, slotInfo, tgtGap, trOf, useBroker, useLive, useSticky, ysym } from "./core.jsx";
+import { openOrder } from "./order.js";
+import { AboutCard } from "./Info.jsx";
+import { ActionTag, C, Card, DipTag, Empty, FS, Info, LiveTag, MONO, ONE, Seg, StaleWarn, Star, Toggle, WHY, btn, col, earnDays, infoUrl, inp, kstDay, linkBtn, liveOf, lossOf, lossTxt, md, mdy, money, pct, pctFit, pickedDays, price, slotInfo, tgtGap, trOf, useBroker, useLive, useSticky, ysym } from "./core.jsx";
 
 
 export const Cells = ({ s, keys = [["3일", "d3"], ["5일", "d5"], ["1달", "d21"]] }) => (
@@ -202,7 +198,7 @@ export function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, s
        : { t: "—", c: C.muted, why: "" })
     : isEtf
     ? (s.stSlow === 1 ? { t: "보유", c: C.emerald, why: `느린 ST 초록 ${s.slowDays}거래일째` }
-       : s.stSlow === 0 ? { t: "대기", c: C.gold, why: `느린 ST 빨강 ${s.slowDays}거래일째 · 안전자산` }
+       : s.stSlow === 0 ? { t: "안전자산", c: C.gold, why: `느린 ST 빨강 ${s.slowDays}거래일째 · 안전자산` }
        : { t: "—", c: C.muted, why: "" })
     : null;   // 종목은 아래 ActionTag 가 파이프라인 판정을 그대로 씁니다
   const hi52 = s.w52p != null ? s.c / (1 + s.w52p / 100) : null;
@@ -258,7 +254,7 @@ export function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, s
           <Star on={watch.includes(s.t)} onClick={() => toggleWatch(s.t)} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 17, fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.n}</div>
-            <div style={{ fontSize: FS.xs, color: C.muted }}>{s.m === "kr" ? "🇰🇷" : "🇺🇸"} {s.t} · {s.asOf} 종가</div>
+            <div style={{ fontSize: FS.xs, color: C.muted }}>{s.m === "kr" ? "🇰🇷" : "🇺🇸"} {s.t} · {mdy(s.asOf)} 종가</div>
           </div>
           <div style={{ textAlign: "right" }}>
             <div style={{ fontSize: 19, fontWeight: 800, fontFamily: MONO }}>{price(s.c, s.m)}</div>
@@ -395,7 +391,7 @@ export function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, s
           <span style={{ fontSize: FS.md, fontWeight: 800 }}>{s.idx ? "추세" : isEtf ? "보유 조건" : "매수 체크리스트"}</span>
           {!isEtf && <span style={{ fontSize: FS.xs, color: C.muted }}>{allOk ? `조건 충족 (${WHY[s.why] || "매수"})` : `기본 ${checks.slice(0, 3).filter(c => c[1]).length}/3`} · {checkOpen ? "접기 ▴" : "자세히 ▾"}</span>}
           <span style={{ marginLeft: "auto", fontSize: FS.sm, fontWeight: 800, color: isEtf ? (s.stSlow === 1 ? C.emerald : C.gold) : allOk ? C.emerald : C.muted }}>
-            {s.idx ? (s.stSlow === 1 ? "추세 위" : "추세 아래") : isEtf ? (s.stSlow === 1 ? "보유 가능" : "대기") : allOk ? "매수!" : (s.action === "sell" && held) ? "매도!" : "관망"}</span>
+            {s.idx ? (s.stSlow === 1 ? "추세 위" : "추세 아래") : isEtf ? (s.stSlow === 1 ? "보유 가능" : "안전자산") : allOk ? "매수!" : (s.action === "sell" && held) ? "매도!" : "관망"}</span>
         </div>
         {(checkOpen || isEtf) && <>
         {!isEtf && checks.map(([label, ok, val]) => (
@@ -417,7 +413,7 @@ export function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, s
         <Info label="이 규칙의 근거">
           {s.idx ? <>지수는 사는 대상이 아니라 시장 흐름을 보는 참고용입니다. 느린 ST 색은 DC 규칙이 쓰는 것과 같은 선(12일 · ATR 3배)입니다.</>
             : isEtf
-            ? <>느린 슈퍼트렌드가 초록일 때만 보유하고 빨강이면 안전자산으로 두는 규칙입니다. S&P500 원화 기준 2007–26: 샤프 0.69 (그냥 보유 0.58), 최대낙폭 −20% (보유 −31%).</>
+            ? <>느린 슈퍼트렌드가 초록일 때만 보유하고 빨강이면 안전자산으로 두는 규칙입니다. S&P500 원화 기준 2007–26: 샤프 0.69 (그냥 보유 0.58), 최대낙폭 -20% (보유 -31%).</>
             : <>매수는 위 조건이 모두 맞을 때, 매도는 느린 ST가 빨강이 될 때. 2008–26 검증: 평균 약 30일 보유, 손익비 1.6, 승률 약 40%.
                “셋 중 하나라도 빨강이면 매도”는 평균 7일 보유로 비용을 빼면 남는 게 없었습니다. RSI·MACD 상승 조건은 넣어도 결과가 같았습니다.</>}
         </Info>

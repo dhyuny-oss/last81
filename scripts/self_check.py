@@ -288,7 +288,7 @@ def report_text(o):
     L = ["<b>🔎 Alpha Terminal 3주 점검</b>", "<i>보고만 합니다 — 규칙은 자동으로 바뀌지 않습니다</i>", ""]
     L.append("<b>① 신호별 성적 (20거래일 · 쌓인 기록만)</b>")
     for s in r.get("signals") or []:
-        L.append(f"· {s['k']} {s['n']}건" + (f" 평균 {s['avg']:+.1f}% · 승률 {s['win']:.0f}% · 지수대비 {s['excess']:+.1f}%p" if s.get("excess") is not None and s['n'] >= MIN_PICKS else "") + f" → {s['verdict']}")
+        L.append(f"· {s['k']} {s['n']}건" + (f" 평균 {s['avg']:+.1f}% · 승률 {s['win']:.0f}% · 지수 대비 {s['excess']:+.1f}%p" if s.get("excess") is not None and s['n'] >= MIN_PICKS else "") + f" → {s['verdict']}")
     sv = r.get("saved") or {}
     if sv.get("pct") is not None: L.append(f"· 판 뒤 더 떨어진 비율 {sv['pct']:.0f}% ({sv['n']}건) — 50% 넘으면 파는 규칙이 제 몫을 함")
     if (r.get("drift") or {}).get("flag"): L.append("🚨 드리프트: " + " · ".join(r["drift"]["reasons"]))

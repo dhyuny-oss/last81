@@ -4,16 +4,16 @@
  * 어디서 누르든(오늘 탭 · 차트 · 내 종목 카드 · 계좌 카드) 이 창 하나가 그 자리에서 아래에서 올라옵니다.
  *   열 때: 계좌(/api/broker)에서 지금 가격을 받고, 앱 데이터가 최신인지 바로 확인(app-data-check)
  *   수량: − / + · 빠른 선택(1회차 · 1주 · 보유 전부) · 직접 입력
- *   지정가: 매수 = 지금 가격 +0.5% · 매도 = 지금 가격 −0.5% (고칠 수 있음)
+ *   지정가: 매수 = 지금 가격 +0.5% · 매도 = 지금 가격 -0.5% (고칠 수 있음)
  *   검사(오늘 매수 제안과 같은 기준):
- *     막음 — 주문 꺼짐 · 정규장 밖 매수 · 매수 지정가가 지금 +1.5% 초과 / 매도 −3% 미만 · 1건 상한 초과 · 지금 가격 확인 안 됨
- *     빨간 경고(체크해야 보냄) — 시장 급락(−2%↓) · 종목 −5%↓ · 트레일링선 아래 · 앱 신호가 매수!/매도! 아님 · 이미 보유 중
+ *     막음 — 주문 꺼짐 · 정규장 밖 매수 · 매수 지정가가 지금 +1.5% 초과 / 매도 -3% 미만 · 1건 상한 초과 · 지금 가격 확인 안 됨
+ *     빨간 경고(체크해야 보냄) — 시장 급락(-2%↓) · 종목 -5%↓ · 트레일링선 아래 · 앱 신호가 매수!/매도! 아님 · 이미 보유 중
  *     안내(노란 글씨) — +4%↑ 추격(248) · 개장 직후 5분 · 실적 발표 가까움
  *   249. 장이 닫혀 있을 때 매수 = 매수 예약 — 장이 열린 뒤 서버가 조건을 다시 보고 지정가로 삼 (src/resv.js · api/_lib/resv.js)
  *   보내면: 결과를 보여 주고 'broker-changed' 를 알림 → 계좌 카드가 주문 내역을 다시 불러옴
  * 여는 법: import { openOrder } from "./order.js";  openOrder({ t, side: "buy"|"sell", qty, m: "us"|"kr" })
  */
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { nextOpen } from "./order.js";
 import { resvCall } from "./resv.js";
 import RULES from "./rules.js";
@@ -280,12 +280,12 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
           {side === "sell" && heldQty && <button type="button" onClick={() => setQty(String(heldQty))} style={{ ...btn, minHeight: 32, padding: "0 10px", fontSize: 12 }}>보유 전부 {heldQty}주</button>}
           {last > 0 && !resvMode && !buyResv && <button type="button" onClick={() => { const raw = side === "buy" ? last * (1 + G.slip / 100) : last * (1 - G.slip / 100);
               setPx(String(KR ? (side === "buy" ? upTick(raw) : downTick(raw)) : (side === "buy" ? Math.ceil(raw * 100) / 100 : Math.floor(raw * 100) / 100))); }}
-            style={{ ...btn, minHeight: 32, padding: "0 10px", fontSize: 12 }}>지정가 = 지금 {side === "buy" ? "+" : "−"}{G.slip}%</button>}
+            style={{ ...btn, minHeight: 32, padding: "0 10px", fontSize: 12 }}>지정가 = 지금 {side === "buy" ? "+" : "-"}{G.slip}%</button>}
         </div>
         {buyResv ? (
           <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 10, background: "rgba(6,182,212,.08)", border: `1px solid ${K.cyan}66`, fontSize: 12, lineHeight: 1.6 }}>
             <b style={{ color: K.cyan }}>지금은 장이 닫혀 있어 매수 예약으로 넣습니다 — {nxo?.label.replace(" 때", "")}{KR ? " · 09:30 뒤" : " 5분 뒤"}부터 서버가 확인</b><br />
-            그때 <b>시장 −2% 이하 · 트레일링선 아래 · 기준 종가({base > 0 ? M(base) : "—"})보다 +3% 넘게 또는 −5% 넘게 · 새 종가에서 매수! 꺼짐{KR ? " · 한국 시장 위험" : " · 나스닥100 200일선 아래"} · 이미 보유</b>면 사지 않습니다.
+            그때 <b>시장 -2% 이하 · 트레일링선 아래 · 기준 종가({base > 0 ? M(base) : "—"})보다 +3% 넘게 또는 -5% 넘게 · 새 종가에서 매수! 꺼짐{KR ? " · 한국 시장 위험" : " · 나스닥100 200일선 아래"} · 이미 보유</b>면 사지 않습니다.
             아니면 그때 가격 +0.5% 지정가로 삽니다. <b>하루만</b> 유효 — 그날 확인하지 못하면 자동 취소.
             <span style={{ display: "block", color: K.dim }}>예약 확인은 무료 서버 예약이라 개장 뒤 몇 분~1시간쯤 늦을 수 있습니다 · 결과는 텔레그램과 내 종목 탭 '매수 예약' · 그 전에 취소 가능{cap1 ? ` · 최대 약 ${M(resvAmt, 0)}` : ""}</span>
           </div>) : resvMode ? (

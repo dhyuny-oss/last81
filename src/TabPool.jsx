@@ -1,17 +1,6 @@
 /* 264. Pool 탭 — 이 탭만 쓰는 화면 (App.jsx 에서 자동으로 나눔 · 다른 탭과 같이 쓰는 건 core.jsx) */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import MKT_CAL from "../config/market.json";
-import RULES from "./rules.js";
-import { pickToday, SLOTS_DEFAULT, KR_GATE_WHY, US_GATE_WHY, SEC_FULL_WHY, SEC_CAP } from "./picks.js";
-import { planFills, applyFills } from "./fills.js";
-import {
-  ComposedChart, Line, Area, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot,
-} from "recharts";
-import { openOrder, nextOpen } from "./order.js";
-import { useResv, resvOf, resvDay, resvCall, RESV_ST } from "./resv.js";
-import { AboutCard, AboutLine, SchedLine, WeekSched, pastEarnTxt } from "./Info.jsx";
-import { ActionTag, C, Card, FS, MONO, ONE, Sec, Seg, btn, inp, loadJSON, money, postWatch, settingsChanged, shortName } from "./core.jsx";
+import { ActionTag, C, Card, FS, MONO, ONE, Sec, Seg, btn, inp, loadJSON, md, mdt, money, postWatch, settingsChanged, shortName } from "./core.jsx";
 
 
 
@@ -155,7 +144,7 @@ export function PoolTab({ snap, uni, list, openStock, watch, pos, extras, setExt
     <>
       <Card style={{ marginTop: 8 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-          <span style={{ fontSize: FS.md, fontWeight: 800 }}>지금 종목풀</span>
+          <span style={{ fontSize: FS.md, fontWeight: 800 }}>지금 보는 종목</span>
           <span style={{ fontSize: FS.xs, color: C.muted }}>어떤 종목을 보나</span>
         </div>
         {(() => {   // 169. 숫자마다 뜻을 붙여 따로 — 종목풀(이번 주 명단) · 오늘 신호 계산 · 뺀 종목
@@ -168,7 +157,7 @@ export function PoolTab({ snap, uni, list, openStock, watch, pos, extras, setExt
               <div style={{ fontSize: 10, color: C.muted, ...ONE }}>{sub}</div></div>);
           return <>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 6, marginTop: 8 }}>
-              <Box k="종목풀" v={total} sub="이번 주 명단" />
+              <Box k={h.mode === "focus" ? "평일 감시" : "종목풀"} v={total} sub={h.mode === "focus" && h.fullUniverse ? `종목풀 ${h.fullUniverse} 중` : "이번 주 명단"} />
               <Box k="오늘 신호 계산" v={list.length} sub={`🇰🇷 ${list.filter(s => s.m === "kr").length} · 🇺🇸 ${list.filter(s => s.m === "us").length}`} c={C.emerald} />
               <Box k="뺀 종목" v={h.mode === "focus" ? (total != null ? total - list.length : null) : drop} sub={h.mode === "focus" ? "평일 간이 수집" : "아래 이유"} />
             </div>
@@ -200,19 +189,19 @@ export function PoolTab({ snap, uni, list, openStock, watch, pos, extras, setExt
           <RefreshBtn />
           <FinRefreshBtn />
           <div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.6 }}>
-            마지막: 종목풀 {uni?.date?.slice(0, 10) || "—"} · 시세 {snap?.meta?.generatedKST || "—"} · 재무 {snap?.meta?.finUpdated || "—"}
+            마지막: 종목풀 {md(uni?.date) || "—"} · 시세 {mdt(snap?.meta?.generatedKST) || "—"} · 재무 {md(snap?.meta?.finUpdated) || "—"}
           </div>
         </div>
       </Card>
 
       {uni && (
         <Card style={{ marginTop: 8 }}>
-          <div style={{ fontSize: FS.md, fontWeight: 800 }}>지난 교체 <span style={{ fontSize: FS.xs, color: C.muted, fontWeight: 400 }}>{uni.date} · {uni.prevTotal} → {uni.total}</span></div>
+          <div style={{ fontSize: FS.md, fontWeight: 800 }}>지난 교체 <span style={{ fontSize: FS.xs, color: C.muted, fontWeight: 400 }}>{mdt(uni.date)} · {uni.prevTotal} → {uni.total}종목</span></div>
           {h.mode !== "focus" && uni.total != null && list.length !== uni.total && (
             <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 3 }}>
               들어온 {uni.total} − 오늘 제외 {Object.values(h.dropped || {}).reduce((a, b) => a + b, 0)}{Object.keys(h.dropped || {}).length ? `(${Object.entries(h.dropped).map(([k, v]) => `${k} ${v}`).join(" · ")})` : ""} − 수집 실패 {snap?.meta?.counts?.failed ?? 0} = 지금 {list.length}종목</div>)}
           {uni.added?.length > 0 && <div style={{ fontSize: FS.sm, marginTop: 6 }}><b style={{ color: C.emerald }}>＋{uni.added.length}</b> <span style={{ color: C.dim }}>{uni.added.slice(0, 20).map(x => x.n).join(", ")}{uni.added.length > 20 ? " …" : ""}</span></div>}
-          {uni.removed?.length > 0 && <div style={{ fontSize: FS.sm, marginTop: 4 }}><b style={{ color: C.red }}>−{uni.removed.length}</b> <span style={{ color: C.dim }}>{uni.removed.slice(0, 20).map(x => x.n).join(", ")}{uni.removed.length > 20 ? " …" : ""}</span></div>}
+          {uni.removed?.length > 0 && <div style={{ fontSize: FS.sm, marginTop: 4 }}><b style={{ color: C.red }}>-{uni.removed.length}</b> <span style={{ color: C.dim }}>{uni.removed.slice(0, 20).map(x => x.n).join(", ")}{uni.removed.length > 20 ? " …" : ""}</span></div>}
           {!uni.added?.length && !uni.removed?.length && <div style={{ fontSize: FS.sm, color: C.muted, marginTop: 4 }}>변경 없음</div>}
         </Card>)}
 

@@ -1,17 +1,6 @@
 /* 264. Dc 탭 — 이 탭만 쓰는 화면 (App.jsx 에서 자동으로 나눔 · 다른 탭과 같이 쓰는 건 core.jsx) */
-import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import MKT_CAL from "../config/market.json";
-import RULES from "./rules.js";
-import { pickToday, SLOTS_DEFAULT, KR_GATE_WHY, US_GATE_WHY, SEC_FULL_WHY, SEC_CAP } from "./picks.js";
-import { planFills, applyFills } from "./fills.js";
-import {
-  ComposedChart, Line, Area, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot,
-} from "recharts";
-import { openOrder, nextOpen } from "./order.js";
-import { useResv, resvOf, resvDay, resvCall, RESV_ST } from "./resv.js";
-import { AboutCard, AboutLine, SchedLine, WeekSched, pastEarnTxt } from "./Info.jsx";
-import { C, Card, Chip, Empty, FS, Grade, Info, MONO, ONE, Sec, Seg, btn, col, dcModeOf, inp, kstDay, linkBtn, loadJSON, money, pct, price, settingsChanged } from "./core.jsx";
+import React, { useState, useEffect } from "react";
+import { C, Card, Chip, Empty, FS, Grade, Info, MONO, ONE, Sec, Seg, btn, col, dcModeOf, inp, kstDay, linkBtn, loadJSON, md, money, pct, price, settingsChanged } from "./core.jsx";
 
 
 
@@ -19,7 +8,7 @@ import { C, Card, Chip, Empty, FS, Grade, Info, MONO, ONE, Sec, Seg, btn, col, d
    규칙 (230 · 2026-10 다시 검증): 나스닥100 · S&P500 · 코스피200 각 23.3% + 안전자산 30%
    · 각 몫은 느린 슈퍼트렌드(12,3)가 초록일 때만 보유, 빨강이면 그 몫도 안전자산
    · 판단은 미국 원본(SPY) 신호, 매수는 국내 상장 ETF (퇴직연금은 국내 상장만 가능)
-   · 진입은 한 번에 또는 월 1회 3분할 (분할은 평균 −0.3%p, 최악 결과는 줄어듦)          */
+   · 진입은 한 번에 또는 월 1회 3분할 (분할은 평균 -0.3%p, 최악 결과는 줄어듦)          */
 export const DAY = 86400000;
 
 export function DcTab({ etfs, market, pos, setPos, openStock, sizer }) {
@@ -130,11 +119,11 @@ export function DcTab({ etfs, market, pos, setPos, openStock, sizer }) {
                   매수 <b style={{ fontFamily: MONO, color: C.cyan }}>{c.buy?.code}</b> {c.buy?.name}{c.px ? ` · ${price(c.px, "kr")}` : ""}
                 </div>
                 <div style={{ fontSize: 10.5, color: C.muted, marginTop: 1, ...ONE }}>
-                  판단 {c.d?.asOf || "—"} 종가{c.buy?.asOf ? ` · 국내가 ${c.buy.asOf}` : ""}
+                  판단 {md(c.d?.asOf) || "—"} 종가{c.buy?.asOf ? ` · 국내가 ${md(c.buy.asOf)}` : ""}
                 </div>
               </div>
               <span style={{ fontSize: FS.md, fontWeight: 800, color: hold ? C.emerald : sell ? C.red : C.gold, whiteSpace: "nowrap" }}>
-                {hold ? "🟢 보유" : sell ? "🔴 매도 필요" : c.state === "wait" ? "🟡 대기" : "⚪ 확인 불가"}</span>
+                {hold ? "🟢 보유" : sell ? "🔴 매도 필요" : c.state === "wait" ? "🟡 안전자산" : "⚪ 확인 불가"}</span>
             </div>
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 7 }}>
               <St d={c.d} />
@@ -173,13 +162,13 @@ export function DcTab({ etfs, market, pos, setPos, openStock, sizer }) {
       <Card style={{ marginBottom: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: FS.lg, fontWeight: 800 }}>안전자산 <span style={{ fontSize: FS.sm, color: C.muted, fontWeight: 500 }}>30% + 대기 몫</span></div>
+            <div style={{ fontSize: FS.lg, fontWeight: 800 }}>안전자산 <span style={{ fontSize: FS.sm, color: C.muted, fontWeight: 500 }}>30% + 빨강인 몫</span></div>
             <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 2 }}>적격 TDF · 채권혼합형(주식 40%↓) · 예금 — 증권사에서 ‘안전자산’ 분류 확인</div>
             {/* 254. 채권은 짧은 것 — 장기채는 금리가 오르면 주식처럼 빠짐 */}
             <div style={{ fontSize: FS.xs, color: C.dim, marginTop: 4, lineHeight: 1.55 }}>
-              채권으로 채운다면 <b style={{ color: C.text }}>예금 · 국내 단기채 · 국고채 3년</b> — 5년 최대낙폭 −0.5%~−5%.
-              국고채 10년(−17%) · 미국 30년(−48%) 같은 장기채는 급락 때 조금 오르지만 금리가 오르면 크게 빠져 안전자산 역할을 못 합니다(2022).
-              {dcModeOf() !== "hold" && <b style={{ color: C.gold }}> 느린 ST 방식은 빨강일 때 이 몫으로 옮기므로 장기채를 쓰면 최대낙폭이 −13% → −35~39%로 커집니다(백테스트).</b>}
+              채권으로 채운다면 <b style={{ color: C.text }}>예금 · 국내 단기채 · 국고채 3년</b> — 5년 최대낙폭 -0.5%~-5%.
+              국고채 10년(-17%) · 미국 30년(-48%) 같은 장기채는 급락 때 조금 오르지만 금리가 오르면 크게 빠져 안전자산 역할을 못 합니다(2022).
+              {dcModeOf() !== "hold" && <b style={{ color: C.gold }}> 느린 ST 방식은 빨강일 때 이 몫으로 옮기므로 장기채를 쓰면 최대낙폭이 -13% → -35~39%로 커집니다(백테스트).</b>}
             </div>
             {(() => { const unb = cores.filter(c => c.state === "hold" && (c.n || 0) < split).reduce((a, c) => a + (c.target || 0) - (c.n || 0) * (c.per || 0), 0);   // 174
               return unb > 0 ? <div style={{ fontSize: FS.xs, color: C.gold, marginTop: 2 }}>아직 안 산 보유 신호 몫 {money(unb, "kr")} 포함 — 위 '매수 완료 기록'을 누르면 줄어듭니다</div> : null; })()}
@@ -205,7 +194,7 @@ export function DcTab({ etfs, market, pos, setPos, openStock, sizer }) {
         <div style={{ fontSize: FS.xs, color: C.muted, margin: "4px 0 0 72px" }}>{split === 3 ? "초록일 때 한 달 간격으로 3번" : "초록일 때 한 번에"}</div>
         <Info label="진입 방식 근거">
           2007–2025년 222개 시작 시점, 12개월 뒤 결과(이 규칙 기준):
-          한 번에 평균 +6.6%·최악 −4.0%, 3분할 평균 +6.4%·최악 −3.6%. 한 번에가 이긴 비율 60%.
+          한 번에 평균 +6.6%·최악 -4.0%, 3분할 평균 +6.4%·최악 -3.6%. 한 번에가 이긴 비율 60%.
           평균은 한 번에가 낫고, 분할은 최악의 경우를 조금 줄입니다.
         </Info></>}
       </Card>
@@ -272,7 +261,7 @@ export function DcTab({ etfs, market, pos, setPos, openStock, sizer }) {
           <button onClick={() => setMoreKr(true)} style={{ ...btn(C.dim), width: "100%", margin: "8px 0" }}>
             나머지 {(dc.krSect || []).length - 5}개 보기</button>)}
         <Info label="왜 참고만?">
-          한국 업종 ETF를 골라 담는 방식은 KODEX 200 보유보다 낮았습니다(연 +5.51% vs +10.22%, 최대낙폭 −62% vs −36%).
+          한국 업종 ETF를 골라 담는 방식은 KODEX 200 보유보다 낮았습니다(연 +5.51% vs +10.22%, 최대낙폭 -62% vs -36%).
           추세 신호를 붙여도 업종 ETF 전체 샤프 0.44로 KODEX 200 보유(0.53)보다 낮았습니다. 한국 몫은 KODEX 200 하나로 두는 것이 검증 결과입니다.
         </Info>
       </Card>
@@ -281,7 +270,7 @@ export function DcTab({ etfs, market, pos, setPos, openStock, sizer }) {
         <b style={{ color: C.text }}>규칙</b> {dc.rule}<br />
         <b style={{ color: C.text }}>검증</b> {dc.evidence?.period}: 연 {pct(dc.evidence?.cagr, 1)} · 최대낙폭 {dc.evidence?.mdd}% · 샤프 {dc.evidence?.sharpe}
         (같은 3지수 그냥 보유 {pct(dc.evidence?.bh_cagr, 1)} · {dc.evidence?.bh_mdd}% · {dc.evidence?.bh_sharpe}).
-        수익은 그냥 보유보다 연 5%p쯤 낮고, 최대낙폭은 약 60% 수준입니다. 2026년 7월 폭락 때 KODEX 200 신호는 7/2(고점 −17%)에 빠져 이후 −29%를 피했지만, 반등은 놓쳤습니다.<br />
+        수익은 그냥 보유보다 연 5%p쯤 낮고, 최대낙폭은 약 60% 수준입니다. 2026년 7월 폭락 때 KODEX 200 신호는 7/2(고점 -17%)에 빠져 이후 -29%를 피했지만, 반등은 놓쳤습니다.<br />
         <b style={{ color: C.text }}>DC 제약</b> 국내 상장 ETF만 · 위험자산 70% 한도 · 레버리지·인버스 불가 · 합성 ETF는 증권사 확인.
         분기 첫 거래일에 23/23/23/30 비중을 다시 맞춥니다. 은행·보험사 DC는 ETF 실시간 매매가 안 될 수 있습니다.<br />
         회차 기록은 이 기기에 저장됩니다. 투자자문이 아닙니다.

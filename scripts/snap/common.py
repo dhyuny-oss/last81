@@ -16,7 +16,6 @@ OUT_DIR   = "public/data"
 KST       = timezone(timedelta(hours=9))
 BARS_KEEP   = 200        # 차트에 보관할 봉수 (약 10개월)
 RS_LOOKBACK = 126        # RS 백분위 기준 기간 (6개월) — 검증으로 정한 값
-MIN_BARS  = 130          # 이보다 적으면 지표 일부 생략
 # ── 시장 '폭' = 200일선 위 종목 비율 (한국 새로 사기 판단) ─────────
 #   한국은 이 폭을, 미국은 나스닥100 200일선을 씁니다 (scripts/snap/market.py decide_judge).
 #   검증 수치와 기간은 config/rules.json _why.krGate / _why.usGate 한 곳에만 둡니다.

@@ -142,7 +142,7 @@ def build(snap, mkt, state, now):
             if not ms: continue
             inv = sum(x[3] for x in ms); val = sum(x[4] for x in ms); rk = sum(x[5] for x in ms)
             L.append(f"  {flag} {len(ms)}종목" + (f" · 투입 {money(inv, mk)} → 평가 {money(val, mk)} ({(val/inv-1)*100:+.1f}%)" if inv else "")
-                     + (f" · 전부 선 닿으면 −{money(rk, mk)}" if rk > 0 else ""))
+                     + (f" · 전부 선 닿으면 -{money(rk, mk)}" if rk > 0 else ""))
             for x in sorted(ms, key=lambda x: not x[0]): L.append(x[1])
         if buys:
             L.append("   <i>관심 목록 신호</i>")
@@ -199,7 +199,7 @@ def build(snap, mkt, state, now):
             buy = c.get("buy") or {}
             prev = (state.get(f"dc:{c['key']}") or {}).get("state")
             flip = (not first_run) and prev and prev != st and st in ("hold", "wait")
-            mark = "🟢 보유" if st == "hold" else "🟡 대기" if st == "wait" else "⚪ 확인불가"
+            mark = "🟢 보유" if st == "hold" else "🟡 안전자산" if st == "wait" else "⚪ 확인불가"
             days = d.get("slowDays")
             _dcL.append(f"   {mark} <b>{c.get('label')}</b> {int(c.get('w',0)*100)}% → {buy.get('name','')} "
                      f"({buy.get('code','')}){f' · {days}거래일째' if days is not None else ''}")
@@ -290,7 +290,7 @@ def build(snap, mkt, state, now):
             f = s.get("fin") or {}
             g = f.get("growth", f.get("rev"))
             fin = (f" · 매출 {g:+.0f}%{'↑' if f.get('accel') else ''}" if g is not None else "") + (" · 적자" if f.get("prof") is False else "")
-            gap = f" · 선까지 −{(1 - s['stLine'] / s['c']) * 100:.0f}%" if s.get("stLine") and s.get("c") else ""
+            gap = f" · 선까지 -{(1 - s['stLine'] / s['c']) * 100:.0f}%" if s.get("stLine") and s.get("c") else ""
             L.append(f"{mark}{flag} <b>{s['n']}</b> {price(s['c'], s['m'])} {pct(s.get('d1'))} {act_txt(s)}")
             L.append(f"   강도 {int(s.get('str') or 0)} · RS {int(s.get('rs') or 0)}{gap} · 하루 거래 {money(s.get('tv'), s['m'])}{fin}{earn_txt(s)}")
         if len(rows) > MAX_ROWS:

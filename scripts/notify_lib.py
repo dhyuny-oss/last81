@@ -110,31 +110,15 @@ def pick_entry(stocks, judge=None):
 
 
 def pick_oversold(stocks):
-    """★ 미국 종목만. 한국은 검증에서 −7.24%(유의하게 손해)라 제외합니다."""
-    # 앱 급락 탭의 '관찰' 과 같은 판정 (파이프라인 dip=watch): −25%↓ · 3년 건강 60%↑ · 흑자 · 20일선 회복
+    """★ 미국 종목만. 한국은 검증에서 -7.24%(유의하게 손해)라 제외합니다."""
+    # 앱 급락 탭의 '관찰' 과 같은 판정 (파이프라인 dip=watch): -25%↓ · 3년 건강 60%↑ · 흑자 · 20일선 회복
     out = [s for s in stocks.values() if s.get("m") == "us" and (s.get("tvr") or 0) >= RULES["tvrMin"] and s.get("dip") == "watch"]
     out.sort(key=lambda x: x.get("w52p") or 0)
     return out
 
 
 # ══════════════════════════════════════════════════════════════
-def broker_miss(wl, today=None):
-    """234. 메리츠 잔고 요약에 없는 단기 보유 (scripts/build_snapshot.py broker_miss 와 같은 규칙)"""
-    import datetime as _dt
-    b = (wl or {}).get("broker") or {}
-    try:
-        age = ((today or _dt.date.today()) - _dt.date.fromisoformat(str(b.get("d") or ""))).days
-    except Exception:
-        return set()
-    if age > 4: return set()
-    out = set()
-    for p in (wl.get("positions") or []):
-        t = str(p.get("t", "")).upper(); m = "kr" if t.isdigit() else "us"
-        if (p.get("role") or "swing") != "swing" or m not in b: continue
-        tr = p.get("tr") or []
-        d0 = str((tr[0].get("d") if tr else None) or p.get("date") or "")
-        if t not in {str(x[0]).upper() for x in b[m]} and d0 < str(b.get("d")): out.add(t)
-    return out
+from broker_rule import broker_miss      # 299. 규칙 한 곳 (scripts/broker_rule.py)
 
 
 # ══════════════════════════════════════════════════════════════
