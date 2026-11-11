@@ -26,7 +26,7 @@ const K = { panel: "#0F1420", panel2: "#161B2E", border: "rgba(255,255,255,.09)"
 const MONO = "ui-monospace,SFMono-Regular,Menlo,monospace";
 const TOK = "v7.kis.tok", PIN = "v7.kis.pin", BUD = "v7.kis.budget", BUD_KR = "v7.kis.budget.kr", MK = "v7.kis.mk";
 /* 매수 제안 안전장치 (미검증 · 숫자는 여기서만 바꿉니다) */
-//   260. 숫자는 config/rules.json 의 guard — 시장 −2% 이하 보류 · +2% 주의 · 종목 −5% 급락 · +4% 추격 · 지정가 +0.5%
+//   260. 숫자는 config/rules.json 의 guard — 시장 -2% 이하 보류 · +2% 주의 · 종목 -5% 급락 · +4% 추격 · 지정가 +0.5%
 const GUARD = { ...RULES.guard, fresh: 120 };   // fresh: 가격을 본 지 120초가 넘으면 다시 보게 함
 const EXN = { NASD: "나스닥", NYSE: "뉴욕", AMEX: "아멕스", KRX: "한국거래소" };
 const won = (v) => `${Math.round(Number(v) || 0).toLocaleString("ko-KR")}원`;
@@ -234,7 +234,7 @@ export default function BrokerPanel({ held = [], stocks = {}, picks: picksUs = [
     if (!q) return no("지금 가격을 확인하지 못했습니다");
     if (have.has(p.t)) return no("이미 이 계좌에 있습니다", "info");
     if (waiting.has(p.t)) return no("매수 주문이 대기 중입니다", "info");
-    if (oldData) return no(`추천 데이터가 ${asOf.slice(5).replace("-", "/")} 것이라 오래됐습니다 — 갱신 뒤에 제안합니다`, "bad");
+    if (oldData) return no(`추천 데이터가 ${+asOf.slice(5, 7)}/${+asOf.slice(8, 10)} 것이라 오래됐습니다 — 갱신 뒤에 제안합니다`, "bad");
     if (!usOpenNow) return no(KR ? "한국 정규장(09:00~15:30)이 열리면 살 수 있습니다" : "미국 정규장이 열리면 살 수 있습니다", "info");
     if (stale) return no("가격을 다시 본 뒤 살 수 있습니다");
     if (mkt.unknown) return no("시장 상태 확인 안 됨 — 보류");
@@ -274,7 +274,7 @@ export default function BrokerPanel({ held = [], stocks = {}, picks: picksUs = [
             <div style={{ color: K.dim, fontSize: 11.5, marginTop: 4 }}>지정가에 안 닿은 주문입니다. 그대로 두면 장이 끝날 때 사라집니다 · '새 가격으로 다시'는 이 주문을 먼저 취소한 뒤 쓰세요</div>
           </div>) : null; })()}
       <div style={{ marginTop: 6, color: K.dim, fontSize: 11.5, lineHeight: 1.5 }}>
-        <>{BK}에서 체결된 매수·매도는 이 화면을 열 때 내 종목 맨 위에 <b style={{ color: K.text }}>'이렇게 반영할게요'</b>로 먼저 보여 드립니다 (내 종목 = {BK} 잔고 기준 · 11/8부터는 자동 반영 · 주문 창에서 체결된 건 바로 반영).</>}
+        <>{BK}에서 체결된 매수·매도는 이 화면을 열 때 내 종목 맨 위에 <b style={{ color: K.text }}>'이렇게 반영할게요'</b>로 먼저 보여 드립니다 (내 종목 = {BK} 잔고 기준 · 11/8부터는 자동 반영 · 주문 창에서 체결된 건 바로 반영).</>
       </div>
       {(needPin || !pin) && (
         <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
@@ -337,7 +337,7 @@ export default function BrokerPanel({ held = [], stocks = {}, picks: picksUs = [
           <summary style={{ cursor: "pointer", minHeight: 36, display: "flex", alignItems: "center", color: K.dim, fontSize: 12.5 }}>▸ 오늘 매수 제안 {picks.length}개 · 오늘 탭 3번(오늘 살 것)과 같은 목록 (보통은 거기서 '사기')</summary>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
             <b style={{ fontSize: 13 }}>오늘 매수 제안</b>
-            <span style={{ color: K.dim, fontSize: 11.5 }}>{asOf ? `${asOf.slice(5).replace("-", "/")} 종가로 뽑음` : "전날 종가로 뽑음"} · 오늘 탭과 같은 목록 · 지정가 = 지금 가격 +{GUARD.slip}%{KR ? " (호가 단위로 올림)" : ""}</span>
+            <span style={{ color: K.dim, fontSize: 11.5 }}>{asOf ? `${+asOf.slice(5, 7)}/${+asOf.slice(8, 10)} 종가로 뽑음` : "전날 종가로 뽑음"} · 오늘 탭과 같은 목록 · 지정가 = 지금 가격 +{GUARD.slip}%{KR ? " (호가 단위로 올림)" : ""}</span>
             <button type="button" onClick={() => run("quote", loadQuotes)} disabled={!!busy} style={{ ...quiet, minHeight: 30, padding: "2px 10px", fontSize: 12 }}>{busy === "quote" ? "보는 중…" : "가격 다시 보기"}</button>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap", fontSize: 12 }}>

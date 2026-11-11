@@ -28,14 +28,14 @@ def build_weekly(snap, mkt, now):
     for p in ps:
         d = stocks.get(p["t"]) or {}
         if d.get("stLine") and d.get("c") and d.get("stSlow") == 1 and (1 - d["stLine"] / d["c"]) * 100 < 5: near.append(d.get("n") or p["t"])
-    L.append(f"2️⃣ 내 종목 {len(ps)} · 매도! {len(sells)} · 선까지 −5% 이내 {len(near)}" + (f" ({', '.join(near[:4])})" if near else ""))
+    L.append(f"2️⃣ 내 종목 {len(ps)} · 매도! {len(sells)} · 선까지 -5% 이내 {len(near)}" + (f" ({', '.join(near[:4])})" if near else ""))
     # 3 실전 성적
     summ = live.get("summary") or {}
     if summ:
         parts = []
         for k, v in summ.items():
             if k.endswith(":all"): continue
-            kind, m = k.split(":"); parts.append(f"{ {'pull':'눌림','strong':'강세','buy':'추세'}.get(kind, kind)}{'🇰🇷' if m=='kr' else '🇺🇸'} {v['n']}건 승률{v['win']:.0f}% 지수대비{v['excess']:+.1f}%p" if v.get("excess") is not None else f"{kind}{m} {v['n']}건 승률{v['win']:.0f}%")
+            kind, m = k.split(":"); parts.append(f"{ {'pull':'눌림','strong':'강세','buy':'추세'}.get(kind, kind)}{'🇰🇷' if m=='kr' else '🇺🇸'} {v['n']}건 승률{v['win']:.0f}% 지수 대비{v['excess']:+.1f}%p" if v.get("excess") is not None else f"{kind}{m} {v['n']}건 승률{v['win']:.0f}%")
         L.append("3️⃣ 실전 성적(20일): " + " · ".join(parts))
     else:
         L.append(f"3️⃣ 실전 성적: 기록 {live.get('n', 0)}건 · 20거래일 뒤부터 집계 (대기 {live.get('pending', 0)})")
@@ -50,7 +50,7 @@ def build_weekly(snap, mkt, now):
     # 57. 이번 주 이탈한 신호 — 규칙대로 팔았으면 얼마였나 (공부용)
     outs = [x for x in log if (x.get("x") or {}).get("d", "") >= wk and x.get("p")]
     if outs:
-        L.append(f"   📉 이번 주 이탈 {len(outs)}건 (규칙 손익 평균 {sum((x['x']['p']/x['p']-1)*100 for x in outs)/len(outs):+.1f}%)")
+        L.append(f"   📉 이번 주 매도! {len(outs)}건 (규칙 손익 평균 {sum((x['x']['p']/x['p']-1)*100 for x in outs)/len(outs):+.1f}%)")
         for x in sorted(outs, key=lambda x: (x['x']['p']/x['p']))[:5]:
             L.append(f"      {x.get('n') or x['t']} {x['d'][5:]}→{x['x']['d'][5:]} {(x['x']['p']/x['p']-1)*100:+.1f}%")
     # 4.5 이번 주 5칸 추천 — 파이프라인이 확정한 today.json 을 그대로 (앱·AI 도구와 같은 목록). 없으면 같은 규칙으로 계산
@@ -69,7 +69,7 @@ def build_weekly(snap, mkt, now):
             L.append(f"   위에서 {_free}개만 삽니다 — 나머지는 대기")
         for i, r in enumerate(td["pickUs"], 1):
             L.append(f"   {i}. <b>{r['t']}</b> {(r.get('n') or '')[:18]} · {WHY.get(r.get('why'),'')} · 강도{int(r.get('str') or 0)} · RS{int(r.get('rs') or 0)}"
-                     + (f" · 선까지 −{r['loss']:.0f}%" if r.get("loss") is not None else "") + (f" · 매출{(r.get('growth') if r.get('growth') is not None else r['rev']):+.0f}%{'↑' if r.get('accel') else ''}" if (r.get("growth") is not None or r.get("rev") is not None) else "")
+                     + (f" · 선까지 -{r['loss']:.0f}%" if r.get("loss") is not None else "") + (f" · 매출{(r.get('growth') if r.get('growth') is not None else r['rev']):+.0f}%{'↑' if r.get('accel') else ''}" if (r.get("growth") is not None or r.get("rev") is not None) else "")
                      + (f" · 🆕{int(r['since'][5:7])}/{int(r['since'][8:10])}~ {r['age']}일째" if (r.get("age") and r.get("since")) else (f" · 🆕{r['age']}일째" if r.get("age") else ""))
                      + (f" · 1회차 {r['sh']}주" if r.get("sh") else "")
                      + earn_txt(r))
@@ -101,7 +101,7 @@ def build_weekly(snap, mkt, now):
           for i, d in enumerate(picks, 1):
               f = d.get("fin") or {}; gap = (1 - d["stLine"] / d["c"]) * 100 if d.get("stLine") and d.get("c") else None   # 선까지(닿으면 잃는 폭)
               L.append(f"   {i}. <b>{d['t']}</b> {d.get('n','')[:18]} · {WHY.get(d.get('why'),'')} · RS{int(d.get('rs') or 0)}"
-                       + (f" · 선까지 −{gap:.0f}%" if gap is not None else "") + (f" · 매출{f['rev']:+.0f}%" if f.get("rev") is not None else ""))
+                       + (f" · 선까지 -{gap:.0f}%" if gap is not None else "") + (f" · 매출{f['rev']:+.0f}%" if f.get("rev") is not None else ""))
           if drop: L.append("   <i>제외: " + ", ".join(drop[:8]) + "</i>")
       krb = [d for d in stocks.values() if d.get("action") == "buy" and d.get("m") == "kr" and (d.get("tvr") or 0) >= RULES["tvrMin"]]
       if krb:
@@ -112,7 +112,7 @@ def build_weekly(snap, mkt, now):
     if _h3 and (dc.get("hold3") or {}).get("items"):
         L.append("5️⃣ DC 3지수 보유 (내 규칙): 나스닥100·S&P500·코스피200 각 23% — 1월 첫 거래일에만 비중 맞춤")
     for c in (dc.get("core") or []):
-        L.append(f"   느린 ST 규칙{' (참고)' if _h3 else ' (내 규칙)'} {c.get('label')}: {'보유' if c.get('state')=='hold' else '대기'}")
+        L.append(f"   느린 ST 규칙{' (참고)' if _h3 else ' (내 규칙)'} {c.get('label')}: {'보유' if c.get('state')=='hold' else '안전자산'}")
     h = meta.get("health") or {}
     L.append(f"<i>🩺 {h.get('kept','?')}종목 · {meta.get('generatedKST','')} · 전략 결정은 앱 점검 탭 5번에 한 줄</i>")
     L.append(f'<a href="{APP_URL}">점검 탭 열기 →</a>')

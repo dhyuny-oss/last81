@@ -1,16 +1,10 @@
 /* 264. Track 탭 — 이 탭만 쓰는 화면 (App.jsx 에서 자동으로 나눔 · 다른 탭과 같이 쓰는 건 core.jsx) */
-import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import MKT_CAL from "../config/market.json";
-import RULES from "./rules.js";
-import { pickToday, SLOTS_DEFAULT, KR_GATE_WHY, US_GATE_WHY, SEC_FULL_WHY, SEC_CAP } from "./picks.js";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { pickToday, SLOTS_DEFAULT } from "./picks.js";
 import { planFills, applyFills } from "./fills.js";
-import {
-  ComposedChart, Line, Area, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot,
-} from "recharts";
 import { openOrder, nextOpen } from "./order.js";
-import { useResv, resvOf, resvDay, resvCall, RESV_ST } from "./resv.js";
-import { AboutCard, AboutLine, SchedLine, WeekSched, pastEarnTxt } from "./Info.jsx";
+import { useResv, resvDay, resvCall, RESV_ST } from "./resv.js";
+import { SchedLine, WeekSched, pastEarnTxt } from "./Info.jsx";
 import { C, Card, Chip, CopyBtn, DipTag, Empty, FS, InfoLink, LiveTag, MONO, NOTES_REF, ONE, PLAN_KEY, Sec, Seg, StockRow, actionOf, avgOf, btn, budgetOf, col, dcModeOf, earnDays, earnTxt, getRevMin, inp, investedIn, investedOf, kstDay, linkBtn, liveOf, loadJSON, loadPlan, localToday, lossOf, lossTxt, md, mktOfT, money, nextTrancheOf, pct, pickCfg, planAmounts, postWatch, price, relOf, roomFor, settingsChanged, shortName, slotInfo, subLine, tgtGap, tgtText, tgtOf, trOf, usDST, useBroker, useLive } from "./core.jsx";
 
 
@@ -71,7 +65,7 @@ export function BrokerTop({ brokerSync = {}, stocks = {} }) {
             <div key={x.id} style={{ fontSize: FS.xs, padding: "6px 0", borderTop: `1px solid ${C.border}`, color: C.dim, lineHeight: 1.5 }}>
               <b style={{ color: c }}>{l}</b> <b style={{ color: C.text, fontFamily: x.m === "us" ? MONO : "inherit" }}>{nmOf(x)}</b> {resvDay(x.day)}
               {x.status === "sent" ? ` · ${x.qty}주 지정가 ${price(x.px, x.m)} — 체결은 메리츠 카드 '최근 주문'` : x.why ? ` · ${x.why}` : ""}</div>); })}
-          <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>장이 열린 뒤 서버가 시장 −2% · 트레일링선 · 기준 종가 +3%/−5% · 매수! 신호 · 나스닥100 200일선을 다시 보고 지정가(그때 가격 +0.5%)로 삽니다 · 무료 서버 예약이라 개장 뒤 몇 분~1시간 늦을 수 있음</div>
+          <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>장이 열린 뒤 서버가 시장 -2% · 트레일링선 · 기준 종가 +3%/-5% · 매수! 신호 · 나스닥100 200일선을 다시 보고 지정가(그때 가격 +0.5%)로 삽니다 · 무료 서버 예약이라 개장 뒤 몇 분~1시간 늦을 수 있음</div>
         </Card>)}
     </>);
 }
@@ -391,10 +385,10 @@ export function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, m
           const N = missHere ? { c: C.gold, k: `${BK}에 없음`, v: "정리 필요 — 이미 팔았거나 잘못 들어간 기록", sub: "오늘 할 일·칸 계산에서는 이미 뺐습니다 · 실제로 팔았으면 × 에서 매도가를 넣어 성적에 남길 수 있음" }
             : p.role === "long" ? { c: C.cyan, k: "장기", v: "장기 보유 — 앱 매도 규칙 적용 안 함", sub: "칸 수·매도! 알림에서 빠짐 · 손익 합계에는 들어감" }
             : isSell ? { c: C.red, k: "매도!", v: `${when} 전량 매도${sh ? ` · ${sh}주` : ""}`, sub: `${md(s.asOf)} 종가 ${price(s.c, s.m)} < 트레일링선 ${price(s.stLine, s.m)} · 미루지 않고 그날 처리 (원칙 3)`, act: "sell" }
-            : nxt?.ok && room ? { c: C.emerald, k: "2회차", v: `${when} 2회차 ${q2 > 0 ? `${q2}주` : "1주"} · ~${price(s.c * 1.005, s.m)}`, sub: `1회차 대비 ${pct(nxt.gain, 1)} 마감 (조건 +3~6% · 느린 ST 초록) · ${money(nxt.amt, s.m)}`, act: "t2" }
+            : nxt?.ok && room ? { c: C.emerald, k: "2회차", v: `${when} 2회차 ${q2 > 0 ? `${q2}주` : "1주"} · ~${price(s.c * 1.005, s.m)}`, sub: `1회차 대비 ${pct(nxt.gain, 1)} 마감 (조건 +3~6% · 트레일링선 위) · ${money(nxt.amt, s.m)}`, act: "t2" }
             : nxt?.ok ? { c: C.gold, k: "2회차 건너뜀", v: "투자금 한도를 넘어 2회차는 건너뜁니다", sub: `직투 ${money(budgetOf(sizer, s.m), s.m)} 중 ${money(investedIn(pos, s.m), s.m)} 투입 · 2회차 ${money(nxt.amt, s.m)}` }
             : nxt?.chase ? { c: C.gold, k: "기다리기", v: `2회차 추격 금지 — 1회차 대비 ${pct(nxt.gain, 1)}`, sub: `+6%를 넘었습니다. 눌렸다 +3~6% 안에 다시 들어오면 2회차 · ${price(s.stLine, s.m)} 아래로 마감하면 매도` }
-            : nxt ? { c: C.muted, k: "다음 할 일", v: "없음 — 기다리기", sub: `${!nxt.after ? `산 뒤 첫 종가부터 판단 · ${price(nxt.target, s.m)}~${price(nxt.cap, s.m)}(+3~6%)로 마감하면 2회차` : `${price(nxt.target, s.m)} 위로 마감하면 2회차 (${nxt.pctToGo.toFixed(1)}% 남음${s.stSlow !== 1 ? " · 느린 ST 초록이어야" : ""})`} · ${s.stLine ? `${price(s.stLine, s.m)} 아래로 마감하면 매도` : "트레일링선 없음"}` }
+            : nxt ? { c: C.muted, k: "다음 할 일", v: "없음 — 기다리기", sub: `${!nxt.after ? `산 뒤 첫 종가부터 판단 · ${price(nxt.target, s.m)}~${price(nxt.cap, s.m)}(+3~6%)로 마감하면 2회차` : `${price(nxt.target, s.m)} 위로 마감하면 2회차 (${nxt.pctToGo.toFixed(1)}% 남음${s.stSlow !== 1 ? " · 트레일링선 위여야" : ""})`} · ${s.stLine ? `${price(s.stLine, s.m)} 아래로 마감하면 매도` : "트레일링선 없음"}` }
             : { c: C.muted, k: "다음 할 일", v: "없음 — 기다리기", sub: s.stLine ? `${price(s.stLine, s.m)} 아래로 마감하면 매도 (선까지 ${lossTxt(s)})` : "트레일링선 없음" };
           return (
             <Card key={p.id} style={{ marginBottom: 8, borderColor: missHere ? `${C.gold}88` : isSell ? "rgba(255,69,58,.5)" : N.act === "t2" ? "rgba(48,209,88,.45)" : C.border }}>
@@ -438,7 +432,7 @@ export function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, m
                 <summary style={{ fontSize: FS.xs, color: C.muted, cursor: "pointer", minHeight: 32, display: "flex", alignItems: "center" }}>
                   ▸ 자세히 — {s.stLine ? `선 ${price(s.stLine, s.m)} (${lossTxt(s)})` : "선 없음"}{s.slowDays != null ? ` · ${s.stSlow === 1 ? "초록" : "빨강"} ${s.slowDays}일` : ""}{earnTxt(s) ? ` · 📅 ${earnTxt(s)}` : ""}</summary>
                 <div style={{ fontSize: FS.xs, color: C.dim, lineHeight: 1.7, padding: "2px 0 4px" }}>
-                  {p.role !== "long" ? <>트레일링선 {price(s.stLine, s.m)} · 선까지 {lossTxt(s)}{s.slowDays != null ? ` · 느린 ST ${s.stSlow === 1 ? "초록" : "빨강"} ${s.slowDays}거래일째` : ""}</> : <>장기 관찰 · <DipTag s={s} /></>}
+                  {p.role !== "long" ? <>트레일링선 {price(s.stLine, s.m)} · 선까지 {lossTxt(s)}{s.slowDays != null ? ` · 트레일링선 ${s.stSlow === 1 ? "위" : "아래"} ${s.slowDays}거래일째` : ""}</> : <>장기 관찰 · <DipTag s={s} /></>}
                   {earnTxt(s) && <><br /><b style={{ color: earnDays(s) <= 7 ? C.gold : C.dim }}>📅 {earnTxt(s)}</b></>}
                   {pastEarnTxt(s) && <><br />{pastEarnTxt(s)}</>}
                   {(() => { const tg = tgtOf(p.t, NOTES_REF.cur, s); const g = tg && tgtGap(tg.v, s.c);
@@ -564,8 +558,8 @@ export function HoldTotals({ pos, stocks, fx, only = "all" }) {
         return (
           <div key={"r" + m} style={{ display: "flex", alignItems: "baseline", gap: 6, fontSize: FS.xs, color: C.dim, flexWrap: "wrap" }}>
             <span>{f} 전부 선에 닿으면</span>
-            <b style={{ fontFamily: MONO, color: C.red }}>−{money(x.risk, m)}</b>
-            <span>(평가의 −{x.val ? (x.risk / x.val * 100).toFixed(1) : "0"}%)</span>
+            <b style={{ fontFamily: MONO, color: C.red }}>-{money(x.risk, m)}</b>
+            <span>(평가의 -{x.val ? (x.risk / x.val * 100).toFixed(1) : "0"}%)</span>
             {x.sell > 0 && <b style={{ color: C.red }}>· 매도! {x.sell}개 따로</b>}
           </div>); })}
       {only === "all" && parts.length === 2 && fx && (() => {
@@ -610,7 +604,7 @@ export function PlanCard({ sizer, bumpSizer, pos, stocks }) {
       {pa && !open && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", marginTop: 8, textAlign: "center" }}>
           {[["🏦 DC", money(pa.dc, "kr"), `${pa.pct.dc}%`], ["🇺🇸 직투", money(pa.us, "us"), `${p.slotsUs}칸 · ${money(pa.limUs, "us")}`],
-            ["🇰🇷 직투", money(pa.kr, "kr"), `${p.slotsKr}칸 · ${money(pa.limKr, "kr")}`], ["💤 대기", money(pa.cash, "kr"), `${pa.pct.cash}%`]].map(([l, v, sub], i) => (
+            ["🇰🇷 직투", money(pa.kr, "kr"), `${p.slotsKr}칸 · ${money(pa.limKr, "kr")}`], ["💤 남는 돈", money(pa.cash, "kr"), `${pa.pct.cash}%`]].map(([l, v, sub], i) => (
             <div key={l} style={{ borderLeft: i ? `1px solid ${C.border}` : "none", minWidth: 0, padding: "0 2px" }}>
               <div style={{ fontSize: 10.5, color: C.dim }}>{l}</div>
               <div style={{ fontSize: 13.5, fontWeight: 800, fontFamily: MONO, ...ONE }}>{v}</div>
@@ -625,7 +619,7 @@ export function PlanCard({ sizer, bumpSizer, pos, stocks }) {
           <Row k="dcAmt" label="🏦 DC" unit="원" m="kr" sub={dcModeOf() === "hold" ? "3지수 보유" : "느린 ST"} />
           <Row k="usAmt" label="🇺🇸 직투" unit="$" m="us" sub={sizer.fx && p.usAmt ? `≈ ${money(p.usAmt * sizer.fx, "kr")} (환율 ${sizer.fx.toFixed(0)})` : "달러로 입력"} />
           <Row k="krAmt" label="🇰🇷 직투" unit="원" m="kr" sub="강세·눌림" />
-          <Row k="cashAmt" label="💤 대기" unit="원" m="kr" sub="예금·예비금" />
+          <Row k="cashAmt" label="💤 남는 돈" unit="원" m="kr" sub="예금·예비금" />
           <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0 4px", borderTop: `1px solid ${C.border}`, marginTop: 4 }}>
             <b>합계</b><b style={{ fontFamily: MONO }}>{pa ? money(pa.total, "kr") : "—"}</b></div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 8, marginTop: 6 }}>

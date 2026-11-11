@@ -248,6 +248,8 @@ def main():
         drops.setdefault(reason, []).append({"t": tk, "n": name, "d": detail})
     for r, tk, n in KR_CUT: drop(r, tk, n)
 
+    _prev_stocks = (prev_snap or {}).get("stocks") or {}
+    _regress_seen, carried = set(), {}      # 298. 지난 값보다 과거 날짜를 받은 종목 → 지난 값을 그대로 둔 종목 {티커: 이번에 받은 날짜}
     def try_one(tk, info, pause):
         """1종목 처리. 검사를 통과한 것만 싣습니다 (종목 수보다 정확도 우선)."""
         if info["market"] == "kr":
@@ -267,6 +269,21 @@ def main():
         halted = all((b.get("v") or 0) == 0 for b in cd[-5:])
         if halted and tk not in PROT:
             drop("거래 없음", tk, info["name"]); time.sleep(pause); return True
+        # ⑧ 298. 뒤로 가지 않기 — 받은 마지막 봉이 지난 스냅샷의 종가 날짜보다 과거면(아침 수집 때 야후가 한국 전날 봉을 빼고 주는 일 · 11/7·10·11 연속)
+        #    한 번 더 받아 보고(재시도 패스), 그래도 과거면 지난 값·지난 차트를 그대로 둡니다. 종가가 하루 전으로 되돌아가 판정이 묵지 않게.
+        _pv = _prev_stocks.get(tk)
+        _new = datetime.fromtimestamp(cd[-1]["t"], timezone.utc).strftime("%Y-%m-%d")
+        if _pv and _pv.get("asOf") and _new < _pv["asOf"]:
+            if tk not in _regress_seen:
+                _regress_seen.add(tk); time.sleep(pause); return False      # 재시도 패스에서 한 번 더
+            try:
+                _rows = json.load(open(f"{OUT_DIR}/bars/{tk}.json", encoding="utf-8"))["rows"]
+            except Exception:
+                _rows = None
+            if _rows:
+                stocks[tk] = dict(_pv); series[tk] = _rows; carried[tk] = _new
+                collect_breadth(cd, info["market"])         # 폭(200일선 위 비율)의 지난 날짜들은 그대로 유효
+                time.sleep(pause); return True
         cd = cd[-max(BARS_KEEP, 1000):]                # 3년(756일) 건강도 + 200일선 = 956봉 필요
         d = build_stock(tk, cd, meta, info["name"], info["market"], info["sector"])
         time.sleep(pause)
@@ -392,6 +409,7 @@ def main():
                      "KQ": sum(1 for d in stocks.values() if d.get("ex") == ".KQ")},
         "rules": {"minBars": MIN_BARS, "staleDays": STALE_DAYS, "minKeep": MIN_KEEP},
         "mode": "focus" if focus else "full", "fullUniverse": full_n,
+        "carried": len(carried),          # 298. 받은 봉이 과거 날짜라 지난 값을 그대로 둔 종목 수
     }
     print("\n🩺 데이터 검사")
     print(f"  종목풀 {len(universe)} → 사용 {len(stocks)} "
@@ -422,6 +440,13 @@ def main():
     DROP = ("atrp", "d200r", "rsi45", "upTrend")
     for d in stocks.values():
         for k in DROP: d.pop(k, None)
+    # 298. 지난 값을 그대로 둔 종목은 판정·백분위까지 지난 스냅샷 그대로 되돌립니다 (재료 일부(rsi45·upTrend)가 저장본에 없어 다시 판정하면 달라짐)
+    for tk in carried:
+        stocks[tk] = dict(_prev_stocks[tk])
+    if carried:
+        _by = {}
+        for tk in carried: _by[stocks[tk]["m"]] = _by.get(stocks[tk]["m"], 0) + 1
+        print(f"  ↩️ 지난 종가 유지 {len(carried)}종목 ({' · '.join(f'{m} {n}' for m, n in _by.items())}) — 이번에 받은 봉이 더 과거 날짜였음")
 
     # 시장 '폭' — 200일선 위 종목 비율과 그 3년 백분위. 한국 판단의 근거입니다.
     print("\n🌡️ 시장 폭 계산" + (" (간이 수집: 토요일 전체 스캔 값 유지)" if focus else ""))
@@ -511,7 +536,7 @@ def main():
     meta["health"] = {"kept": health["kept"], "universe": health["universe"],
                       "dropped": health["dropped"], "failed": health["failed"],
                       "byMarket": health["byMarket"], "exchange": health["exchange"],
-                      "mode": health["mode"], "fullUniverse": health["fullUniverse"]}
+                      "mode": health["mode"], "fullUniverse": health["fullUniverse"], "carried": health["carried"]}
     _write(f"{OUT_DIR}/snapshot.json", {"meta":meta,"stocks":stocks,"etfs":etfs})
     _write(f"{OUT_DIR}/market.json",   {"meta":meta, **market})
     # 종목별 차트 파일

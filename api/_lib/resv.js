@@ -7,7 +7,7 @@
  * 실행   /api/cron/resv-us1 · resv-us2 · resv-kr1 · resv-kr2 (vercel.json — 무료 요금제라 '그 시간 안 어딘가'에 돕니다)
  *        + 앱이 그 시간에 열려 있으면 앱도 한 번 부름(비밀번호) · 몇 번을 불러도 같은 예약을 두 번 사지 않음
  * 확인   🇺🇸 개장 5분 뒤 ~ 2시간 30분 · 🇰🇷 09:30 ~ 11:30 (그날 이 안에 못 보면 '만료' — 하루만 유효)
- * 안 삼  시장(🇺🇸 QQQ·SPY 중 나쁜 쪽 · 🇰🇷 코스피·코스닥) −2% 이하 · 지금 가격이 손절선 아래 · 기준 종가보다 +3% 넘게(추격) / −5% 넘게(급락)
+ * 안 삼  시장(🇺🇸 QQQ·SPY 중 나쁜 쪽 · 🇰🇷 코스피·코스닥) -2% 이하 · 지금 가격이 트레일링선 아래 · 기준 종가보다 +3% 넘게(추격) / -5% 넘게(급락)
  *        새 종가에서 매수! 가 꺼짐 · 🇺🇸 나스닥100 200일선 아래(252) · 🇰🇷 시장 위험 · 이미 보유 · 같은 종목 매수 대기 · 시장 상태를 못 봄
  * 사면   지정가 = 그때 가격 +0.5% (🇰🇷 호가 단위로 올림) · 수량 = 예약 수량(1건 상한을 넘으면 줄임)
  *        주문은 화면 주문과 같은 함수(placeOrder) — 1건·하루 상한 · 지정가 범위 · 정규장 · 번호표 검사가 그대로 걸림
@@ -200,7 +200,7 @@ export async function runResv({ only = null, now = Date.now(), dry = false } = {
     for (const x of todo) {
       const q = qj.quotes?.[x.t] || null;
       const skip = (why) => { upd[x.id] = { status: "skip", why, last: q?.last || null }; };
-      if (!(num(x.base) > 0)) { skip("기준 종가가 없는 예약 — 사지 않음"); continue; }          // 297. 기준 종가가 없으면 +3%·−5% 검사가 안 되므로 사지 않음
+      if (!(num(x.base) > 0)) { skip("기준 종가가 없는 예약 — 사지 않음"); continue; }          // 297. 기준 종가가 없으면 +3%·-5% 검사가 안 되므로 사지 않음
       if (bal.rows.some((r) => r.t === x.t)) { skip("이미 이 계좌에 있음"); continue; }
       if (orders.some((o) => o.t === x.t && o.side === "buy" && o.open > 0 && !o.orgn)) { skip("같은 종목 매수 대기 주문이 있음"); continue; }
       if (boughtToday(x.t)) { skip("오늘 이미 산 주문이 있음"); continue; }
@@ -212,7 +212,7 @@ export async function runResv({ only = null, now = Date.now(), dry = false } = {
       if (worst <= G.mktDown) { skip(`시장 급락 (${idxR.map(([k, v]) => `${k} ${v.toFixed(1)}%`).join(" · ")})`); continue; }
       if (!q || !(q.last > 0)) { skip("지금 가격을 확인하지 못함"); continue; }
       const ch = (q.last / x.base - 1) * 100;
-      if (x.line && q.last <= x.line) { skip(`손절선 ${x.line} 아래 (지금 ${q.last})`); continue; }
+      if (x.line && q.last <= x.line) { skip(`트레일링선 ${x.line} 아래 (지금 ${q.last})`); continue; }
       if (ch >= G.up) { skip(`기준 종가보다 +${ch.toFixed(1)}% — 추격 안 함`); continue; }
       if (ch <= G.down) { skip(`기준 종가보다 ${ch.toFixed(1)}% — 급락 중`); continue; }
       const raw = q.last * (1 + G.slip / 100);

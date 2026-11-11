@@ -1,17 +1,8 @@
 /* 264. Review 탭 — 이 탭만 쓰는 화면 (App.jsx 에서 자동으로 나눔 · 다른 탭과 같이 쓰는 건 core.jsx) */
-import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import MKT_CAL from "../config/market.json";
+import React, { useState, useEffect } from "react";
 import RULES from "./rules.js";
-import { pickToday, SLOTS_DEFAULT, KR_GATE_WHY, US_GATE_WHY, SEC_FULL_WHY, SEC_CAP } from "./picks.js";
-import { planFills, applyFills } from "./fills.js";
-import {
-  ComposedChart, Line, Area, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot,
-} from "recharts";
-import { openOrder, nextOpen } from "./order.js";
-import { useResv, resvOf, resvDay, resvCall, RESV_ST } from "./resv.js";
-import { AboutCard, AboutLine, SchedLine, WeekSched, pastEarnTxt } from "./Info.jsx";
-import { AppPerf, C, Card, Empty, FIT, FS, Grade, Head, Info, MONO, ONE, REV_KEY, Sec, Seg, Step, btn, col, dcModeOf, getJson, getRevMin, inp, linkBtn, loadJSON, loadPlan, lossOf, md, money, pct, pickedDays, price, settingsChanged, shortName, weekKey } from "./core.jsx";
+import { SLOTS_DEFAULT } from "./picks.js";
+import { AppPerf, C, Card, Empty, FIT, FS, Grade, Head, Info, MONO, ONE, REV_KEY, Sec, Seg, Step, btn, col, dcModeOf, getJson, getRevMin, inp, linkBtn, loadJSON, loadPlan, lossOf, md, mdt, money, pct, pickedDays, price, settingsChanged, shortName, weekKey } from "./core.jsx";
 
 
 /** 최근 신호 모아보기 — 5거래일치 매수! 기록과 그 뒤 성과 (실전 장부 signals_log 기준) */
@@ -39,7 +30,7 @@ export function RecentSignals({ siglog, stocks, openStock, market }) {
       <button onClick={() => setOpen(v => !v)} style={{ background: "none", border: "none", padding: "6px 0", minHeight: 36, width: "100%", textAlign: "left", cursor: "pointer", color: C.text, display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ fontSize: FS.md, fontWeight: 800 }}>최근 5거래일 매수! 기록</span>
         <span style={{ fontSize: FS.xs, color: C.muted }}>{rows.length}건{avg != null && <> · 평균 <b style={{ color: col(avg) }}>{pct(avg, 1)}</b> · 승률 {win.toFixed(0)}%</>}
-          {beat != null && <> · 시장 {pct(mavg, 1)} → <b style={{ color: col(beat) }}>{beat >= 0 ? "+" : "−"}{Math.abs(beat).toFixed(1)}%p</b></>}</span>
+          {beat != null && <> · 시장 {pct(mavg, 1)} → <b style={{ color: col(beat) }}>{beat >= 0 ? "+" : "-"}{Math.abs(beat).toFixed(1)}%p</b></>}</span>
         <span style={{ marginLeft: "auto", color: C.muted }}>{open ? "▴" : "▾"}</span>
       </button>
       {open && (<div style={{ marginTop: 6 }}>
@@ -99,7 +90,7 @@ export function TradeLog({ trades, setTrades, siglog }) {
     if (!x) return null;
     if (!x.x) return { txt: "규칙 신호 전에 판 것", c: C.gold };
     const dd = dayDiff(x.x.d, t.out);
-    return dd === 0 ? { txt: "규칙 이탈일에 판 것", c: C.emerald } : dd > 0 ? { txt: `규칙 이탈 ${dd}일 뒤에 판 것`, c: C.gold } : { txt: `규칙 이탈보다 ${-dd}일 일찍 판 것`, c: C.gold };
+    return dd === 0 ? { txt: "매도! 날에 판 것", c: C.emerald } : dd > 0 ? { txt: `매도! ${dd}일 뒤에 판 것`, c: C.gold } : { txt: `매도! 보다 ${-dd}일 일찍 판 것`, c: C.gold };
   };
   const Cell = ({ k, v, c }) => (
     <div><div style={{ fontSize: 10.5, color: C.muted }}>{k}</div>
@@ -121,13 +112,13 @@ export function TradeLog({ trades, setTrades, siglog }) {
       {(hasAmt("us") || hasAmt("kr")) && (
         <div style={{ fontSize: FS.sm, marginTop: 7, display: "flex", gap: 12, flexWrap: "wrap" }}>
           <span style={{ color: C.muted }}>손익 합계</span>
-          {hasAmt("us") && (mk === "all" || mk === "us") && <b style={{ fontFamily: MONO, color: col(sum("us")) }}>🇺🇸 {sum("us") >= 0 ? "+" : "−"}{price(Math.abs(sum("us")), "us")}</b>}
-          {hasAmt("kr") && (mk === "all" || mk === "kr") && <b style={{ fontFamily: MONO, color: col(sum("kr")) }}>🇰🇷 {sum("kr") >= 0 ? "+" : "−"}{price(Math.abs(sum("kr")), "kr")}</b>}
+          {hasAmt("us") && (mk === "all" || mk === "us") && <b style={{ fontFamily: MONO, color: col(sum("us")) }}>🇺🇸 {sum("us") >= 0 ? "+" : "-"}{price(Math.abs(sum("us")), "us")}</b>}
+          {hasAmt("kr") && (mk === "all" || mk === "kr") && <b style={{ fontFamily: MONO, color: col(sum("kr")) }}>🇰🇷 {sum("kr") >= 0 ? "+" : "-"}{price(Math.abs(sum("kr")), "kr")}</b>}
           <span style={{ color: C.muted, fontSize: FS.xs }}>(수수료·환율 제외 · 통화가 달라 더하지 않음)</span>
         </div>)}
       <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 7, lineHeight: 1.7 }}>
         손익비 {pf != null ? pf.toFixed(2) : "—"} (이익 합 ÷ 손실 합).
-        옛 백테스트(2008–26, 지금 규칙으로 다시 낸 값이 아님·생존편향 있음): 승률 31% · 거래당 +3.0% · 중앙 −3.6% · 보유 15일 · 손익비 1.6 — 참고만 하세요.
+        옛 백테스트(2008–26, 지금 규칙으로 다시 낸 값이 아님·생존편향 있음): 승률 31% · 거래당 +3.0% · 중앙 -3.6% · 보유 15일 · 손익비 1.6 — 참고만 하세요.
         <br />작은 손실이 잦고 큰 수익이 가끔 오는 구조라, 승률이 낮은 것 자체는 문제가 아닙니다.
         {demoN > 0 && <><br />모의 기록 {demoN}건은 통계에서 뺐습니다.</>}
       </div>
@@ -147,7 +138,7 @@ export function TradeLog({ trades, setTrades, siglog }) {
                 <span style={{ fontSize: FS.sm, fontWeight: 700, fontFamily: MONO, color: col(t.pl) }}>{pct(t.pl, 1)}</span>
               </div>
               {(t.inv > 0 || rn) && <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>
-                {t.inv > 0 && <>투입 {price(t.inv, t.m)} · 손익 <span style={{ color: col(t.pl) }}>{t.pl >= 0 ? "+" : "−"}{price(Math.abs(t.inv * t.pl / 100), t.m)}</span></>}
+                {t.inv > 0 && <>투입 {price(t.inv, t.m)} · 손익 <span style={{ color: col(t.pl) }}>{t.pl >= 0 ? "+" : "-"}{price(Math.abs(t.inv * t.pl / 100), t.m)}</span></>}
                 {rn && <span style={{ color: rn.c }}>{t.inv > 0 ? " · " : ""}{rn.txt}</span>}
               </div>}
             </div>); })}
@@ -160,7 +151,7 @@ export function TradeLog({ trades, setTrades, siglog }) {
 }
 export const REVIEW_STEPS = [
   ["pool", "종목풀 변경 확인", "이번 주 들어온·나간 종목을 훑고, 관심 있으면 ☆"],
-  ["hold", "내 종목 점검", "매도!는 처리했는지 · 선까지 −5% 이내(곧 매도 구간)인 종목 확인"],
+  ["hold", "내 종목 점검", "매도!는 처리했는지 · 선까지 -5% 이내(곧 매도 구간)인 종목 확인"],
   ["live", "실전 성적 보기", "앱이 실제로 낸 신호의 20일 성적이 검증값과 비슷한지"],
   ["trade", "내 매매 기록 대조", "내 승률·손익비가 검증값과 크게 다르면 규칙을 안 지킨 것"],
   ["decide", "전략 결정", "그대로 간다 / 바꾼다 — 바꾸면 이유를 한 줄 적기"],
@@ -181,7 +172,7 @@ export function idxRet(market, m, from, to) {
 export function SignalReview({ siglog, stocks, market, openStock, picksLog }) {
   const [weeks, setWeeks] = useState(8);
   const [filter, setFilter] = useState("exit");
-  const [limit, setLimit] = useState(15);
+  const [limit, setLimit] = useState(5);      // 305. 처음엔 5줄 — 점검 탭이 휴대폰 10화면 길이였음
   if (!siglog?.length) return null;
   const since = new Date(Date.now() - weeks * 7 * 86400000).toISOString().slice(0, 10);
   const K = { pull: "눌림", strong: "강세", buy: "추세" };
@@ -207,7 +198,7 @@ export function SignalReview({ siglog, stocks, market, openStock, picksLog }) {
   const avg = (a) => a.length ? a.reduce((x, r) => x + (r.rule ?? 0), 0) / a.length : null;
   const list = (filter === "exit" ? exited : filter === "hold" ? holding : rows)
     .sort((a, b) => (b.ex?.d || b.d).localeCompare(a.ex?.d || a.d));
-  const dlabel = (d) => d ? d.slice(5).replace("-", "/") : "";
+  const dlabel = md;
   return (
     <>
       <Sec right={<Seg value={weeks} onChange={setWeeks} items={[[4, "4주"], [8, "8주"], [26, "6달"]]} />}>지난 신호 복기</Sec>
@@ -215,18 +206,18 @@ export function SignalReview({ siglog, stocks, market, openStock, picksLog }) {
         {short && <div style={{ fontSize: FS.xs, color: C.gold, marginBottom: 6, lineHeight: 1.5 }}>
           기록이 {dlabel(first)}부터라 {weeks === 4 ? "지금은 4주·8주·6달이 모두 같습니다" : `${weeks === 8 ? "8주를" : "6달을"} 골라도 ${dlabel(first)} 이후만 보입니다`} — 기록이 쌓이면 달라집니다.</div>}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", textAlign: "center" }}>
-          {[["이탈 (매도!)", `${exited.length}건`, avg(exited) != null ? `규칙 손익 ${pct(avg(exited), 1)}` : "—", col(avg(exited)), xs(exited)],
+          {[["매도!", `${exited.length}건`, avg(exited) != null ? `규칙 손익 ${pct(avg(exited), 1)}` : "—", col(avg(exited)), xs(exited)],
             ["판 뒤 더 떨어짐", withAfter ? `${Math.round(saved / withAfter * 100)}%` : "—", withAfter ? `${saved}/${withAfter}건 · 선이 지켜 줌` : "아직 없음", C.emerald, undefined],
-            ["유지 중", `${holding.length}건`, avg(holding) != null ? `지금까지 ${pct(avg(holding), 1)}` : "—", col(avg(holding)), xs(holding)]].map(([l, v, sub, c, x], i) => (
+            ["보유 중", `${holding.length}건`, avg(holding) != null ? `지금까지 ${pct(avg(holding), 1)}` : "—", col(avg(holding)), xs(holding)]].map(([l, v, sub, c, x], i) => (
             <div key={l} style={{ borderLeft: i ? `1px solid ${C.border}` : "none", padding: "0 4px", minWidth: 0 }}>
               <div style={{ fontSize: 10.5, color: C.dim, ...ONE }}>{l}</div>
               <div style={{ fontSize: 16, fontWeight: 800, fontFamily: MONO }}>{v}</div>
               <div style={{ fontSize: 10.5, color: c, ...ONE }}>{sub}</div>
-              {x !== undefined && <div style={{ fontSize: 10.5, color: x == null ? C.muted : col(x), ...ONE }}>{x == null ? "시장 비교 —" : `시장보다 ${x >= 0 ? "+" : "−"}${Math.abs(x).toFixed(1)}%p`}</div>}
+              {x !== undefined && <div style={{ fontSize: 10.5, color: x == null ? C.muted : col(x), ...ONE }}>{x == null ? "시장 비교 —" : `시장 대비 ${x >= 0 ? "+" : "-"}${Math.abs(x).toFixed(1)}%p`}</div>}
             </div>))}
         </div>
         <div style={{ marginTop: 8 }}>
-          <Seg full value={filter} onChange={setFilter} items={[["exit", `이탈 ${exited.length}`], ["hold", `유지 ${holding.length}`], ["all", "전체"]]} />
+          <Seg full value={filter} onChange={setFilter} items={[["exit", `매도! ${exited.length}`], ["hold", `보유 ${holding.length}`], ["all", "전체"]]} />
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 58px 54px 54px", gap: 6, fontSize: 10, color: C.muted, padding: "8px 0 2px" }}>
           <span>종목 · 신호 → 매도</span><span style={{ textAlign: "right" }}>규칙 손익</span><span style={{ textAlign: "right" }}>판 뒤</span><span style={{ textAlign: "right" }}>최고</span>
@@ -242,7 +233,7 @@ export function SignalReview({ siglog, stocks, market, openStock, picksLog }) {
                 {r.picked && <span style={{ fontSize: 10.5, color: r.picked.buy ? C.emerald : C.dim }}> {r.picked.buy ? "★ 살 것" : `대기 ${r.picked.i}번`} {dlabel(r.picked.d)}</span>}
               </div>
               <div style={{ fontSize: 10.5, color: C.muted, fontFamily: MONO, ...ONE }}>
-                {dlabel(r.d)} {price(r.p, r.m)}{r.ex ? ` → ${dlabel(r.ex.d)} ${price(r.ex.p, r.m)}` : " → 유지 중"}</div>
+                {dlabel(r.d)} {price(r.p, r.m)}{r.ex ? ` → ${dlabel(r.ex.d)} ${price(r.ex.p, r.m)}` : " → 보유 중"}</div>
             </div>
             <span style={{ textAlign: "right", minWidth: 0 }}>
               <span style={{ fontSize: FS.sm, fontFamily: MONO, fontWeight: 700, color: col(r.rule), display: "block" }}>{r.rule == null ? "—" : pct(r.rule, 1)}</span>
@@ -253,10 +244,10 @@ export function SignalReview({ siglog, stocks, market, openStock, picksLog }) {
           </div>))}
         {list.length > limit && <button onClick={() => setLimit(l => l + 15)} style={{ ...btn(C.dim), width: "100%", marginTop: 6 }}>더 보기 ({limit} / {list.length})</button>}
         <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 8, lineHeight: 1.6 }}>
-          규칙 손익 = 매수! 날 종가에 사서, 처음 종가가 트레일링선 아래로 마감한 날 종가에 판 결과 (유지 중이면 지금까지).
+          규칙 손익 = 매수! 날 종가에 사서, 처음 종가가 트레일링선 아래로 마감한 날 종가에 판 결과 (보유 중이면 지금까지).
           판 뒤 = 그 뒤 지금까지(판 날 다음 종가부터 · 그 전에는 —) · <b style={{ color: C.emerald }}>✓</b> 더 떨어짐(판 게 맞음) · <b style={{ color: C.red }}>✗</b> 다시 오름.
           최고 = 신호 뒤 가장 높았던 종가. "목록 빠짐" = 매수! 조건은 사라졌지만 매도 신호는 아님(보유 중이면 계속 보유).<br />
-          시장 = 같은 기간 🇺🇸 S&P500 · 🇰🇷 코스피. "시장보다 ±%p" = 신호마다 (규칙 손익 − 시장)의 평균 — 플러스면 시장보다 나았다는 뜻.
+          시장 = 같은 기간 🇺🇸 S&P500 · 🇰🇷 코스피. "시장 대비 ±%p" = 신호마다 (규칙 손익 − 시장)의 평균 — 플러스면 시장보다 나았다는 뜻.
           ★ 살 것 / 대기 n번 = 그 사이 '오늘 살 것' 목록에 들었던 날 (10/9부터 기록).
         </div>
       </Card>
@@ -278,7 +269,7 @@ export function SelfCheck({ openStock }) {
         <div style={{ fontSize: FS.xs, color: C.muted, marginBottom: 6 }}>보고만 합니다 — 규칙은 자동으로 바뀌지 않습니다. 판정은 기록이 30건 넘게 쌓인 것만.</div>
         <b style={{ fontSize: FS.sm }}>데이터 이상 (매일)</b>
         {an.length ? an.map((a, i) => <div key={i} style={{ ...line, color: lv[a.lvl]?.[0] }}>{lv[a.lvl]?.[1]} {a.msg}</div>)
-          : <div style={{ ...line, color: C.emerald }}>✓ 이상 없음 · {o.at} 확인</div>}
+          : <div style={{ ...line, color: C.emerald }}>✓ 이상 없음 · {mdt(o.at)} 확인</div>}
         {/* 213. 숫자는 아래 '실전 신호 성적' 표 하나에만 — 여기는 판정만 한 줄 */}
         <b style={{ fontSize: FS.sm, display: "block", marginTop: 8 }}>신호별 판정 <span style={{ fontWeight: 400, color: C.muted, fontSize: FS.xs }}>(숫자는 아래 표)</span></b>
         <div style={line}>{(r.signals || []).map((x, i) => <span key={x.k}>{i ? " · " : ""}{x.k} <b style={{ color: /못함/.test(x.verdict) ? C.gold : C.muted }}>{x.verdict.replace(/ — .*/, "")}</b></span>)}</div>
@@ -306,7 +297,7 @@ export function ReviewTab({ market, uni, snap, trades, setTrades, pos, stocks, s
   const toggle = (k) => setDone(o => ({ ...o, [wk]: { ...(o[wk] || {}), [k]: !cur[k] } }));
   const nDone = REVIEW_STEPS.filter(([k]) => cur[k]).length;
   const live = market.live || {};
-  const risky = (pos || []).map(p => stocks[p.t]).filter(s => s && s.stLine && s.stSlow === 1 && (lossOf(s) ?? 99) < 5);   // 선까지 −5% 이내
+  const risky = (pos || []).map(p => stocks[p.t]).filter(s => s && s.stLine && s.stSlow === 1 && (lossOf(s) ?? 99) < 5);   // 선까지 -5% 이내
   const out = (pos || []).filter(p => p.role !== "long" && stocks[p.t]?.stSlow === 0);
   const VAL = { "pull:kr": ["눌림 🇰🇷"], "strong:us": ["강세 🇺🇸"], "strong:kr": ["강세 🇰🇷"], "buy:kr": ["추세 🇰🇷"], "buy:us": ["추세 🇺🇸"] };
   const drift = live.drift;
@@ -326,12 +317,12 @@ export function ReviewTab({ market, uni, snap, trades, setTrades, pos, stocks, s
               <div style={{ fontSize: FS.md, fontWeight: 700, color: cur[k] ? C.muted : C.text }}>{i + 1}. {t}</div>
               <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 2 }}>{why}</div>
               {k === "pool" && uni && <div style={{ fontSize: FS.xs, color: C.dim, marginTop: 4 }}>
-                {uni.date?.slice(5, 10)} · {uni.prevTotal} → {uni.total}종목
+                {md(uni.date)} · {uni.prevTotal} → {uni.total}종목
                 {uni.added?.length > 0 && <span style={{ color: C.emerald }}> · ＋{uni.added.length} {uni.added.slice(0, 4).map(x => x.n).join(", ")}</span>}
-                {uni.removed?.length > 0 && <span style={{ color: C.red }}> · −{uni.removed.length} {uni.removed.slice(0, 4).map(x => x.n).join(", ")}</span>}</div>}
+                {uni.removed?.length > 0 && <span style={{ color: C.red }}> · -{uni.removed.length} {uni.removed.slice(0, 4).map(x => x.n).join(", ")}</span>}</div>}
               {k === "hold" && <div style={{ fontSize: FS.xs, color: C.dim, marginTop: 4 }}>
-                {out.length ? <span style={{ color: C.red }}>🔴 이탈 {out.length} </span> : "이탈 0 "}
-                · 선까지 −5% 이내 {risky.length}{risky.length ? `: ${risky.slice(0, 3).map(s => s.t).join(", ")}` : ""}
+                {out.length ? <span style={{ color: C.red }}>🔴 매도! {out.length} </span> : "매도! 0 "}
+                · 선까지 -5% 이내 {risky.length}{risky.length ? `: ${risky.slice(0, 3).map(s => s.t).join(", ")}` : ""}
                 <button onClick={() => setTab("track")} style={{ ...linkBtn, fontSize: FS.xs, minHeight: 34, marginLeft: 6 }}>내 종목 ›</button></div>}
               {k === "decide" && <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="예: 그대로 유지 / 한국 비중 줄임"
                 style={{ ...inp("100%"), marginTop: 6, fontSize: 14 }} />}
@@ -344,12 +335,12 @@ export function ReviewTab({ market, uni, snap, trades, setTrades, pos, stocks, s
       <AppPerf market={market} />
       <Step n="2" q="앱 신호의 실제 성적">신호가 잘 맞나</Step>
       <SelfCheck openStock={openStock} />
-      <Sec right={live.since ? `${live.since}부터 · 기록 ${live.n}건` : "데이터 갱신 후 표시"}>실전 신호 성적</Sec>
+      <Sec right={live.since ? `${md(live.since)}부터 · 기록 ${live.n}건` : "데이터 갱신 후 표시"}>실전 신호 성적</Sec>
       <Card style={{ padding: "4px 12px" }}>
         {!live.summary || !Object.keys(live.summary).length ? (
           <Empty>{live.n ? `신호 ${live.n}건 기록 중 — 20거래일이 지나야 성적이 잡힙니다 (대기 ${live.pending})` : "앱이 낸 신호를 자동으로 적고, 20거래일 뒤 성적을 셉니다"}</Empty>
         ) : (<>
-          <Head cols={["신호", "건수", "20일", "지수대비", "승률"]} grid="minmax(0,1.3fr) minmax(0,.8fr) minmax(0,1fr) minmax(0,1fr) minmax(0,.9fr)" />
+          <Head cols={["신호", "건수", "20일", "지수 대비", "승률"]} grid="minmax(0,1.3fr) minmax(0,.8fr) minmax(0,1fr) minmax(0,1fr) minmax(0,.9fr)" />
           {Object.entries(live.summary).filter(([k]) => !k.endsWith(":all")).map(([k, v]) => (
             <div key={k} style={{ display: "grid", gridTemplateColumns: "minmax(0,1.3fr) minmax(0,.8fr) minmax(0,1fr) minmax(0,1fr) minmax(0,.9fr)", gap: 5,
                                   padding: "8px 0", borderTop: `1px solid ${C.border}`, alignItems: "center" }}>
@@ -361,14 +352,14 @@ export function ReviewTab({ market, uni, snap, trades, setTrades, pos, stocks, s
             </div>))}
           <div style={{ fontSize: FS.xs, color: C.muted, padding: "8px 0 4px", lineHeight: 1.6 }}>
             검증값(옛 백테스트, 20일 보유 근사 · 지금 규칙으로 다시 낸 값이 아님): 눌림 🇰🇷 거래당 +3.0% · 승률 31% / 강세 🇺🇸 +2.8% · 40% / 강세 🇰🇷 신호 20일 뒤 평균 +2.2%(180).
-            {drift && drift.note && <> <b style={{ color: C.gold }}>이탈 경고 판정 보류</b> — {drift.note}.</>}
-            {drift && !drift.note && !drift.flag && <> 최근 {RULES.live.recent}건(신호일 {drift.days}일): 승률 {drift.win}% · 지수대비 {drift.excess >= 0 ? "+" : ""}{drift.excess}%p — <b style={{ color: C.emerald }}>정상</b>.</>}
-            {drift && drift.flag && <> <b style={{ color: C.red }}>이탈 경고</b> — {drift.reasons.join(" · ")}.</>}
-            {" "}경보 기준: 최근 {RULES.live.recent}건이 서로 다른 신호일 {RULES.live.minDays}일 이상일 때, 승률 {RULES.live.driftWin}% 미만 또는 지수대비 {RULES.live.driftExcess}%p 아래 · 그날 '새로 사지 않음'이던 나라의 신호는 앱이 사지 않았을 것이라 빼고 계산합니다.
+            {drift && drift.note && <> <b style={{ color: C.gold }}>성적 경고 판정 보류</b> — {drift.note}.</>}
+            {drift && !drift.note && !drift.flag && <> 최근 {RULES.live.recent}건(신호일 {drift.days}일): 승률 {drift.win}% · 지수 대비 {drift.excess >= 0 ? "+" : ""}{drift.excess}%p — <b style={{ color: C.emerald }}>정상</b>.</>}
+            {drift && drift.flag && <> <b style={{ color: C.red }}>성적 경고</b> — {drift.reasons.join(" · ")}.</>}
+            {" "}경보 기준: 최근 {RULES.live.recent}건이 서로 다른 신호일 {RULES.live.minDays}일 이상일 때, 승률 {RULES.live.driftWin}% 미만 또는 지수 대비 {RULES.live.driftExcess}%p 아래 · 그날 '새로 사지 않음'이던 나라의 신호는 앱이 사지 않았을 것이라 빼고 계산합니다.
           </div>
           {/* 290. 규칙대로(이탈까지 보유) — 20일 고정 성적과 다른 값: 앱 규칙은 트레일링선 아래 마감까지 들고 갑니다 */}
-          <div style={{ fontSize: FS.sm, fontWeight: 700, margin: "6px 0 2px" }}>규칙대로 (이탈까지 보유)</div>
-          <Head cols={["신호", "건수", "평균", "승률", "이탈/보유"]} grid="minmax(0,1.3fr) minmax(0,.8fr) minmax(0,1fr) minmax(0,.9fr) minmax(0,1fr)" />
+          <div style={{ fontSize: FS.sm, fontWeight: 700, margin: "6px 0 2px" }}>규칙대로 (매도! 까지 보유)</div>
+          <Head cols={["신호", "건수", "평균", "승률", "매도/보유"]} grid="minmax(0,1.3fr) minmax(0,.8fr) minmax(0,1fr) minmax(0,.9fr) minmax(0,1fr)" />
           {Object.entries(live.summary).filter(([k, v]) => !k.endsWith(":all") && v.rule).map(([k, v]) => (
             <div key={k} style={{ display: "grid", gridTemplateColumns: "minmax(0,1.3fr) minmax(0,.8fr) minmax(0,1fr) minmax(0,.9fr) minmax(0,1fr)", gap: 5,
                                   padding: "8px 0", borderTop: `1px solid ${C.border}`, alignItems: "center" }}>
@@ -379,7 +370,7 @@ export function ReviewTab({ market, uni, snap, trades, setTrades, pos, stocks, s
               <span style={{ ...FIT, textAlign: "right", color: C.muted }}>{v.rule.exited}/{v.rule.open}</span>
             </div>))}
           <div style={{ fontSize: FS.xs, color: C.muted, padding: "6px 0 2px", lineHeight: 1.6 }}>
-            이탈한 건은 이탈가, 아직 들고 있는 건은 지금 가격 기준입니다. 추세 매매는 작게 자주 잃고 크게 가끔 이기는 구조라, 보유 중인 건이 더 쌓여야 판단할 수 있습니다.
+            판 건은 판 가격, 아직 들고 있는 건은 지금 가격 기준입니다. 추세 매매는 작게 자주 잃고 크게 가끔 이기는 구조라, 보유 중인 건이 더 쌓여야 판단할 수 있습니다.
           </div>
           {live.blocked && Object.keys(live.blocked).length > 0 && (<>
             <div style={{ fontSize: FS.sm, fontWeight: 700, margin: "8px 0 2px" }}>'새로 사지 않음'이던 날의 신호 <span style={{ color: C.muted, fontWeight: 400 }}>· 앱은 사지 않았을 신호</span></div>
@@ -412,19 +403,19 @@ export function ReviewTab({ market, uni, snap, trades, setTrades, pos, stocks, s
         <div style={{ color: C.text }}>
       <Card style={{ padding: "4px 12px 10px" }}>
         {[
-          ["⭐ 눌림 매수 (종목)", "strong", "한국 연 +21.8% · 같은 종목 보유 대비 +8.2%p · 최대낙폭 −40%",
-           "추세 안에서 RSI 45 회복 · 매도는 느린 ST 빨강. 미국은 연 +17.9%지만 그냥 보유를 못 이겼습니다."],
-          ["🏦 DC 느린 ST 규칙", "mid", "연 +7.1% · 최대낙폭 −13.3% · 샤프 0.56 (2008-03~2026-10 원화 · 비용 0.1% · 2008 위기 포함)",
-           "나스닥100·S&P500·코스피200 각 23% + 안전자산 30%, 각 몫은 느린 ST 초록일 때만 보유 (230: 예전 S&P·코스피 둘이면 +6.3% · −15.8% — 3년 구간 188개 중 145개에서 3지수가 나음). 최대낙폭은 2026-10 코스피 급락이 들어간 값."],
-          ["🏦 DC 3지수 보유 (선택지)", "mid", "연 +11.6% · 최대낙폭 −23.4% · 샤프 0.69 (같은 조건) · 1년 매매 1번",
-           "같은 3지수를 그냥 들고 1월 첫 거래일에만 비중 맞춤. 같은 188개 구간 중 187개에서 느린 ST보다 수익이 높았고, 대신 낙폭이 −13% → −22%로 큽니다. 나스닥을 빼면 수익이 크게 줄어 나스닥 몫이 핵심 (182)."],
+          ["⭐ 눌림 매수 (종목)", "strong", "한국 연 +21.8% · 같은 종목 보유 대비 +8.2%p · 최대낙폭 -40%",
+           "추세 안에서 RSI 45 회복 · 매도는 트레일링선 아래 마감. 미국은 연 +17.9%지만 그냥 보유를 못 이겼습니다."],
+          ["🏦 DC 느린 ST 규칙", "mid", "연 +7.1% · 최대낙폭 -13.3% · 샤프 0.56 (2008-03~2026-10 원화 · 비용 0.1% · 2008 위기 포함)",
+           "나스닥100·S&P500·코스피200 각 23% + 안전자산 30%, 각 몫은 느린 ST 초록일 때만 보유 (230: 예전 S&P·코스피 둘이면 +6.3% · -15.8% — 3년 구간 188개 중 145개에서 3지수가 나음). 최대낙폭은 2026-10 코스피 급락이 들어간 값."],
+          ["🏦 DC 3지수 보유 (선택지)", "mid", "연 +11.6% · 최대낙폭 -23.4% · 샤프 0.69 (같은 조건) · 1년 매매 1번",
+           "같은 3지수를 그냥 들고 1월 첫 거래일에만 비중 맞춤. 같은 188개 구간 중 187개에서 느린 ST보다 수익이 높았고, 대신 낙폭이 -13% → -22%로 큽니다. 나스닥을 빼면 수익이 크게 줄어 나스닥 몫이 핵심 (182)."],
           ["🇰🇷 강세 추가 (한국 종목)", "mid", "눌림만일 때보다 연 +3~5%p (순서·기준값 흔든 28번 중 26번 나음 · 중앙값 19.7% → 24.7%) · 2010–26 · 한국 5칸",
-           "눌림이 드물어 빈 칸을 약한 추세 신호가 채우던 것을 강세가 대신. 신호 하나하나의 120일 지수대비: 강세 +7.4%p · 눌림 +8.1 · 추세 +2.7. 기준 60 한 점만 보면 32.7%로 나오지만 운이 섞인 값이라 낮춰 잡음 (180)."],
+           "눌림이 드물어 빈 칸을 약한 추세 신호가 채우던 것을 강세가 대신. 신호 하나하나의 120일 지수 대비: 강세 +7.4%p · 눌림 +8.1 · 추세 +2.7. 기준 60 한 점만 보면 32.7%로 나오지만 운이 섞인 값이라 낮춰 잡음 (180)."],
           ["🌊 과매도 (미국)", "mid", "12개월 보유 시 시장 대비 중앙값 +10.1% · 승률 60%",
            "생존편향 미보정이라 실제는 더 낮습니다. 한국은 검증 실패라 기본 제외."],
           ["🔄 업종 교체", "weak", "원화·DC 조건에서 지수 보유와 차이 없음 (연 9.2% vs 9.2%)",
            "비중을 더 두고 싶은 업종을 고를 때 참고용으로만."],
-          ["🇰🇷 시장 판정 → 한국 새로 사기", "mid", "위험이면 새로 사지 않음: 연 +24.1% · 최대낙폭 −52% (없으면 +11.4% · −72%) · 2010–26 · 한국 5칸",
+          ["🇰🇷 시장 판정 → 한국 새로 사기", "mid", "위험이면 새로 사지 않음: 연 +24.1% · 최대낙폭 -52% (없으면 +11.4% · -72%) · 2010–26 · 한국 5칸",
            "16년 중 12년 나음 · 기준을 바꿔도 16~24% · 무작위로 막으면 11.9%. 예전 기록(종목 매매에 붙이면 21.8% → 11.1%)과 반대라 '근거 보통'으로 둡니다. 눌림 신호만 쓰면 효과 없음(9.8% → 9.7%). 생존 종목 기준이라 수익률 자체는 실제보다 높게 나옴. DC는 이 판정을 쓰지 않음."],
         ].map(([t, g, num, why], i) => (
           <div key={t} style={{ padding: "9px 0", borderTop: i ? `1px solid ${C.border}` : "none" }}>

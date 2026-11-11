@@ -151,7 +151,7 @@ def update_signal_log(stocks, series, idx_series, market=None):
     return {"summary": summ, "n": len(log), "pending": pending, "since": min((x["d"] for x in log), default=None), "review": review,
             "drift": drift, "blocked": summ_blk, "kinds": ["pull", "buy", "strong"]}
 REV_MIN = RULES["revMin"]        # 앱 '매출 필터' 기본값 — 앱이 settings.revMin 을 보내면 그 값을 씁니다 (61)
-LINE_MAX_LOSS = 17  # 트레일링선까지(닿으면 잃는 폭) 17% 넘으면 오늘 후보에서 제외 — 예전 '선까지 20%'(c/선−1)와 같은 기준 (62)
+LINE_MAX_LOSS = 17  # 트레일링선까지(닿으면 잃는 폭) 17% 넘으면 오늘 후보에서 제외 — 예전 '선까지 20%'(c/선-1)와 같은 기준 (62)
 
 PICKS_LOG = f"{OUT_DIR}/picks_log.json"
 def write_picks_log(t, keep=400):
@@ -174,25 +174,7 @@ def write_picks_log(t, keep=400):
     _write(PICKS_LOG, log[-keep:])
     print(f"  📝 picks_log.json: {len(log[-keep:])}일 · 오늘 🇺🇸 살 것 {sum(1 for x in row['us'] if x['buy'])}/{len(row['us'])} · 🇰🇷 {sum(1 for x in row['kr'] if x['buy'])}/{len(row['kr'])}")
 
-def broker_miss(wl, today=None):
-    """234. 메리츠 잔고(앱이 저장한 요약)에 없는 단기 보유 — 이미 팔았거나 잘못 들어간 기록. 잔고 요약이 4일 넘게 묵었으면 판단 안 함.
-       잔고를 본 날 이후에 산 종목(그 사이 체결)은 빼지 않음 (앱 src/App.jsx brokerMiss 와 같은 규칙)"""
-    import datetime as _dt
-    b = (wl or {}).get("broker") or {}
-    d = str(b.get("d") or "")
-    try:
-        age = ((today or _dt.date.today()) - _dt.date.fromisoformat(d)).days
-    except Exception:
-        return set()
-    if age > 4: return set()
-    out = set()
-    for p in (wl.get("positions") or []):
-        t = str(p.get("t", "")).upper(); m = "kr" if t.isdigit() else "us"
-        if (p.get("role") or "swing") != "swing" or m not in b: continue
-        tr = p.get("tr") or []
-        d0 = str((tr[0].get("d") if tr else None) or p.get("date") or "")
-        if t not in {str(x[0]).upper() for x in b[m]} and d0 < d: out.add(t)
-    return out
+from broker_rule import broker_miss      # 299. 규칙 한 곳 (scripts/broker_rule.py)
 
 SEC_CAP = RULES["secCap"]                              # 247. 🇺🇸 같은 업종 최대 종목 수 (src/picks.js SEC_CAP 와 같음)
 

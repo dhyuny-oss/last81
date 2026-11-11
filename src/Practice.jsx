@@ -115,7 +115,7 @@ function Card({ r, k, picked, info, blind, onPick, blocked }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "6px 8px" }}>
         <Stat k="강도" v={r.str} /><Stat k="RS" v={r.rs} /><Stat k="RSI" v={r.rsi} />
         <Stat k="최근 1달" v={pct(r.m1, 0)} c={col(r.m1)} /><Stat k="3달" v={pct(r.m3, 0)} c={col(r.m3)} /><Stat k="1년" v={pct(r.m12, 0)} c={col(r.m12)} />
-        <Stat k="200일선 위" v={pct(r.ma200p, 0)} /><Stat k="선까지" v={r.loss == null ? "—" : `−${r.loss.toFixed(0)}%`} /><Stat k="거래대금 순위" v={`상위 ${Math.max(1, 100 - r.tvr)}%`} />
+        <Stat k="200일선 위" v={pct(r.ma200p, 0)} /><Stat k="선까지" v={r.loss == null ? "—" : `-${r.loss.toFixed(0)}%`} /><Stat k="거래대금 순위" v={`상위 ${Math.max(1, 100 - r.tvr)}%`} />
       </div>
       {shown
         ? <div style={{ fontSize: 14 }}><b style={{ fontFamily: MONO, fontSize: 22, color: col(r.ret) }}>{pct(r.ret)}</b>{" "}

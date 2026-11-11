@@ -11,7 +11,7 @@
 확인하는 것 두 가지뿐입니다 (앱·텔레그램과 같은 규칙):
   1) 매도!  — 현재가가 트레일링선(느린 ST) 아래 → "종가까지 보고, 아래로 마감하면 매도"
   2) 2회차  — 1회차만 들고 있고 현재가가 1회차 매수가 +3% 이상 → "나머지 절반"
-  −3% 손절·고점 −5%·타임컷은 검증에서 성과를 깎아 보지 않습니다.
+  -3% 손절·고점 -5%·타임컷은 검증에서 성과를 깎아 보지 않습니다.
 
 환경변수
   TG_TOKEN / TG_CHAT   텔레그램 (없으면 화면 출력만)
@@ -72,7 +72,7 @@ def market_open(now):
     kr = dow < 5 and 540 <= mins <= 930 and now.strftime("%Y-%m-%d") not in KR_HOLIDAYS
     a, b = (22 * 60 + 30, 5 * 60) if dst else (23 * 60 + 30, 6 * 60)
     us_day = now if mins >= a else now - timedelta(days=1)          # 미국 장은 한국 시간 자정을 넘깁니다
-    us = ((dow < 5 and mins >= a) or (dow <= 5 and mins < b)) and us_day.strftime("%Y-%m-%d") not in US_HOLIDAYS
+    us = ((dow < 5 and mins >= a) or (1 <= dow <= 5 and mins < b))     # 300. 월요일 새벽은 미국 일요일 — 장중 아님 and us_day.strftime("%Y-%m-%d") not in US_HOLIDAYS
     return kr, us
 
 def send(text):

@@ -1,16 +1,8 @@
 /* 264. 여러 탭이 같이 쓰는 것 — 색·글자·버튼·카드·숫자 표시·시장 시간·데이터 도구 (App.jsx 에서 자동으로 나눔) */
-import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import React, { useState, useEffect } from "react";
 import MKT_CAL from "../config/market.json";
 import RULES from "./rules.js";
-import { pickToday, SLOTS_DEFAULT, KR_GATE_WHY, US_GATE_WHY, SEC_FULL_WHY, SEC_CAP } from "./picks.js";
-import { planFills, applyFills } from "./fills.js";
-import {
-  ComposedChart, Line, Area, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot,
-} from "recharts";
-import { openOrder, nextOpen } from "./order.js";
-import { useResv, resvOf, resvDay, resvCall, RESV_ST } from "./resv.js";
-import { AboutCard, AboutLine, SchedLine, WeekSched, pastEarnTxt } from "./Info.jsx";
+import { SLOTS_DEFAULT, SEC_CAP } from "./picks.js";
 
 
 
@@ -25,7 +17,8 @@ export const C = {
   gold: "#F59E0B", emerald: "#30D158", cyan: "#06B6D4", violet: "#A78BFA",
   red: "#FF453A", orange: "#FF9F0A",
 };
-export const pct = (v, d = 2) => (v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(d)}%`);
+// 304. 반올림해 0 이면 부호 없이 0.0% (예전엔 -0.04 가 "-0.0%" 로 찍힘)
+export const pct = (v, d = 2) => { if (v == null) return "—"; const r = Number(v.toFixed(d)); return `${r > 0 ? "+" : ""}${r === 0 ? (0).toFixed(d) : r.toFixed(d)}%`; };
 export const col = (v) => (v == null ? C.muted : v > 0 ? C.emerald : v < 0 ? C.red : C.dim);
 export const num = (v, d = 2) => (v == null ? "—" : v.toLocaleString("ko-KR", { maximumFractionDigits: d }));
 /** 가격 표기 — 한국은 원(소수 없음), 미국은 달러(소수 2자리) */
@@ -105,8 +98,8 @@ export function marketState(nowMs = Date.now()) {
   // ★ 라벨 — "휴장"은 아예 안 여는 날에만 씁니다.
   //   장이 열렸다가 끝난 평일 저녁을 "휴장"이라고 하면 데이터가 없는 것처럼 읽힙니다.
   const krLabel = weekend ? "휴장" : krHol ? `휴장(${HOLI_NAME[ymd] || "공휴일"})`
-    : mins < 450 ? "개장 전" : mins < 540 ? "장전" : mins <= 930 ? "장중"
-    : mins <= 1080 ? "장후" : "장마감";
+    : mins < 480 ? "개장 전" : mins < 530 ? "프리마켓" : mins < 540 ? "개장 전" : mins <= 930 ? "장중"
+    : (mins >= 940 && mins <= 1200) ? "애프터" : "장마감";      // 303. 오늘 탭 장 시간표(NXT 프리 08:00~08:50 · 애프터 15:40~20:00)와 같은 말
   const usLabel = weekend ? "휴장" : usHol ? `휴장(${HOLI_NAME[usYmd] || "공휴일"})`
     : usRegular ? "장중" : usPre ? "프리마켓" : usAfter ? "애프터"
     : (mins > usClose + 240 && mins < usOpen - 330) ? "장마감" : "개장 전";
@@ -184,14 +177,15 @@ export const ACTION = { buy: ["매수!", C.emerald], sell: ["매도!", C.red], w
 export const WHY = { pull: "눌림", strong: "강세", trend: "추세", st: "트레일링선 아래" };
 // 매도! 는 들고 있을 때만 뜻이 있습니다. 안 들고 있는 종목의 추세 이탈은 '관망 (추세 이탈)'
 export const actionOf = (s, held) => (s?.action === "sell" ? (held ? "sell" : "watch") : held ? "hold" : (s?.action || "watch"));
-export const ActionTag = ({ s, held, big }) => {
-  const k = actionOf(s, held); const [t, c] = ACTION[k];
+export const ActionTag = ({ s, held, big, gated }) => {
+  const k = actionOf(s, held); let [t, c] = ACTION[k];
+  if (gated && k === "buy") { t = "신호만"; c = C.dim; }      // 302. 그 나라를 새로 사지 않는 날 — 매수! 신호는 났지만 사지 않음
   const why = k === "buy" ? WHY[s.why] : k === "sell" ? WHY.st : (k === "watch" && s?.action === "sell") ? "추세 이탈" : null;
   return <span style={{ fontSize: big ? FS.lg : FS.xs, fontWeight: 800, color: c, whiteSpace: "nowrap" }}>
     {t}{why && <span style={{ fontWeight: 500, color: C.dim }}> ({why})</span>}</span>;
 };
 /* 급락 탭 전용 판정 (매수! 를 쓰지 않습니다 — 12~24개월 방식이라) */
-export const DIP = { watch: ["관찰", C.cyan], wait: ["대기", C.muted], broken: ["⚠ 훼손", C.red] };
+export const DIP = { watch: ["관찰", C.cyan], wait: ["보류", C.muted], broken: ["⚠ 훼손", C.red] };
 export const DipTag = ({ s, big }) => {
   const k = s?.dip; if (!k || !DIP[k]) return <span style={{ fontSize: big ? FS.lg : FS.xs, color: C.muted }}>—</span>;
   const [t, c] = DIP[k];
@@ -207,7 +201,7 @@ export const shortName = (n) => (n || "")
   .replace(/,?\s*(Inc\.?|Corp\.?|Corporation|Co\.,? Ltd\.?)\s*$/i, "")
   .replace(/\s*\(.*?\)\s*$/, "")
   .trim() || n;
-export function StockRow({ s, rank, rel, sub, onOpen, isWatch, onToggle, dip = false, held = false, seen = false, onSeen, age, since, tag = null }) {
+export function StockRow({ s, rank, rel, sub, onOpen, isWatch, onToggle, dip = false, held = false, seen = false, onSeen, age, since, tag = null, gated = false }) {
   const rs = s.rs;
   const gap = (s.stLine && s.c) ? (s.c / s.stLine - 1) * 100 : null;      // 트레일링선까지 거리
   return (
@@ -232,11 +226,10 @@ export function StockRow({ s, rank, rel, sub, onOpen, isWatch, onToggle, dip = f
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, paddingLeft: rank != null ? 22 : 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, flex: 1, overflow: "hidden" }}>
-          {dip ? <DipTag s={s} /> : <ActionTag s={s} held={held} />}
+          {dip ? <DipTag s={s} /> : <ActionTag s={s} held={held} gated={gated} />}
           {tag && <span style={{ fontSize: 10.5, fontWeight: 700, color: tag[1], background: `${tag[1]}1f`, borderRadius: 5, padding: "1px 6px", flexShrink: 0, whiteSpace: "nowrap" }}>{tag[0]}</span>}
           <span style={{ fontSize: FS.xs, color: (rs ?? 0) >= RULES.signal.rsMin ? C.cyan : C.muted, flexShrink: 0 }}>RS<b style={{ fontFamily: MONO }}>{rs != null ? Math.floor(rs) : "—"}</b></span>
-          {rel != null && <span style={{ fontSize: FS.xs, color: rel >= 0 ? C.emerald : C.red, minWidth: 0, ...ONE }}>
-            1달 {benchName(s)}比<b style={{ fontFamily: MONO }}>{rel >= 0 ? "+" : ""}{rel.toFixed(0)}p</b></span>}
+
           {!dip && <EarnTag s={s} />}
 
         </div>
@@ -245,7 +238,10 @@ export function StockRow({ s, rank, rel, sub, onOpen, isWatch, onToggle, dip = f
             <span key={k} style={{ textAlign: "right", fontSize: "clamp(10.5px, 3vw, 12px)", fontFamily: MONO, color: col(s[k]), ...ONE }}>{pctFit(s[k])}</span>))}
         </span>
       </div>
-      {sub && <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2, paddingLeft: rank != null ? 22 : 0, ...ONE }}>{sub}</div>}
+      {/* 307. '1달 지수 대비'는 둘째 줄에서 잘려서 셋째 줄 맨 앞으로 */}
+      {(sub || rel != null) && <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2, paddingLeft: rank != null ? 22 : 0, lineHeight: 1.45,
+        display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+        {rel != null && <span style={{ color: rel >= 0 ? C.emerald : C.red }}>1달 {benchName(s)} 대비 <b style={{ fontFamily: MONO }}>{rel >= 0 ? "+" : ""}{rel.toFixed(0)}%p</b></span>}{rel != null && sub ? " · " : ""}{sub}</div>}
     </div>
   );
 }
@@ -266,9 +262,9 @@ export const tgtGap = (tg, c) => (tg && c) ? (tg / c - 1) * 100 : null;
 export const tgtText = (who, tv, c, m) => { const g = tgtGap(tv, c); if (g == null) return null;
   return g <= 0 ? `${who} ${price(tv, m)} 도달 · 현재가 ${price(c, m)} (목표보다 ${(-g / (1 + g / 100)).toFixed(0)}% 위)` : `${who} ${price(tv, m)} · 현재가 ${price(c, m)} → 목표까지 +${g.toFixed(0)}% 남음`; };
 
-/** 62. 트레일링선 거리 — 앱 전체에서 한 가지 뜻: '선에 닿으면 잃는 폭'(%) 양수. 화면에는 "선까지 −17%" */
+/** 62. 트레일링선 거리 — 앱 전체에서 한 가지 뜻: '선에 닿으면 잃는 폭'(%) 양수. 화면에는 "선까지 -17%" */
 export const lossOf = (s) => (s?.stLine && s?.c) ? (1 - s.stLine / s.c) * 100 : null;
-export const lossTxt = (s) => { const l = lossOf(s); return l == null ? "—" : l < 0 ? "선 아래" : `−${l.toFixed(0)}%`; };
+export const lossTxt = (s) => { const l = lossOf(s); return l == null ? "—" : l < 0 ? "선 아래" : `-${l.toFixed(0)}%`; };
 export const mktOfT = (t) => /^\d{6}$/.test(t) ? "kr" : "us";
 /** 109. 칸 = 동시에 들고 있을 종목 수 한도. 빈 칸 = 칸 수 − 지금 들고 있는 단기 종목 수 (앱 전체가 이 함수 하나를 씀) */
 export const slotInfo = (pos, m) => {
@@ -283,6 +279,9 @@ export const budgetOf = (sizer, m) => sizer?.plan ? (m === "us" ? sizer.plan.us 
 export const roomFor = (pos, sizer, m, amt) => { const b = budgetOf(sizer, m); return b == null || investedIn(pos, m) + amt <= b * 1.001; };
 /** 87. 날짜 "2026-09-24" → "9/24" */
 export const md = (d) => d ? `${+d.slice(5, 7)}/${+d.slice(8, 10)}` : "";
+/** 306. 날짜 표기는 11/7 하나로 — 올해가 아니면 연도를 앞에 (2027년 1/4) · mdt 는 시각까지 (11/11 06:35) */
+export const mdy = (d) => d ? `${String(d).slice(0, 4) !== kstDay().slice(0, 4) ? `${String(d).slice(0, 4)}년 ` : ""}${md(String(d))}` : "";
+export const mdt = (s) => s ? `${mdy(s)} ${String(s).slice(11, 16)}`.trim() : "";
 /** 93. 실적 발표일 — 그 시장 현지 날짜로 D-n (🇺🇸 뉴욕 · 🇰🇷 서울). 참고용: 매매 규칙에는 쓰지 않음 (과거 발표일 자료가 없어 검증 불가) */
 export const localToday = (m) => { try { return new Date().toLocaleDateString("en-CA", { timeZone: m === "kr" ? "Asia/Seoul" : "America/New_York" }); } catch { return kstDay(); } };
 export const earnDays = (s) => { if (!s?.earn) return null; const n = Math.round((Date.parse(s.earn) - Date.parse(localToday(s.m))) / 864e5); return Number.isFinite(n) && n >= 0 ? n : null; };
@@ -388,7 +387,7 @@ export const krGateOf = (market) => !!market?.judge?.kr?.blocked;   // blocked =
 /** 252. 🇺🇸 나스닥100 이 200일선 아래면 미국은 새로 사지 않음 — 파이프라인 judge.us.blocked (오늘·찾기·계좌·텔레그램 같은 판정) */
 export const usGateOf = (market) => !!market?.judge?.us?.blocked;
 export const US_GATE_TXT = "나스닥100 200일선 아래 — 새로 사지 않음";
-/** 254. 하락장(게이트) 동안 남는 돈 · DC 안전자산 — 2026-11 비교: 단기채 5년 최대낙폭 −0.5% · 장기채 −44~48%(2022 금리 급등) */
+/** 254. 하락장(게이트) 동안 남는 돈 · DC 안전자산 — 2026-11 비교: 단기채 5년 최대낙폭 -0.5% · 장기채 -44~48%(2022 금리 급등) */
 export const SPARE_TXT = { us: "남는 달러는 단기 국채 ETF(SGOV·BIL)에", kr: "남는 원화는 단기채·국고채3년 ETF에" };
 
 /** '오늘 살 것' 설정 한 곳 — 칸 수·매출 필터·한국·미국 게이트 */
@@ -433,9 +432,9 @@ export function subLine(s, sizer, market, extra = []) {
     s.rsi != null ? `RSI ${s.rsi.toFixed(0)}(3일${s.rsiUp ? "↑" : "↓"})` : null,
     secRank ? `업종 ${secRank.label} ${secRank.rank}위` : null,
     f ? [
-      f.qyoy != null ? `매출 분기 전년比 ${f.qyoy >= 0 ? "+" : ""}${f.qyoy.toFixed(0)}%${f.accel ? " 가속" : ""}`
-        : f.ttm != null ? `매출 4분기 전년比 ${f.ttm >= 0 ? "+" : ""}${f.ttm.toFixed(0)}%`
-        : f.rev != null ? `매출 연간 전년比 ${f.rev >= 0 ? "+" : ""}${f.rev.toFixed(0)}%` : null,
+      f.qyoy != null ? `매출 분기 전년 대비 ${f.qyoy >= 0 ? "+" : ""}${f.qyoy.toFixed(0)}%${f.accel ? " 가속" : ""}`
+        : f.ttm != null ? `매출 4분기 전년 대비 ${f.ttm >= 0 ? "+" : ""}${f.ttm.toFixed(0)}%`
+        : f.rev != null ? `매출 연간 전년 대비 ${f.rev >= 0 ? "+" : ""}${f.rev.toFixed(0)}%` : null,
       f.prof === false ? "적자" : f.prof ? "흑자" : null].filter(Boolean).join(" ") : null,
     ...extra,
   ].filter(Boolean).join(" · ");
@@ -493,13 +492,13 @@ export function AppPerf({ market, compact, onOpen }) {
     </div>);
   return (
     <Card style={{ marginTop: 10, padding: "8px 12px 6px", borderColor: tone }}>
-      <div style={{ fontSize: FS.md, fontWeight: 800 }}>📊 앱 실적 <span style={{ fontSize: FS.xs, color: C.muted, fontWeight: 400 }}>{live.since ? `${live.since}부터 ${weeks}주 · 신호 ${live.n}건` : ""}</span></div>
-      {sm["strong:us"] && <Row k="🇺🇸 강세 신호 (20일 뒤)" v={pct(sm["strong:us"].avg, 1)} c={col(sm["strong:us"].avg)} sub={`지수 대비 ${sm["strong:us"].excess >= 0 ? "+" : ""}${sm["strong:us"].excess}%p · 승률 ${sm["strong:us"].win}% · ${sm["strong:us"].n}건 — 검증 기대치 거래당 +2.8% · 승률 40%`} />}
-      {sm["buy:us"] && <Row k="🇺🇸 추세 신호" v={pct(sm["buy:us"].avg, 1)} c={col(sm["buy:us"].avg)} sub={`지수 대비 ${sm["buy:us"].excess >= 0 ? "+" : ""}${sm["buy:us"].excess}%p · 승률 ${sm["buy:us"].win}% · ${sm["buy:us"].n}건`} />}
-      {sm["buy:kr"] && <Row k="🇰🇷 추세 신호" v={pct(sm["buy:kr"].avg, 1)} c={col(sm["buy:kr"].avg)} sub={`지수 대비 ${sm["buy:kr"].excess >= 0 ? "+" : ""}${sm["buy:kr"].excess}%p · 승률 ${sm["buy:kr"].win}% · ${sm["buy:kr"].n}건`} />}
+      <div style={{ fontSize: FS.md, fontWeight: 800 }}>📊 앱 실적 <span style={{ fontSize: FS.xs, color: C.muted, fontWeight: 400 }}>{live.since ? `${md(live.since)}부터 ${weeks}주 · 신호 ${live.n}건` : ""}</span></div>
+      {sm["strong:us"] && <Row k="🇺🇸 강세 신호 (20일 뒤)" v={pct(sm["strong:us"].avg, 1)} c={col(sm["strong:us"].avg)} sub={`지수 대비 ${sm["strong:us"].excess >= 0 ? "+" : ""}${sm["strong:us"].excess.toFixed(1)}%p · 승률 ${sm["strong:us"].win}% · ${sm["strong:us"].n}건 — 검증 기대치 거래당 +2.8% · 승률 40%`} />}
+      {sm["buy:us"] && <Row k="🇺🇸 추세 신호" v={pct(sm["buy:us"].avg, 1)} c={col(sm["buy:us"].avg)} sub={`지수 대비 ${sm["buy:us"].excess >= 0 ? "+" : ""}${sm["buy:us"].excess.toFixed(1)}%p · 승률 ${sm["buy:us"].win}% · ${sm["buy:us"].n}건`} />}
+      {sm["buy:kr"] && <Row k="🇰🇷 추세 신호" v={pct(sm["buy:kr"].avg, 1)} c={col(sm["buy:kr"].avg)} sub={`지수 대비 ${sm["buy:kr"].excess >= 0 ? "+" : ""}${sm["buy:kr"].excess.toFixed(1)}%p · 승률 ${sm["buy:kr"].win}% · ${sm["buy:kr"].n}건`} />}
       {rv.savedPct != null && <Row k="매도 규칙" v={`${rv.savedPct}%`} c={rv.savedPct >= 50 ? C.emerald : C.gold} sub={`판 뒤 더 떨어진 비율 (${rv.savedN}/${rv.judgedN}건) — 50% 넘으면 파는 규칙이 제 몫을 함`} />}
       <Row k="고른 종목 (오늘 살 것)" v={base?.n ? pct(base.avg, 1) : "쌓는 중"} c={base?.n ? col(base.avg) : C.muted} sub={base?.n ? `${base.n}건 · 승률 ${base.win}% · ${base.verdict || ""}` : `실제로 사는 목록(강도 순 · 업종 ${SEC_CAP}개까지 · 빈 칸만큼)의 성적 — ${since ? `${md(since)}부터 기록 중, ` : ""}첫 결과는 ${firstPick || "20거래일 뒤"}쯤`} />
-      {dr && <Row k="최근 30건" v={`${dr.excess >= 0 ? "+" : ""}${dr.excess}%p`} c={dr.flag ? C.gold : C.emerald} sub={`승률 ${dr.win}% · ${dr.flag ? "기준(지수 −3%p · 승률 20%) 아래 — 지켜보는 중" : "정상 범위"}`} />}
+      {dr && <Row k="최근 30건" v={`${dr.excess >= 0 ? "+" : ""}${dr.excess}%p`} c={dr.flag ? C.gold : C.emerald} sub={`승률 ${dr.win}% · ${dr.flag ? "기준(지수 -3%p · 승률 20%) 아래 — 지켜보는 중" : "정상 범위"}`} />}
       <div style={{ fontSize: 10.5, color: C.muted, padding: "6px 0 2px", lineHeight: 1.5 }}>기록이 짧고 같은 종목이 며칠씩 반복돼 실제 독립 기회는 건수보다 적습니다 · 매수! 전체는 실제로 사는 목록과 다릅니다 · 숫자로 규칙을 바꾸지 않고 보고만 합니다</div>
     </Card>);
 }

@@ -10,18 +10,10 @@
  *   규칙 숫자는 config/rules.json · 휴장일은 config/market.json · 고르는 규칙은 picks.js
  */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import MKT_CAL from "../config/market.json";
 import RULES from "./rules.js";
-import { pickToday, SLOTS_DEFAULT, KR_GATE_WHY, US_GATE_WHY, SEC_FULL_WHY, SEC_CAP } from "./picks.js";
+import { pickToday, SLOTS_DEFAULT, SEC_CAP } from "./picks.js";
 import { planFills, applyFills } from "./fills.js";
-import {
-  ComposedChart, Line, Area, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot,
-} from "recharts";
-import { openOrder, nextOpen } from "./order.js";
-import { useResv, resvOf, resvDay, resvCall, RESV_ST } from "./resv.js";
-import { AboutCard, AboutLine, SchedLine, WeekSched, pastEarnTxt } from "./Info.jsx";
-import { C, Card, FS, KR_HOLIDAYS, MONO, NOTES_REF, PLAN_KEY, REV_KEY, SYNC_BASE, US_GATE_TXT, US_HOLIDAYS, asOfOf, btn, dcModeOf, getJson, getRevMin, inp, krGateOf, kstDay, linkBtn, loadJSON, loadPlan, marketState, md, mktOfT, money, pct, pickCfg, planAmounts, postWatch, slotInfo, trOf, usDST, usGateOf, weekKey } from "./core.jsx";
+import { C, Card, FS, KR_HOLIDAYS, MONO, NOTES_REF, PLAN_KEY, REV_KEY, SYNC_BASE, US_HOLIDAYS, asOfOf, btn, dcModeOf, getJson, getRevMin, inp, krGateOf, kstDay, linkBtn, loadJSON, loadPlan, marketState, md, mdt, mdy, mktOfT, money, pct, pickCfg, planAmounts, postWatch, slotInfo, trOf, usDST, usGateOf, weekKey } from "./core.jsx";
 import { MarketTab } from "./TabToday.jsx";
 import { DcTab } from "./TabDc.jsx";
 import { ChartTab } from "./TabChart.jsx";
@@ -425,11 +417,9 @@ export default function App() {
   const updMs = snap?.meta?.generatedAt ? new Date(snap.meta.generatedAt).getTime() : null;
   const fr = freshness(updMs);
   const asOfBy = useMemo(() => {
-    const g = { kr: [], us: [] };
-    for (const s of rawList) if (s.asOf) g[s.m === "kr" ? "kr" : "us"].push(s.asOf);
-    const top = (a) => a.length ? a.sort().slice(-Math.max(1, Math.floor(a.length * 0.1)))[0] : null;
-    return { kr: top(g.kr), us: top(g.us) };
-  }, [rawList]);
+    // 299. 그 시장 종목 대부분이 가진 날짜 — 화면 위 '신호 기준' 줄(asOfOf)과 같은 계산 (예전엔 최신 10%의 날짜라 일부만 새 종가여도 '최신'으로 나옴)
+    return { kr: asOfOf(rawStocks, "kr") || null, us: asOfOf(rawStocks, "us") || null };
+  }, [rawStocks]);
   // 시장 기준일보다 7일 넘게 멈춘 종목(거래정지·합병·상장폐지)은 모든 탭에서 뺍니다
   const { stocks, list, nStale } = useMemo(() => {
     const ok = (s) => {
@@ -689,7 +679,7 @@ export default function App() {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, fontSize: FS.sm }}>
               <KV k="🇰🇷 신호 기준" v={mf.kr.txt} />
               <KV k="🇺🇸 신호 기준" v={mf.us.txt} />
-              <KV k="데이터 생성" v={snap.meta.generatedKST} />
+              <KV k="데이터 생성" v={mdt(snap.meta.generatedKST)} />
               <KV k="다음 수집" v={`🇰🇷 ${nextCollect("kr")} · 🇺🇸 ${nextCollect("us")}`} />
             </div>
             <button onClick={() => { setTab("pool"); setStatusOpen(false); }} style={{ ...linkBtn, fontSize: FS.sm, minHeight: 34, textAlign: "left" }}>
@@ -705,7 +695,7 @@ export default function App() {
                   {h.mode === "focus" && <span style={{ color: C.gold }}> · 간이 수집 (전체 {h.fullUniverse} 중 신호 가능 종목만 · 토요일 전체 스캔)</span>}
                   {h.byMarket && <> (🇰🇷 {h.byMarket.kr?.kept ?? 0} · 🇺🇸 {h.byMarket.us?.kept ?? 0})</>}
                   {h.exchange && <> · 코스피 {h.exchange.KS} / 코스닥 {h.exchange.KQ}</>}
-                  {market?.breadthAsOf && h.mode === "focus" && <> · 폭은 {market.breadthAsOf.slice(5)} 전체 스캔 기준</>}
+                  {market?.breadthAsOf && h.mode === "focus" && <> · 폭은 {md(market.breadthAsOf)} 전체 스캔 기준</>}
                   {dr.length > 0 && <><br />제외 {dr.map(([k, v]) => `${k} ${v}`).join(" · ")}</>}
                   {h.failed > 0 && <> · 수집 실패 {h.failed}</>}
                 </>);
@@ -785,7 +775,7 @@ const myRules = (sz) => [
   ["앱이 '매수!'라고 쓴 종목만 산다", "강세(RSI 60↑) · 🇰🇷 눌림(RSI 45 회복) · 추세(ST 3개 초록+구름 위). 뉴스·테마·감으로 사지 않는다"],
   [`절반 → 1회차 +3% 확인 후 나머지 절반 · +6% 넘게 올랐으면 추격 금지`,
    `종목당 한도 🇰🇷 ${sz ? money(sz.limKr, "kr") : "—"} · 🇺🇸 ${sz ? money(sz.limUs, "us") : "—"} · 고가 종목은 1주 한 번에`],
-  ["매도는 '매도!' 하나 — 트레일링선 아래 마감. 그날 처리한다", "−3% 손절·고점 −5%·2주 타임컷은 검증에서 성과를 깎아 쓰지 않는다. 매도를 미루면 매수 타이밍 차이보다 비싸다"],
+  ["매도는 '매도!' 하나 — 트레일링선 아래 마감. 그날 처리한다", "-3% 손절·고점 -5%·2주 타임컷은 검증에서 성과를 깎아 쓰지 않는다. 매도를 미루면 매수 타이밍 차이보다 비싸다"],
   [`🇰🇷 시장 위험 · 🇺🇸 나스닥100 200일선 아래면 새로 사지 않는다 · 🇺🇸는 ${usDST(Date.now()) ? "22:30" : "23:30"} 개장에 주문`, "한국 '위험'(폭 3년 하위 40% 아래)과 나스닥100 200일선 아래는 앱이 '오늘 살 것'에서 알아서 뺍니다. 가진 종목은 트레일링선대로. 한국을 한다면 09:30 이후에만"],
   ["이벤트 매매 금지 · 몰빵 금지 · 적자 추격 금지 · 급락 탭은 소액만", `같은 업종은 ${SEC_CAP}칸까지(보유 포함). 급락은 참고용(주도주 보유를 못 이김)`],
 ];
@@ -842,12 +832,11 @@ function TabBasis({ tab, stocks, market, snap, siglog, uni }) {
   const items = {
     market: [basisDates(stocks, market), market.breadthAsOf && <>폭 {B(`${md(market.breadthAsOf)} 계산`)}</>,
              <>다음 수집 🇰🇷 {nextCollect("kr")} · 🇺🇸 {nextCollect("us")}</>, "시세·거래대금 야후"],
-    find: [basisDates(stocks, market), <>설정 {B(`🇺🇸 ${plan.slotsUs || SLOTS_DEFAULT.us}칸 · 🇰🇷 ${plan.slotsKr || SLOTS_DEFAULT.kr}칸 · 매출 ${getRevMin() > 0 ? `+${getRevMin()}%` : "필터 끔"}`)}</>,
-           krGateOf(market) && <span style={{ color: C.red }}>🇰🇷 시장 위험 — 새로 사지 않음</span>, usGateOf(market) && <span style={{ color: C.red }}>🇺🇸 {US_GATE_TXT}</span>],
+    find: [basisDates(stocks, market), <>설정 {B(`🇺🇸 ${plan.slotsUs || SLOTS_DEFAULT.us}칸 · 🇰🇷 ${plan.slotsKr || SLOTS_DEFAULT.kr}칸 · 매출 ${getRevMin() > 0 ? `+${getRevMin()}%` : "필터 끔"}`)}</>],
     track: [<>평가 {B(`앱의 마지막 종가 (🇺🇸 ${md(asOfOf(stocks, "us")) || "—"} · 🇰🇷 ${md(asOfOf(stocks, "kr")) || "—"})`)}</>, <>보유 기록 {B("메리츠 잔고 기준 · 서버 저장 (휴대폰·PC 같음)")}</>],
-    alloc: [<>판단 {B(`🇺🇸 ${md(asOfOf(snap?.etfs, "us")) || "—"} · 🇰🇷 ${md(asOfOf(snap?.etfs, "kr")) || "—"} 종가`)} (미국은 원본 QQQ·SPY · 한국 KODEX 200)</>, market.allocation?.nextRebal && <>다음 비중 점검 {B(market.allocation.nextRebal)}</>],
+    alloc: [<>판단 {B(`🇺🇸 ${md(asOfOf(snap?.etfs, "us")) || "—"} · 🇰🇷 ${md(asOfOf(snap?.etfs, "kr")) || "—"} 종가`)} (미국은 원본 QQQ·SPY · 한국 KODEX 200)</>, market.allocation?.nextRebal && <>다음 비중 점검 {B(mdy(market.allocation.nextRebal))}</>],
     review: [sig.length > 0 && <>신호 기록 {B(`${md(sig[0])} ~ ${md(sig[sig.length - 1])} · ${sig.length}건`)}</>, <>시장 비교 {B("🇺🇸 S&P500 · 🇰🇷 코스피")}</>, <>검증값 {B("백테스트")}</>],
-    pool: [uni?.date && <>종목풀 {B(`${md(uni.date.slice(0, 10))} 교체`)}</>, <>시세 {B(snap?.meta?.generatedKST?.slice(5) || "—")}</>, snap?.meta?.finUpdated && <>재무 {B(md(snap.meta.finUpdated))}</>,
+    pool: [uni?.date && <>종목풀 {B(`${md(uni.date.slice(0, 10))} 교체`)}</>, <>시세 {B(mdt(snap?.meta?.generatedKST) || "—")}</>, snap?.meta?.finUpdated && <>재무 {B(md(snap.meta.finUpdated))}</>,
            "출처: 한투 종목 마스터 · 나스닥 스크리너 · S&P500 목록 · 시세 야후"],
   }[tab];
   return items ? <Basis items={items} /> : null;
