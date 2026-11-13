@@ -715,7 +715,8 @@ export default function App() {
       </div>
 
       <main style={{ padding: `4px 12px ${NAV_H + 24}px` }}>
-        <TabBasis tab={tab} stocks={stocks} market={market} snap={snap} siglog={siglog} uni={uni} />
+        {/* 308·309. 오늘·내 종목은 기준 안내를 맨 아래로 — 첫 화면은 내 돈·할 일부터 */}
+        {tab !== "market" && tab !== "track" && <TabBasis tab={tab} stocks={stocks} market={market} snap={snap} siglog={siglog} uni={uni} />}
         {tab === "market" && <MarketTab {...shared} pos={posEff} brokerMiss={brokerMiss} onShowRules={() => setRulesOpen(true)} />}
         {tab === "alloc" && <DcTab {...shared} />}
         {tab === "find" && <FindHub {...shared} pos={posEff} />}
@@ -725,6 +726,7 @@ export default function App() {
         {tab === "track" && <div id="kis-panel" style={{ scrollMarginTop: 60 }} />}
         {tab === "track" && <React.Suspense fallback={null}><BrokerPanel held={pos.map(p => p.t)} stocks={stocks} {...(({ list, note }) => ({ picks: list, pickNote: note }))(brokerPicks(stocks, pos, genDay, market?.fx?.usdkrw || null, "us", market))} kr={brokerPicks(stocks, pos, genDay, market?.fx?.usdkrw || null, "kr", market)} krOpen={() => marketState().krRegular} watch={watch} toggleWatch={toggleWatch} asOf={{ us: asOfOf(stocks, "us") || "", kr: asOfOf(stocks, "kr") || "" }} half={{ us: sizer.limit("us") / 2, kr: sizer.limit("kr") / 2 }} usOpen={() => marketState().usRegular} fx={market?.fx?.usdkrw || null} onSync={(x) => setBrokerSync(v => ({ ...v, [x.mk]: x }))} openStock={openStock} /></React.Suspense>}{/* ★ 증권사 (2/2) */}
         {(tab === "market" || tab === "review") && <PracticeEntry />}{/* ★ 연습 (2/2) */}
+        {(tab === "market" || tab === "track") && <div style={{ marginTop: 10 }}><TabBasis tab={tab} stocks={stocks} market={market} snap={snap} siglog={siglog} uni={uni} /></div>}
       </main>
       {orderReq && <React.Suspense fallback={null}><OrderSheet key={orderReq.k} req={orderReq} stocks={items} pos={pos}
         half={{ us: sizer.limit("us") / 2, kr: sizer.limit("kr") / 2 }} onClose={() => setOrderReq(null)} /></React.Suspense>}
