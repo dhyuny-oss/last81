@@ -2,10 +2,11 @@
 import React, { useState } from "react";
 import RULES from "./rules.js";
 import { pickToday } from "./picks.js";
-import { openOrder } from "./order.js";
+import { openOrder, nextOpen } from "./order.js";
+import { HoldHero } from "./TabTrack.jsx";
 import { useResv, resvOf, resvDay } from "./resv.js";
 import { AboutLine } from "./Info.jsx";
-import { AppPerf, C, Card, FS, LiveTag, MONO, ONE, SPARE_TXT, Step, US_GATE_TXT, actionOf, avgOf, btn, col, dcModeOf, earnTxt, getRevMin, krGateOf, linkBtn, liveOf, loadPlan, marketState, mktOfT, money, nextTrancheOf, passRevOf, pct, pickCfg, price, roomFor, shortName, slotInfo, usDST, usGateOf, useBroker, useLive } from "./core.jsx";
+import { AppPerf, C, Card, kstDay, FS, LiveTag, MONO, ONE, SPARE_TXT, Step, US_GATE_TXT, actionOf, avgOf, btn, col, dcModeOf, earnTxt, getRevMin, krGateOf, linkBtn, liveOf, loadPlan, marketState, mktOfT, money, nextTrancheOf, passRevOf, pct, pickCfg, price, roomFor, shortName, slotInfo, usDST, usGateOf, useBroker, useLive } from "./core.jsx";
 
 
 
@@ -166,15 +167,31 @@ export function MarketTab({ market, setTab, onShowRules, list, pos, stocks, item
   const head = [sellN && `매도 ${sellN}건`, t2N && `2회차 ${t2N}건`, canBuy && `새로 ${canBuy}종목`].filter(Boolean);
   const ms = marketState();
   const Num = ({ n, c }) => <span style={{ width: 22, height: 22, borderRadius: 11, background: `${c}22`, color: c, fontSize: FS.xs, fontWeight: 800, display: "grid", placeItems: "center", flexShrink: 0 }}>{n}</span>;
-  const TodoRow = ([n, t, sub, to, c]) => (
+  const sellWhen = (() => { const ms0 = [...new Set(sellL.map(p => mktOfT(p.t)))];      // 다음 개장 (주말·휴장일이면 그 날짜)
+    return ms0.map(m => { const o = nextOpen(m === "kr"); const d0 = o.d === kstDay() ? "오늘" : o.label.split(" ")[0];
+      return m === "us" ? `🇺🇸 ${d0} 밤 ${usDST(Date.now()) ? "22:30" : "23:30"}` : `🇰🇷 ${d0} 09:30 이후`; }).join(" · "); })();
+  const TodoRow = ([n, t, sub, to, c, right]) => (
     <button key={n} onClick={() => setTab(to)} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
             background: "none", border: "none", borderTop: `1px solid ${C.border}`, padding: "10px 0", cursor: "pointer", color: C.text }}>
       <Num n={n} c={c} />
       <span style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: FS.md, fontWeight: 700, ...ONE }}>{t}</div>
-        <div style={{ fontSize: FS.xs, color: C.muted }}>{sub}</div>
+        {sub && <div style={{ fontSize: FS.xs, color: C.muted }}>{sub}</div>}
       </span>
+      {right && <span style={{ fontSize: FS.sm, color: c, fontWeight: 700, flexShrink: 0 }}>{right}</span>}
       <span style={{ color: C.muted }}>›</span>
+    </button>);
+  // 308. 지금 할 일 하나를 크게 — 매도! 가 있으면 맨 위 빨간 카드 (예전엔 안내 상자 3개 아래 4번째 줄)
+  const SellHero = () => (
+    <button onClick={() => setTab("track")} style={{ display: "block", width: "100%", textAlign: "left", margin: "0 0 8px", padding: "12px 12px", borderRadius: 12, cursor: "pointer",
+                                                   background: "rgba(255,69,58,.12)", border: `1px solid ${C.red}88`, color: C.text }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+        <span style={{ fontSize: FS.xs, fontWeight: 800, color: C.red }}>지금 할 일</span>
+        <span style={{ marginLeft: "auto", fontSize: FS.xs, color: C.dim }}>{sellWhen}</span>
+      </div>
+      <div style={{ fontSize: 19, fontWeight: 800, color: C.red, marginTop: 2, ...ONE }}>매도! {sellL.map(p => nm(p.t)).join(" · ")}</div>
+      <div style={{ fontSize: FS.xs, color: C.dim, marginTop: 2 }}>트레일링선 아래 마감 — 개장 때 전량 매도 · 미루지 않기</div>
+      <div style={{ ...btn(C.red), marginTop: 9, minHeight: 42, display: "flex", alignItems: "center", justifyContent: "center" }}>매도하러 가기 ›</div>
     </button>);
   // ③ 오늘 살 것 — 예전 5번을 할 일 안으로 (244). 장이 닫혀 있으면 '예약'(249)
   const BuyBlock = () => (
@@ -182,9 +199,10 @@ export function MarketTab({ market, setTab, onShowRules, list, pos, stocks, item
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <Num n="3" c={canBuy > 0 ? C.emerald : C.muted} />
         <span style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: FS.md, fontWeight: 700, ...ONE }}>{canBuy > 0 ? `오늘 살 것 ${canBuy}개 (🇺🇸 ${todo3.us.can} · 🇰🇷 ${todo3.kr.can})` : "새로 살 것 없음"}</div>
-          <div style={{ fontSize: FS.xs, color: C.muted }}>{slotNote}{canBuy === 0 && buyN > 0 ? ` · 매수! 신호 ${buyN}건은 참고` : ""}</div>
+          <div style={{ fontSize: FS.md, fontWeight: 700, ...ONE }}>{canBuy > 0 ? `오늘 살 것 ${canBuy}개 (🇺🇸 ${todo3.us.can} · 🇰🇷 ${todo3.kr.can})` : "새로 살 것"}</div>
+          {(slotNote || (canBuy === 0 && buyN > 0)) && <div style={{ fontSize: FS.xs, color: C.muted }}>{[slotNote, canBuy === 0 && buyN > 0 ? `신호 ${buyN}건은 참고` : ""].filter(Boolean).join(" · ")}</div>}
         </span>
+        {canBuy === 0 && <button onClick={() => setTab("find")} style={{ ...linkBtn, fontSize: FS.sm, color: C.muted, fontWeight: 700, minHeight: 34, padding: 0, flexShrink: 0 }}>없음 ›</button>}
       </div>
       {[["us", "🇺🇸 미국"], ["kr", "🇰🇷 한국"]].map(([m, name]) => {
         const T = todo3[m], gated = gatedOf(m);
@@ -226,17 +244,12 @@ export function MarketTab({ market, setTab, onShowRules, list, pos, stocks, item
       })}
       {canBuy > 0 && !ms.usRegular && !ms.krRegular && brokerT?.canOrder &&
         <div style={{ fontSize: 10.5, color: C.muted, margin: "6px 0 0 32px", lineHeight: 1.5 }}>⏰ 예약 = 장이 열린 뒤 서버가 시장 -2%·트레일링선·+3% 추격을 다시 보고 지정가로 삼 (하루만 유효)</div>}
-      <button onClick={() => setTab("find")} style={{ ...linkBtn, fontSize: FS.xs, minHeight: 34, margin: "4px 0 0 32px" }}>찾기 탭에서 자세히 ›</button>
+      {canBuy > 0 && <button onClick={() => setTab("find")} style={{ ...linkBtn, fontSize: FS.xs, minHeight: 34, margin: "4px 0 0 32px" }}>찾기 탭에서 자세히 ›</button>}
     </div>);
   return (
     <>
-      {sizer?.plan && (
-        <div onClick={() => setTab("track")} style={{ marginTop: 8, padding: "8px 12px", borderRadius: 10, background: C.panel, border: `1px solid ${C.border}`,
-                                                       display: "flex", gap: 10, alignItems: "baseline", cursor: "pointer", fontSize: FS.xs, color: C.dim, ...ONE }}>
-          <b style={{ fontSize: FS.md, color: C.text, fontFamily: MONO }}>💰 {money(sizer.plan.total, "kr")}</b>
-          <span>DC {money(sizer.plan.dc, "kr")}</span><span>🇺🇸 {sizer.plan.us != null ? money(sizer.plan.us, "us") : "—"}</span>
-          <span>🇰🇷 {money(sizer.plan.kr, "kr")}</span><span>남는 돈 {money(sizer.plan.cash, "kr")}</span>
-        </div>)}
+      {/* 308. 첫 화면 = 내 돈 한 줄 + 지금 할 일 하나 (투자금 줄·앱 실적은 아래 '참고'로) */}
+      <HoldHero pos={pos} stocks={stocks} fx={sizer?.fx} onOpen={() => setTab("track")} />
 
       {/* 오늘 할 일 — 244. 오늘 탭은 할 일만 (시장·위험·섹터는 찾기 › 🌐 시장) */}
       <Step q="오늘 뭘 하지?">오늘 할 일</Step>
@@ -252,21 +265,31 @@ export function MarketTab({ market, setTab, onShowRules, list, pos, stocks, item
                                           background: "rgba(245,158,11,.10)", border: `2px solid ${C.gold}`, color: C.text }}>
           <b style={{ color: C.gold, fontSize: FS.sm }}>⚠ 메리츠 잔고에 없는 종목 {brokerMiss.length}개 — 먼저 정리</b>
           <div style={{ fontSize: FS.xs, color: C.dim, marginTop: 2 }}>{brokerMiss.map(p => nm(p.t)).join(" · ")} · 이미 팔았거나 잘못 들어간 기록이라 아래 할 일·칸 계산에서는 뺐습니다. 내 종목 맨 위에서 한 번에 정리 ›</div></button>}
-        <AppPerf market={market} compact onOpen={() => setTab("review")} />
-        {TodoRow(["1", sellN ? `매도! ${sellL.map(p => nm(p.t)).join(" · ")}` : "매도! 0건", sellN ? "트레일링선 아래 마감 — 개장 때 전량 매도 · 미루지 않기" : "없음", "track", sellN ? C.red : C.muted])}
-        {TodoRow(["2", t2N ? `2회차 ${t2L.map(x => nm(x.p.t)).join(" · ")}` : "2회차 0건", t2N ? `1회차 +3~6% 마감 — 나머지 절반 · ${t2L.map(x => `${nm(x.p.t)} ${x.q ?? "—"}주`).join(" · ")}` : "없음", "track", t2N ? C.emerald : C.muted])}
+        {sellN > 0 && <SellHero />}
+        {/* 308. 할 일이 없는 단계는 한 줄(이름 왼쪽 · 상태 오른쪽), 있는 단계만 설명까지 */}
+        {!sellN && TodoRow(["1", "매도!", null, "track", C.muted, "없음"])}
+        {TodoRow(t2N ? ["2", `2회차 ${t2L.map(x => nm(x.p.t)).join(" · ")}`, `1회차 +3~6% 마감 — 나머지 절반 · ${t2L.map(x => `${nm(x.p.t)} ${x.q ?? "—"}주`).join(" · ")}`, "track", C.emerald]
+                     : ["2", "2회차", null, "track", C.muted, "없음"])}
         <BuyBlock />
-        {TodoRow(dcHold3 ? ["4", "DC 그대로 보유", "3지수 보유 · 1년에 한 번(1월 첫 거래일) 비중만 맞춤", "alloc", C.dim]
+        {TodoRow(dcHold3 ? ["4", "DC", null, "alloc", C.dim, "그대로 보유"]
                  : dcSell.length ? ["4", `DC 매도 필요 — ${dcSell.join("·")}`, "신호가 빨강인데 보유 기록이 남아 있습니다 · DC 탭에서 매도 후 '매도 완료 기록'", "alloc", C.red]
-                 : ["4", `DC ${dcWait === 0 ? "모두 보유" : dcWait === (market.dc?.core || []).length ? "모두 안전자산" : `${(market.dc?.core || []).filter(c => c.state === "wait").map(c => c.label.replace(/^(미국|한국) /, "")).join("·")} 안전자산`}`, "느린 ST · 색이 바뀌면 알림", "alloc", C.dim])}
+                 : ["4", "DC", null, "alloc", C.dim, dcWait === 0 ? "모두 보유" : dcWait === (market.dc?.core || []).length ? "모두 안전자산" : `${(market.dc?.core || []).filter(c => c.state === "wait").map(c => c.label.replace(/^(미국|한국) /, "")).join("·")} 안전자산`])}
       </Card>
 
       {/* 244. 시장 · 내 종목 — 한 줄씩 (자세한 건 찾기 › 🌐 시장 · 내 종목 탭) */}
       <MarketLine market={market} setTab={setTab} />
       <HoldLine pos={pos} stocks={stocks} sizer={sizer} setTab={setTab} />
 
-      {/* 참고 — 거래 시간 · 원칙 */}
+      {/* 참고 — 투자금 · 앱 실적 · 거래 시간 · 원칙 */}
       <Step q="필요할 때 펼쳐 보기">참고</Step>
+      {sizer?.plan && (
+        <div onClick={() => setTab("track")} style={{ marginBottom: 8, padding: "8px 12px", borderRadius: 10, background: C.panel, border: `1px solid ${C.border}`,
+                                                       display: "flex", gap: 10, alignItems: "baseline", cursor: "pointer", fontSize: FS.xs, color: C.dim, ...ONE }}>
+          <b style={{ fontSize: FS.md, color: C.text, fontFamily: MONO }}>💰 {money(sizer.plan.total, "kr")}</b>
+          <span>DC {money(sizer.plan.dc, "kr")}</span><span>🇺🇸 {sizer.plan.us != null ? money(sizer.plan.us, "us") : "—"}</span>
+          <span>🇰🇷 {money(sizer.plan.kr, "kr")}</span><span>남는 돈 {money(sizer.plan.cash, "kr")}</span>
+        </div>)}
+      <AppPerf market={market} compact onOpen={() => setTab("review")} />
       <button onClick={() => setHoursOpen(v => !v)} style={{ ...btn(C.dim), width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 8 }}>
         <span>🕒 {nowSeg ? `지금 ${nowSeg[0]}` : "지금 휴장"}</span>
         <span style={{ marginLeft: "auto", fontWeight: 400, color: C.muted }}>장 시간표 {hoursOpen ? "▴" : "▾"}</span>
