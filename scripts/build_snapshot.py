@@ -54,6 +54,15 @@ def load_extra(universe):
                             "y": tk + ".KS" if mkt == "kr" else tk}
             added.append(tk)
         if added: print(f"  ➕ 앱에서 추가한 종목 {len(added)}개: {', '.join(added)}")
+        # 310. 보유·관심 종목은 산 다음 수집부터 바로 — 예전엔 주 1회(토) 종목풀 교체 때만 들어와, 그 사이 '데이터 없음'으로 매도! 가 안 나옴 (11/12 GOOG)
+        mine = []
+        for tk in [p.get("t") for p in (wl.get("positions") or [])] + list(wl.get("watch") or []):
+            tk = str(tk or "").strip().upper()
+            if not tk or tk in universe: continue
+            mkt = "kr" if (tk.isdigit() and len(tk) == 6) else "us"
+            universe[tk] = {"name": tk, "market": mkt, "sector": "", "y": tk + ".KS" if mkt == "kr" else tk}
+            mine.append(tk)
+        if mine: print(f"  ➕ 보유·관심인데 종목풀에 없던 종목 {len(mine)}개: {', '.join(mine)}"); added += mine
     except Exception:
         pass
     if not os.path.exists(EXTRA_FILE):
@@ -130,6 +139,8 @@ def main():
     except Exception:
         _prot = set()
     PROT = set(_prot) | {str(t).upper() for t in extra_added}      # 기준과 무관하게 유지하는 종목
+    try: HELD = {str(p.get("t", "")).upper() for p in (_wl.get("positions") or [])}      # 310. 보유 종목 — 봉이 모자라도 싣습니다 (매도! 는 나와야 함)
+    except Exception: HELD = set()
     # 191. 같은 회사의 다른 주식 종류(BRK-A·GOOG)는 매일 빼 둡니다 — 주간 교체 전에도 바로 적용 · 보유·관심이면 그대로
     try:
         from universe import SAME_CO_DROP as _SAME
@@ -263,7 +274,9 @@ def main():
         if info["market"] == "kr" and not meta.get("longName"):
             drop("유령 시세(이름 없음)", tk, info["name"], info["y"]); time.sleep(pause); return True
         # ② 봉 수 확인 — 200일선·RS 를 못 만드는 종목은 반쪽 지표로 싣지 않습니다
-        if len(cd) < MIN_BARS:
+        #    310. 단, 보유 종목은 싣습니다 — 가격·트레일링선·매도! 는 30봉이면 계산됨. 200일선·RS 는 비고(short 표시), 매수! 후보에서는 제외 (11/12 SKHY 90봉)
+        short = len(cd) < MIN_BARS
+        if short and tk not in HELD:
             drop("이력 부족", tk, info["name"], f"{len(cd)}봉"); time.sleep(pause); return True
         # ③ 최근 거래 확인
         halted = all((b.get("v") or 0) == 0 for b in cd[-5:])
@@ -293,6 +306,7 @@ def main():
             warns.append({"t": tk, "n": info["name"], "w": f"1일 {d['d1']:+.1f}%"})
         d["ex"] = info["y"][-3:] if info["market"] == "kr" else (meta.get("exchangeName") or "US")
         if halted: d["halted"] = True          # 보유·관심 종목인데 최근 5일 거래 없음 → 거래정지 표시
+        if short: d["short"] = len(cd)          # 310. 이력 부족(260봉 미만)인 보유 종목 — 매도! 만 판정
         stocks[tk] = d
         # ★ 차트용 시계열 — 종목당 파일 1개.
         #   예전처럼 한 덩어리(candles.json)로 묶으면 차트 탭을 처음 열 때 9MB 를 받습니다.

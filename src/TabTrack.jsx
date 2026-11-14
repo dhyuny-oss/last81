@@ -5,7 +5,7 @@ import { planFills, applyFills } from "./fills.js";
 import { openOrder, nextOpen } from "./order.js";
 import { useResv, resvDay, resvCall, RESV_ST } from "./resv.js";
 import { SchedLine, WeekSched, pastEarnTxt } from "./Info.jsx";
-import { C, Card, Chip, CopyBtn, DipTag, Empty, FS, InfoLink, LiveTag, MONO, NOTES_REF, ONE, PLAN_KEY, Sec, Seg, StockRow, actionOf, avgOf, btn, budgetOf, col, dcModeOf, earnDays, earnTxt, getRevMin, inp, investedIn, investedOf, kstDay, linkBtn, liveOf, loadJSON, loadPlan, localToday, lossOf, lossTxt, md, mktOfT, money, nextTrancheOf, pct, pickCfg, planAmounts, postWatch, price, relOf, roomFor, settingsChanged, shortName, slotInfo, subLine, tgtGap, tgtText, tgtOf, trOf, usDST, useBroker, useLive } from "./core.jsx";
+import { C, Card, Chip, CopyBtn, DipTag, Empty, FS, InfoLink, LiveTag, MONO, NOTES_REF, ONE, PLAN_KEY, Sec, Seg, StockRow, actionOf, askKeyAgain, avgOf, btn, budgetOf, col, dcModeOf, earnDays, earnTxt, getRevMin, inp, investedIn, investedOf, kstDay, linkBtn, liveOf, loadJSON, loadPlan, localToday, lossOf, lossTxt, md, mktOfT, money, nextTrancheOf, pct, pickCfg, planAmounts, postWatch, price, relOf, roomFor, settingsChanged, shortName, slotInfo, subLine, tgtGap, tgtOf, tgtText, trOf, usDST, useBroker, useLive } from "./core.jsx";
 
 
 /** 보유 평가 — 회차 합산 (시장 통화 그대로) */
@@ -430,7 +430,7 @@ export function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, m
               {/* 자세히 — 선·초록 며칠·실적·목표가·고치기 */}
               <details style={{ marginTop: 4 }}>
                 <summary style={{ fontSize: FS.xs, color: C.muted, cursor: "pointer", minHeight: 32, display: "flex", alignItems: "center" }}>
-                  ▸ 자세히 — {s.stLine ? `선 ${price(s.stLine, s.m)} (${lossTxt(s)})` : "선 없음"}{s.slowDays != null ? ` · ${s.stSlow === 1 ? "초록" : "빨강"} ${s.slowDays}일` : ""}{earnTxt(s) ? ` · 📅 ${earnTxt(s)}` : ""}</summary>
+                  ▸ 자세히 — {s.stLine ? `선 ${price(s.stLine, s.m)} (${lossTxt(s)})` : "선 없음"}{s.slowDays != null ? ` · ${s.stSlow === 1 ? "초록" : "빨강"} ${s.slowDays}일` : ""}{earnTxt(s) ? ` · 📅 ${earnTxt(s)}` : ""}{s.short ? ` · 이력 부족(${s.short}일) — 200일선·RS 없음` : ""}</summary>
                 <div style={{ fontSize: FS.xs, color: C.dim, lineHeight: 1.7, padding: "2px 0 4px" }}>
                   {p.role !== "long" ? <>트레일링선 {price(s.stLine, s.m)} · 선까지 {lossTxt(s)}{s.slowDays != null ? ` · 트레일링선 ${s.stSlow === 1 ? "위" : "아래"} ${s.slowDays}거래일째` : ""}</> : <>장기 관찰 · <DipTag s={s} /></>}
                   {earnTxt(s) && <><br /><b style={{ color: earnDays(s) <= 7 ? C.gold : C.dim }}>📅 {earnTxt(s)}</b></>}
@@ -495,6 +495,7 @@ export function SyncBtn({ pos, watch, extras = [], trades = [], syncState }) {
   const run = async () => {
     setBusy(true); setMsg(null);
     try {
+      askKeyAgain();      // 312. 직접 누른 것이니 암호를 다시 물어도 됨
       const { r, j } = await postWatch({ bulk: true, positions: pos, watch, extras, excludes: loadJSON("v10.excludes", []), trades: trades.slice(-300),
                                force: (pos.length === 0 && watch.length === 0) ? confirm("이 기기의 보유·관심이 비어 있습니다. 서버의 기록을 빈 목록으로 덮어쓸까요?") : undefined,
                                settings: { revMin: getRevMin(), slotsUs: loadPlan().slotsUs || SLOTS_DEFAULT.us, slotsKr: loadPlan().slotsKr || SLOTS_DEFAULT.kr,

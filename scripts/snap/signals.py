@@ -42,6 +42,9 @@ def decide_actions(stocks, market):
             d["action"], d["why"] = "buy", "trend"
         else:
             d["action"], d["why"] = "watch", None
+        if d.get("short") and d["action"] == "buy":      # 310. 이력 부족(보유라서 실은 종목) — 200일선·RS 를 못 만드니 매수! 는 내지 않음 (매도! 는 그대로)
+            d["action"], d["why"] = "watch", None
+            d["pull"] = d["strong"] = d["trend3"] = False
         # 급락(과매도) 판정 — 참고용. 27번 재검증: 어떤 조합도 주도주 보유를 못 이김 → −40 특별취급 없앰
         dd, hl = d.get("w52p"), d.get("hlt")
         prof = (d.get("fin") or {}).get("prof")

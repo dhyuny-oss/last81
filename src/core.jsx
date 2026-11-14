@@ -339,11 +339,25 @@ export const settingsChanged = () => { try { window.dispatchEvent(new Event("v11
 export const SYNC_BASE = "v13.syncBase";
 /** 서버에 올리기 — 한 번에 하나씩(겹치면 서버가 '다른 기기'로 오해) · 마지막으로 본 서버 시각(base)을 같이 보냄 */
 export let SYNC_Q = Promise.resolve();
+// 312. 저장 암호(REFRESH_KEY)가 걸려 있는데 이 기기에 없거나 틀리면 그 자리에서 묻습니다 (예전엔 종목풀 탭 '지금 갱신'에서만 넣을 수 있었음)
+//      자동 저장이 계속 물어보지 않게 한 번 열 때 한 번만 — '지금 다시 보내기'를 누르면 다시 묻습니다
+let KEY_ASKED = false;
+export const askKeyAgain = () => { KEY_ASKED = false; };
 export function postWatch(body) {
   const run = async () => {
     const b = typeof body === "string" ? JSON.parse(body) : body;
-    const r = await fetch("/api/watchlist", { method: "POST", headers: { "Content-Type": "application/json", "x-key": localStorage.getItem("v52.rkey") || "" },
-                                              body: JSON.stringify({ ...b, base: localStorage.getItem(SYNC_BASE) || "" }) });
+    const send = () => fetch("/api/watchlist", { method: "POST", headers: { "Content-Type": "application/json", "x-key": localStorage.getItem("v52.rkey") || "" },
+                                                 body: JSON.stringify({ ...b, base: localStorage.getItem(SYNC_BASE) || "" }) });
+    let r = await send();
+    if (r.status === 401 && !KEY_ASKED) {
+      KEY_ASKED = true;
+      const k = (window.prompt("내 종목 저장에 암호가 필요합니다.\nVercel 에 넣은 REFRESH_KEY 를 입력하세요 (이 기기에 한 번만)") || "").trim();
+      if (k) {
+        try { localStorage.setItem("v52.rkey", k); } catch {}
+        r = await send();
+        if (r.status === 401) { try { localStorage.removeItem("v52.rkey"); } catch {} alert("암호가 맞지 않습니다 — 내 종목 탭 아래 '지금 다시 보내기'를 누르면 다시 물어봅니다"); }
+      }
+    }
     const j = await r.json().catch(() => ({}));
     if (j.ok && j.updatedAt) { try { localStorage.setItem(SYNC_BASE, j.updatedAt); } catch {} }
     return { r, j };
@@ -399,6 +413,7 @@ export const passRevOf = (s, revMin) => { const g = growthOf(s); return revMin <
 export const infoUrl = (s) => {
   if (!s) return "#";
   if (s.m === "kr") return `https://m.stock.naver.com/domestic/stock/${s.t}/total`;
+  if (!s.ex) return `https://m.search.naver.com/search.naver?query=${encodeURIComponent(s.t + " 주가")}`;   // 311. 데이터가 없어 거래소를 모르면 네이버 검색으로 (예전엔 나스닥 종목도 .O 없이 열려 '페이지 없음')
   if (NASDAQ.has(s.ex)) return `https://m.stock.naver.com/worldstock/stock/${s.t}.O/total`;     // 네이버 해외주식 (나스닥 = .O)
   return `https://m.stock.naver.com/worldstock/stock/${encodeURIComponent(s.t)}/total`;           // 198. 뉴욕 = 접미사 없이 (예: CVX)
 };
