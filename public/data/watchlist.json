@@ -53,9 +53,9 @@
       "src": "meritz"
     }
   ],
-  "updatedAt": "2026-11-23T17:29:24.089Z",
+  "updatedAt": "2026-11-23T17:29:33.758Z",
   "settings": {
-    "revMin": 20,
+    "revMin": 10,
     "slotsUs": 7,
     "slotsKr": 5,
     "dcAmt": 100000000,
@@ -66,7 +66,7 @@
   },
   "excludes": [],
   "backup": {
-    "at": "2026-11-23T17:29:24.089Z",
+    "at": "2026-11-23T17:29:33.758Z",
     "positions": [
       {
         "t": "NVDA",
