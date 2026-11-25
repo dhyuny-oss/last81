@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-11-25T21:50:16.841Z",
+  "updatedAt": "2026-11-25T21:50:40.953Z",
   "items": [
     {
       "id": "4uipuimwwnq7p3",
@@ -13,6 +13,20 @@
       "asOf": "2026-11-25",
       "day": "20261127",
       "at": "2026-11-25T21:50:16.695Z",
+      "status": "wait"
+    },
+    {
+      "id": "4fqsrrmwwnqqbe",
+      "t": "AJG",
+      "m": "us",
+      "n": "Arthur J. Gallagher & Co.",
+      "ex": "NYSE",
+      "qty": 1,
+      "base": 292.39,
+      "line": 266.66,
+      "asOf": "2026-11-25",
+      "day": "20261127",
+      "at": "2026-11-25T21:50:40.826Z",
       "status": "wait"
     }
   ]
