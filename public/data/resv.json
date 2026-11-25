@@ -1,0 +1,19 @@
+{
+  "updatedAt": "2026-11-25T21:50:16.841Z",
+  "items": [
+    {
+      "id": "4uipuimwwnq7p3",
+      "t": "REGN",
+      "m": "us",
+      "n": "Regeneron Pharmaceuticals",
+      "ex": "NASD",
+      "qty": 1,
+      "base": 981.87,
+      "line": 885.05,
+      "asOf": "2026-11-25",
+      "day": "20261127",
+      "at": "2026-11-25T21:50:16.695Z",
+      "status": "wait"
+    }
+  ]
+}
