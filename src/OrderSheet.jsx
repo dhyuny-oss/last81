@@ -49,6 +49,9 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
 
   const [side, setSide] = useState(req.side === "sell" ? "sell" : "buy");
   const [info, setInfo] = useState(null);
+  // 315. 그 나라가 '새로 사지 않음'이면 매수 예약을 받지 않음 — 서버(api/_lib/resv.js)가 같은 값(today.json cfg)으로 어차피 건너뜀 (11/26 REGN·AJG)
+  const [gateCfg, setGateCfg] = useState(null);
+  useEffect(() => { fetch("/data/today.json?t=" + Date.now()).then(r => r.json()).then(j => setGateCfg(j?.cfg || {})).catch(() => setGateCfg({})); }, []);
   const [pin, setPin] = useState(() => ls.get(PIN));
   const [needPin, setNeedPin] = useState(false);
   const [q, setQ] = useState(null), [idx, setIdx] = useState({}), [qAt, setQAt] = useState(0);
@@ -124,7 +127,9 @@ export default function OrderSheet({ req, stocks = {}, pos = [], half = {}, onCl
     : !info.canOrder ? "주문이 꺼져 있습니다 (조회 전용)"
     : !pin || needPin ? "앱 비밀번호를 넣어 주세요"
     : resvMode ? (!(nQty >= 1) ? "수량은 1주 이상" : heldQty && nQty > heldQty ? `보유 ${heldQty}주보다 많습니다` : "")
-    : buyResv ? (info.broker !== "meritz" ? "장 밖 매수 예약은 메리츠 연결에서만 됩니다" : held || req.tranche2 ? "이미 보유한 종목(2회차)은 예약이 안 됩니다 — 장 중에 사 주세요"
+    : buyResv ? (info.broker !== "meritz" ? "장 밖 매수 예약은 메리츠 연결에서만 됩니다"
+        : (KR ? gateCfg?.krGate : gateCfg?.usGate) ? (KR ? "한국 시장 위험 — 지금은 새로 사지 않습니다 (예약해도 서버가 건너뜀)" : "나스닥100 200일선 아래 — 미국은 지금 새로 사지 않습니다 (예약해도 서버가 건너뜀)")
+        : held || req.tranche2 ? "이미 보유한 종목(2회차)은 예약이 안 됩니다 — 장 중에 사 주세요"
         : !(base > 0) ? "기준 종가가 없습니다 — 앱 데이터를 새로 고친 뒤" : !(nQty >= 1) ? "수량은 1주 이상"
         : cap1 && resvAmt > cap1 ? `기준 종가 +3%로 1건 상한 ${M(cap1, 0)}을 넘을 수 있습니다 — 수량을 줄여 주세요` : "")
     : !(last > 0) ? (busy ? "지금 가격 받는 중…" : "지금 가격을 확인하지 못했습니다 — 다시 보기")

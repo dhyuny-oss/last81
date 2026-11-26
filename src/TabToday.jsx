@@ -5,7 +5,7 @@ import { pickToday } from "./picks.js";
 import { openOrder } from "./order.js";
 import { useResv, resvOf, resvDay } from "./resv.js";
 import { AboutLine } from "./Info.jsx";
-import { AppPerf, C, Card, FS, LiveTag, MONO, ONE, SPARE_TXT, Step, US_GATE_TXT, actionOf, avgOf, btn, col, dcModeOf, earnTxt, getRevMin, krGateOf, linkBtn, liveOf, loadPlan, marketState, mktOfT, money, nextTrancheOf, passRevOf, pct, pickCfg, price, roomFor, shortName, slotInfo, usDST, usGateOf, useBroker, useLive } from "./core.jsx";
+import { AppPerf, C, Card, FS, LiveTag, MONO, ONE, SPARE_TXT, Step, US_GATE_TXT, actionOf, avgOf, brokerOnlyOf, btn, col, dcModeOf, earnTxt, getRevMin, krGateOf, linkBtn, liveOf, loadPlan, marketState, mktOfT, money, nextTrancheOf, passRevOf, pct, pickCfg, price, roomFor, shortName, slotInfo, usDST, usGateOf, useBroker, useLive } from "./core.jsx";
 
 
 
@@ -116,7 +116,7 @@ export function MarketLine({ market, setTab }) {
     </button>);
 }
 
-export function MarketTab({ market, setTab, onShowRules, list, pos, stocks, items, sizer, openStock, brokerMiss = [], trades = [] }) {
+export function MarketTab({ market, setTab, onShowRules, list, pos, stocks, items, sizer, openStock, brokerMiss = [], trades = [], today }) {
   const [hoursOpen, setHoursOpen] = useState(false);
   const sectors = market.sectors || [];
   const krGate = krGateOf(market), usGate = usGateOf(market);
@@ -124,7 +124,9 @@ export function MarketTab({ market, setTab, onShowRules, list, pos, stocks, item
   // 오늘 할 일 — 순서가 곧 루틴: ① 내 종목 매도 신호 ② 2회차 ③ 새로 살 것(종목까지 여기서) ④ DC
   // 183. 할 일에 종목 이름을 바로 — 숫자만 보고 내 종목 탭까지 들어가지 않게
   const nm = (t) => mktOfT(t) === "kr" ? (stocks[t]?.n || t) : t;
-  const sellL = (pos || []).filter(p => p.role !== "long" && stocks[p.t]?.action === "sell");
+  // 314. 메리츠에만 있고 기록이 없는 보유도 매도! 목록에 (예전엔 기록이 없으면 빠져 11/26 NVDA 매도! 가 안 보였음)
+  const sellL = [...(pos || []).filter(p => p.role !== "long" && stocks[p.t]?.action === "sell"),
+                 ...brokerOnlyOf(pos).filter(t => stocks[t]?.action === "sell").map(t => ({ t, noRecord: true }))];
   const t2L = (pos || []).map(p => { if (p.role !== "swing") return null; const m = mktOfT(p.t), s = stocks[p.t];
     const nx = nextTrancheOf(p, s, sizer.limit(m)); return nx?.ok && roomFor(pos, sizer, m, nx.amt) ? { p, m, q: s?.c ? Math.max(1, Math.floor(nx.amt / s.c)) : null } : null; }).filter(Boolean);
   const sellN = sellL.length, t2N = t2L.length;
@@ -253,7 +255,7 @@ export function MarketTab({ market, setTab, onShowRules, list, pos, stocks, item
           <b style={{ color: C.gold, fontSize: FS.sm }}>⚠ 메리츠 잔고에 없는 종목 {brokerMiss.length}개 — 먼저 정리</b>
           <div style={{ fontSize: FS.xs, color: C.dim, marginTop: 2 }}>{brokerMiss.map(p => nm(p.t)).join(" · ")} · 이미 팔았거나 잘못 들어간 기록이라 아래 할 일·칸 계산에서는 뺐습니다. 내 종목 맨 위에서 한 번에 정리 ›</div></button>}
         <AppPerf market={market} compact onOpen={() => setTab("review")} />
-        {TodoRow(["1", sellN ? `매도! ${sellL.map(p => nm(p.t)).join(" · ")}` : "매도! 0건", sellN ? "트레일링선 아래 마감 — 개장 때 전량 매도 · 미루지 않기" : "없음", "track", sellN ? C.red : C.muted])}
+        {TodoRow(["1", sellN ? `매도! ${sellL.map(p => nm(p.t)).join(" · ")}` : "매도! 0건", sellN ? `트레일링선 아래 마감 — 개장 때 전량 매도 · 미루지 않기${sellL.some(p => p.noRecord) ? ` · ${sellL.filter(p => p.noRecord).map(p => nm(p.t)).join("·")}는 메리츠에만 있음(앱 기록 없음)` : ""}` : "없음", "track", sellN ? C.red : C.muted])}
         {TodoRow(["2", t2N ? `2회차 ${t2L.map(x => nm(x.p.t)).join(" · ")}` : "2회차 0건", t2N ? `1회차 +3~6% 마감 — 나머지 절반 · ${t2L.map(x => `${nm(x.p.t)} ${x.q ?? "—"}주`).join(" · ")}` : "없음", "track", t2N ? C.emerald : C.muted])}
         <BuyBlock />
         {TodoRow(dcHold3 ? ["4", "DC 그대로 보유", "3지수 보유 · 1년에 한 번(1월 첫 거래일) 비중만 맞춤", "alloc", C.dim]

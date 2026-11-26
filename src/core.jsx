@@ -63,6 +63,7 @@ export function usDST(nowMs) {
 export const KR_HOLIDAYS = new Set(Object.keys(MKT_CAL.kr));
 export const US_HOLIDAYS = new Set(Object.keys(MKT_CAL.us));
 export const HOLI_NAME = { ...MKT_CAL.us, ...MKT_CAL.kr };
+export const US_EARLY = new Set(Object.keys(MKT_CAL.usEarly || {}));      // 316. 미국 조기 폐장일 (13:00 ET)
 /** 오늘 날짜 (한국 시간) — 매수·매도 기록 날짜에 씁니다. 예전엔 UTC 날짜라 오전 9시 전 기록이 하루 전으로 찍혔습니다 */
 export const kstDay = () => new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
 export function marketState(nowMs = Date.now()) {
@@ -79,7 +80,7 @@ export function marketState(nowMs = Date.now()) {
   const krExt = wd && !krHol && ((mins >= 450 && mins < 540) || (mins > 930 && mins <= 1080));
   const dst = usDST(nowMs);
   const usOpen = dst ? 1350 : 1410;                            // 22:30 / 23:30 KST
-  const usClose = dst ? 300 : 360;                             // 05:00 / 06:00 KST
+  const usClose = (dst ? 300 : 360) - (US_EARLY.has(usYmd) ? 180 : 0);   // 05:00 / 06:00 KST · 316. 조기 폐장일은 3시간 일찍(02:00 / 03:00)
   const usRegular = !usHol && ((wd && mins >= usOpen) || (mins <= usClose && dow >= 2 && dow <= 6));
   const usPre = !usHol && wd && mins >= usOpen - 330 && mins < usOpen;
   const usAfter = !usHol && mins > usClose && mins <= usClose + 240 && dow >= 2 && dow <= 6;
@@ -101,8 +102,8 @@ export function marketState(nowMs = Date.now()) {
     : mins < 480 ? "개장 전" : mins < 530 ? "프리마켓" : mins < 540 ? "개장 전" : mins <= 930 ? "장중"
     : (mins >= 940 && mins <= 1200) ? "애프터" : "장마감";      // 303. 오늘 탭 장 시간표(NXT 프리 08:00~08:50 · 애프터 15:40~20:00)와 같은 말
   const usLabel = weekend ? "휴장" : usHol ? `휴장(${HOLI_NAME[usYmd] || "공휴일"})`
-    : usRegular ? "장중" : usPre ? "프리마켓" : usAfter ? "애프터"
-    : (mins > usClose + 240 && mins < usOpen - 330) ? "장마감" : "개장 전";
+    : usRegular ? (US_EARLY.has(usYmd) ? `장중 · ${dst ? "02" : "03"}시 마감` : "장중") : usPre ? "프리마켓" : usAfter ? "애프터"
+    : (mins > usClose + 240 && mins < usOpen - 330) ? "장마감" : (US_EARLY.has(usYmd) && wd && mins >= usOpen - 330) ? "개장 전 · 조기 마감일" : "개장 전";
   return { krRegular, krExt, usRegular, usPre, usAfter, weekend, anyOpen, next, dst, krLabel, usLabel, krHol, usHol };
 }
 
@@ -266,11 +267,17 @@ export const tgtText = (who, tv, c, m) => { const g = tgtGap(tv, c); if (g == nu
 export const lossOf = (s) => (s?.stLine && s?.c) ? (1 - s.stLine / s.c) * 100 : null;
 export const lossTxt = (s) => { const l = lossOf(s); return l == null ? "—" : l < 0 ? "선 아래" : `-${l.toFixed(0)}%`; };
 export const mktOfT = (t) => /^\d{6}$/.test(t) ? "kr" : "us";
+/** 314. 메리츠 잔고에만 있고 앱 기록에 없는 보유 (today.json brokerOnly · 서버 scripts/broker_rule.py broker_only 와 같은 목록)
+ *  기록이 없어도 칸 하나를 차지하는 실제 보유라 빈 칸 계산에 넣습니다. App 이 today.json 을 읽을 때 넣음 */
+let BROKER_ONLY = [];
+export const setBrokerOnly = (list) => { BROKER_ONLY = (list || []).map(t => String(t).toUpperCase()); };
+export const brokerOnlyOf = (pos) => { const mine = new Set((pos || []).map(p => String(p.t).toUpperCase())); return BROKER_ONLY.filter(t => !mine.has(t)); };
 /** 109. 칸 = 동시에 들고 있을 종목 수 한도. 빈 칸 = 칸 수 − 지금 들고 있는 단기 종목 수 (앱 전체가 이 함수 하나를 씀) */
 export const slotInfo = (pos, m) => {
   const plan = loadPlan();
   const n = m === "us" ? (plan.slotsUs || SLOTS_DEFAULT.us) : (plan.slotsKr || SLOTS_DEFAULT.kr);
-  const held = (pos || []).filter(p => (p.role || "swing") === "swing" && mktOfT(p.t) === m).length;
+  const held = (pos || []).filter(p => (p.role || "swing") === "swing" && mktOfT(p.t) === m).length
+             + brokerOnlyOf(pos).filter(t => mktOfT(t) === m).length;      // 314
   return { n, held, free: Math.max(0, n - held) };
 };
 /** 109. 투자금 여유 — 그 시장에 이미 넣은 돈 + 이번 금액이 직투 금액을 넘지 않는지 (💰 투자금을 정했을 때만 따짐) */

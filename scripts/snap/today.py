@@ -174,7 +174,7 @@ def write_picks_log(t, keep=400):
     _write(PICKS_LOG, log[-keep:])
     print(f"  📝 picks_log.json: {len(log[-keep:])}일 · 오늘 🇺🇸 살 것 {sum(1 for x in row['us'] if x['buy'])}/{len(row['us'])} · 🇰🇷 {sum(1 for x in row['kr'] if x['buy'])}/{len(row['kr'])}")
 
-from broker_rule import broker_miss      # 299. 규칙 한 곳 (scripts/broker_rule.py)
+from broker_rule import broker_miss, broker_only      # 299 · 314. 규칙 한 곳 (scripts/broker_rule.py)
 
 SEC_CAP = RULES["secCap"]                              # 247. 🇺🇸 같은 업종 최대 종목 수 (src/picks.js SEC_CAP 와 같음)
 
@@ -198,6 +198,8 @@ def build_today(stocks, market):
         wl = {}
     _miss = broker_miss(wl)                 # 234. 메리츠에 없는 기록은 보유·칸 계산에서 뺌
     if _miss: wl = {**wl, "positions": [p for p in (wl.get("positions") or []) if str(p.get("t", "")).upper() not in _miss]}
+    _only = broker_only(wl)                 # 314. 메리츠에만 있는 보유도 보유로 (매도! 판정·칸)
+    if _only: wl = {**wl, "positions": (wl.get("positions") or []) + _only}
     held = {str(p.get("t", "")).upper() for p in (wl.get("positions") or [])}
     cfg = wl.get("settings") or {}
     rev_min = float(cfg.get("revMin", REV_MIN)); slots_us = int(cfg.get("slotsUs") or RULES["slots"]["us"]); slots_kr = int(cfg.get("slotsKr") or RULES["slots"]["kr"])   # 168. 기본 = 권장 7·5 (src/picks.js SLOTS_DEFAULT)
@@ -262,7 +264,7 @@ def build_today(stocks, market):
     heldrows = []
     for p in (wl.get("positions") or []):
         d = stocks.get(str(p.get("t", "")).upper())
-        if not d: heldrows.append({"t": p.get("t"), "state": "데이터 없음"}); continue
+        if not d: heldrows.append({"t": p.get("t"), "state": "데이터 없음", **({"noRecord": True} if p.get("noRecord") else {})}); continue
         tr = p.get("tr") if isinstance(p.get("tr"), list) and p.get("tr") else ([{"px": p.get("avg"), "amt": 0}] if p.get("avg") else [])
         t2 = None
         if p.get("role") == "swing" and len(tr) == 1 and tr and tr[0].get("px"):
@@ -271,7 +273,8 @@ def build_today(stocks, market):
             t2 = "도달" if (after and lo <= d["c"] <= hi and d.get("stSlow") == 1) else ("추격 금지" if d["c"] > hi else f"목표 {lo:.2f}")
         heldrows.append({"t": d["t"], "n": d.get("n"), "m": d["m"], "c": d["c"], "action": "sell" if d.get("action") == "sell" else "hold",
                          "stLine": d.get("stLine"), "loss": _r((1 - d["stLine"] / d["c"]) * 100, 1) if d.get("stLine") else None,
-                         "tranche2": t2, "halted": bool(d.get("halted") or d.get("status")), "earn": d.get("earn"), "earnE": d.get("earnE")})
+                         "tranche2": t2, "halted": bool(d.get("halted") or d.get("status")), "earn": d.get("earn"), "earnE": d.get("earnE"),
+                         **({"noRecord": True, "qty": p.get("qty")} if p.get("noRecord") else {})})
     dips = [row(d) | {"w52p": d.get("w52p"), "hlt": d.get("hlt")} for d in stocks.values() if d.get("dip") == "watch" and d["m"] == "us"]
     dips.sort(key=lambda r: r.get("w52p") or 0)
     h3 = (market.get("dc") or {}).get("hold3") or {}
@@ -288,7 +291,7 @@ def build_today(stocks, market):
             "market": {m: (market.get("judge") or {}).get(m, {}).get("verdict") for m in ("us", "kr")},
             "sectors": [{"tk": x["tk"], "label": x["label"], "rank": x["rank"], "score": x.get("score")} for x in (market.get("sectors") or [])[:6]],
             "cfg": {"revMin": rev_min, "slotsUs": slots_us, "slotsKr": slots_kr, "krGate": kr_gate, "usGate": us_gate, "secCap": SEC_CAP},   # 197. 그림자 기록이 같은 설정으로 고르게
-            "candidates": cands, "pickUs": pick_us, "pickKr": pick_kr, "size": size, "slots": slots, "excluded": excluded[:30], "held": heldrows, "brokerMiss": sorted(_miss),
+            "candidates": cands, "pickUs": pick_us, "pickKr": pick_kr, "size": size, "slots": slots, "excluded": excluded[:30], "held": heldrows, "brokerMiss": sorted(_miss), "brokerOnly": [p["t"] for p in _only],
             "dips": dips[:8], "dc": {"hold3": [x["label"] for x in (h3.get("items") or [])]}}
 
 def _shift_days(iso, n):

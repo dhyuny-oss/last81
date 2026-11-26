@@ -13,7 +13,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import RULES from "./rules.js";
 import { pickToday, SLOTS_DEFAULT, SEC_CAP } from "./picks.js";
 import { planFills, applyFills } from "./fills.js";
-import { C, Card, FS, KR_HOLIDAYS, MONO, NOTES_REF, PLAN_KEY, REV_KEY, SYNC_BASE, US_HOLIDAYS, asOfOf, btn, dcModeOf, getJson, getRevMin, inp, krGateOf, kstDay, linkBtn, loadJSON, loadPlan, marketState, md, mdt, mdy, mktOfT, money, pct, pickCfg, planAmounts, postWatch, slotInfo, trOf, usDST, usGateOf, weekKey } from "./core.jsx";
+import { C, Card, FS, KR_HOLIDAYS, MONO, NOTES_REF, PLAN_KEY, REV_KEY, SYNC_BASE, US_HOLIDAYS, asOfOf, btn, dcModeOf, getJson, getRevMin, inp, krGateOf, kstDay, linkBtn, loadJSON, loadPlan, marketState, md, mdt, mdy, mktOfT, money, pct, pickCfg, planAmounts, postWatch, setBrokerOnly, slotInfo, trOf, usDST, usGateOf, weekKey } from "./core.jsx";
 import { MarketTab } from "./TabToday.jsx";
 import { DcTab } from "./TabDc.jsx";
 import { ChartTab } from "./TabChart.jsx";
@@ -231,7 +231,7 @@ export default function App() {
   useEffect(() => { const f = () => setCfgTick(x => x + 1); window.addEventListener("v11:settings", f); return () => window.removeEventListener("v11:settings", f); }, []);
   const [syncState, setSyncState] = useState(() => ({ at: localStorage.getItem("v7.sync.at"), ok: true }));
   useEffect(() => {
-    getJson("/data/today.json?t=" + Date.now()).then(setToday).catch(() => {});
+    getJson("/data/today.json?t=" + Date.now()).then(j => { setBrokerOnly(j?.brokerOnly); setToday(j); }).catch(() => {});   // 314
     getJson("/data/picks_log.json?t=" + Date.now()).then(j => setPicksLog(Array.isArray(j) ? j : [])).catch(() => setPicksLog([]));   // 152
   }, []);
   // 266. 신호 장부(약 140KB)·종목풀 기록은 쓰는 탭(찾기·점검·종목풀)을 처음 열 때만 받음 — 첫 화면을 가볍게

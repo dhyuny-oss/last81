@@ -110,7 +110,12 @@ def main():
     state = {k: v for k, v in state.items() if v == today}   # 어제 기록은 버림
 
     msgs = []
-    for p in (wl.get("positions") or []):
+    try:
+        from broker_rule import broker_only      # 314. 메리츠에만 있는 보유도 장중 매도 후보 감시
+        _plist = (wl.get("positions") or []) + broker_only(wl)
+    except Exception:
+        _plist = wl.get("positions") or []
+    for p in _plist:
         d = stocks.get(p["t"]) or etfs.get(p["t"])
         if not d: continue
         if d.get("m") == "kr" and not kr_open: continue

@@ -128,6 +128,7 @@ def trend_template(cd):
     #   종가만 쓰면 INFY 처럼 -45% vs 실제 -63% 로 18%p 나 벌어집니다.
     hi252 = max(x["h"] for x in cd[-252:]); lo252 = min(x["l"] for x in cd[-252:])
     px = c[-1]
+    if lo252 <= 0 or hi252 <= 0: return None      # 313. 0 가격 봉 방어 (fetch 에서 걸러도 한 번 더)
     return bool(
         px > ma150 and px > ma200 and ma150 > ma200 and ma200 > ma200_prev and
         ma50 > ma150 and ma50 > ma200 and px > ma50 and

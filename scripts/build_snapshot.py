@@ -29,6 +29,16 @@ from snap.today import *  # noqa  — 앞 단계 이름이 모두 들어옴
 # ══════════════════════════════════════════════════════════════
 EXTRA_FILE = "scripts/tickers_extra.txt"
 
+def _held(wl):
+    """보유 종목 = 앱 기록 + 314. 메리츠에만 있는 보유(broker_only) — 기록이 없어도 종목풀·봉 부족 보호에서 빠지지 않게"""
+    out = [p.get("t") for p in ((wl or {}).get("positions") or []) if p.get("t")]
+    try:
+        from broker_rule import broker_only
+        out += [p["t"] for p in broker_only(wl)]
+    except Exception:
+        pass
+    return out
+
 def load_extra(universe):
     """★ 내가 직접 넣는 종목 목록.
 
@@ -56,7 +66,7 @@ def load_extra(universe):
         if added: print(f"  ➕ 앱에서 추가한 종목 {len(added)}개: {', '.join(added)}")
         # 310. 보유·관심 종목은 산 다음 수집부터 바로 — 예전엔 주 1회(토) 종목풀 교체 때만 들어와, 그 사이 '데이터 없음'으로 매도! 가 안 나옴 (11/12 GOOG)
         mine = []
-        for tk in [p.get("t") for p in (wl.get("positions") or [])] + list(wl.get("watch") or []):
+        for tk in _held(wl) + list(wl.get("watch") or []):
             tk = str(tk or "").strip().upper()
             if not tk or tk in universe: continue
             mkt = "kr" if (tk.isdigit() and len(tk) == 6) else "us"
@@ -132,14 +142,14 @@ def main():
     # 앱 📦 종목풀 탭에서 '빼기' 한 종목 — 보유·관심·추가에 있으면 무시(보호 우선)
     try:
         _wl = json.load(open(f"{OUT_DIR}/watchlist.json", encoding="utf-8"))
-        _prot = {str(p.get("t", "")).upper() for p in (_wl.get("positions") or [])} | {str(t).upper() for t in (_wl.get("watch") or []) + (_wl.get("extras") or [])}
+        _prot = {str(t).upper() for t in _held(_wl)} | {str(t).upper() for t in (_wl.get("watch") or []) + (_wl.get("extras") or [])}
         _ex = [str(t).upper() for t in (_wl.get("excludes") or []) if str(t).upper() not in _prot]
         _gone = [t for t in _ex if universe.pop(t, None) is not None]
         if _gone: print(f"  ➖ 앱에서 뺀 종목 {len(_gone)}개: {', '.join(_gone[:10])}")
     except Exception:
         _prot = set()
     PROT = set(_prot) | {str(t).upper() for t in extra_added}      # 기준과 무관하게 유지하는 종목
-    try: HELD = {str(p.get("t", "")).upper() for p in (_wl.get("positions") or [])}      # 310. 보유 종목 — 봉이 모자라도 싣습니다 (매도! 는 나와야 함)
+    try: HELD = {str(t).upper() for t in _held(_wl)}      # 310. 보유 종목 — 봉이 모자라도 싣습니다 (매도! 는 나와야 함)
     except Exception: HELD = set()
     # 191. 같은 회사의 다른 주식 종류(BRK-A·GOOG)는 매일 빼 둡니다 — 주간 교체 전에도 바로 적용 · 보유·관심이면 그대로
     try:
@@ -196,7 +206,7 @@ def main():
         prot = set()
         try:
             wl = json.load(open(f"{OUT_DIR}/watchlist.json", encoding="utf-8"))
-            prot |= {p.get("t") for p in (wl.get("positions") or []) if p.get("t")}
+            prot |= set(_held(wl))
             prot |= set(wl.get("watch") or []) | set(wl.get("extras") or []) | set(extra_added)
         except Exception:
             prot |= set(extra_added)
@@ -298,7 +308,17 @@ def main():
                 collect_breadth(cd, info["market"])         # 폭(200일선 위 비율)의 지난 날짜들은 그대로 유효
                 time.sleep(pause); return True
         cd = cd[-max(BARS_KEEP, 1000):]                # 3년(756일) 건강도 + 200일선 = 956봉 필요
-        d = build_stock(tk, cd, meta, info["name"], info["market"], info["sector"])
+        try:
+            d = build_stock(tk, cd, meta, info["name"], info["market"], info["sector"])
+        except Exception as e:
+            # 313. 종목 하나의 계산 오류로 수집 전체가 멈추지 않게 — 그 종목만 지난 값으로 두고(없으면 빼고) 계속
+            print(f"  ⚠️ {tk} 계산 오류: {type(e).__name__}: {e}", flush=True)
+            drop("계산 오류", tk, info["name"], f"{type(e).__name__}: {e}"[:80])
+            try: _rows = json.load(open(f"{OUT_DIR}/bars/{tk}.json", encoding="utf-8"))["rows"] if _pv else None
+            except Exception: _rows = None
+            if _pv and _rows:
+                stocks[tk] = dict(_pv); series[tk] = _rows; carried[tk] = _pv.get("asOf") or ""
+            time.sleep(pause); return True
         time.sleep(pause)
         if not d: return False
         # ④ 하루 ±35% 초과는 분할·오류 의심 → 경고만 남깁니다 (실제 급등락도 있으므로)
