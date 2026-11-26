@@ -37,6 +37,9 @@ def build(snap, mkt, state, now):
         wl = {}
     _miss = broker_miss(wl)                  # 234. 메리츠에 없는 기록 — 경고만 하고 아래 계산에서는 뺌
     if _miss: wl = {**wl, "positions": [p for p in (wl.get("positions") or []) if str(p.get("t", "")).upper() not in _miss]}
+    from broker_rule import broker_only      # 314. 메리츠에만 있는 보유도 매도! 판정에 넣음
+    _only = broker_only(wl)
+    if _only: wl = {**wl, "positions": (wl.get("positions") or []) + _only}
     etfs   = snap.get("etfs", {})
 
     entry = pick_entry(stocks, judge)
@@ -105,7 +108,8 @@ def build(snap, mkt, state, now):
             tgt_part = f" · {'🎯 목표 도달(매도 신호 아님)' if _gap <= 0 else f'목표까지 {_gap:+.0f}%'}{'' if _nt.get('tg') else '(애널)'}"
         line = (f"   {ACT['sell'] if out else ACT['hold']} <b>{d.get('n') or p['t']}</b>{warn} {price(d.get('c'), d.get('m'))}"
                 + (f" {pct(pl)}" if pl is not None else "")
-                + (f" · 트레일링선 {price(d.get('stLine'), d.get('m'))}" if d.get("stLine") else "") + tgt_part + earn_txt(d))
+                + (f" · 트레일링선 {price(d.get('stLine'), d.get('m'))}" if d.get("stLine") else "") + tgt_part + earn_txt(d)
+                + (f"\n      ⚠️ 메리츠 잔고 {p.get('qty') or ''}주 · <b>앱 기록 없음</b> — 내 종목에서 추가해 주세요" if p.get("noRecord") else ""))
         # 2회차 조건: 1회차뿐이고 1회차 매수가 +3% 넘게 마감 · 느린 ST 초록
         _after = bool(tr) and (not tr[0].get("d") or str(d.get("asOf") or "") > str(tr[0].get("d"))[:10])   # 1회차를 산 뒤의 종가여야 함 (앱과 같음)
         if p.get("role") == "swing" and len(tr) == 1 and d.get("c") and d.get("stSlow") == 1 and _after and tr[0]["px"] * RULES["tranche2"]["lo"] <= d["c"] <= tr[0]["px"] * RULES["tranche2"]["hi"]:

@@ -5,7 +5,7 @@ import { planFills, applyFills } from "./fills.js";
 import { openOrder, nextOpen } from "./order.js";
 import { useResv, resvDay, resvCall, RESV_ST } from "./resv.js";
 import { SchedLine, WeekSched, pastEarnTxt } from "./Info.jsx";
-import { C, Card, Chip, CopyBtn, DipTag, Empty, FS, InfoLink, LiveTag, MONO, NOTES_REF, ONE, PLAN_KEY, Sec, Seg, StockRow, actionOf, askKeyAgain, avgOf, btn, budgetOf, col, dcModeOf, earnDays, earnTxt, getRevMin, inp, investedIn, investedOf, kstDay, linkBtn, liveOf, loadJSON, loadPlan, localToday, lossOf, lossTxt, md, mktOfT, money, nextTrancheOf, pct, pickCfg, planAmounts, postWatch, price, relOf, roomFor, settingsChanged, shortName, slotInfo, subLine, tgtGap, tgtOf, tgtText, trOf, usDST, useBroker, useLive } from "./core.jsx";
+import { C, Card, Chip, CopyBtn, DipTag, Empty, FS, InfoLink, LiveTag, MONO, NOTES_REF, ONE, PLAN_KEY, Sec, Seg, StockRow, actionOf, askKeyAgain, avgOf, brokerOnlyOf, btn, budgetOf, col, dcModeOf, earnDays, earnTxt, getRevMin, inp, investedIn, investedOf, kstDay, linkBtn, liveOf, loadJSON, loadPlan, localToday, lossOf, lossTxt, md, mktOfT, money, nextTrancheOf, pct, pickCfg, planAmounts, postWatch, price, relOf, roomFor, settingsChanged, shortName, slotInfo, subLine, tgtGap, tgtOf, tgtText, trOf, usDST, useBroker, useLive } from "./core.jsx";
 
 
 /** 보유 평가 — 회차 합산 (시장 통화 그대로) */
@@ -282,6 +282,19 @@ export function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, m
       {Sheet()}{/* 함수로 불러야 입력 칸이 글자마다 다시 그려지지 않습니다 */}
       {FillSheet()}
       <BrokerTop brokerSync={brokerSync} stocks={stocks} />
+      {/* 314. 메리츠 잔고에만 있고 앱 기록에 없는 보유 — 매도! 판정은 서버·텔레그램이 이미 하고 있음. 기록에 넣어야 손익·2회차가 계산됨 */}
+      {brokerOnlyOf(pos).length > 0 && (
+        <Card style={{ marginBottom: 8, borderColor: `${C.gold}88` }}>
+          <div style={{ fontSize: FS.sm, fontWeight: 800, color: C.gold }}>⚠️ 메리츠에만 있는 보유 {brokerOnlyOf(pos).length} — 앱 기록 없음</div>
+          {brokerOnlyOf(pos).map(t => { const s = stocks[t]; const sell = s?.action === "sell";
+            return (
+              <button key={t} onClick={() => s && openStock(s)} style={{ display: "flex", width: "100%", gap: 8, alignItems: "baseline", marginTop: 6, padding: 0, background: "none", border: "none", color: C.text, cursor: s ? "pointer" : "default", textAlign: "left" }}>
+                <b style={{ fontFamily: MONO }}>{t}</b>
+                <span style={{ fontSize: FS.xs, color: C.muted, flex: 1, minWidth: 0, ...ONE }}>{s ? `${price(s.c, s.m)} · 트레일링선 ${s.stLine ? price(s.stLine, s.m) : "—"}` : "데이터 없음"}</span>
+                <b style={{ fontSize: FS.sm, color: sell ? C.red : C.dim, flexShrink: 0 }}>{s ? (sell ? "매도!" : "보유") : "—"}</b>
+              </button>); })}
+          <div style={{ fontSize: FS.xs, color: C.dim, marginTop: 6, lineHeight: 1.5 }}>매도! 판정·텔레그램 알림·빈 칸에는 이미 넣고 있습니다. 손익과 2회차를 보려면 메리츠 카드에서 잔고를 불러온 뒤 노란 상자의 '단기로 넣기'를 누르세요.</div>
+        </Card>)}
       <PlanCard sizer={sizer} bumpSizer={bumpSizer} pos={pos} stocks={stocks} />
       {/* 사이징 — 전체 투자금이 없을 때만 계좌별로 직접 */}
       {!sizer.plan && <Card style={{ marginTop: 8, borderColor: `${C.gold}66` }}>

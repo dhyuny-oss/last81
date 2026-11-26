@@ -27,7 +27,9 @@ const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 console.log("── 1. 보유: 폰이 보낸 것 = 서버가 쓰는 것 ──");
 // 234. 메리츠 잔고에 없는 기록(today.brokerMiss)은 서버가 보유·칸 계산에서 뺍니다 — 점검도 같은 규칙으로
 const miss = new Set((today.brokerMiss || []).map((t) => String(t).toUpperCase()));
-const pos = (wl.positions || []).filter((p) => !miss.has(String(p.t).toUpperCase()));
+// 314. 메리츠에만 있는 보유(today.brokerOnly)는 서버가 단기 보유로 셈 — 점검도 같이
+const pos = [...(wl.positions || []).filter((p) => !miss.has(String(p.t).toUpperCase())),
+             ...(today.brokerOnly || []).map((t) => ({ t, role: "swing" }))];
 const heldWl = pos.map((p) => String(p.t).toUpperCase()).sort();
 const heldToday = (today.held || []).map((h) => String(h.t).toUpperCase()).sort();
 const builtAt = Date.parse(snap.meta?.generatedAt || 0), wlAt = Date.parse(wl.updatedAt || 0);
@@ -93,6 +95,8 @@ console.log("── 5. 코드에 여러 번 적힌 같은 값 ──");
   ok(`휴장일 한 파일(config/market.json · 🇰🇷 ${Object.keys(cal.kr).length} · 🇺🇸 ${Object.keys(cal.us).length}) — 7곳이 모두 그 파일을 읽음`, bad_.length === 0, bad_.join(", "));
   const yr = new Date().getFullYear(), mo = new Date().getMonth() + 1;
   ok(`휴장일이 내년(${yr + 1})까지 있음`, cal.lastYear >= (mo >= 11 ? yr + 1 : yr), "config/market.json 에 다음 해 휴장일을 넣으세요", true);
+  const _ey = mo >= 11 ? yr + 1 : yr;      // 316. 조기 폐장일(추수감사절 다음 날 등)도 같은 해까지
+  ok(`미국 조기 폐장일이 ${_ey}년까지 있음`, Object.keys(cal.usEarly || {}).some((d) => +d.slice(0, 4) >= _ey), "config/market.json usEarly 에 다음 해 조기 폐장일(NYSE 공지)을 넣으세요", true);
 }
 const py = T("scripts/build_snapshot.py"), app_ = T("src/App.jsx"), picksJs = T("src/picks.js"), notify = T("scripts/notify.py");
 const n = (re, txt) => { const m = re.exec(txt); return m ? Number(m[1]) : null; };

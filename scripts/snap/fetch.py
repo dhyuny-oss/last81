@@ -17,7 +17,14 @@ def _drop_partial(out, ticker):
         kr = ticker.endswith((".KS", ".KQ")) or ticker in ("^KS11", "^KQ11", "^KS200")
         tz = ZoneInfo("Asia/Seoul" if kr else "America/New_York")
         now = datetime.fromtimestamp(_RUN_TS, tz)
-        cut = now.replace(hour=15, minute=45, second=0, microsecond=0) if kr else now.replace(hour=16, minute=10, second=0, microsecond=0)
+        early = False
+        if not kr:
+            try:
+                from mktcal import US_EARLY        # 316. 조기 폐장일(13:00 ET)이면 13:10 이후 봉은 확정
+                early = now.strftime("%Y-%m-%d") in US_EARLY
+            except Exception:
+                pass
+        cut = now.replace(hour=15, minute=45, second=0, microsecond=0) if kr else now.replace(hour=13 if early else 16, minute=10, second=0, microsecond=0)
         last = datetime.fromtimestamp(out[-1]["t"], tz)
         if last.date() == now.date() and now < cut:
             return out[:-1]
@@ -40,6 +47,7 @@ def fetch_candles(ticker, tries=3, min_bars=200):
             for i in range(len(ts)):
                 o,h,l,c,v = q["open"][i],q["high"][i],q["low"][i],q["close"][i],q["volume"][i]
                 if None in (o,h,l,c): continue
+                if min(o,h,l,c) <= 0: continue      # 313. 가격 0 인 봉은 야후 오류 — 그대로 쓰면 0 으로 나눠 수집 전체가 멈춤 (11/23 월 16시대 3번 실패)
                 out.append({"t":ts[i],"o":round(o,4),"h":round(h,4),
                             "l":round(l,4),"c":round(c,4),"v":int(v or 0)})
             # ★ 200 OK 인데 봉이 몇 개 안 오는 경우가 있습니다. 조용히 받아들이면

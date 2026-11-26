@@ -296,7 +296,9 @@ function regularNow(KR) {
   const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: z, weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date()).map((x) => [x.type, x.value]));
   if (p.weekday === "Sat" || p.weekday === "Sun") return false;
   const m = +p.hour * 60 + +p.minute;
-  return KR ? m >= 540 && m < 930 : m >= 570 && m < 960;
+  if (KR) return m >= 540 && m < 930;
+  const ny = new Intl.DateTimeFormat("en-CA", { timeZone: z, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  return m >= 570 && m < (Object.prototype.hasOwnProperty.call(MKT_CAL.usEarly || {}, ny) ? 780 : 960);   // 316. 조기 폐장일 13:00 ET
 }
 
 async function placeOrder(c, ctx, b, KR) {

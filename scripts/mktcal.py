@@ -6,6 +6,7 @@ _P = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "config", "m
 _C = json.load(open(_P, encoding="utf-8"))
 KR_HOL = set(_C.get("kr", {}))
 US_HOL = set(_C.get("us", {}))
+US_EARLY = set(_C.get("usEarly", {}))      # 316. 미국 조기 폐장일 (13:00 ET)
 NAMES = {**_C.get("us", {}), **_C.get("kr", {})}
 LAST_YEAR = int(_C.get("lastYear") or 0)
 
