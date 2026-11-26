@@ -5,7 +5,8 @@
     "NVDA"
   ],
   "extras": [
-    "GH"
+    "GH",
+    "NTSK"
   ],
   "trades": [
     {
@@ -99,7 +100,7 @@
       "src": "meritz"
     }
   ],
-  "updatedAt": "2026-11-26T20:31:38.357Z",
+  "updatedAt": "2026-11-26T20:36:35.431Z",
   "settings": {
     "revMin": 10,
     "slotsUs": 7,
@@ -112,7 +113,7 @@
   },
   "excludes": [],
   "backup": {
-    "at": "2026-11-26T20:31:38.356Z",
+    "at": "2026-11-26T20:36:35.431Z",
     "positions": [],
     "watch": [
       "NVDA"
