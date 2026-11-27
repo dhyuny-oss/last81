@@ -141,11 +141,13 @@ export function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, m
   }, [fillPlan, syncOk]);   // eslint-disable-line react-hooks/exhaustive-deps
   // 229. 계좌 카드의 '내 종목에 없음 — 넣기' → 이 종목을 '무시'에서 빼고 고르는 창을 엶
   useEffect(() => {
-    const f = (e) => { const t = e.detail?.t; if (t && ignored.has(t)) { const n = new Set([...ignored].filter(x => x !== t)); setIgnored(n); saveSet("v13.kis.ignore", n); }
+    const f = (e) => { const t = e.detail?.t; if (t && ignored.has(t)) { const n = new Set([...ignored].filter(x => x !== t)); setIgnored(n); saveSet("v13.kis.ignore", n); window.dispatchEvent(new Event("v11:settings")); }
       setFillOpen(true); };
     window.addEventListener("fill-open", f); return () => window.removeEventListener("fill-open", f);
   });
-  const ignoreExtra = (e) => { const n = new Set([...ignored, e.t]); setIgnored(n); saveSet("v13.kis.ignore", n); };
+  // 318. '무시'는 서버에도 올림 (텔레그램·빈 칸이 '메리츠에만 있는 보유'에서 뺌) — 다른 기기에서 받은 무시 목록은 kis-ignore 로 다시 읽음
+  const ignoreExtra = (e) => { const n = new Set([...ignored, e.t]); setIgnored(n); saveSet("v13.kis.ignore", n); window.dispatchEvent(new Event("v11:settings")); };
+  useEffect(() => { const f = () => setIgnored(new Set(loadJSON("v13.kis.ignore", []))); window.addEventListener("kis-ignore", f); return () => window.removeEventListener("kis-ignore", f); }, []);
   // 189. 매도!는 '다음 개장 때 팔리게' — 종가보다 2.5% 낮은 지정가로 채움 (지정가가 시장가보다 낮으면 개장 가격에 체결)
   const FillSheet = () => !fillOpen ? null : (
     <div onClick={(e) => { if (e.target === e.currentTarget) setFillOpen(false); }}
@@ -293,7 +295,10 @@ export function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, m
                 <span style={{ fontSize: FS.xs, color: C.muted, flex: 1, minWidth: 0, ...ONE }}>{s ? `${price(s.c, s.m)} · 트레일링선 ${s.stLine ? price(s.stLine, s.m) : "—"}` : "데이터 없음"}</span>
                 <b style={{ fontSize: FS.sm, color: sell ? C.red : C.dim, flexShrink: 0 }}>{s ? (sell ? "매도!" : "보유") : "—"}</b>
               </button>); })}
-          <div style={{ fontSize: FS.xs, color: C.dim, marginTop: 6, lineHeight: 1.5 }}>매도! 판정·텔레그램 알림·빈 칸에는 이미 넣고 있습니다. 손익과 2회차를 보려면 메리츠 카드에서 잔고를 불러온 뒤 노란 상자의 '단기로 넣기'를 누르세요.</div>
+          <div style={{ fontSize: FS.xs, color: C.dim, marginTop: 6, lineHeight: 1.5 }}>단기 보유로 보고 매도! 판정·텔레그램·빈 칸에 이미 넣고 있습니다. 앱 신호로 산 종목이면 <b>단기로 넣기</b>(손익·2회차 계산), 따로 산 종목이면 <b>장기로 넣기</b>(매도 알림 꺼짐), 셀 필요 없으면 <b>무시</b>.</div>
+          {Object.values(brokerSync).some(k => k && k.env === "real" && Array.isArray(k.rows))
+            ? <button onClick={() => setFillOpen(true)} style={{ ...btn(C.gold), width: "100%", minHeight: 40, marginTop: 8 }}>넣기 · 무시 고르기 ›</button>
+            : <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 4 }}>고르려면 아래 메리츠 카드에서 잔고를 먼저 불러오세요.</div>}
         </Card>)}
       <PlanCard sizer={sizer} bumpSizer={bumpSizer} pos={pos} stocks={stocks} />
       {/* 사이징 — 전체 투자금이 없을 때만 계좌별로 직접 */}

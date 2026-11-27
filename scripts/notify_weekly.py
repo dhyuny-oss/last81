@@ -22,6 +22,11 @@ def build_weekly(snap, mkt, now):
     except Exception: wl = {}
     _mw = broker_miss(wl)                    # 234
     if _mw: wl = {**wl, "positions": [p for p in (wl.get("positions") or []) if str(p.get("t", "")).upper() not in _mw]}
+    try:
+        from broker_rule import broker_only      # 319. 메리츠에만 있는 보유도 '내 종목'·매도! 수에 넣음
+        _ow = broker_only(wl)
+    except Exception: _ow = []
+    if _ow: wl = {**wl, "positions": (wl.get("positions") or []) + _ow}
     ps = wl.get("positions") or []
     sells = [p for p in ps if p.get("role") != "long" and (stocks.get(p["t"]) or {}).get("action") == "sell"]
     near = []

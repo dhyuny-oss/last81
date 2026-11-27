@@ -37,10 +37,11 @@ def broker_only(wl, today=None):
         return []
     if age > MAX_AGE_DAYS: return []
     mine = {str(p.get("t", "")).upper() for p in ((wl or {}).get("positions") or [])}
+    mine |= {str(t).upper() for t in ((wl or {}).get("brokerIgnore") or [])}     # 318. 체결 반영 창에서 '무시'한 종목
     out = []
     for m in ("us", "kr"):
         for row in (b.get(m) or []):
             t = str(row[0]).upper()
-            if t and t not in mine and (len(row) < 2 or (row[1] or 0) > 0):
+            if t and t not in mine and not any(o["t"] == t for o in out) and (len(row) < 2 or (row[1] or 0) > 0):
                 out.append({"t": t, "role": "swing", "noRecord": True, "qty": row[1] if len(row) > 1 else None})
     return out
