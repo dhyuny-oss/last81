@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from "react";
 import RULES from "./rules.js";
 import { SLOTS_DEFAULT } from "./picks.js";
-import { AppPerf, C, Card, Empty, FIT, FS, Grade, Head, Info, MONO, ONE, REV_KEY, Sec, Seg, Step, btn, col, dcModeOf, getJson, getRevMin, inp, linkBtn, loadJSON, loadPlan, lossOf, md, mdt, money, pct, pickedDays, price, settingsChanged, shortName, weekKey } from "./core.jsx";
+import { brokerOnlyOf, AppPerf, C, Card, Empty, FIT, FS, Grade, Head, Info, MONO, ONE, REV_KEY, Sec, Seg, Step, btn, col, dcModeOf, getJson, getRevMin, inp, linkBtn, loadJSON, loadPlan, lossOf, md, mdt, money, pct, pickedDays, price, settingsChanged, shortName, weekKey } from "./core.jsx";
 
 
 /** 최근 신호 모아보기 — 5거래일치 매수! 기록과 그 뒤 성과 (실전 장부 signals_log 기준) */
@@ -77,11 +77,15 @@ export function TradeLog({ trades, setTrades, siglog }) {
   const n = list.length;
   const win = list.filter(t => t.pl > 0).length;
   const avg = n ? list.reduce((a, t) => a + t.pl, 0) / n : 0;
-  const med = n ? [...list].sort((a, b) => a.pl - b.pl)[Math.floor(n / 2)].pl : 0;
+  const srt = [...list].sort((a, b) => a.pl - b.pl);
+  const med = n ? (n % 2 ? srt[(n - 1) / 2].pl : (srt[n / 2 - 1].pl + srt[n / 2].pl) / 2) : 0;     // 325. 짝수 개는 가운데 두 값의 평균
   const days = n ? Math.round(list.reduce((a, t) => a + (t.days || 0), 0) / n) : 0;
   const gains = list.filter(t => t.pl > 0).reduce((a, t) => a + t.pl, 0);
   const loss = -list.filter(t => t.pl < 0).reduce((a, t) => a + t.pl, 0);
-  const pf = loss > 0 ? gains / loss : null;
+  // 325. 손익비 — 금액이 모두 있으면 금액(이익 $ 합 ÷ 손실 $ 합), 아니면 수익률(% 합) 기준 · 어느 쪽인지 같이 적음
+  const allAmt = n > 0 && list.every(t => t.inv > 0) && new Set(list.map(t => t.m)).size === 1;
+  const gA = list.filter(t => t.pl > 0).reduce((a, t) => a + t.inv * t.pl / 100, 0), lA = -list.filter(t => t.pl < 0).reduce((a, t) => a + t.inv * t.pl / 100, 0);
+  const pf = allAmt ? (lA > 0 ? gA / lA : null) : (loss > 0 ? gains / loss : null);
   const sum = (m) => list.filter(t => t.m === m && t.inv > 0).reduce((a, t) => a + t.inv * t.pl / 100, 0);
   const hasAmt = (m) => list.some(t => t.m === m && t.inv > 0);
   // 규칙 이탈일과 비교 — 신호 기록(siglog)에 같은 종목의 신호가 매수 직전 7일 안에 있고 규칙 이탈일이 있으면 그날과 판 날을 비교
@@ -117,7 +121,7 @@ export function TradeLog({ trades, setTrades, siglog }) {
           <span style={{ color: C.muted, fontSize: FS.xs }}>(수수료·환율 제외 · 통화가 달라 더하지 않음)</span>
         </div>)}
       <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 7, lineHeight: 1.7 }}>
-        손익비 {pf != null ? pf.toFixed(2) : "—"} (이익 합 ÷ 손실 합).
+        손익비 {pf != null ? pf.toFixed(2) : "—"} ({allAmt ? "이익 금액 합 ÷ 손실 금액 합" : "수익률(%) 합 기준 — 이익 % 합 ÷ 손실 % 합"}).
         옛 백테스트(2008–26, 지금 규칙으로 다시 낸 값이 아님·생존편향 있음): 승률 31% · 거래당 +3.0% · 중앙 -3.6% · 보유 15일 · 손익비 1.6 — 참고만 하세요.
         <br />작은 손실이 잦고 큰 수익이 가끔 오는 구조라, 승률이 낮은 것 자체는 문제가 아닙니다.
         {demoN > 0 && <><br />모의 기록 {demoN}건은 통계에서 뺐습니다.</>}
@@ -174,7 +178,7 @@ export function SignalReview({ siglog, stocks, market, openStock, picksLog }) {
   const [filter, setFilter] = useState("exit");
   const [limit, setLimit] = useState(5);      // 305. 처음엔 5줄 — 점검 탭이 휴대폰 10화면 길이였음
   if (!siglog?.length) return null;
-  const since = new Date(Date.now() - weeks * 7 * 86400000).toISOString().slice(0, 10);
+  const since = new Date(Date.now() + 9 * 3600000 - weeks * 7 * 86400000).toISOString().slice(0, 10);   // 327. 한국 날짜 기준 (예전엔 오전 9시 전후로 하루가 달라져 같은 날 숫자가 바뀜)
   const K = { pull: "눌림", strong: "강세", buy: "추세" };
   const rows = siglog.filter(x => x.d >= since && x.p).map(x => {
     const s = stocks[x.t]; const now = s?.c ?? (x.r?.now != null ? x.p * (1 + x.r.now / 100) : null);
@@ -297,8 +301,9 @@ export function ReviewTab({ market, uni, snap, trades, setTrades, pos, stocks, s
   const toggle = (k) => setDone(o => ({ ...o, [wk]: { ...(o[wk] || {}), [k]: !cur[k] } }));
   const nDone = REVIEW_STEPS.filter(([k]) => cur[k]).length;
   const live = market.live || {};
-  const risky = (pos || []).map(p => stocks[p.t]).filter(s => s && s.stLine && s.stSlow === 1 && (lossOf(s) ?? 99) < 5);   // 선까지 -5% 이내
-  const out = (pos || []).filter(p => p.role !== "long" && stocks[p.t]?.stSlow === 0);
+  const risky = [...(pos || []).filter(p => p.role !== "long").map(p => stocks[p.t]), ...brokerOnlyOf(pos).map(t => stocks[t])].filter(s => s && s.stLine && s.stSlow === 1 && (lossOf(s) ?? 99) < 5);   // 선까지 -5% 이내
+  const out = [...(pos || []).filter(p => p.role !== "long" && stocks[p.t]?.stSlow === 0),
+               ...brokerOnlyOf(pos).filter(t => stocks[t]?.stSlow === 0).map(t => ({ t }))];     // 324. 메리츠에만 있는 보유도 (오늘 탭 '매도'와 같은 수)
   const VAL = { "pull:kr": ["눌림 🇰🇷"], "strong:us": ["강세 🇺🇸"], "strong:kr": ["강세 🇰🇷"], "buy:kr": ["추세 🇰🇷"], "buy:us": ["추세 🇺🇸"] };
   const drift = live.drift;
   return (

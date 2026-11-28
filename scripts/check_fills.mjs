@@ -1,5 +1,5 @@
 // 184. 증권사 체결 → 내 종목 반영 규칙 점검 — 실행: node scripts/check_fills.mjs
-import { planFills, applyFills } from "../src/fills.js";
+import { planFills, applyFills, cleanTrades } from "../src/fills.js";
 let bad = 0; const ok = (n, c, d = "") => { console.log(`${c ? "✅" : "❌"} ${n}${c ? "" : " — " + d}`); if (!c) bad++; };
 const pos = [
   { id: 1, t: "MPC", role: "swing", tr: [{ d: "2026-10-12", px: 462, amt: 2772 }] },          // 6주
@@ -54,4 +54,12 @@ ok("같은 묶음에서 산 뒤 다 판 AMD 는 보유로 남지 않고 매매 �
 ok("미국 체결 날짜 = 미국 장 날짜(sess)", a1.pos.find((p) => p.t === "KDP")?.tr[0].d === "2026-10-30");
 const q2 = planFills({ orders: rt, rows: [{ t: "KDP", qty: 50 }], pos: [], from: "2026-10-30" });
 ok("from 이전 체결(AMD)은 반영하지 않고 지난 거래로 넘김", q2.items.map((i) => i.t).join(",") === "KDP" && q2.old.includes("a1") && q2.old.includes("a2") && q2.dup.includes("a1"), JSON.stringify(q2));
+// 321. 다른 기기에서 이미 매매 기록이 된 체결이 다시 뜨던 사고 (2026-11-28 — SOXL 11/24 두 번 · 11/24 매도가 11/25 매수에 붙음)
+const done = [{ t: "AMD", in: "2026-10-27", out: "2026-10-29", buy: 561.66, sell: 540, inv: 1684.98 }];
+const q3 = planFills({ orders: rt, rows: [{ t: "KDP", qty: 50 }], pos: [], trades: done });
+ok("매매 기록에 있는 AMD 매수·매도는 다시 제안하지 않음", q3.items.map((i) => i.t).join(",") === "KDP" && q3.dup.includes("a1") && q3.dup.includes("a2"), JSON.stringify(q3.items));
+const a3 = applyFills([{ id: 1, t: "AMD", tr: [{ d: "2026-10-30", px: 530, amt: 1590 }] }], [{ t: "AMD", side: "sell", kind: "close", qty: 3, px: 540, d: "2026-10-29" }], { mOf: () => "us" });
+ok("산 날(10/30)보다 앞선 매도(10/29)는 이 보유를 정리하지 않음", a3.trades.length === 0 && a3.pos.length === 1, JSON.stringify(a3));
+const ct = cleanTrades([...done, { ...done[0] }, { t: "NVDA", in: "2026-11-25", out: "2026-11-24", buy: 147.11, sell: 152.32 }]);
+ok("매매 기록 정리: 같은 기록 두 번 · 판 날이 산 날보다 앞선 기록 제거", ct.length === 1, JSON.stringify(ct));
 process.exit(bad ? 1 : 0);

@@ -78,7 +78,7 @@ export function DcTab({ etfs, market, pos, setPos, openStock, sizer }) {
       {ruleOpen && (
         <div style={{ fontSize: FS.xs, color: C.muted, margin: "2px 2px 0" }}>
           {mode === "st" ? (() => { const ev = dc.evidence || {};    // 173. 수치는 데이터 파일 하나에서 (예전엔 화면에 적은 값과 조금 달랐음)
-              return `${(dc.core || []).map(c => `${c.label.replace(/^(미국|한국) /, "")} ${Math.round(c.w * 100)}%`).join(" + ")} + 안전자산 30%, 각 몫은 느린 ST 초록일 때만 보유 · 검증 ${ev.period || "—"}: 연 +${ev.cagr ?? "—"}% · 최대낙폭 ${ev.mdd ?? "—"}% · 샤프 ${ev.sharpe ?? "—"}${ev.bh_cagr != null ? ` (3지수 그냥 보유 +${ev.bh_cagr}% · ${ev.bh_mdd}%)` : ""}`; })()
+              return `${(dc.core || []).map(c => `${c.label.replace(/^(미국|한국) /, "")} ${+(c.w * 100).toFixed(1)}%`).join(" + ")} + 안전자산 30%, 각 몫은 느린 ST 초록일 때만 보유 · 검증 ${ev.period || "—"}: 연 +${ev.cagr ?? "—"}% · 최대낙폭 ${ev.mdd ?? "—"}% · 샤프 ${ev.sharpe ?? "—"}${ev.bh_cagr != null ? ` (3지수 그냥 보유 +${ev.bh_cagr}% · ${ev.bh_mdd}%)` : ""}`; })()
                          : (() => { const ev = dc.hold3?.evidence || {};
               return `나스닥100·S&P500·코스피200 각 23% + 안전자산 30% · 환노출 상품 · 그 사이엔 사고팔지 않음 · 검증 ${ev.period || "2008–26"}: 연 +${ev.cagr ?? "—"}% · 최대낙폭 ${ev.mdd ?? "—"}% · 샤프 ${ev.sharpe ?? "—"}${ev.st_cagr != null ? ` (느린 ST 3지수 +${ev.st_cagr}% · ${ev.st_mdd}%)` : ""}`; })()}
         </div>)}
@@ -114,7 +114,7 @@ export function DcTab({ etfs, market, pos, setPos, openStock, sizer }) {
           <Card key={c.key} style={{ marginBottom: 8, borderColor: hold ? "rgba(48,209,88,.35)" : sell ? "rgba(255,69,58,.55)" : "rgba(245,158,11,.35)" }}>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: FS.lg, fontWeight: 800 }}>{c.label} <span style={{ fontSize: FS.sm, color: C.muted, fontWeight: 500 }}>{Math.round(c.w * 100)}%</span></div>
+                <div style={{ fontSize: FS.lg, fontWeight: 800 }}>{c.label} <span style={{ fontSize: FS.sm, color: C.muted, fontWeight: 500 }}>{+(c.w * 100).toFixed(1)}%</span></div>
                 <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 2, ...ONE }}>
                   매수 <b style={{ fontFamily: MONO, color: C.cyan }}>{c.buy?.code}</b> {c.buy?.name}{c.px ? ` · ${price(c.px, "kr")}` : ""}
                 </div>

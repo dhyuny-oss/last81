@@ -37,12 +37,12 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "full = 전체 스캔·종목풀 교체(약 25분) / daily = 평일 갱신(약 5분·최신이면 건너뜀) / quick = 앱 🔄 버튼(약 5분·항상 실행)"
+        description: "full = 전체 스캔·종목풀 교체(약 25분) / weekly = full + 주간 텔레그램(토요일 Vercel 예약) / daily = 평일 갱신(약 5분·최신이면 건너뜀) / quick = 앱 🔄 버튼(약 5분·항상 실행)"
         type: choice
-        options: [full, daily, quick]
+        options: [full, daily, quick, weekly]
         default: full
 
-run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'daily' && 'Daily refresh (daily)' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'quick' && 'Daily refresh (quick)' || 'Daily Data Update') }}
+run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'daily' && 'Daily refresh (daily)' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'quick' && 'Daily refresh (quick)' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'weekly' && 'Weekly scan (weekly)' || 'Daily Data Update')) }}
 
 # 앞 실행이 아직 안 끝났으면 새로 시작하지 않습니다 (한도 낭비 방지)
 concurrency:
@@ -55,6 +55,7 @@ jobs:
     timeout-minutes: 60     # 코스닥 거래소 확인(.KS→.KQ 재조회)으로 2~4분 늘어납니다
     permissions:
       contents: write
+      actions: read          # 322. 오늘 주간 스캔이 이미 돌았는지 확인
     steps:
       - uses: actions/checkout@v4
 
@@ -64,10 +65,26 @@ jobs:
           EV: ${{ github.event_name }}
           SCH: ${{ github.event.schedule }}
           MODE: ${{ inputs.mode }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           python3 - <<'PY'
           import json, os, datetime as dt
           skip = "false"
+          # 322. 토요일 주간 스캔은 Vercel 예약(토 09시대 · mode=weekly)이 먼저 시작 — 깃허브 예약(13 0 * * 6)은 몇 시간 늦게 와서 보험만.
+          #      오늘(한국 날짜) 성공한 주간 스캔이 있으면 깃허브 예약은 건너뜀 (전체 스캔 30분·주간 텔레그램 두 번 방지)
+          if os.environ.get("EV") == "schedule" and os.environ.get("SCH") == "13 0 * * 6":
+              import subprocess
+              try:
+                  kd = (dt.datetime.utcnow() + dt.timedelta(hours=9)).strftime("%Y-%m-%d")
+                  out = subprocess.run(["gh", "api", f"repos/{os.environ['GH_REPO']}/actions/workflows/daily.yml/runs?per_page=30",
+                                        "--jq", '.workflow_runs[]|select(.display_title=="Weekly scan (weekly)" and .conclusion=="success")|.created_at'],
+                                       capture_output=True, text=True, timeout=30).stdout.split()
+                  done = [x for x in out if (dt.datetime.strptime(x, "%Y-%m-%dT%H:%M:%SZ") + dt.timedelta(hours=9)).strftime("%Y-%m-%d") == kd]
+                  if done: skip = "true"; print(f"오늘 주간 스캔 이미 함 ({done[0]}) → 건너뜀")
+                  else: print("오늘 주간 스캔 기록 없음 → 실행")
+              except Exception as e:
+                  print("주간 스캔 확인 실패 → 실행:", e)
           daily_call = os.environ.get("EV") == "workflow_dispatch" and os.environ.get("MODE") == "daily"
           if (os.environ.get("EV") == "schedule" and os.environ.get("SCH") != "13 0 * * 6") or daily_call:
               kst = dt.datetime.utcnow() + dt.timedelta(hours=9)
@@ -147,7 +164,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           REPORT_MODE: full
-          WEEKLY: ${{ (github.event.schedule == '13 0 * * 6') && '1' || '0' }}
+          WEEKLY: ${{ (github.event.schedule == '13 0 * * 6' || inputs.mode == 'weekly') && '1' || '0' }}
         run: python scripts/notify.py
 
       # ⑤ 커밋 1회 — 스냅샷이 실패해도 universe.json 은 살립니다

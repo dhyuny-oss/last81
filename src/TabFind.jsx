@@ -514,7 +514,6 @@ export function FindTab({ list, openStock, watch, toggleWatch, market, sizer, po
   const nHeldBuy = pool.filter(s => s.action === "buy" && passRev(s) && heldSet.has(s.t)).length;
   const nCut = pool.filter(s => s.action === "buy" && !passRev(s)).length;
   const nPre = pool.filter(s => s.pre).length;
-  const nKr = pool.filter(s => isBuy(s) && s.m === "kr").length;
   return (
     <>
       <TodayPicks today={today} stocks={stocks} sizer={sizer} openStock={openStock} pos={pos} staleInfo={staleInfo} market={market} ageMap={ageMap} sinceMap={sinceMap} genDay={genDay} />
@@ -528,7 +527,7 @@ export function FindTab({ list, openStock, watch, toggleWatch, market, sizer, po
             items={[[0, "매출 필터 끔"], [5, "매출 +5%↑"], [10, "매출 +10%↑"], [20, "매출 +20%↑"]]} />
         </div>
         <div style={{ fontSize: FS.xs, color: C.muted, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-          <span>{nNew > 0 && <b style={{ color: C.gold }}>🆕 최근 종가에 새로 {nNew} · </b>}🇰🇷 {nKr} · 🇺🇸 {nBuy - nKr}{nCut > 0 && <span style={{ color: C.gold }}> · ✂ 매출 부진 {nCut} 숨김</span>}{nHeldBuy > 0 && <span> · 보유 {nHeldBuy} 제외</span>}</span>
+          <span>{nNew > 0 && <b style={{ color: C.gold }}>🆕 최근 종가에 새로 {nNew} · </b>}목록 {nBuy}{nCut > 0 && <span style={{ color: C.gold }}> · ✂ 매출 부진 {nCut} 숨김</span>}{nHeldBuy > 0 && <span> · 보유 {nHeldBuy} 제외</span>}</span>
           {Object.values(seenSet).some(Boolean) && (
             <button onClick={() => setSeenMap(o => ({ ...o, [wk]: {} }))} style={{ ...linkBtn, fontSize: FS.xs, minHeight: 32 }}>
               ↺ 확인 {Object.values(seenSet).filter(Boolean).length} 모두 해제</button>)}
@@ -568,7 +567,7 @@ export function OversoldTab({ list, openStock, watch, toggleWatch, sizer, market
   const [limit, setLimit] = useState(20);
   const heldSet = useMemo(() => new Set((pos || []).map(p => p.t)), [pos]);
   const all = useMemo(() => list.filter(s => (s.tvr ?? 0) >= RULES.tvrMin && s.dip), [list]);
-  const nKr = all.filter(s => s.m === "kr").length;
+  const nKr = all.filter(s => s.m === "kr" && (!onlyWatch || s.dip === "watch")).length;     // 326. 지금 고른 목록(관찰만/포함) 기준 — 예전엔 보류·훼손까지 세서 59 vs 목록 15
   const rows = useMemo(() => all
     .filter(s => showKr || s.m === "us")
     .filter(s => !onlyWatch || s.dip === "watch")

@@ -95,8 +95,8 @@ export function TrackTab({ stocks, watch, toggleWatch, openStock, pos, setPos, m
   const saveSet = (k, set) => { try { localStorage.setItem(k, JSON.stringify([...set].slice(-500))); } catch {} };
   const fillPlan = useMemo(() => ["us", "kr"].map(m => {
     const k = brokerSync[m]; if (!k) return null;
-    return { m, env: k.env, broker: k.broker, ...planFills({ orders: k.orders, rows: k.rows, pos: pos.filter(p => mktOfT(p.t) === m), applied, ignored, from: k.env === "real" ? AUTO_FROM : "" }) };
-  }).filter(Boolean), [brokerSync, pos, applied, ignored]);
+    return { m, env: k.env, broker: k.broker, ...planFills({ orders: k.orders, rows: k.rows, pos: pos.filter(p => mktOfT(p.t) === m), applied, ignored, from: k.env === "real" ? AUTO_FROM : "", trades }) };
+  }).filter(Boolean), [brokerSync, pos, applied, ignored, trades]);
   useEffect(() => {      // 손으로 이미 기록한 체결은 조용히 '반영됨' 처리
     const d = fillPlan.flatMap(x => x.dup).filter(o => !applied.has(o));
     if (d.length) { const n = new Set([...applied, ...d]); setApplied(n); saveSet("v13.kis.applied", n); }
