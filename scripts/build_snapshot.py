@@ -245,6 +245,7 @@ def main():
 
     print(f"\n📊 종목 지표 계산 ({len(universe)}종목)")
     stocks, series = {}, {}
+    ohlc = {}          # 329. 캔들 차트용 시가·고가·저가 — 최근 66봉(3달)만 (파일이 커지지 않게) · [[t, o, h, l], …]
 
     bhist = {"us": {}, "kr": {}}
 
@@ -300,7 +301,8 @@ def main():
             if tk not in _regress_seen:
                 _regress_seen.add(tk); time.sleep(pause); return False      # 재시도 패스에서 한 번 더
             try:
-                _rows = json.load(open(f"{OUT_DIR}/bars/{tk}.json", encoding="utf-8"))["rows"]
+                _old = json.load(open(f"{OUT_DIR}/bars/{tk}.json", encoding="utf-8")); _rows = _old["rows"]
+                if _old.get("ohlc"): ohlc[tk] = _old["ohlc"]
             except Exception:
                 _rows = None
             if _rows:
@@ -314,7 +316,10 @@ def main():
             # 313. 종목 하나의 계산 오류로 수집 전체가 멈추지 않게 — 그 종목만 지난 값으로 두고(없으면 빼고) 계속
             print(f"  ⚠️ {tk} 계산 오류: {type(e).__name__}: {e}", flush=True)
             drop("계산 오류", tk, info["name"], f"{type(e).__name__}: {e}"[:80])
-            try: _rows = json.load(open(f"{OUT_DIR}/bars/{tk}.json", encoding="utf-8"))["rows"] if _pv else None
+            try:
+                _old = json.load(open(f"{OUT_DIR}/bars/{tk}.json", encoding="utf-8")) if _pv else {}
+                _rows = _old.get("rows")
+                if _old.get("ohlc"): ohlc[tk] = _old["ohlc"]
             except Exception: _rows = None
             if _pv and _rows:
                 stocks[tk] = dict(_pv); series[tk] = _rows; carried[tk] = _pv.get("asOf") or ""
@@ -333,6 +338,8 @@ def main():
         #   종목별로 쪼개면 누른 종목 하나만 16KB 받으면 됩니다.
         nd = 0 if d["c"] >= 2000 else 2       # 원화 종목은 소수점 불필요
         series[tk] = build_series(cd, min(BARS_KEEP, len(cd)), nd)
+        ohlc[tk] = [[x["t"], round(x["o"], nd), round(x["h"], nd), round(x["l"], nd)] for x in cd[-66:]
+                    if x.get("o") and x.get("h") and x.get("l")]                               # 329
         collect_breadth(cd, info["market"])
         return True
 
@@ -582,7 +589,7 @@ def main():
             except OSError: pass
     for tk, rows in series.items():
         _write(f"{bars_dir}/{tk}.json",
-               {"v":VERSION,"t":tk,"cols":COLS,"rows":rows})
+               {"v":VERSION,"t":tk,"cols":COLS,"rows":rows, **({"ohlc": ohlc[tk]} if ohlc.get(tk) else {})})
     bsz = sum(os.path.getsize(f"{bars_dir}/{t}.json") for t in series)
     # 197. 규칙 스스로 점검 — 데이터 이상 · 대안 그림자 기록 · 3주 보고 (보고만 · 규칙은 안 바꿈)
     try:

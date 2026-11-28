@@ -54,6 +54,9 @@ export function planFills({ orders = [], rows = [], pos = [], applied = new Set(
     if (g.side === "buy") {
       // 이미 손으로 같은 날(±1일) 기록했으면 중복 — 건너뜀
       if (p && tr.some((x) => x.d && dayDiff(x.d, g.d) <= 1)) { dup.push(...g.odnos); continue; }
+      // 330. 기록 첫날보다 앞선 매수는 이미 그 기록(잔고로 넣은 주수)에 들어 있음 — 11/28 '장기로 넣기' 위에 11/25 체결이 2회차로 붙어 88주가 176주가 됨
+      const first = tr.map((x) => x.d).filter(Boolean).sort()[0];
+      if (p && first && g.d < first) { dup.push(...g.odnos); continue; }
       const k = p ? tr.length : (planned.get(g.t) || 0);
       const kind = k === 0 ? "new" : k === 1 ? "t2" : "add";
       planned.set(g.t, k + 1); if (!p) plannedSh.set(g.t, (plannedSh.get(g.t) || 0) + g.qty);
@@ -115,4 +118,22 @@ export function cleanTrades(trades = []) {
     if (seen.has(k)) return false;
     seen.add(k); return true;
   });
+}
+
+/** 330. 보유 회차 정리 — 가격·금액이 똑같은 회차가 두 번이면 앞선 날 하나만 (잔고로 넣은 뒤 같은 체결이 다시 붙은 경우) · 바뀐 게 없으면 같은 배열 */
+export function cleanPos(pos = []) {
+  let changed = false;
+  const out = (pos || []).map((p) => {
+    if (!Array.isArray(p?.tr) || p.tr.length < 2) return p;
+    const keep = new Map();
+    for (const t of [...p.tr].sort((a, b) => String(a.d || "").localeCompare(String(b.d || "")))) {
+      const k = `${Math.round((t.px || 0) * 1e4)}|${Math.round((t.amt || 0) * 100)}`;
+      if (!keep.has(k)) keep.set(k, t);
+    }
+    if (keep.size === p.tr.length) return p;
+    changed = true;
+    const tr = [...keep.values()];
+    return { ...p, tr, date: tr[0]?.d || p.date };
+  });
+  return changed ? out : pos;
 }

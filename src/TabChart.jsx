@@ -45,6 +45,7 @@ export function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, s
   const [berr, setBerr] = useState(null);
   const cache = useRef({});
   const [span, setSpan] = useState(63);                        // 250. 기본 3개월 (예전 6개월 — 봉이 촘촘해 잘 안 보였음)
+  const [candle, setCandle] = useSticky("v13.chart.candle", false);   // 329. 캔들 — 1M·3M 에서만 · 트레일링선만 겹침
   const [macdOpen, setMacdOpen] = useSticky("v13.chart.macd", false);   // 250. MACD 는 참고라 기본 접음
   const mainH = Math.max(250, Math.min(360, Math.round((typeof window !== "undefined" ? window.innerHeight : 800) * 0.48)));   // 250. 큰 차트 250 → 최대 360
   const [opt, setOpt] = useState(() => {
@@ -83,6 +84,7 @@ export function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, s
     if (!bars?.rows?.length) return null;
     const ix = {}; (bars.cols || []).forEach((c, i) => ix[c] = i);
     const raw = bars.rows.slice(-span);
+    const oh = new Map((bars.ohlc || []).map(x => [x[0], x]));      // 329. [t, 시가, 고가, 저가] — 최근 66봉만 있음
     const rows = raw.map(r => {
       const g = k => (ix[k] == null ? null : (r[ix[k]] ?? null));
       const mask = g("stDir"), macd = g("macd"), hist = g("hist");
@@ -108,8 +110,13 @@ export function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, s
         o[`st${k + 1}Dn`] = (val != null && mask != null && !bull) ? val : null;
       }
       o.stUpCount = mask == null ? null : up;
+      const x = oh.get(o._t);
+      if (x && o.c != null) { o.o = x[1]; o.h = Math.max(x[2], o.c, x[1]); o.l = Math.min(x[3], o.c, x[1]); o.hl = [o.l, o.h]; }
       return o;
     });
+    // 329. 캔들 — 화면 구간 모든 봉에 시가·고가·저가가 있을 때만 (없으면 선 차트 그대로)
+    const canCandle = span <= 63 && rows.length > 0 && rows.every(r => r.hl || r.c == null);
+    const cdl = candle && canCandle;
     // ★ 지수 겹쳐 그리기 — 화면 첫날을 종목과 같은 가격에서 출발시킵니다.
     //   "이 종목을 안 사고 지수를 샀다면 지금 얼마" 가 되어, 두 선의 벌어진 폭이 곧 초과수익입니다.
     //   (지수를 원래 눈금으로 그리면 축이 둘로 갈라져 어느 쪽이 이겼는지 눈으로 못 읽습니다.)
@@ -145,27 +152,29 @@ export function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, s
     const near = span <= 21;
     const vals = [];
     for (const r of rows) {
+      if (cdl) { for (const k of ["h", "l", "st3Up", "st3Dn"]) if (r[k] != null) vals.push(r[k]); continue; }   // 329. 캔들은 고가·저가·트레일링선으로만
       for (const k of ["c", "ma20", ...(near ? [] : ["cloudLo"]), ...ST_DOM]) if (r[k] != null) vals.push(r[k]);
       if (!near && r.cloudLo != null && r.cloudBand != null) vals.push(r.cloudLo + r.cloudBand);
     }
-    if (!vals.length) return { rows, idxPts, idxRel, dom: ["auto", "auto"], ticks: undefined };
+    if (!vals.length) return { rows, idxPts, idxRel, canCandle, cdl, dom: ["auto", "auto"], ticks: undefined };
     let lo = Math.min(...vals), hi = Math.max(...vals);
     // 지수선도 축에 넣습니다 — 안 넣으면 크게 이긴/진 종목에서 지수선이 화면 밖으로 잘려
     // 정작 보려던 '얼마나 이겼나'가 안 보입니다. 다만 종목 범위의 2배를 넘게는 늘리지 않습니다
     // (지수가 극단적으로 벌어졌을 때 가격 움직임이 납작해지는 것을 막습니다).
-    if (idxPts > 1) {
+    if (idxPts > 1 && !cdl) {
       const iv = rows.map(r => r.idx).filter(v => v != null);
       const sp = (hi - lo) || hi * 0.05;
       lo = Math.max(Math.min(lo, Math.min(...iv)), lo - sp);
       hi = Math.min(Math.max(hi, Math.max(...iv)), hi + sp);
     }
     const pad = (hi - lo) * 0.06 || hi * 0.02;
-    return { rows, idxPts, idxRel, ...niceAxis(Math.max(0, lo - pad), hi + pad) };
-  }, [bars, span, idxMap]);
+    return { rows, idxPts, idxRel, canCandle, cdl, ...niceAxis(Math.max(0, lo - pad), hi + pad) };
+  }, [bars, span, idxMap, candle]);
+  const cdl = !!view?.cdl;
   const data = view?.rows || null;
   /* 152. 차트 표시 — ▲ '오늘 살 것'에 든 날 · ● 내가 산 날 · ✕ 내가 판 날 (그날 또는 그 전 마지막 거래일 종가 위치) */
   const marks = (() => {
-    if (!data?.length || !s || !opt.mk) return [];
+    if (!data?.length || !s || !opt.mk || cdl) return [];
     const off = s.m === "kr" ? 9 * 3600000 : 0;
     const days = data.map(r => new Date(r._t * 1000 + off).toISOString().slice(0, 10));
     const at = (d) => { if (!d || d < days[0]) return -1; let k = -1; for (let i = 0; i < days.length; i++) { if (days[i] <= d) k = i; else break; } return k; };
@@ -425,8 +434,10 @@ export function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, s
       <FilterBar>
         <span style={{ fontSize: FS.xs, color: C.muted, flexShrink: 0 }}>기간</span>
         <Seg value={span} onChange={setSpan} items={[[21, "1M"], [63, "3M"], [126, "6M"], [200, "전체"]]} />
+        {view?.canCandle && <Seg value={candle ? "c" : "l"} onChange={v => setCandle(v === "c")} items={[["l", "선"], ["c", "캔들"]]} />}
         <span style={{ fontSize: FS.xs, color: C.muted, flexShrink: 0, marginLeft: 4 }}>표시</span>
-        {[["st", "ST"], ["ichi", "구름"], ["ma", "이평"], ["idx", idxLabel], ["mk", "매매"]].map(([k, l]) =>
+        {cdl ? <span style={{ fontSize: FS.xs, color: C.dim, flexShrink: 0 }}>트레일링선만</span>
+          : [["st", "ST"], ["ichi", "구름"], ["ma", "이평"], ["idx", idxLabel], ["mk", "매매"]].map(([k, l]) =>
           <Toggle key={k} on={opt[k]} onClick={() => setOpt(o => ({ ...o, [k]: !o[k] }))}>{l}</Toggle>)}
       </FilterBar>
 
@@ -435,17 +446,18 @@ export function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, s
         : !data ? <Card><Empty>차트 데이터가 없습니다</Empty></Card>
         : (<>
           <Card style={{ padding: "10px 4px 4px" }}>
-            <Readout row={data[Math.min(hov ?? data.length - 1, data.length - 1)]} live={hov == null} m={s.m} idxLabel={idxLabel} onClear={() => setHov(null)} />
+            <Readout row={data[Math.min(hov ?? data.length - 1, data.length - 1)]} live={hov == null} m={s.m} idxLabel={idxLabel} onClear={() => setHov(null)} cdl={cdl} />
             <PanelLabel>
-              {opt.st && stNow != null && <span style={{ color: stNow === 3 ? C.emerald : stNow === 0 ? C.red : C.gold, fontWeight: 700 }}>ST {stNow}/3</span>}
-              {opt.ma && <LegendDot c={C.orange}>20일</LegendDot>}
-              {opt.ma && <LegendDot c={C.violet}>200일</LegendDot>}
-              {opt.idx && view?.idxPts > 1 && <LegendDot c={C.cyan}>{idxLabel}</LegendDot>}
+              {cdl && <span style={{ color: C.dim }}>캔들 · <span style={{ color: C.red }}>■</span>오름 <span style={{ color: C.cyan }}>■</span>내림 · 트레일링선 <span style={{ color: C.emerald }}>━</span>위 <span style={{ color: C.red }}>━</span>아래(매도)</span>}
+              {!cdl && opt.st && stNow != null && <span style={{ color: stNow === 3 ? C.emerald : stNow === 0 ? C.red : C.gold, fontWeight: 700 }}>ST {stNow}/3</span>}
+              {!cdl && opt.ma && <LegendDot c={C.orange}>20일</LegendDot>}
+              {!cdl && opt.ma && <LegendDot c={C.violet}>200일</LegendDot>}
+              {!cdl && opt.idx && view?.idxPts > 1 && <LegendDot c={C.cyan}>{idxLabel}</LegendDot>}
               {opt.mk && marks.length > 0 && <span style={{ color: C.dim }}>
                 {marks.some(k => k.kind === "pick") && <span style={{ color: C.emerald }}>▲추천 </span>}
                 {marks.some(k => k.kind === "buy") && <span style={{ color: C.gold }}>●삼 </span>}
                 {marks.some(k => k.kind === "sell") && <span style={{ color: C.red }}>✕팖</span>}</span>}
-              {opt.idx && view?.idxRel != null && (() => { const r = view.idxRel, d = r.stk - r.idx, sg = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;   // 286. 지수 이름·두 수익률·차이(%p)를 같이
+              {!cdl && opt.idx && view?.idxRel != null && (() => { const r = view.idxRel, d = r.stk - r.idx, sg = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;   // 286. 지수 이름·두 수익률·차이(%p)를 같이
                 return <span style={{ fontWeight: 700, color: d >= 0 ? C.emerald : C.red }}>
                   이 구간 {sg(r.stk)} · {idxLabel} {sg(r.idx)} → 지수보다 {Math.abs(d).toFixed(1)}%p {d >= 0 ? "더 오름" : "덜 오름"}</span>; })()}
             </PanelLabel>
@@ -462,19 +474,20 @@ export function ChartTab({ stocks, sel: sel0, watch, toggleWatch, market, pos, s
                   {hi52 && <ReferenceLine yAxisId="p" y={hi52} stroke={C.gold} strokeDasharray="2 5" strokeWidth={1}
                     label={{ value: "52주 고점", position: "insideTopLeft", fill: C.gold, fontSize: 10 }} />}
                   <Bar yAxisId="v" dataKey="v" name="거래량" fill="rgba(148,163,184,.22)" isAnimationActive={false} />
-                  {opt.ichi && <Area yAxisId="p" type="monotone" dataKey="cloudLo" stackId="cl" stroke="none" fill="transparent" isAnimationActive={false} legendType="none" name="구름 아래" />}
-                  {opt.ichi && <Area yAxisId="p" type="monotone" dataKey="cloudBand" stackId="cl" stroke="none"
+                  {cdl && <Bar yAxisId="p" dataKey="hl" name="캔들" isAnimationActive={false} shape={Candle} />}
+                  {!cdl && opt.ichi && <Area yAxisId="p" type="monotone" dataKey="cloudLo" stackId="cl" stroke="none" fill="transparent" isAnimationActive={false} legendType="none" name="구름 아래" />}
+                  {!cdl && opt.ichi && <Area yAxisId="p" type="monotone" dataKey="cloudBand" stackId="cl" stroke="none"
                     fill={cloudTone} fillOpacity={0.13} isAnimationActive={false} name="구름 두께" />}
-                  {opt.ma && <Line yAxisId="p" type="monotone" dataKey="ma20" name="20일선" stroke={C.orange} strokeWidth={1.2} dot={false} connectNulls strokeDasharray="4 2" isAnimationActive={false} />}
-                  {opt.ma && <Line yAxisId="p" type="monotone" dataKey="ma200" name="200일선" stroke={C.violet} strokeWidth={1.2} dot={false} connectNulls strokeDasharray="3 3" isAnimationActive={false} />}
-                  {opt.idx && view?.idxPts > 1 && <Line yAxisId="p" type="monotone" dataKey="idx"
+                  {!cdl && opt.ma && <Line yAxisId="p" type="monotone" dataKey="ma20" name="20일선" stroke={C.orange} strokeWidth={1.2} dot={false} connectNulls strokeDasharray="4 2" isAnimationActive={false} />}
+                  {!cdl && opt.ma && <Line yAxisId="p" type="monotone" dataKey="ma200" name="200일선" stroke={C.violet} strokeWidth={1.2} dot={false} connectNulls strokeDasharray="3 3" isAnimationActive={false} />}
+                  {!cdl && opt.idx && view?.idxPts > 1 && <Line yAxisId="p" type="monotone" dataKey="idx"
                     name={`${idxLabel} (같은 출발점)`} stroke={C.cyan} strokeWidth={1.4} strokeOpacity={0.85}
                     dot={false} connectNulls isAnimationActive={false} />}
-                  <Line yAxisId="p" type="monotone" dataKey="c" name="종가" stroke="#FFFFFF" strokeWidth={2} dot={false} isAnimationActive={false} />
+                  {!cdl && <Line yAxisId="p" type="monotone" dataKey="c" name="종가" stroke="#FFFFFF" strokeWidth={2} dot={false} isAnimationActive={false} />}
                   {marks.map((k, i) => (
                     <ReferenceDot key={"mk" + i} yAxisId="p" x={k.x} y={k.y} r={k.kind === "pick" ? 0 : 4} fill={MK[k.kind][0]} stroke="#0B0F1A" strokeWidth={1.5} isFront ifOverflow="extendDomain"
                       label={{ value: k.kind === "pick" ? "▲" : k.kind === "sell" ? "✕" : "", position: k.kind === "pick" ? "bottom" : "top", fill: MK[k.kind][0], fontSize: k.kind === "pick" ? 13 : 12, fontWeight: 800 }} />))}
-                  {opt.st && [0, 1, 2].flatMap(k => [
+                  {(cdl || opt.st) && (cdl ? [2] : [0, 1, 2]).flatMap(k => [
                     <Line key={`u${k}`} yAxisId="p" type="monotone" dataKey={`st${k + 1}Up`} name={`ST${k + 1} 상승`}
                       stroke={C.emerald} strokeWidth={2.1 - k * 0.45} strokeOpacity={1 - k * 0.22}
                       dot={false} connectNulls={false} isAnimationActive={false} />,
@@ -548,6 +561,16 @@ export function shortNum(x) {
   return `${sg}${+a.toFixed(2)}`;
 }
 
+/** 329. 캔들 한 개 — Bar 의 [저가, 고가] 막대 자리(y·height)에 꼬리와 몸통을 그림 · 오름 빨강 · 내림 파랑(국내 증권앱 관례) */
+const Candle = (pr) => {
+  const { x, y, width, height, payload: d } = pr;
+  if (!d || d.o == null || d.h == null || d.l == null || d.c == null || !(height >= 0)) return null;
+  const k = d.h > d.l ? height / (d.h - d.l) : 0, up = d.c >= d.o, color = up ? C.red : C.cyan;
+  const yOf = (v) => y + (d.h - v) * k, cx = x + width / 2, w = Math.max(1, Math.min(width * 0.7, 9));
+  const top = yOf(Math.max(d.o, d.c)), bot = yOf(Math.min(d.o, d.c));
+  return <g><line x1={cx} x2={cx} y1={y} y2={y + height} stroke={color} strokeWidth={1} />
+    <rect x={cx - w / 2} y={top} width={w} height={Math.max(1, bot - top)} fill={up ? color : color} stroke={color} /></g>;
+};
 export const ST_KEYS = ["st1", "st2", "st3"];
 export const ST_DOM = ["st1Up", "st1Dn", "st2Up", "st2Dn", "st3Up", "st3Dn"];
 
@@ -612,10 +635,10 @@ export function NoteBox({ s, note, setNote }) {
 
 /** 차트 판독줄 — 손가락으로 짚은 봉의 값을 차트 '밖'에 적습니다.
     떠다니는 툴팁 상자는 휴대폰 화면을 통째로 가려서 쓰지 않습니다. */
-export const Readout = ({ row, live, m, idxLabel, onClear }) => {
+export const Readout = ({ row, live, m, idxLabel, onClear, cdl = false }) => {
   if (!row) return null;
   const P = (v) => (v == null ? "—" : price(v, m));
-  const cells = [
+  const cells = cdl ? [["시가", P(row.o)], ["고가", P(row.h)], ["저가", P(row.l)], ["트레일링선", P(row.st3Up ?? row.st3Dn)], ["RSI", row.rsi == null ? "—" : row.rsi.toFixed(0)]] : [
     ["20일선", P(row.ma20)], ["200일선", P(row.ma200)],
     ["구름", row.cloudUp == null ? "—" : (row.c >= (row.cloudLo ?? 0) + (row.cloudBand ?? 0) ? "위" : row.c >= (row.cloudLo ?? 0) ? "안" : "아래")],
     ["RSI", row.rsi == null ? "—" : row.rsi.toFixed(0)],

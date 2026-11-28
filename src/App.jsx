@@ -12,7 +12,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import RULES from "./rules.js";
 import { pickToday, SLOTS_DEFAULT, SEC_CAP } from "./picks.js";
-import { planFills, applyFills, cleanTrades } from "./fills.js";
+import { planFills, applyFills, cleanTrades, cleanPos } from "./fills.js";
 import { setGate, C, Card, FS, KR_HOLIDAYS, MONO, NOTES_REF, PLAN_KEY, REV_KEY, SYNC_BASE, US_HOLIDAYS, asOfOf, btn, dcModeOf, getJson, getRevMin, inp, krGateOf, kstDay, linkBtn, loadJSON, loadPlan, marketState, md, mdt, mdy, mktOfT, money, pct, pickCfg, planAmounts, postWatch, setBrokerOnly, slotInfo, trOf, usDST, usGateOf, weekKey } from "./core.jsx";
 import { MarketTab } from "./TabToday.jsx";
 import { DcTab } from "./TabDc.jsx";
@@ -284,6 +284,8 @@ export default function App() {
   }, []);
   useEffect(() => { localStorage.setItem("v7.trades", JSON.stringify(trades)); }, [trades]);
   const [pos, setPos] = useState(() => { try { return JSON.parse(localStorage.getItem("v4.pos") || "[]"); } catch { return []; } });
+  // 330. 보유 회차 정리 — 같은 가격·금액 회차가 두 번(잔고로 넣은 뒤 같은 체결이 다시 붙음) → 앞선 날 하나
+  useEffect(() => { const c = cleanPos(pos); if (c !== pos) setPos(c); }, [pos]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [brokerSync, setBrokerSync] = useState({});
   /* 234. 앱을 열면 메리츠(실계좌) 잔고를 뒤에서 미리 불러옴 — 내 종목 탭을 열기 전에도 오늘 탭·서버(텔레그램)가 '메리츠 기준'으로 보게
    *   비밀번호가 이 기기에 저장돼 있을 때만 · 잔고만(주문 내역은 내 종목 탭 카드가) · 주문 창에서 체결되면 다시 불러옴 */
@@ -740,7 +742,8 @@ export default function App() {
       </div>
 
       <main style={{ padding: `4px 12px ${NAV_H + 24}px` }}>
-        <TabBasis tab={tab} stocks={stocks} market={market} snap={snap} siglog={siglog} uni={uni} />
+        {/* 308·309. 오늘·내 종목은 기준 안내를 맨 아래로 — 첫 화면은 내 돈·할 일부터 */}
+        {tab !== "market" && tab !== "track" && <TabBasis tab={tab} stocks={stocks} market={market} snap={snap} siglog={siglog} uni={uni} />}
         {tab === "market" && <MarketTab {...shared} pos={posEff} brokerMiss={brokerMiss} onShowRules={() => setRulesOpen(true)} />}
         {tab === "alloc" && <DcTab {...shared} />}
         {tab === "find" && <FindHub {...shared} pos={posEff} />}
@@ -750,6 +753,7 @@ export default function App() {
         {tab === "track" && <div id="kis-panel" style={{ scrollMarginTop: 60 }} />}
         {tab === "track" && <React.Suspense fallback={null}><BrokerPanel held={pos.map(p => p.t)} stocks={stocks} {...(({ list, note }) => ({ picks: list, pickNote: note }))(brokerPicks(stocks, pos, genDay, market?.fx?.usdkrw || null, "us", market))} kr={brokerPicks(stocks, pos, genDay, market?.fx?.usdkrw || null, "kr", market)} krOpen={() => marketState().krRegular} watch={watch} toggleWatch={toggleWatch} asOf={{ us: asOfOf(stocks, "us") || "", kr: asOfOf(stocks, "kr") || "" }} half={{ us: sizer.limit("us") / 2, kr: sizer.limit("kr") / 2 }} usOpen={() => marketState().usRegular} fx={market?.fx?.usdkrw || null} onSync={(x) => setBrokerSync(v => ({ ...v, [x.mk]: x }))} openStock={openStock} /></React.Suspense>}{/* ★ 증권사 (2/2) */}
         {(tab === "market" || tab === "review") && <PracticeEntry />}{/* ★ 연습 (2/2) */}
+        {(tab === "market" || tab === "track") && <div style={{ marginTop: 10 }}><TabBasis tab={tab} stocks={stocks} market={market} snap={snap} siglog={siglog} uni={uni} /></div>}
       </main>
       {orderReq && <React.Suspense fallback={null}><OrderSheet key={orderReq.k} req={orderReq} stocks={items} pos={pos}
         half={{ us: sizer.limit("us") / 2, kr: sizer.limit("kr") / 2 }} onClose={() => setOrderReq(null)} /></React.Suspense>}

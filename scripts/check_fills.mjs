@@ -1,5 +1,5 @@
 // 184. 증권사 체결 → 내 종목 반영 규칙 점검 — 실행: node scripts/check_fills.mjs
-import { planFills, applyFills, cleanTrades } from "../src/fills.js";
+import { planFills, applyFills, cleanTrades, cleanPos } from "../src/fills.js";
 let bad = 0; const ok = (n, c, d = "") => { console.log(`${c ? "✅" : "❌"} ${n}${c ? "" : " — " + d}`); if (!c) bad++; };
 const pos = [
   { id: 1, t: "MPC", role: "swing", tr: [{ d: "2026-10-12", px: 462, amt: 2772 }] },          // 6주
@@ -62,4 +62,11 @@ const a3 = applyFills([{ id: 1, t: "AMD", tr: [{ d: "2026-10-30", px: 530, amt: 
 ok("산 날(10/30)보다 앞선 매도(10/29)는 이 보유를 정리하지 않음", a3.trades.length === 0 && a3.pos.length === 1, JSON.stringify(a3));
 const ct = cleanTrades([...done, { ...done[0] }, { t: "NVDA", in: "2026-11-25", out: "2026-11-24", buy: 147.11, sell: 152.32 }]);
 ok("매매 기록 정리: 같은 기록 두 번 · 판 날이 산 날보다 앞선 기록 제거", ct.length === 1, JSON.stringify(ct));
+// 330. '장기로 넣기'(11/28, 잔고 88주) 위에 11/25 실제 체결이 2회차로 붙던 사고
+const nv = [{ id: 9, t: "NVDA", role: "long", date: "2026-11-28", tr: [{ d: "2026-11-28", px: 147.11, amt: 12945.68 }] }];
+const q4 = planFills({ orders: [{ odno: "n1", dt: "20261126", sess: "20261125", side: "buy", t: "NVDA", filled: 88, fpx: 147.11 }], pos: nv });
+ok("기록 첫날보다 앞선 매수는 다시 붙이지 않음", q4.items.length === 0 && q4.dup.includes("n1"), JSON.stringify(q4.items));
+const cp = cleanPos([{ ...nv[0], tr: [...nv[0].tr, { d: "2026-11-25", px: 147.11, amt: 12945.68 }] }]);
+ok("같은 가격·금액 회차 두 번 → 앞선 날 하나 (88주)", cp[0].tr.length === 1 && cp[0].tr[0].d === "2026-11-25" && cp[0].date === "2026-11-25", JSON.stringify(cp));
+ok("바뀐 게 없으면 같은 배열", cleanPos(nv) === nv);
 process.exit(bad ? 1 : 0);
