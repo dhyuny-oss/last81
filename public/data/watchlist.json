@@ -100,7 +100,7 @@
       "src": "meritz"
     }
   ],
-  "updatedAt": "2026-11-26T20:36:38.450Z",
+  "updatedAt": "2026-11-28T01:27:45.643Z",
   "settings": {
     "revMin": 10,
     "slotsUs": 7,
@@ -113,7 +113,7 @@
   },
   "excludes": [],
   "backup": {
-    "at": "2026-11-26T20:36:38.450Z",
+    "at": "2026-11-28T01:27:45.643Z",
     "positions": [],
     "watch": [
       "NVDA"
@@ -122,12 +122,13 @@
   },
   "notes": {},
   "broker": {
-    "d": "2026-11-27",
+    "d": "2026-11-28",
     "us": [
       [
         "NVDA",
         88
       ]
     ]
-  }
+  },
+  "brokerIgnore": []
 }
