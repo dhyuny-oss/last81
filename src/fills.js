@@ -7,6 +7,7 @@
  *   pos     : 앱 내 종목 [{ id, t, role, tr:[{d, px, amt}] }]
  *   applied : 이미 반영했거나 '무시'한 주문번호 Set
  *   ignored : '이번엔 무시'한 잔고 종목 Set
+ *   trades  : 앱 매매 기록 — 321. 이미 매매 기록이 된 체결은 다시 제안하지 않음 (applied 는 기기마다 따로라 다른 기기에서 다시 뜨던 사고 · 2026-11-28)
  *
  * 출력
  *   items   : 반영 제안 [{ key, odnos, t, n, side, qty, px, d, kind, posId, label }]
@@ -21,7 +22,12 @@ const dayDiff = (a, b) => Math.abs((Date.parse(a) - Date.parse(b)) / 86400000);
 const sharesOf = (p) => (Array.isArray(p.tr) && p.tr.length ? p.tr : [{ px: p.avg, amt: p.amt || 0 }])
   .reduce((s, t) => s + (t.px > 0 ? (t.amt || 0) / t.px : 0), 0);
 
-export function planFills({ orders = [], rows = [], pos = [], applied = new Set(), ignored = new Set(), from = "" } = {}) {
+export function planFills({ orders = [], rows = [], pos = [], applied = new Set(), ignored = new Set(), from = "", trades = [] } = {}) {
+  // 321. 매매 기록에 이미 있는 체결 — 판 날(out)의 매도, 산 날~판 날(in~out) 사이의 매수
+  const tOf = new Map();
+  for (const x of trades || []) { if (!x?.t || !x.in || !x.out) continue; const k = norm(x.t); if (!tOf.has(k)) tOf.set(k, []); tOf.get(k).push(x); }
+  const doneSell = (t, d) => (tOf.get(t) || []).some((x) => x.out === d);
+  const doneBuy = (t, d) => (tOf.get(t) || []).some((x) => x.in <= d && d <= x.out);
   // from = 이 날짜(YYYY-MM-DD) 전 체결은 반영하지 않고 '지난 거래'로 넘김 — 자동 반영을 켜기 전 기록을 다시 끌어오지 않게 (2026-10-31 사고)
   // 같은 날 · 같은 종목 · 같은 방향 체결은 하나로 (평균 체결가)
   const groups = new Map();
@@ -40,6 +46,7 @@ export function planFills({ orders = [], rows = [], pos = [], applied = new Set(
   const plannedSh = new Map();           // 이번 묶음 안에서 생길 새 보유의 주수 (t → 주수) — 같은 묶음에서 산 뒤 판 것도 정리되게
   for (const g of list) {
     if (from && g.d < from) { old.push(...g.odnos); continue; }
+    if (g.side === "sell" ? doneSell(g.t, g.d) : doneBuy(g.t, g.d)) { dup.push(...g.odnos); continue; }   // 321
     const px = g.qty > 0 ? g.cost / g.qty : 0;
     const p = pos.find((x) => norm(x.t) === g.t);
     const tr = p ? (Array.isArray(p.tr) && p.tr.length ? p.tr : [{ d: p.date, px: p.avg, amt: p.amt || 0 }]) : [];
@@ -86,6 +93,7 @@ export function applyFills(pos, items, { src = "kis", mOf = () => "us", nameOf =
       next[i] = { ...next[i], tr: [...next[i].tr, { d: it.d, px: it.px, amt }] };
     } else if (it.kind === "close" && i >= 0) {
       const p = next[i];
+      if (p.tr[0]?.d && it.d < p.tr[0].d) continue;     // 321. 산 날보다 앞선 매도는 이 보유의 것이 아님 (11/24 매도가 11/25 매수에 붙었던 사고)
       const inv = p.tr.reduce((s, t) => s + (t.amt || 0), 0), sh = p.tr.reduce((s, t) => s + (t.px > 0 ? (t.amt || 0) / t.px : 0), 0);
       const avg = sh > 0 ? inv / sh : p.tr[0].px;
       const days = Math.max(1, Math.round((Date.parse(it.d) - Date.parse(p.tr[0].d)) / 86400000));
@@ -95,4 +103,16 @@ export function applyFills(pos, items, { src = "kis", mOf = () => "us", nameOf =
     }
   }
   return { pos: next, trades };
+}
+
+/** 321. 매매 기록 정리 — 똑같은 기록 두 번 · 판 날이 산 날보다 앞선 기록은 뺌 (2026-11-28 12:03 다시 반영 사고로 생긴 2건) */
+export function cleanTrades(trades = []) {
+  const seen = new Set();
+  return (trades || []).filter((x) => {
+    if (!x) return false;
+    if (x.in && x.out && x.out < x.in) return false;
+    const k = [norm(x.t), x.in, x.out, Math.round((x.buy || 0) * 1e4), Math.round((x.sell || 0) * 1e4), Math.round((x.inv || 0) * 100)].join("|");
+    if (seen.has(k)) return false;
+    seen.add(k); return true;
+  });
 }

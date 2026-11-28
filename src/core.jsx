@@ -178,9 +178,11 @@ export const ACTION = { buy: ["매수!", C.emerald], sell: ["매도!", C.red], w
 export const WHY = { pull: "눌림", strong: "강세", trend: "추세", st: "트레일링선 아래" };
 // 매도! 는 들고 있을 때만 뜻이 있습니다. 안 들고 있는 종목의 추세 이탈은 '관망 (추세 이탈)'
 export const actionOf = (s, held) => (s?.action === "sell" ? (held ? "sell" : "watch") : held ? "hold" : (s?.action || "watch"));
+let GATE = { us: false, kr: false };      // 323. 그 나라를 새로 사지 않는 날 — App 이 market.json 으로 맞춤 (종목풀·종목 상세·찾기가 같은 글자)
+export const setGate = (market) => { GATE = { us: !!market?.judge?.us?.blocked, kr: !!market?.judge?.kr?.blocked }; };
 export const ActionTag = ({ s, held, big, gated }) => {
   const k = actionOf(s, held); let [t, c] = ACTION[k];
-  if (gated && k === "buy") { t = "신호만"; c = C.dim; }      // 302. 그 나라를 새로 사지 않는 날 — 매수! 신호는 났지만 사지 않음
+  if ((gated || GATE[s?.m]) && k === "buy") { t = "신호만"; c = C.dim; }      // 302. 그 나라를 새로 사지 않는 날 — 매수! 신호는 났지만 사지 않음
   const why = k === "buy" ? WHY[s.why] : k === "sell" ? WHY.st : (k === "watch" && s?.action === "sell") ? "추세 이탈" : null;
   return <span style={{ fontSize: big ? FS.lg : FS.xs, fontWeight: 800, color: c, whiteSpace: "nowrap" }}>
     {t}{why && <span style={{ fontWeight: 500, color: C.dim }}> ({why})</span>}</span>;

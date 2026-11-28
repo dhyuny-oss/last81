@@ -10,6 +10,8 @@
  *
  * 249. resv-us1·us2 (UTC 14시대 · 15시대 = 한국 23시대 · 00시대) · resv-kr1·kr2 (UTC 00시대 · 01시대 = 한국 09시대 · 10시대) — 매수 예약 확인
  *      서머타임에 따라 둘 중 하나가 확인 시간(🇺🇸 개장 5분~2시간 30분 · 🇰🇷 09:30~11:30)에 걸립니다
+ * 322. weekly (토 UTC 00시대 = 한국 토 09시대) — 주간 전체 스캔·종목풀 교체·주간 텔레그램 (mode=weekly). 깃허브 예약(토 09:13)은 7시간씩 늦어
+ *      지난 두 주 모두 15~16시에 돌았음 — 깃허브 예약은 보험으로 남기고, 이미 했으면 워크플로가 건너뜀
  * 258. watch-kr (UTC 02시대 = 한국 11시대) · watch-us (UTC 15시대 = 한국 00시대) — 장중 감시(watch.yml)를 시작만 시킴
  *      예전엔 깃허브 예약(하루 6번)이 몇 시간씩 밀려 실제로는 장이 끝난 뒤(16시대·04~07시대)에만 돌았음
  * 보호: Vercel 예약(User-Agent vercel-cron) 또는 CRON_SECRET 이 맞는 요청만 받습니다.
@@ -53,10 +55,11 @@ export default async function handler(req, res) {
         return res.status(200).json({ ok: true, skipped: "이미 돌고 있음" });
       const last = all.filter(x => x.event === "workflow_dispatch" && /\((daily|quick)\)/.test(x.display_title || x.name || ""))
                       .map(x => new Date(x.run_started_at || x.created_at).getTime());
-      if (last.length && Date.now() - Math.max(...last) < 20 * 60000)
+      if (slot !== "weekly" && last.length && Date.now() - Math.max(...last) < 20 * 60000)
         return res.status(200).json({ ok: true, skipped: "20분 안에 갱신함" });
     }
-    const r = await gh(`/repos/${REPO}/actions/workflows/${WF}/dispatches`, { method: "POST", body: JSON.stringify({ ref: "main", inputs: { mode: "daily" } }) });
+    const mode = slot === "weekly" ? "weekly" : "daily";      // 322
+    const r = await gh(`/repos/${REPO}/actions/workflows/${WF}/dispatches`, { method: "POST", body: JSON.stringify({ ref: "main", inputs: { mode } }) });
     if (r.status !== 204) return res.status(502).json({ ok: false, msg: `깃허브 응답 ${r.status}`, detail: (await r.text()).slice(0, 200) });
     return res.status(200).json({ ok: true, started: true, slot: req.query?.slot || null });
   } catch (e) {

@@ -110,7 +110,7 @@ export function MarketLine({ market, setTab }) {
           : <><Tag ok={!usG}>{usG ? "새로 사지 않음" : "새로 사기 가능"}</Tag><span style={{ color: C.muted }}> (나스닥100 200일선 {pct(ju.nq200, 1)})</span></>}
         {" · "}🇰🇷 <Tag ok={!krG}>{krG ? "새로 사지 않음" : "새로 사기 가능"}</Tag>
         <span style={{ color: C.muted }}> (폭 3년 하위 {jk?.breadthPct ?? "—"}%)</span>
-        {vix != null && <span style={{ color: vix >= 30 ? C.red : vix >= 22 ? C.gold : C.muted }}> · VIX {Number(vix).toFixed(0)}</span>}
+        {vix != null && <span style={{ color: vix >= 30 ? C.red : vix >= 22 ? C.gold : C.muted }}> · VIX {Number(vix).toFixed(1)}</span>}
       </span>
       <span style={{ color: C.muted, flexShrink: 0 }}>›</span>
     </button>);

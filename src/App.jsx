@@ -12,8 +12,8 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import RULES from "./rules.js";
 import { pickToday, SLOTS_DEFAULT, SEC_CAP } from "./picks.js";
-import { planFills, applyFills } from "./fills.js";
-import { C, Card, FS, KR_HOLIDAYS, MONO, NOTES_REF, PLAN_KEY, REV_KEY, SYNC_BASE, US_HOLIDAYS, asOfOf, btn, dcModeOf, getJson, getRevMin, inp, krGateOf, kstDay, linkBtn, loadJSON, loadPlan, marketState, md, mdt, mdy, mktOfT, money, pct, pickCfg, planAmounts, postWatch, setBrokerOnly, slotInfo, trOf, usDST, usGateOf, weekKey } from "./core.jsx";
+import { planFills, applyFills, cleanTrades } from "./fills.js";
+import { setGate, C, Card, FS, KR_HOLIDAYS, MONO, NOTES_REF, PLAN_KEY, REV_KEY, SYNC_BASE, US_HOLIDAYS, asOfOf, btn, dcModeOf, getJson, getRevMin, inp, krGateOf, kstDay, linkBtn, loadJSON, loadPlan, marketState, md, mdt, mdy, mktOfT, money, pct, pickCfg, planAmounts, postWatch, setBrokerOnly, slotInfo, trOf, usDST, usGateOf, weekKey } from "./core.jsx";
 import { MarketTab } from "./TabToday.jsx";
 import { DcTab } from "./TabDc.jsx";
 import { ChartTab } from "./TabChart.jsx";
@@ -102,11 +102,19 @@ function nextCollect(m, nowMs = Date.now()) {
     const d = new Date(Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth(), kst.getUTCDate() + k));
     const dow = d.getUTCDay(), ymd = d.toISOString().slice(0, 10);
     const [h, mi] = m === "kr" ? [16, 17] : [6, 23];
-    const ok = m === "kr" ? (dow >= 1 && dow <= 5 && !KR_HOLIDAYS.has(ymd)) : (dow >= 2 && dow <= 6);
+    const prev = new Date(d.getTime() - 86400000).toISOString().slice(0, 10);       // 06:23 에 받는 것은 전날 미국 종가
+    const ok = m === "kr" ? (dow >= 1 && dow <= 5 && !KR_HOLIDAYS.has(ymd)) : (dow >= 2 && dow <= 6 && !US_HOLIDAYS.has(prev));
     const t = d.getTime() + (h * 60 + mi) * 60000 - 9 * 3600000;
     if (ok && t > nowMs) return `${k === 0 ? "오늘" : k === 1 ? "내일" : `${+ymd.slice(5, 7)}/${+ymd.slice(8)}`} ${String(h).padStart(2, "0")}:${String(mi).padStart(2, "0")}`;
   }
   return "—";
+}
+/** 322. 다음 주간 전체 스캔 — 토요일 09시대 (Vercel 예약 · 늦으면 깃허브 예약이 보험) */
+function nextWeekly(nowMs = Date.now()) {
+  const kst = new Date(nowMs + 9 * 3600000), dow = kst.getUTCDay();
+  const k = dow === 6 && kst.getUTCHours() < 10 ? 0 : (6 - dow + 7) % 7 || 7;
+  const d = new Date(Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth(), kst.getUTCDate() + k));
+  return `${k === 0 ? "오늘" : k === 1 ? "내일" : `${d.getUTCMonth() + 1}/${d.getUTCDate()}`}(토) 09시대`;
 }
 function marketFresh(asOfBy, nowMs = Date.now()) {
   const one = (m) => {
@@ -260,6 +268,8 @@ export default function App() {
   const [extras, setExtras] = useState(() => { try { return JSON.parse(localStorage.getItem("v7.extras") || "[]"); } catch { return []; } });
   const [trades, setTrades] = useState(() => { try { return JSON.parse(localStorage.getItem("v7.trades") || "[]"); } catch { return []; } });
   useEffect(() => { localStorage.setItem("v7.extras", JSON.stringify(extras)); }, [extras]);
+  // 321. 매매 기록 정리 — 같은 기록 두 번 · 판 날이 산 날보다 앞선 기록 (서버에서 받은 것도 여기서 걸러져 다시 올라감)
+  useEffect(() => { const c = cleanTrades(trades); if (c.length !== (trades || []).length) setTrades(c); }, [trades]);
   // 219. 한 번만 — 10/30 기록만 해 둔 GH 를 지우며 생긴 가짜 매매 기록(같은 값에 사고팖 · 손익 0) 제거
   useEffect(() => {
     try { if (localStorage.getItem("v13.17.ghFix")) return; localStorage.setItem("v13.17.ghFix", "1"); } catch { return; }
@@ -315,7 +325,8 @@ export default function App() {
     const all = ["us", "kr"].flatMap(m => live[m] || srv.filter(t => mktOfT(t) === m));
     return [...new Set(all)].filter(t => !mine.has(t) && !ign.has(t));
   }, [brokerSync, today, pos, cfgTick]);   // eslint-disable-line react-hooks/exhaustive-deps
-  setBrokerOnly(brokerOnlyNow);           // 화면을 그리기 전에 core 의 값을 맞춤 (칸 계산·오늘 할 일·내 종목이 같이 씀)
+  setBrokerOnly(brokerOnlyNow);
+  setGate(market);                        // 323           // 화면을 그리기 전에 core 의 값을 맞춤 (칸 계산·오늘 할 일·내 종목이 같이 씀)
   const posEff = useMemo(() => { const ids = new Set(brokerMiss.map(p => p.id)); return ids.size ? pos.filter(p => !ids.has(p.id)) : pos; }, [pos, brokerMiss]);
   const [orderReq, setOrderReq] = useState(null);   // 210. 주문 창 — openOrder() 가 어디서든 엶
   useEffect(() => { const f = (e) => setOrderReq(e.detail ? { ...e.detail, k: Date.now() } : null); window.addEventListener("order-open", f); return () => window.removeEventListener("order-open", f); }, []);
@@ -324,12 +335,13 @@ export default function App() {
   useEffect(() => { localStorage.setItem("v4.pos", JSON.stringify(pos)); }, [pos]);
   // 228. 주문 창에서 '체결'을 확인하면 그 자리에서 내 종목에 반영 (내 종목 탭 자동 반영과 같은 함수 · 같은 체결은 다시 안 넣음)
   const posRef = useRef(pos); posRef.current = pos;
+  const tradesRef = useRef(trades); tradesRef.current = trades;
   useEffect(() => {
     const f = (e) => {
       const o = e.detail; if (!o?.t || !(o.filled > 0)) return;
       const cur = posRef.current, m = o.mk === "kr" ? "kr" : "us";
       const done = new Set(loadJSON("v13.kis.applied", []));
-      const plan = planFills({ orders: [o], rows: [], pos: cur.filter(p => mktOfT(p.t) === m), applied: done });
+      const plan = planFills({ orders: [o], rows: [], pos: cur.filter(p => mktOfT(p.t) === m), applied: done, trades: tradesRef.current });
       const items = plan.items.filter(i => i.kind !== "partial");
       try { localStorage.setItem("v13.kis.applied", JSON.stringify([...done, o.odno].slice(-500))); } catch {}
       if (!items.length) return;
@@ -693,7 +705,7 @@ export default function App() {
               <KV k="🇰🇷 신호 기준" v={mf.kr.txt} />
               <KV k="🇺🇸 신호 기준" v={mf.us.txt} />
               <KV k="데이터 생성" v={mdt(snap.meta.generatedKST)} />
-              <KV k="다음 수집" v={`🇰🇷 ${nextCollect("kr")} · 🇺🇸 ${nextCollect("us")}`} />
+              <KV k="다음 수집" v={`🇰🇷 ${nextCollect("kr")} · 🇺🇸 ${nextCollect("us")} · 전체 스캔 ${nextWeekly()}`} />
             </div>
             <button onClick={() => { setTab("pool"); setStatusOpen(false); }} style={{ ...linkBtn, fontSize: FS.sm, minHeight: 34, textAlign: "left" }}>
               🔄 시세·재무 갱신, 🔁 종목풀 교체와 변경 내역은 📦 종목풀 탭에 있습니다 ›</button>
@@ -796,14 +808,16 @@ function RulesPopup({ onClose, sizer }) {
   const MY_RULES = myRules(sizer);
   const [ack, setAck] = useState([]);
   const all = ack.length === MY_RULES.length;
+  // 328. 이번 주에 이미 확인했으면(다시 보기) 그냥 닫을 수 있게 · 아직이면 배경을 눌러도 '확인'으로 치지 않음 (예전엔 배경을 누르면 확인한 것으로 저장됨)
+  const [seen] = useState(() => { try { return localStorage.getItem("v7.rules.wk") === weekKey(); } catch { return false; } });
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,.72)",
                   display: "flex", alignItems: "flex-end", justifyContent: "center" }}
-         onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+         onClick={(e) => { if (e.target === e.currentTarget && seen) onClose(); }}>
       <div style={{ background: C.panel, borderTop: `2px solid ${C.gold}`, borderRadius: "16px 16px 0 0",
                     width: "100%", maxWidth: 640, maxHeight: "88vh", overflowY: "auto", padding: "16px 14px 20px" }}>
         <div style={{ fontSize: 17, fontWeight: 800, color: C.gold }}>이번 주 원칙</div>
-        <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 3 }}>다섯 개를 눌러 확인해야 닫힙니다</div>
+        <div style={{ fontSize: FS.xs, color: C.muted, marginTop: 3 }}>{seen ? "이번 주는 이미 확인했습니다 — 다시 보기" : "다섯 개를 눌러 확인해야 닫힙니다"}</div>
         {MY_RULES.map(([t, why], i) => {
           const on = ack.includes(i);
           return (
@@ -826,6 +840,7 @@ function RulesPopup({ onClose, sizer }) {
         <button onClick={onClose} disabled={!all}
           style={{ ...btn(all ? C.emerald : C.dim), width: "100%", marginTop: 12, opacity: all ? 1 : .5, minHeight: 44 }}>
           {all ? "확인했습니다 · 시작" : `${ack.length}/5 확인`}</button>
+        {seen && !all && <button onClick={onClose} style={{ ...btn(C.dim), width: "100%", marginTop: 8, minHeight: 42 }}>닫기</button>}
       </div>
     </div>);
 }
@@ -844,7 +859,7 @@ function TabBasis({ tab, stocks, market, snap, siglog, uni }) {
   const sig = (siglog || []).map(x => x.d).filter(Boolean).sort();
   const items = {
     market: [basisDates(stocks, market), market.breadthAsOf && <>폭 {B(`${md(market.breadthAsOf)} 계산`)}</>,
-             <>다음 수집 🇰🇷 {nextCollect("kr")} · 🇺🇸 {nextCollect("us")}</>, "시세·거래대금 야후"],
+             <>다음 수집 🇰🇷 {nextCollect("kr")} · 🇺🇸 {nextCollect("us")} · 전체 스캔 {nextWeekly()}</>, "시세·거래대금 야후"],
     find: [basisDates(stocks, market), <>설정 {B(`🇺🇸 ${plan.slotsUs || SLOTS_DEFAULT.us}칸 · 🇰🇷 ${plan.slotsKr || SLOTS_DEFAULT.kr}칸 · 매출 ${getRevMin() > 0 ? `+${getRevMin()}%` : "필터 끔"}`)}</>],
     track: [<>평가 {B(`앱의 마지막 종가 (🇺🇸 ${md(asOfOf(stocks, "us")) || "—"} · 🇰🇷 ${md(asOfOf(stocks, "kr")) || "—"})`)}</>, <>보유 기록 {B("메리츠 잔고 기준 · 서버 저장 (휴대폰·PC 같음)")}</>],
     alloc: [<>판단 {B(`🇺🇸 ${md(asOfOf(snap?.etfs, "us")) || "—"} · 🇰🇷 ${md(asOfOf(snap?.etfs, "kr")) || "—"} 종가`)} (미국은 원본 QQQ·SPY · 한국 KODEX 200)</>, market.allocation?.nextRebal && <>다음 비중 점검 {B(mdy(market.allocation.nextRebal))}</>],
