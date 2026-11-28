@@ -231,7 +231,7 @@ export default function App() {
   useEffect(() => { const f = () => setCfgTick(x => x + 1); window.addEventListener("v11:settings", f); return () => window.removeEventListener("v11:settings", f); }, []);
   const [syncState, setSyncState] = useState(() => ({ at: localStorage.getItem("v7.sync.at"), ok: true }));
   useEffect(() => {
-    getJson("/data/today.json?t=" + Date.now()).then(j => { setBrokerOnly(j?.brokerOnly); setToday(j); }).catch(() => {});   // 314
+    getJson("/data/today.json?t=" + Date.now()).then(j => setToday(j)).catch(() => {});   // 314
     getJson("/data/picks_log.json?t=" + Date.now()).then(j => setPicksLog(Array.isArray(j) ? j : [])).catch(() => setPicksLog([]));   // 152
   }, []);
   // 266. 신호 장부(약 140KB)·종목풀 기록은 쓰는 탭(찾기·점검·종목풀)을 처음 열 때만 받음 — 첫 화면을 가볍게
@@ -304,6 +304,18 @@ export default function App() {
     // 잔고를 본 날 이후에 산 종목(그 사이 체결)은 아직 잔고에 안 보일 수 있어 빼지 않음
     return (pos || []).filter(p => (p.role || "swing") === "swing" && at[mktOfT(p.t)] && !have.has(String(p.t).toUpperCase()) && String(trOf(p)[0]?.d || p.date || "") < at[mktOfT(p.t)]);
   }, [brokerSync, pos]);
+  // 317. 메리츠에만 있는 보유 — 이 기기가 방금 불러온 잔고가 있으면 그걸로 바로(산 날·판 날 즉시 반영), 없으면 서버가 만든 today.json 값
+  //      318. 체결 반영 창에서 '무시'한 종목은 뺌 (서버 scripts/broker_rule.py broker_only 와 같은 규칙)
+  const brokerOnlyNow = useMemo(() => {
+    const ign = new Set(loadJSON("v13.kis.ignore", []).map(t => String(t).toUpperCase()));
+    const mine = new Set((pos || []).map(p => String(p.t).toUpperCase()));
+    const live = {};
+    Object.values(brokerSync).forEach(k => { if (k && k.env === "real" && Array.isArray(k.rows)) live[k.mk] = k.rows.filter(r => !(Number(r.qty) <= 0)).map(r => String(r.t).toUpperCase().replace("/", "-")); });
+    const srv = (today?.brokerOnly || []).map(t => String(t).toUpperCase());
+    const all = ["us", "kr"].flatMap(m => live[m] || srv.filter(t => mktOfT(t) === m));
+    return [...new Set(all)].filter(t => !mine.has(t) && !ign.has(t));
+  }, [brokerSync, today, pos, cfgTick]);   // eslint-disable-line react-hooks/exhaustive-deps
+  setBrokerOnly(brokerOnlyNow);           // 화면을 그리기 전에 core 의 값을 맞춤 (칸 계산·오늘 할 일·내 종목이 같이 씀)
   const posEff = useMemo(() => { const ids = new Set(brokerMiss.map(p => p.id)); return ids.size ? pos.filter(p => !ids.has(p.id)) : pos; }, [pos, brokerMiss]);
   const [orderReq, setOrderReq] = useState(null);   // 210. 주문 창 — openOrder() 가 어디서든 엶
   useEffect(() => { const f = (e) => setOrderReq(e.detail ? { ...e.detail, k: Date.now() } : null); window.addEventListener("order-open", f); return () => window.removeEventListener("order-open", f); }, []);
@@ -477,7 +489,7 @@ export default function App() {
     const plan = loadPlan();
     // 234. 메리츠 잔고 요약(종목·수량·날짜) — 텔레그램·오늘 후보가 '메리츠에 없는 기록'을 알아보게. 날짜만 적어 하루 한 번만 바뀜
     const bk = {}; Object.values(brokerSync).forEach(k => { if (k && k.env === "real" && Array.isArray(k.rows)) bk[k.mk] = k.rows.map(r => [String(r.t).toUpperCase(), Number(r.qty) || 0]).sort(); });
-    return { bulk: true, positions: pos, watch, extras, excludes: loadJSON("v10.excludes", []), trades: (trades || []).slice(-300), notes,
+    return { bulk: true, positions: pos, watch, extras, excludes: loadJSON("v10.excludes", []), brokerIgnore: loadJSON("v13.kis.ignore", []), trades: (trades || []).slice(-300), notes,
              ...(Object.keys(bk).length ? { broker: { d: kstDay(), ...bk } } : {}),
              settings: { revMin: getRevMin(), slotsUs: plan.slotsUs || SLOTS_DEFAULT.us, slotsKr: plan.slotsKr || SLOTS_DEFAULT.kr,
                          dcAmt: plan.dcAmt || 0, dcMode: dcModeOf(), dcSemi: false,
@@ -499,6 +511,7 @@ export default function App() {
     setNotes(nt); try { localStorage.setItem(NOTE_KEY, JSON.stringify(nt)); } catch {}
     try {
       localStorage.setItem("v10.excludes", JSON.stringify(Array.isArray(w.excludes) ? w.excludes : []));
+      if (Array.isArray(w.brokerIgnore)) { localStorage.setItem("v13.kis.ignore", JSON.stringify(w.brokerIgnore)); window.dispatchEvent(new Event("kis-ignore")); }   // 318
       const st = w.settings;
       if (st && typeof st === "object") {
         const pl = loadPlan();

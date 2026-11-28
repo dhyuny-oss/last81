@@ -54,7 +54,7 @@ def symbol_of(d):
 
 # 휴장일 (2026) — 매년 12월에 다음 해 것을 추가하세요. 출처: 한국거래소·NYSE 공지
 from rules import R as RULES                                        # 260. 규칙 숫자 한 파일
-from mktcal import KR_HOL as KR_HOLIDAYS, US_HOL as US_HOLIDAYS   # 257. 휴장일 한 파일 (config/market.json)
+from mktcal import KR_HOL as KR_HOLIDAYS, US_HOL as US_HOLIDAYS, US_EARLY   # 257. 휴장일 한 파일 (config/market.json) · 316. 조기 폐장일
 
 def us_dst(now_kst):
     """미국 서머타임: 3월 둘째 일요일 ~ 11월 첫째 일요일 (예전 '3~10월' 근사는 3월 초·11월 초에 틀렸음)"""
@@ -72,7 +72,10 @@ def market_open(now):
     kr = dow < 5 and 540 <= mins <= 930 and now.strftime("%Y-%m-%d") not in KR_HOLIDAYS
     a, b = (22 * 60 + 30, 5 * 60) if dst else (23 * 60 + 30, 6 * 60)
     us_day = now if mins >= a else now - timedelta(days=1)          # 미국 장은 한국 시간 자정을 넘깁니다
-    us = ((dow < 5 and mins >= a) or (1 <= dow <= 5 and mins < b))     # 300. 월요일 새벽은 미국 일요일 — 장중 아님 and us_day.strftime("%Y-%m-%d") not in US_HOLIDAYS
+    ud = us_day.strftime("%Y-%m-%d")
+    if ud in US_EARLY: b -= 180                                      # 316. 조기 폐장일은 13:00 ET (3시간 일찍)
+    # 300. 월요일 새벽은 미국 일요일 — 장중 아님 · 320. 휴장일 확인이 주석 안에 들어가 꺼져 있었음
+    us = ((dow < 5 and mins >= a) or (1 <= dow <= 5 and mins < b)) and ud not in US_HOLIDAYS
     return kr, us
 
 def send(text):
@@ -111,8 +114,9 @@ def main():
 
     msgs = []
     try:
-        from broker_rule import broker_only      # 314. 메리츠에만 있는 보유도 장중 매도 후보 감시
-        _plist = (wl.get("positions") or []) + broker_only(wl)
+        from broker_rule import broker_only, broker_miss      # 314. 메리츠에만 있는 보유도 감시 · 320. 메리츠에 없는 기록은 뺌 (저녁 판정과 같음)
+        _miss = set(broker_miss(wl))
+        _plist = [p for p in (wl.get("positions") or []) if str(p.get("t", "")).upper() not in _miss] + broker_only(wl)
     except Exception:
         _plist = wl.get("positions") or []
     for p in _plist:
@@ -125,10 +129,15 @@ def main():
         name, cur = d.get("n") or p["t"], f"{px:,.2f}" if d.get("m") != "kr" else f"{px:,.0f}"
         hits = []
         line = d.get("stLine")
-        if line and px < line:
+        if line and px < line and p.get("role") != "long":      # 장기는 매도 규칙 밖 (저녁 판정과 같음)
             line_txt = f"{line:,.2f}" if d.get("m") != "kr" else f"{line:,.0f}"      # 113. 파이썬 3.11 은 f-문자열 안에 같은 따옴표를 못 씁니다
-            hits.append(("sell", f"🔴 <b>매도! 후보</b> {name} — 현재 {cur} < 트레일링선 {line_txt}\n"
-                                 f"   종가가 선 아래로 마감하면 매도 (앱·텔레그램 저녁 판정과 같은 기준)"))
+            rec = " · <b>앱 기록 없음</b>(메리츠에만 있음)" if p.get("noRecord") else ""
+            if d.get("action") == "sell":       # 320. 이미 종가가 선 아래로 마감한 종목 — '마감하면 매도'가 아니라 이미 매도!
+                hits.append(("sell", f"🔴 <b>매도!</b> {name} — 이미 종가가 트레일링선 아래로 마감했습니다 (현재 {cur} < {line_txt}){rec}\n"
+                                     f"   규칙상 이미 매도 대상 — 아직 안 팔았다면 정리"))
+            else:
+                hits.append(("sell", f"🔴 <b>매도! 후보</b> {name} — 현재 {cur} < 트레일링선 {line_txt}{rec}\n"
+                                     f"   종가가 선 아래로 마감하면 매도 (앱·텔레그램 저녁 판정과 같은 기준)"))
         tr = p.get("tr") if isinstance(p.get("tr"), list) and p.get("tr") else ([{"px": p.get("avg")}] if p.get("avg") else [])
         if p.get("role") == "swing" and len(tr) == 1 and tr[0].get("px") and d.get("stSlow") == 1 and tr[0]["px"] * RULES["tranche2"]["lo"] <= px <= tr[0]["px"] * RULES["tranche2"]["hi"]:
             t2_px = tr[0]["px"] * RULES["tranche2"]["lo"]

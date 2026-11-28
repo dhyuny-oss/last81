@@ -280,7 +280,7 @@ export function SelfCheck({ openStock }) {
         <div style={{ fontSize: 10.5, color: C.muted }}>그림자 기록 {(r.shadow || {}).days || 0}일째{(r.shadow || {}).since ? ` · ${md(r.shadow.since)}부터` : ""} · 그날 고른 종목을 20거래일 들고 있었다면의 평균</div>
         <b style={{ fontSize: FS.sm, display: "block", marginTop: 8 }}>처리 안 된 매도!</b>
         {(r.sells || []).length ? r.sells.map(x => (
-          <div key={x.t} onClick={() => openStock?.(x.t)} style={{ ...line, color: C.red, cursor: "pointer" }}>{x.m === "kr" ? x.n : x.t} — 매도! {x.days > 0 ? `${x.days}일째` : "오늘부터"} ›</div>))
+          <div key={x.t} onClick={() => openStock?.(x.t)} style={{ ...line, color: C.red, cursor: "pointer" }}>{x.m === "kr" ? x.n : x.t} — 매도! {x.days > 0 ? `${x.days}일째` : "오늘부터"}{x.noRecord ? " · 메리츠에만 있음(앱 기록 없음)" : ""} ›</div>))
           : <div style={{ ...line, color: C.emerald }}>✓ 없음</div>}
         {(r.conv || []).length > 0 && <div style={{ ...line, color: C.gold }}>⚠ 매도! 상태에서 장기로 바꿈: {r.conv.map(x => `${/^\d{6}$/.test(x.t) ? (x.n || x.t) : x.t} (${md(x.d)})`).join(" · ")}</div>}
       </Card>

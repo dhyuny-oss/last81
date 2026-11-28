@@ -239,15 +239,41 @@ def signal_check(live):
     return sorted(out, key=lambda x: x["k"])
 
 
-def held_sells(stocks, wl, prev, today_s):
+def _cols():
+    try:
+        from snap.indicators import COLS
+        return COLS
+    except Exception:
+        return ["t", "c", "v", "ma20", "ma200", "spanA", "spanB", "st1", "st2", "st3"]
+
+
+def _sell_start(rows, cols):
+    """319. 지금 이어지는 '종가 < 느린 선' 구간의 첫날 — 처음 보는 종목(기록 없이 들고 있던 것)도 며칠째인지 바로 맞게"""
+    try:
+        ic, il = cols.index("c"), cols.index("st3")
+        first = None
+        for r in reversed(rows or []):
+            if r[il] and r[ic] < r[il]: first = r[0]
+            else: break
+        return datetime.fromtimestamp(first, timezone.utc).date().isoformat() if first else None
+    except Exception:
+        return None
+
+
+def held_sells(stocks, wl, prev, today_s, series=None):
     since, out = {}, []
     old = (prev or {}).get("sellSince") or {}
-    for p in (wl or {}).get("positions") or []:
+    try:
+        from broker_rule import broker_only, broker_miss      # 319. 메리츠 기준 보유 — 기록 없는 보유는 넣고, 메리츠에 없는 기록은 뺌
+        _miss = set(broker_miss(wl)); _plist = [p for p in ((wl or {}).get("positions") or []) if str(p.get("t", "")).upper() not in _miss] + broker_only(wl)
+    except Exception:
+        _plist = (wl or {}).get("positions") or []
+    for p in _plist:
         t = str(p.get("t", "")).upper(); d = stocks.get(t)
         if not d or d.get("action") != "sell" or p.get("role") == "long": continue   # 장기는 매도 규칙 밖
-        since[t] = old.get(t) or today_s
+        since[t] = old.get(t) or (_sell_start((series or {}).get(t), _cols()) if series else None) or today_s
         n = (date.fromisoformat(today_s) - date.fromisoformat(since[t])).days
-        out.append({"t": t, "n": d.get("n"), "m": d.get("m"), "since": since[t], "days": n})
+        out.append({"t": t, "n": d.get("n"), "m": d.get("m"), "since": since[t], "days": n, **({"noRecord": True} if p.get("noRecord") else {})})
     return since, sorted(out, key=lambda x: -x["days"])
 
 
@@ -260,7 +286,7 @@ def run(out_dir, stocks, series, market, health):
     try: bn = bounce(out_dir, series, market)                 # 255. 기록만
     except Exception as e: bn = {"err": str(e)[:120]}
     live = market.get("live") or {}
-    since, sells = held_sells(stocks, wl, prev, today_s)
+    since, sells = held_sells(stocks, wl, prev, today_s, series)
     nxt = next_report(today)
     due = today.weekday() == 5 and (today - REPORT_ANCHOR).days % 21 == 0 and today >= REPORT_ANCHOR
     rv = live.get("review") or {}

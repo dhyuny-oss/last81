@@ -122,6 +122,8 @@ export default async function handler(req, res) {
       }
       if (Array.isArray(req.body.excludes))          // 종목풀에서 뺄 종목 (순위에 들어도 수집 안 함)
         content.excludes = req.body.excludes.map(t => String(t).slice(0, 12).toUpperCase()).filter(Boolean).slice(0, 200);
+      if (Array.isArray(req.body.brokerIgnore))      // 318. 체결 반영 창에서 '무시'한 메리츠 종목 — 서버도 '메리츠에만 있는 보유'에서 뺌
+        content.brokerIgnore = req.body.brokerIgnore.map(t => String(t).slice(0, 12).toUpperCase()).filter(Boolean).slice(0, 100);
       if (Array.isArray(req.body.extras))            // 급히 넣는 종목 (다음 수집 때 종목풀에 포함)
         content.extras = req.body.extras.map(t => String(t).slice(0, 12).toUpperCase()).filter(Boolean).slice(0, 50);
       if (req.body.broker && typeof req.body.broker === "object") {   // 234. 메리츠 잔고 요약 — 텔레그램·오늘 후보가 '메리츠에 없는 기록'을 빼고 봄
